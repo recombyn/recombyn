@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, memo } from 'react';
 import { useDispatch } from 'react-redux';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { loginGoogle } from '@/apis/auth';
+import { loginGoogle } from '@/service/auth';
+import { getHttpErrorMessage } from '@/service/client';
 import { setSession } from '@/store/modules/auth';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import {
@@ -59,9 +60,8 @@ function GoogleOAuthCallbackPage() {
           })
         );
         navigate(saved.returnTo || '/home', { replace: true });
-      } catch (e: any) {
-        const detail = e?.response?.data?.detail || e?.message || 'Google login failed';
-        setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      } catch (e: unknown) {
+        setError(getHttpErrorMessage(e, 'Google login failed'));
       }
     }
     completeGoogleLogin();

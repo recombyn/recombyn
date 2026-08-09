@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Circle / ellipse knobs: 内半径, 开始位置 (display), 弧度 / 周弧度.
  */
@@ -156,7 +157,7 @@ function CircleShapeHandlesOverlay({
   box: SceneBox;
   angle: number;
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   toScene: (clientX: number, clientY: number) => { x: number; y: number };
   stageEl: HTMLElement | null;
   interactive?: boolean;

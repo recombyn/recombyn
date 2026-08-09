@@ -7,12 +7,15 @@ import {
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import HtmlArtboardFrame from '@/components/rcb/frames/HtmlArtboardFrame';
 import EditorToolStrip from '@/components/editor/chrome/EditorToolStrip';
-import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  stackZIndex
+} from '@/components/rcb/scene/document/sceneDocument';
 import type { ArtboardFrame } from '@/store/modules/editor';
 import ShareBottomHud from './ShareBottomHud';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   frames: ArtboardFrame[];
   worldBounds: { x: number; y: number; width: number; height: number };
   worldSurface: { x: number; y: number; width: number; height: number };

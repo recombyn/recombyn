@@ -62,14 +62,17 @@ def _resolve_agent_persona(
     rules: dict[str, str] | None,
     user_selected_model: str | None,
 ) -> str:
-    """IDENTITY from design_global_rule (Admin 模型路由); empty if unset."""
+    """IDENTITY from AgentProfile persona pack keys (Admin bodies)."""
+    from app.services.design.runtime.agent_profile import get_active_agent_profile
+
     mid = _as_text(user_selected_model or "auto").strip() or "auto"
     low = mid.lower()
     rules = rules or {}
+    prof = get_active_agent_profile()
     if not mid or low == "auto":
-        return _prompt_text(rules, "agent.persona.auto").strip()
+        return _prompt_text(rules, prof.persona_auto).strip()
     return _prompt_text(
-        rules, "agent.persona.locked", model_label=_model_display_label(mid)
+        rules, prof.persona_locked, model_label=_model_display_label(mid)
     ).strip()
 
 def _flag_on(rules: dict[str, str] | None, key: str, default: str = "0") -> bool:
@@ -332,7 +335,7 @@ async def _llm_ux_reply(
     if not system:
         raise RuntimeError(
             "missing prompt pack: agent.prompt.ux_reply_system "
-            "(Admin → 提示词包 / design_prompt_packs)"
+            "(Admin → 系统提示词 / seeds/design_prompt_packs)"
         )
     user = (
         f"Situation: {situation}\n"

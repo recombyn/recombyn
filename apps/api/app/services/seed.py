@@ -1,4 +1,4 @@
-"""Seed fonts from apps/api/data; heal existing plaza rows."""
+"""Seed fonts from apps/api/seeds; heal existing plaza rows."""
 
 from __future__ import annotations
 
@@ -23,9 +23,9 @@ _OFFICIAL_AVATAR = "/logo192.png"
 
 
 def _resolve_seed_file(*parts: str) -> Path:
-    from app.core.config import resolve_data_file
+    from app.core.config import resolve_seed_file
 
-    return resolve_data_file(*parts)
+    return resolve_seed_file(*parts)
 
 
 def seed_fonts() -> int:

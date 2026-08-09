@@ -14,6 +14,7 @@ import {
   renameProjectOnCloud,
   requestProjectFlush,
 } from '@/components/editor/useProjectCloudSync';
+import { invalidateProjectsListCache } from '@/service/projects';
 import { cn } from '@/utils/classnames';
 import {
   deleteTemplate,
@@ -243,6 +244,7 @@ function TemplateGrid({
     try {
       await removeProjectsFromCloud(ids);
       dispatch(deleteTemplates(ids));
+      invalidateProjectsListCache();
       message.destructive(t('home.batchDeleted', { count }));
       exitSelectMode();
     } catch {
@@ -260,11 +262,18 @@ function TemplateGrid({
     if (!id) return;
     dispatch(renameTemplateById({ id, name: next }));
     // Open editor will flush via dirty; otherwise push name to cloud now.
-    if (currentId === id) {
-      requestProjectFlush();
-    } else {
-      void renameProjectOnCloud(id, next);
+    async function pushRename() {
+      try {
+        if (currentId === id) {
+          requestProjectFlush();
+        } else {
+          await renameProjectOnCloud(id, next);
+        }
+      } finally {
+        invalidateProjectsListCache();
+      }
     }
+    pushRename();
   };
 
   const commitRename = () => {
@@ -323,7 +332,9 @@ function TemplateGrid({
               deleting={deleting}
               onToggleSelectAll={selectAll}
               onClearSelection={() => setSelected([])}
-              onDelete={() => void batchDelete()}
+              onDelete={() => {
+                batchDelete();
+              }}
               onCancel={exitSelectMode}
             />
           ) : (
@@ -374,6 +385,7 @@ function TemplateGrid({
               try {
                 await removeProjectFromCloud(id);
                 dispatch(deleteTemplate(id));
+                invalidateProjectsListCache();
                 setSelected((prev) => prev.filter((x) => x !== id));
                 message.destructive(t('common.delete'));
               } catch {
@@ -427,7 +439,9 @@ function TemplateGrid({
             deleting={deleting}
             onToggleSelectAll={selectAll}
             onClearSelection={() => setSelected([])}
-            onDelete={() => void batchDelete()}
+            onDelete={() => {
+              batchDelete();
+            }}
             onCancel={exitSelectMode}
           />
         </>

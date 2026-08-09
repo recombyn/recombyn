@@ -3,7 +3,6 @@ import { defineConfig } from 'vitest/config';
 
 /**
  * Frontend unit tests — Vitest + React Testing Library (Vite-native).
- * Same RTL patterns as Dify’s current web stack (migrated from Jest).
  */
 export default defineConfig({
   test: {

@@ -1,4 +1,4 @@
-"""Celery tasks for async import + aesthetics embed."""
+"""Celery tasks for async import."""
 
 from pathlib import Path
 
@@ -28,13 +28,6 @@ def run_import_job(self, job_id: str, source_type: str, file_path: str) -> dict:
         update_job(job_id, status="failed", progress=100, error=str(exc))
         return {"job_id": job_id, "status": "failed", "error": str(exc)}
 
-
-@celery.task(name="worker.tasks.embed_quality_sample_job", bind=True)
-def embed_quality_sample_job(self, sample_id: int) -> dict:
-    """OpenCLIP three-tower embed for design_quality_sample."""
-    from app.services.design.aesthetics.embed_job import embed_quality_sample
-
-    return embed_quality_sample(int(sample_id))
 
 
 @celery.task(name="worker.tasks.run_db_backup_job")

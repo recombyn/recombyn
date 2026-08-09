@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -18,6 +17,7 @@ import RedeemDialog from '@/components/layout/RedeemDialog';
 import WalletLedgerPanel from '@/components/layout/WalletLedgerPanel';
 import AgentModelsPanel from '@/components/editor/panels/agent/AgentModelsPanel';
 import AccountProfilePanel from '@/components/layout/AccountProfilePanel';
+import { useBillingEnabled } from '@/service/wallet';
 import AccountNotificationsPanel from '@/components/layout/AccountNotificationsPanel';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { isDesktopLocal } from '@/utils/apiBase';
@@ -144,9 +144,7 @@ function AccountSettingsDialog({
 }: Props) {
   const { t } = useTranslation();
   const desktopLocal = isDesktopLocal();
-  const billingEnabled = useSelector(
-    (state: any) => state.wallet?.billingEnabled === true
-  );
+  const billingEnabled = useBillingEnabled();
   const hideBillingUi = desktopLocal || !billingEnabled;
   const [tab, setTab] = useState<ContentTab>(toContentTab(initialTab));
   const [plansOpen, setPlansOpen] = useState(false);
@@ -161,7 +159,7 @@ function AccountSettingsDialog({
     // Never auto-open plans/redeem — user clicks the left rail.
     let nextTab: AccountSettingsTab =
       initialTab === 'plans' || initialTab === 'redeem' ? 'billing' : initialTab;
-    if (hideBillingUi && (nextTab === 'billing' || nextTab === 'plans' || nextTab === 'redeem')) {
+    if (hideBillingUi && nextTab === 'billing') {
       nextTab = 'profile';
     }
     if (desktopLocal && nextTab === 'notices') {

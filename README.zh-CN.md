@@ -23,7 +23,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** 是 **画布编辑器 + AI Design Agent**（源码可得 / source-available）。  
+**Recombyn** 是 **画布编辑器 + AI Design Agent**。  
 在无限画布上创作；Agent 基于 LangGraph 直接改图层、图形、文字与布局——用对话驱动设计。
 
 几分钟用 Docker Compose 自托管（默认 **MySQL** + Redis + Web + API + **Yjs 协作**）。本地开发可空 `DATABASE_URL` 用 **SQLite**；也可切 **PostgreSQL**（见 [docs/postgres-switch.md](docs/postgres-switch.md)）。
@@ -36,7 +36,7 @@
 - **实时多人协作** — 同一项目 Yjs 同步（光标、选区、撤销）；分享可只读或可编辑
 - **Agent 落笔改稿** — 对话规划并执行画布操作
 - **自托管优先** — 本地 / 服务器同一套栈
-- **可组合** — `apps/api/data/` 含基建种子 + 提示词包 + **5 个核心 Agent Skill**
+- **可组合** — `apps/api/seeds/` 含基建种子 + 提示词包 + **5 个核心 Agent Skill**
 
 ## 核心能力
 
@@ -86,7 +86,8 @@ npm run dev:desktop
 npm run build:desktop:sidecar
 npm run build:desktop
 
-# 云端桌面 — 与浏览器同一套本机 API（:8000 / .env；有公网部署时再设 VITE_API_BASE_URL）
+# 云端桌面 — 与浏览器同一套本机 API（:8000 / .env）
+# 有公网部署时再设 VITE_API_BASE_URL
 npm run dev:desktop:cloud
 npm run build:desktop:cloud
 ```
@@ -101,7 +102,7 @@ apps/web/          React 画布 + Agent UI + Yjs 客户端
 apps/api/          FastAPI（含 collab room-token）
 apps/collab/       Yjs WebSocket 服务（y-websocket）
 packages/          共享协议
-docs/              架构、自托管、桌面端（含 Postgres 切换，工程向）
+docs/              架构、自托管、桌面端、画布与 Web 数据层（工程向；含 Postgres 切换）
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
@@ -111,7 +112,10 @@ e2e/               Playwright
 ## 文档与社区
 
 - 用户文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
-- 自托管 / 架构：[docs/self-hosting.md](docs/self-hosting.md) · [桌面端](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
+- 自托管 / 架构：[docs/self-hosting.md](docs/self-hosting.md) · [AgentProfile / 子代理](docs/agent-profile.md) · [桌面端](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
+- 画布（RCB / SVG / Path2D / LOD）：[docs/canvas-architecture.md](docs/canvas-architecture.md)
+- Web 数据层（Query / oRPC / nuqs）：[docs/web-frontend.md](docs/web-frontend.md)
+- Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)
 - [贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [行为准则](CODE_OF_CONDUCT.md)
 - Issue / PR 模板见 `.github/`
 ## 协议

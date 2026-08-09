@@ -27,6 +27,7 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { RcbCamera as CanvasCamera } from '@/components/rcb';
 import { setCanvasMeta } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** Shared optical size for bottom-left HUD glyphs. */
 const HUD_ICON = 'h-[15px] w-[15px] shrink-0';
@@ -166,7 +167,7 @@ export function themeDefaultCanvasMeta() {
 }
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   frames: ArtboardFrame[];
   camera: CanvasCamera;
   stageEl: HTMLElement | null;

@@ -1,6 +1,6 @@
 import { createElement } from 'react';
-import type { LlmModel } from '@/apis/chat';
-import type { DesignScene } from '@/apis/design';
+import type { LlmModel } from '@/service/chat';
+import type { DesignScene } from '@/service/design';
 import {
   chipBaseKey,
   type ComposerContext,
@@ -36,9 +36,10 @@ import {
   resolveDesignTargetFrame,
 } from '@/components/editor/panels/agent/runDesignAgent';
 import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function resolveSeedLiveNodeIds(opts: {
-  doc: any;
+  doc: SceneDocument;
   editTarget: { id: string } | null;
   freeCanvasMention: boolean;
   mentionNodeIds: string[];

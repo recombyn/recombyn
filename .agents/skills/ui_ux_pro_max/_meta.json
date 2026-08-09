@@ -3,11 +3,11 @@
   "name": "ui_ux_pro_max",
   "displayName": "UI/UX Pro Max",
   "description": "设计知识百科：风格、配色、字体、对比度、溢出与海报层级",
-  "when_to_use": "从零创作或审查画面时加载：字体/对比度/防溢出/海报文案层级与装饰克制",
-  "category": "knowledge",
+  "when_to_use": "From-scratch create or craft review: type, contrast, overflow, poster hierarchy, decoration restraint. Use when building or auditing landing, SaaS, mobile, banner, or poster canvases.",
+  "category": "craft",
   "scenes": "all",
   "sort_weight": 85,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -16,14 +16,20 @@
     "create_svg",
     "update_node"
   ],
-  "allowed_resources": ["knowledge", "aesthetics", "tools"],
+  "allowed_resources": [
+    "tools"
+  ],
   "triggers": [
     {
       "empty_canvas": true,
-      "intent_in": ["create"]
+      "intent_in": [
+        "create"
+      ]
     },
     {
-      "intent_in": ["create"],
+      "intent_in": [
+        "create"
+      ],
       "min_prompt_chars": 8
     }
   ],

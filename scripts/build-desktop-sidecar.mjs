@@ -63,7 +63,7 @@ function main() {
   const sep = win ? ';' : ':';
   // Absolute sources — PyInstaller resolves --add-data relative to the spec dir otherwise.
   const addData = [
-    `${path.join(apiRoot, 'data')}${sep}data`,
+    `${path.join(apiRoot, 'seeds')}${sep}seeds`,
     `${path.join(apiRoot, 'alembic.ini')}${sep}.`,
     `${path.join(apiRoot, 'app', 'alembic')}${sep}app/alembic`,
   ];

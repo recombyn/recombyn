@@ -4,13 +4,14 @@ import {
   renderDocumentThumbnail,
   type ThumbRasterOptions,
 } from '@/utils/renderProjectThumbnail';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-function isEmptyDocument(document: any) {
+function isEmptyDocument(document: SceneDocument) {
   const children = document?.deltaSetLike?.ROOT?.children;
   return !Array.isArray(children) || children.length === 0;
 }
 
-function paperBackground(document: any): string {
+function paperBackground(document: SceneDocument): string {
   const frame = Array.isArray(document?.frames) ? document.frames[0] : null;
   const fromFrame = String(frame?.backgroundColor || '').trim();
   if (fromFrame && fromFrame !== 'none' && fromFrame !== 'transparent') return fromFrame;

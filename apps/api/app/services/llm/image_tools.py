@@ -204,69 +204,7 @@ async def process_image_tool(
     }
 
 
-_LAYOUT_WIREFRAME_PROMPT = (
-    "Convert the reference into a clean professional UX wireframe / layout diagram (ban shi tu). "
-    "Use flat grayscale blocks for image, text, and button regions. "
-    "Show clear hierarchy: header, sections, cards, CTAs as simple rectangles with light labels if needed. "
-    "No photorealism, no colorful UI chrome, no photos, no shadows, no gradients. "
-    "Preserve the approximate composition and proportions of the reference. "
-    "Look like a Figma low-fidelity wireframe used for design planning."
-)
 
 
-async def generate_layout_wireframe(
-    *,
-    image_url: str | None = None,
-    image_urls: list[str] | None = None,
-    brief: str | None = None,
-    model: str | None = None,
-    aspect_ratio: str | None = "3:4",
-    quality: str | None = "hd",
-    resolution: str | None = "2K",
-) -> dict[str, Any]:
-    """One or more refs + brief -> wireframe. Brief may cite image1/image2."""
-    extra = (brief or "").strip()
-    prompt = _LAYOUT_WIREFRAME_PROMPT
-    if extra:
-        prompt = f"{prompt} Extra direction: {extra}"
-    refs: list[str] = []
-    for u in image_urls or []:
-        s = str(u or "").strip()
-        if s and s not in refs:
-            refs.append(s)
-    if image_url and str(image_url).strip():
-        s = str(image_url).strip()
-        if s not in refs:
-            refs.insert(0, s)
-    if refs:
-        labels = ", ".join(f"image{i}(图{i})" for i in range(1, len(refs) + 1))
-        prompt = (
-            f"Reference images in order: {labels}. "
-            "When the brief says 图1/图2 or image1/image2, map to these references by index. "
-            "Use them as composition / content guides for the wireframe. "
-            + prompt
-        )
-    elif not extra:
-        prompt = (
-            "Generate a clean professional UX wireframe layout diagram for a mobile or web product screen. "
-            + prompt
-        )
-    result = await generate_image(
-        prompt=prompt,
-        model=model,
-        aspect_ratio=aspect_ratio or "3:4",
-        quality=quality or "hd",
-        resolution=resolution or "2K",
-        images=refs or None,
-    )
-    images = list(result.get("images") or [])
-    if not images:
-        raise RuntimeError("layout wireframe generation returned no image")
-    # Keep remote CDN URL for library cover storage (data URLs are too large for DB).
-    out_url = str(images[0])
-    return {
-        "url": out_url,
-        "model": result.get("model"),
-        "prompt": prompt,
-    }
+
 

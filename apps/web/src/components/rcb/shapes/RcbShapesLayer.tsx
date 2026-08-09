@@ -1,18 +1,26 @@
-import { useEffect, useMemo, useState, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useRcbCamera, useRcbCameraMotion, useRcbViewportEl } from '../camera/context';
 import { rcbViewportSceneBounds } from '../core/math';
 import {
   RcbSpatialIndex,
   boxesIntersect,
+  buildIdRankMap,
   nodeSceneAabb,
+  sortIdsByRank,
 } from '../core/spatialIndex';
-import { isNodeHidden, stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isNodeHidden
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  stackZIndex
+} from '@/components/rcb/scene/document/sceneDocument';
 import { nodeLeftTop, sceneSurfaceSvgProps } from '@/components/rcb/scene/paint/sceneToSvg';
 import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 import RcbShapeHost from './RcbShapeHost';
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   reloadToken?: number | string;
   /** Bumps paint for nodes touched by the latest document patch. */
   documentPatchToken?: number;
@@ -39,10 +47,16 @@ const INDEX_CULL_THRESHOLD = 64;
 /** Cap full SVG hosts; overflow paints as shared-SVG AABB proxies. */
 const MAX_FULL_HOSTS = 96;
 
+/**
+ * Hard cap on LOD proxy paint. Canvas2D batches handle denser zoom-out than
+ * per-rect SVG DOM — keep a ceiling for fill cost on huge viewports.
+ */
+const MAX_PROXY_PAINT = 4096;
+
 /** Below this zoom, prefer proxies for most on-screen nodes. */
 const LOD_ZOOM_FAR = 0.42;
 
-function nodeProxyFill(node: any): string {
+function nodeProxyFill(node: SceneNodeInput): string {
   const a = node?.attrs || {};
   for (const k of ['fill-color', 'fill', 'color', 'border-color', 'stroke'] as const) {
     const v = a[k];
@@ -51,12 +65,12 @@ function nodeProxyFill(node: any): string {
   return '#94a3b8';
 }
 
-function isHeavyPathNode(node: any): boolean {
+function isHeavyPathNode(node: SceneNodeInput): boolean {
   const d = String(node?.attrs?.path || node?.attrs?.d || '');
   return d.length >= HEAVY_PATH_D_CHARS;
 }
 
-function screenAreaPx(node: any, zoom: number): number {
+function screenAreaPx(node: SceneNodeInput, zoom: number): number {
   const w = Math.max(1, Number(node?.width) || 1);
   const h = Math.max(1, Number(node?.height) || 1);
   const z = Math.max(0.05, zoom || 1);
@@ -77,19 +91,40 @@ function hostBudget(opts: {
   return MAX_FULL_HOSTS;
 }
 
+function trimProxyIds(opts: {
+  document: SceneDocument;
+  proxyIds: string[];
+  zoom: number;
+  maxProxies: number;
+}): string[] {
+  const { document, proxyIds, zoom, maxProxies } = opts;
+  if (proxyIds.length <= maxProxies) return proxyIds;
+  const scored = proxyIds.map((id) => ({
+    id,
+    score: screenAreaPx(document?.deltaSetLike?.[id], zoom),
+  }));
+  scored.sort((a, b) => b.score - a.score);
+  const keep = new Set(scored.slice(0, maxProxies).map((s) => s.id));
+  // Preserve document z-order among survivors.
+  return proxyIds.filter((id) => keep.has(id));
+}
+
 /**
  * Split visible ids into full SVG hosts vs shared-SVG LOD proxies.
  * Selection / editing always get a real host; heavy paths demoted when far.
+ * Proxy count is capped for 100k-scale zoom-out (imperative paint still).
  * Exported for unit tests.
  */
 export function pickFullAndProxyIds(opts: {
-  document: any;
+  document: SceneDocument;
   visibleIds: string[];
   keepSet: Set<string>;
   zoom: number;
   moving: boolean;
+  maxProxies?: number;
 }): { fullIds: string[]; proxyIds: string[] } {
   const { document, visibleIds, keepSet, zoom, moving } = opts;
+  const maxProxies = opts.maxProxies ?? MAX_PROXY_PAINT;
   const budget = hostBudget({ zoom, moving, visibleCount: visibleIds.length });
   const far = zoom < LOD_ZOOM_FAR;
   const forceLod =
@@ -118,15 +153,70 @@ export function pickFullAndProxyIds(opts: {
   }
   // Preserve document z-order for both lists.
   const fullIds = visibleIds.filter((id) => fullSet.has(id));
-  const proxyIds = visibleIds.filter((id) => !fullSet.has(id));
+  const proxyRaw = visibleIds.filter((id) => !fullSet.has(id));
+  const proxyIds = trimProxyIds({
+    document,
+    proxyIds: proxyRaw,
+    zoom,
+    maxProxies,
+  });
   return { fullIds, proxyIds };
+}
+
+function paintLodProxiesCanvas(opts: {
+  canvas: HTMLCanvasElement;
+  document: SceneDocument;
+  proxyIds: string[];
+  hiddenNodeId: string | null;
+  view: { minX: number; minY: number; w: number; h: number };
+}) {
+  const { canvas, document: sceneDoc, proxyIds, hiddenNodeId, view } = opts;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const dpr = Math.max(1, Math.min(3, globalThis.devicePixelRatio || 1));
+  const cssW = Math.max(1, view.w);
+  const cssH = Math.max(1, view.h);
+  const bw = Math.max(1, Math.ceil(cssW * dpr));
+  const bh = Math.max(1, Math.ceil(cssH * dpr));
+  if (canvas.width !== bw) canvas.width = bw;
+  if (canvas.height !== bh) canvas.height = bh;
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  ctx.save();
+  ctx.translate(-view.minX, -view.minY);
+  for (const id of proxyIds) {
+    const node = sceneDoc?.deltaSetLike?.[id];
+    if (!node || isNodeHidden(node) || hiddenNodeId === id) continue;
+    const { left, top } = nodeLeftTop(sceneDoc, node);
+    const w = Math.max(1, Number(node.width) || 1);
+    const h = Math.max(1, Number(node.height) || 1);
+    const angle = Number(node.attrs?.angle) || 0;
+    const fill = nodeProxyFill(node);
+    const opacity = Math.min(1, Math.max(0.15, Number(node.attrs?.opacity) || 1));
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = fill;
+    if (Math.abs(angle) > 0.5) {
+      const cx = left + w / 2;
+      const cy = top + h / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate((angle * Math.PI) / 180);
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+    } else {
+      ctx.fillRect(left, top, w, h);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
 /**
  * Renders each ROOT child as its own SVG shape host (sharp under CSS camera zoom).
  * Canvas Path2D is only used by selection indicators / draw-tool overlays.
  * Off-viewport nodes are not mounted (lazy paint); selected/editing stay alive.
- * Far zoom / dense views: shared SVG AABB proxies.
+ * Far zoom / dense views: one Canvas2D AABB proxy batch (capped).
  * z-index comes from document.stackOrder so shapes can interleave with artboards.
  */
 function RcbShapesLayer({
@@ -144,6 +234,7 @@ function RcbShapesLayer({
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   /** Coalesce pan/zoom cull to one update per frame. */
   const [cullCam, setCullCam] = useState({ x: camera.x, y: camera.y, zoom: camera.zoom });
+  const lodCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     if (!viewportEl) return undefined;
@@ -165,6 +256,8 @@ function RcbShapesLayer({
     return Array.isArray(children) ? (children as string[]) : [];
   }, [document]);
 
+  const idRank = useMemo(() => buildIdRankMap(ids), [ids]);
+
   const zoomForCull =
     moving && ids.length >= EFFICIENT_ZOOM_SHAPE_THRESHOLD ? efficientZoom : camera.zoom;
 
@@ -181,7 +274,7 @@ function RcbShapesLayer({
     [keepVisibleIds]
   );
 
-  /** Mount only in-view (+ keep) ids — avoid `ids.map → null` over 10k. */
+  /** Mount only in-view (+ keep) ids — never `ids.filter` over 100k after spatial hits. */
   const visibleIds = useMemo(() => {
     if (!document || !ids.length || stageSize.width < 1 || stageSize.height < 1) {
       return ids;
@@ -199,7 +292,7 @@ function RcbShapesLayer({
       const hits = spatialIndex.search(view.minX, view.minY, view.maxX, view.maxY);
       const vis = new Set(hits.map((h) => h.id));
       for (const id of keepSet) vis.add(id);
-      return ids.filter((id) => vis.has(id));
+      return sortIdsByRank(vis, idRank, { ascending: true });
     }
 
     const out: string[] = [];
@@ -216,6 +309,7 @@ function RcbShapesLayer({
   }, [
     document,
     ids,
+    idRank,
     stageSize.width,
     stageSize.height,
     cullCam.x,
@@ -287,6 +381,18 @@ function RcbShapesLayer({
     return { minX: s.style.left, minY: s.style.top, w: s.width, h: s.height };
   }, [document, proxyIds, hiddenNodeId, camera.x, camera.y, camera.zoom]);
 
+  useEffect(() => {
+    const canvas = lodCanvasRef.current;
+    if (!canvas || !document || !proxyIds.length || !lodViewport) return;
+    paintLodProxiesCanvas({
+      canvas,
+      document,
+      proxyIds,
+      hiddenNodeId,
+      view: lodViewport,
+    });
+  }, [document, proxyIds, hiddenNodeId, lodViewport]);
+
   if (!document || !visibleIds.length) return null;
 
   return (
@@ -298,58 +404,20 @@ function RcbShapesLayer({
       className="pointer-events-none absolute left-0 top-0 overflow-visible"
     >
       {lodViewport ? (
-        <svg
+        <canvas
+          ref={lodCanvasRef}
           data-rcb-lod-layer="1"
           data-rcb-infinite="1"
-          className="pointer-events-none absolute overflow-visible"
-          width={lodViewport.w}
-          height={lodViewport.h}
-          viewBox={`${lodViewport.minX} ${lodViewport.minY} ${lodViewport.w} ${lodViewport.h}`}
-          preserveAspectRatio="none"
+          className="pointer-events-none absolute"
           style={{
             left: lodViewport.minX,
             top: lodViewport.minY,
             width: lodViewport.w,
             height: lodViewport.h,
-            overflow: 'visible',
             display: 'block',
-            shapeRendering: 'geometricPrecision',
           }}
           aria-hidden
-        >
-          {proxyIds.map((id) => {
-            const node = document?.deltaSetLike?.[id];
-            if (!node || isNodeHidden(node) || hiddenNodeId === id) return null;
-            const { left, top } = nodeLeftTop(document, node);
-            const w = Math.max(1, Number(node.width) || 1);
-            const h = Math.max(1, Number(node.height) || 1);
-            const angle = Number(node.attrs?.angle) || 0;
-            const fill = nodeProxyFill(node);
-            const opacity = Math.min(
-              1,
-              Math.max(0.15, Number(node.attrs?.opacity) || 1)
-            );
-            const z = stackZIndex(document, 'node', id);
-            const cx = left + w / 2;
-            const cy = top + h / 2;
-            const transform =
-              Math.abs(angle) > 0.5 ? `rotate(${angle} ${cx} ${cy})` : undefined;
-            return (
-              <rect
-                key={`lod:${id}`}
-                data-rcb-lod-proxy={id}
-                x={left}
-                y={top}
-                width={w}
-                height={h}
-                fill={fill}
-                opacity={opacity}
-                transform={transform}
-                style={{ zIndex: z }}
-              />
-            );
-          })}
-        </svg>
+        />
       ) : null}
       {fullIds.map((id) => {
         const node = document?.deltaSetLike?.[id];

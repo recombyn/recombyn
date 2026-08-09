@@ -39,10 +39,10 @@ function collectDocTiles(document: unknown): DocTile[] {
 }
 
 type Props = {
-  /** Up to 4 cover image URLs. */
+  /** Up to 4 cover image URLs from API. */
   urls?: string | string[] | null;
   version?: number | string | null;
-  /** Live document — image nodes / artboards when urls are missing. */
+  /** Live document — only for Publish preview when URLs not ready yet. */
   document?: unknown;
   className?: string;
   children?: ReactNode;
@@ -70,12 +70,10 @@ function ProjectCoverCollage({
   );
   const docTiles = useMemo(() => collectDocTiles(document), [document]);
 
-  // Prefer saved element-snapshot URLs from edit save; else artboards; else full doc.
-  // Do not collage raw image-node attrs.src — those are source assets, not element tiles.
+  // Saved cover URLs from API; optional live document only when caller passes it (Publish).
   const { mode, imgList } = useMemo((): { mode: Mode; imgList: string[] } => {
     if (urlTiles.length >= 1) return { mode: 'urls', imgList: urlTiles };
-    if (docTiles.length >= 2) return { mode: 'docs', imgList: [] };
-    if (docTiles.length === 1) return { mode: 'docs', imgList: [] };
+    if (docTiles.length >= 1) return { mode: 'docs', imgList: [] };
     if (document) return { mode: 'doc-full', imgList: [] };
     return { mode: 'empty', imgList: [] };
   }, [urlTiles, docTiles, document]);
@@ -93,7 +91,7 @@ function ProjectCoverCollage({
       {mode === 'empty' ? null : (
         <div className={cn('absolute inset-0', projectThumbZoomLayerClass)}>
           {mode === 'urls' ? (
-            <ImgCollage urls={imgList} fallbackDocument={document} />
+            <ImgCollage urls={imgList} />
           ) : (
             <DocCollage tiles={docTiles} />
           )}
@@ -120,7 +118,7 @@ function ImgTile({ src, className }: { src: string; className?: string }) {
 }
 
 /** Multi-tile collage — always map ``thumbnailUrl`` list to ``<img>`` (max 4). */
-function ImgCollage({ urls }: { urls: string[]; fallbackDocument?: unknown }) {
+function ImgCollage({ urls }: { urls: string[] }) {
   const list = urls.filter(Boolean).slice(0, MAX_TILES);
   if (!list.length) return null;
 

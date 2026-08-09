@@ -1,16 +1,19 @@
 import { useCallback, useEffect, type RefObject } from 'react';
 import { useDispatch } from 'react-redux';
+import { addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 import {
-  addNodeToDocument,
   createSvgNode,
   createTextNode,
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
   nodeIdsInsideFrames,
   pasteClipboardIntoDocument,
+  parseAndValidateSceneClipboardJson,
   snapshotFramesForClipboard,
   snapshotNodesForClipboard,
   clipboardNodesBounds,
   type SceneClipboardPayload,
-} from '@/components/rcb/scene/document/sceneDocument';
+} from '@/components/rcb/scene/document/sceneClipboard';
 import {
   DEFAULT_TEXT_BOX_WIDTH,
   measurePlainTextSize,
@@ -114,6 +117,12 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         ...(frameSnap.length ? { frames: frameSnap } : {}),
       };
       internalClipboardAtRef.current = performance.now();
+      // OS clipboard: JSON clip for cross-tab paste (Zod-validated on paste).
+      try {
+        void navigator.clipboard?.writeText(JSON.stringify(clipboardRef.current));
+      } catch {
+        /* ignore — memory clipboard still works */
+      }
       return true;
     },
     [
@@ -145,30 +154,37 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     ]
   );
 
-  const pasteClipboard = useCallback(
-    (opts?: { anchor?: { x: number; y: number } }) => {
+  const pasteValidatedClip = useCallback(
+    (clip: SceneClipboardPayload, opts?: { anchor?: { x: number; y: number } }) => {
       const doc = documentRef.current;
-      const payload = clipboardRef.current;
-      if (!doc || readOnly) return;
-      if (!payload?.nodes?.length && !payload?.frames?.length) return;
-      // Paste nudge on the snap lattice (default 1px).
+      if (!doc || readOnly) return false;
       const g = getDocumentGridSize(doc);
       const nudge = Math.max(10, snapCoordToGrid(10, g));
       const { document: next, ids: newIds, frameIds: newFrameIds } = pasteClipboardIntoDocument(
         doc,
-        payload,
+        clip,
         {
           offsetX: nudge,
           offsetY: nudge,
           anchor: opts?.anchor,
         }
       );
-      if (!newIds.length && !newFrameIds.length) return;
+      if (!newIds.length && !newFrameIds.length) return false;
       documentRef.current = next;
       dispatch(setDocument(next));
       dispatch(setMixedSelection({ nodeIds: newIds, frameIds: newFrameIds }));
+      return true;
     },
-    [clipboardRef, dispatch, documentRef, readOnly]
+    [dispatch, documentRef, readOnly]
+  );
+
+  const pasteClipboard = useCallback(
+    (opts?: { anchor?: { x: number; y: number } }) => {
+      const payload = clipboardRef.current;
+      if (!payload?.nodes?.length && !payload?.frames?.length) return;
+      pasteValidatedClip(payload, opts);
+    },
+    [clipboardRef, pasteValidatedClip]
   );
 
   const duplicateSelected = useCallback(
@@ -291,7 +307,15 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     ): Promise<boolean> => {
       if (readOnly) return false;
       const anchor = opts?.anchor ?? null;
-      if (payload.kind === 'text') return insertPastedText(payload.text, anchor);
+      if (payload.kind === 'text') {
+        const asClip = parseAndValidateSceneClipboardJson(payload.text);
+        if (asClip.valid) {
+          return pasteValidatedClip(asClip.data, {
+            anchor: opts?.anchor ?? undefined,
+          });
+        }
+        return insertPastedText(payload.text, anchor);
+      }
       if (payload.kind === 'svg') return insertPastedSvg(payload.markup, anchor);
       if (payload.kind === 'image') {
         if (fileLooksLikeSvg(payload.file)) {
@@ -334,6 +358,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       onImageFile,
       onLottiePaste,
       onVideoFile,
+      pasteValidatedClip,
       readOnly,
     ]
   );

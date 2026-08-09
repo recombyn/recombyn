@@ -1,4 +1,4 @@
-"""System prompts (agent / aesthetics / persona) — dedicated table, not dict+KV split."""
+"""System prompts (agent / persona) — dedicated table, not dict+KV split."""
 from __future__ import annotations
 
 import threading
@@ -16,7 +16,6 @@ _LOCK = threading.RLock()
 GROUP_LABELS: dict[str, str] = {
     "agent_prompt": "Agent 提示词",
     "agent_persona": "Agent 人设",
-    "aesthetics": "美学 / 看图",
     "precheck": "预检 / 路由",
 }
 
@@ -28,14 +27,12 @@ def is_system_prompt_key(key: str) -> bool:
     return (
         k.startswith("agent.prompt.")
         or k.startswith("agent.persona.")
-        or k.startswith("aesthetics.prompt.")
-        or k == "aesthetics.vision.structure_schema"
         or k == "precheck.router_system"
     )
 
 
 def _load_seed_items() -> list[dict[str, Any]]:
-    """Metadata + bodies from ``data/design_prompt_packs/`` (system-key kinds only)."""
+    """Metadata + bodies from ``seeds/design_prompt_packs/`` (system-key kinds only)."""
     from app.services.design.prompts.prompt_pack_store import _load_prompt_packs_seed
 
     _labels, raw = _load_prompt_packs_seed()
@@ -63,8 +60,6 @@ def _load_seed_items() -> list[dict[str, Any]]:
 def _infer_group(key: str) -> str:
     if key.startswith("agent.persona."):
         return "agent_persona"
-    if key.startswith("aesthetics."):
-        return "aesthetics"
     if key.startswith("precheck."):
         return "precheck"
     return "agent_prompt"

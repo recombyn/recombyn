@@ -71,8 +71,6 @@ def _user_owns_key(user_id: str, key: str) -> bool:
         or key.startswith(f"assets/{user_id}/")
         or key.startswith(f"font-tasks/{user_id}/")
         or key.startswith(f"projects/{user_id}/")
-        # Quality-sample originals (server-written); any authed user may fetch for vision/preview.
-        or key.startswith("assets/quality-samples/")
     )
 
 
@@ -91,12 +89,12 @@ def _object_key_from_url(raw: str) -> str | None:
         if path.startswith(api_prefix):
             key = path[len(api_prefix) :].lstrip("/")
             return key or None
-        # Public object URL: …/uploads|assets|font-tasks/{userId}/…
-        for marker in ("/uploads/", "/assets/", "/font-tasks/"):
+        # Public object URL: …/uploads|assets|font-tasks|projects/{userId}/…
+        for marker in ("/uploads/", "/assets/", "/font-tasks/", "/projects/"):
             idx = path.find(marker)
             if idx >= 0:
                 key = path[idx + 1 :].lstrip("/")
-                if key.startswith(("uploads/", "assets/", "font-tasks/")):
+                if key.startswith(("uploads/", "assets/", "font-tasks/", "projects/")):
                     return key
         # Fallback: strip configured public base path if present.
         base = (settings.s3_public_base_url or "").rstrip("/")

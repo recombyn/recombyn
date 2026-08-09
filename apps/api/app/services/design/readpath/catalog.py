@@ -43,15 +43,11 @@ def ensure_design_catalog(*, force: bool = False) -> None:
             ensure_design_tables_boot()
             seed_design_catalog_if_empty()
             resync_design_content(force=False)
-            # Library brush cover refresh is slow on remote MySQL — only run from
-            # brush/library endpoints via ensure_library_seed(), not on every catalog boot.
             from app.services.design.ops.action_registry import ensure_action_registry
-            from app.services.design.prompts.knowledge_store import ensure_design_knowledge
             from app.services.design.prompts.prompt_pack_store import ensure_design_prompt_packs
             from app.services.design.prompts.skill_store import ensure_design_skills
             from app.services.design.prompts.system_prompt_store import ensure_system_prompts
 
-            ensure_design_knowledge()
             ensure_design_prompt_packs()
             ensure_action_registry()
             ensure_system_prompts()
@@ -211,7 +207,6 @@ def list_scene_codes() -> list[str]:
 
 def get_catalog_payload() -> dict[str, Any]:
     from app.services.design.ops.tool_ops_contract import list_canvas_tools
-    from app.services.design.readpath.library_store import list_library_items
 
     # Bootstrap belongs at process startup / admin — not on every skill SELECT.
     ensure_design_catalog()
@@ -224,17 +219,6 @@ def get_catalog_payload() -> dict[str, Any]:
         f = get_flow(scene)
         if f:
             flows[scene] = f
-
-    def _lib_kind(kind: str, page_size: int = 48) -> list[dict[str, Any]]:
-        try:
-            data = list_library_items(kind=kind, enabled=True, page=1, page_size=page_size)
-            return list(data.get("items") or [])
-        except Exception:
-            return []
-
-    style_packs = _lib_kind("style")
-    templates = _lib_kind("template")
-    prompt_patterns = _lib_kind("prompt")
 
     return {
         "scenes": scene_codes,
@@ -276,10 +260,6 @@ def get_catalog_payload() -> dict[str, Any]:
             }
             for g in groups
         ],
-        # OD mapping: System = style pack, Template = composition, Prompt = pattern
-        "style_packs": style_packs,
-        "templates": templates,
-        "prompt_patterns": prompt_patterns,
         "flows": {
             k: {
                 "id": v["id"],

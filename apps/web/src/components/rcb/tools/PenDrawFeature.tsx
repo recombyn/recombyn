@@ -25,6 +25,7 @@ import {
   getSceneWorldEpoch,
   subscribeShapeHosts,
 } from '../shapes/shapeHostRegistry';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function dist2(ax: number, ay: number, bx: number, by: number) {
   const dx = ax - bx;
@@ -111,7 +112,7 @@ export { resolvePenPlaceAction, reversePenAnchors } from './penPath';
  * (so re-clicking the same landing links instead of starting a disconnected path).
  */
 export function findOpenPenEndpointResume(
-  document: any,
+  document: SceneDocument,
   x: number,
   y: number,
   threshold: number

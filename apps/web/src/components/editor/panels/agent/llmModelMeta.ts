@@ -1,8 +1,8 @@
-/**
- * LLM catalog helpers for Agent UI (not HTTP — lives next to model pickers).
+﻿/**
+ * LLM catalog helpers for Agent UI (not HTTP 鈥?lives next to model pickers).
  */
 
-import type { LlmModel, ModelReferenceType } from '@/apis/chat';
+import type { LlmModel, ModelReferenceType } from '@/service/chat';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { FREE_IMAGE_MODEL_ID } from '@/utils/wallet';
 
@@ -31,7 +31,7 @@ export function dedupeModelsById(models: LlmModel[]): LlmModel[] {
 }
 
 /**
- * Local desktop → BYOK vault only; cloud → catalog buckets + BYOK, then filter.
+ * Local desktop 鈫?BYOK vault only; cloud 鈫?catalog buckets + BYOK, then filter.
  */
 export function buildByokAwareModelList(opts: {
   byok: LlmModel[];
@@ -83,7 +83,7 @@ export function pickPreferredVideoModelId(models: LlmModel[], currentId?: string
 
 /**
  * Merge catalog + image/video buckets + BYOK; normalize kind.
- * Local desktop → BYOK vault only (no platform Seedream / OpenRouter catalog).
+ * Local desktop 鈫?BYOK vault only (no platform Seedream / OpenRouter catalog).
  */
 export function mergeSelectableModels(opts: {
   models?: LlmModel[] | null;
@@ -183,7 +183,7 @@ export function maxAttachmentsFor(
 
 /**
  * Composer attach ceiling (Dock + Home share this).
- * Image mode → current image model; Agent/Ask → routed image model.
+ * Image mode 鈫?current image model; Agent/Ask 鈫?routed image model.
  */
 export function agentAttachmentLimit(opts: {
   models: LlmModel[];

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
-/// <reference types="vite-plugin-svg-icons/client" />
+
+declare module 'virtual:svg-icons-register';
 
 declare const __GOOGLE_CLIENT_ID__: string;
 declare const __DOCS_URL__: string;

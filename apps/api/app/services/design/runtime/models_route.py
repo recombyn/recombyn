@@ -456,6 +456,28 @@ def resolve_vision_model(rules: dict[str, str] | None) -> str:
     return _DEFAULT_VISION_FALLBACK
 
 
+def resolve_review_model(rules: dict[str, str] | None) -> tuple[str, str]:
+    """Pin Review Agent to one model — not Design Auto / user lock.
+
+    Order: settings.design_review_model → Admin agent.review.model → vision model.
+    Prefers a vision-capable id so canvas previews can be judged.
+    """
+    try:
+        from app.core.config import settings
+
+        pinned = str(getattr(settings, "design_review_model", "") or "").strip()
+    except Exception:
+        pinned = ""
+    if not pinned:
+        pinned = str((rules or {}).get("agent.review.model") or "").strip()
+    if pinned and _vision_ok(pinned):
+        return pinned, "review_pinned"
+    if pinned:
+        return pinned, "review_pinned_non_vision"
+    vision = resolve_vision_model(rules)
+    return vision, "review_vision_default"
+
+
 def ensure_vision_model(
     model_ref: str,
     *,
@@ -834,9 +856,9 @@ async def classify_user_intent(
         )
     mode = str(interaction_mode or "").strip().lower()
     try:
-        from app.services.design.ops.tool_ops_contract import format_canvas_tools_catalog
+        from app.services.design.runtime.agent_profile import resolve_tool_host
 
-        tools_catalog = format_canvas_tools_catalog(rules)
+        tools_catalog = resolve_tool_host().format_catalog(rules)
     except Exception:
         tools_catalog = ""
     pending_block = (
@@ -858,11 +880,17 @@ async def classify_user_intent(
         from app.services.design.prompts.prompt_pack_store import render_prompt_body
         from app.services.llm.agent import ainvoke_structured
 
-        system = render_prompt_body(_INTENT_SYSTEM_KEY, rules=rules)
+        from app.services.design.runtime.agent_profile import (
+            get_active_agent_profile,
+            resolve_contract_schema,
+        )
+
+        intent_key = get_active_agent_profile().intent_prompt or _INTENT_SYSTEM_KEY
+        system = render_prompt_body(intent_key, rules=rules)
         if not system:
             return fallback
         out = await ainvoke_structured(
-            schema=IntentClassifyDecision,
+            schema=resolve_contract_schema("intent"),
             messages=[{"role": "user", "content": user_blob}],
             model=router_model_id(rules),
             system=system,
@@ -973,7 +1001,10 @@ async def classify_model_route(
         from app.services.design.prompts.rules_text import _rule_text
         from app.services.llm.agent import ainvoke_structured
 
-        router_system = _rule_text(rules, _ROUTER_SYSTEM_KEY).strip()
+        from app.services.design.runtime.agent_profile import get_active_agent_profile
+
+        router_key = get_active_agent_profile().router_prompt or _ROUTER_SYSTEM_KEY
+        router_system = _rule_text(rules, router_key).strip()
         out = await ainvoke_structured(
             schema=ModelRouteDecision,
             messages=[{"role": "user", "content": user_blob}],

@@ -1,39 +1,64 @@
-# Garden Style — 风格配方引擎
+# Garden style
 
-开源改编自 [ConardLi/garden-skills](https://github.com/ConardLi/garden-skills) 的 web-design-engineer 思路（MIT）。面向画布交付，目标是「惊艳」，不是「能交差」。
+Deliver canvas work that looks **intentional and memorable** — not a safe AI draft.
 
-## 核心哲学
+Mature craft (Anthropic frontend-design taste + canvas-design philosophy): name a direction, pick one memory point, execute with master-level craft — via tool_ops, not code.
 
-- 先选定一个清晰审美方向，再精确执行
-- 每个像素、留白、对比与层级都要有意图
-- 尊重品牌一致性，同时敢于做可记忆的差异点
+## Principles
+1. **Commit a direction** — minimal / editorial / industrial / organic / luxury / festive hand / playful geometric / retro-futurist — one only.
+2. **One memory point** — hero image **or** hero title dominates; never both fighting.
+3. **Atmosphere over flat fill** — backgrounds have depth (image, gradient, texture) matching the tone.
+4. **Anti-slop** — refuse default AI faces unless the brief demands them.
+5. **Craftsmanship** — alignments, contrast, and type mood must look labored-over.
 
-## 开场决策（动手前）
+## Workflow
+1. Purpose: who sees this and what job it does.
+2. Pick **one** tone from the catalog; justify one creative risk.
+3. Lock constraints: size, required copy, whether image gen is allowed.
+4. Choose the single memory point.
+5. Build: frame → atmosphere/hero → hierarchy copy → sparse decoration.
+6. Far/near self-check; fix higher failures first (`ui_ux_pro_max`).
 
-1. **目的**：这张物料解决什么问题、给谁看
-2. **语气**：极简 / 杂志编辑 / 工业 / 有机 / 奢华 / **节日手绘**… 只选一个极端并贯彻
-3. **约束**：尺寸、必出文案、能否生图
-4. **记忆点**：观众会记住的一件事是什么（通常是主视觉或主标题，二选一突出）
+## Direction catalog (pick one)
+| Direction | Cues |
+|-----------|------|
+| Minimal | Few elements, precise gaps, quiet palette, one accent |
+| Editorial | Strong display type, asymmetric crop, magazine margins |
+| Industrial | Utility type, hard edges, restrained metal/ink palette |
+| Organic | Soft forms, natural textures, muted earth/plant tones |
+| Luxury | High contrast, generous empty, refined metals/ink |
+| Festive hand | Illustrated hero + expressive lettering; shapes only as accents |
+| Playful geometric | Bold primitives, flat color blocks, friendly type |
+| Retro-futurist | Period cues + modern restraint; avoid costume-party clutter |
 
-## 执行清单
+## Anti-defaults (unless brief demands)
+Purple→indigo gradients on white; Inter/Roboto/Arial as “design”; warm cream `#F4F1EA` + terracotta serif cliché; dense broadsheet hairlines; glow stacks; rounded-full pill spam; emoji-as-icon; Space Grotesk convergence.
 
-- **海报主视觉**：节日 / 插画 / 氛围海报 → 必须 `create_image` genPrompt 出主画面；shape 拼贴不算完成
-- **字体**：有个性的展示字 + 克制正文；避免 Inter / Roboto / Arial / 无衬线 UI 栈硬套插画海报
-- **色彩**：主色主导 + 锐利点缀；文案色与背景必须拉开；用语义角色而非到处散 hex
-- **空间**：要么慷慨留白，要么受控高密度；避免「都挤中间又都不突出」；标题勿顶出画板
-- **背景**：制造氛围（生图、渐变、纹理、层次）；文案落在相对安静的区域
-- **装饰**：只保留服务主题的图形；禁止通用播放键 / 笑脸 / 音量条等 UI chrome
-- **动效/层次**：若物料允许，用 1～2 处高影响节奏，不要碎动效
+## Build rules
+- Festive / illustration / atmosphere poster: `create_image`+genPrompt for the main visual; shape collage ≠ done.
+- Type: distinctive display + restrained body; do not force generic UI sans onto illustration posters.
+- Color: one dominant + sharp accent; copy must clear the background; prefer roles over scattered hex.
+- Space: generous whitespace **or** controlled density — never “everything centered, nothing focal.”
+- Background: atmosphere (gen image, gradient, texture); put copy on quieter regions.
+- Decoration: only what serves the theme; ban generic play/smile/volume UI chrome as festive props.
+- Motion (if allowed): 1–2 high-impact beats via **motion_lottie**, not jitter.
 
-## 海报快检
+## Far / near check
+- Far (~1s): theme + main title readable; hero is illustration/photo when required.
+- Near: no clipped glyphs, low contrast, emoji tofu, or unrelated icons.
+- Tone: type mood matches the picture.
 
-- 远看：能否 1 秒读出主题与主标题？主画面是插画/照片，不是几何积木？
-- 近看：有无裁字、低对比、emoji 方框、无关图标？
-- 气质：字体是否匹配画面（节日插画 ≠ SaaS 标题字）？
+## Do not
+- Ship a “safe” generic template that could belong to any brand
+- Mix two directions mid-board without declaring cover/merge
+- Use festive Material icons as illustration substitutes
+- Skip `create_frame` on fixed-size briefs
 
-## 画布落地
+## Canvas
+Fixed size → `create_frame` first, then content inside FOCUS. Node ids only from SCENE.
 
-- 固定尺寸先 `create_frame`，再板内落层
-- 节点 id 仅使用 SCENE 已有
-- 需要样本对齐时再从 Skills 目录申请美学类 skill（勿写死 key）
-- 结束后自检：远看是否一眼读出层级与 CTA
+## Related
+`poster_craft` / `landing_page` / `frontend_ui` for surface playbooks; `awesome_design_md` when a brand parameter sheet exists; `ui_ux_pro_max` as craft gate.
+
+## Done when
+Direction is nameable in one phrase; one memory point; anti-defaults cleared; far/near pass; SCENE ids only.

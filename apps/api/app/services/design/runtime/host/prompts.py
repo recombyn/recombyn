@@ -4,6 +4,10 @@ from typing import Any
 
 from app.services.design.prompts.prompt_pack_store import render_prompt_body
 from app.services.design.prompts.rules_text import render_prompt_template
+from app.services.design.runtime.agent_profile import (
+    AgentProfile,
+    get_active_agent_profile,
+)
 
 
 def require_prompt_pack(rules: dict[str, str] | None, key: str, **variables: Any) -> str:
@@ -21,16 +25,20 @@ def require_prompt_pack(rules: dict[str, str] | None, key: str, **variables: Any
     if not text:
         raise RuntimeError(
             f"missing prompt pack: {key} "
-            "(Admin → prompt packs / design_prompt_packs)"
+            "(Admin → 系统提示词 / seeds/design_prompt_packs)"
         )
     return text
 
 
 def interaction_mode_rules_pack(
-    rules: dict[str, str] | None, *, ask_mode: bool
+    rules: dict[str, str] | None,
+    *,
+    ask_mode: bool,
+    profile: AgentProfile | None = None,
 ) -> str:
-    """Mode-only rules: Ask → ask_system; Agent → agent_system."""
-    key = "agent.prompt.ask_system" if ask_mode else "agent.prompt.agent_system"
+    """Mode-only rules: Ask → ask overlay; Agent → agent overlay (from Profile)."""
+    prof = profile or get_active_agent_profile()
+    key = prof.mode_overlay_key(ask_mode=ask_mode)
     try:
         return require_prompt_pack(rules, key)
     except RuntimeError:
@@ -44,15 +52,12 @@ def assemble_stage_system(
     ask_mode: bool,
     persona: str = "",
     catalog_blocks: list[str] | None = None,
+    profile: AgentProfile | None = None,
 ) -> str:
-    """Assemble stage system prompt from Admin packs + Ask/Agent mode pack."""
+    """Assemble stage system prompt from Profile pack keys + Ask/Agent mode pack."""
+    prof = profile or get_active_agent_profile()
     stage_key = str(stage or "").strip().lower()
-    if stage_key == "decide":
-        protocol_key = "agent.prompt.need_tools_overlay"
-    elif stage_key == "paint":
-        protocol_key = "agent.prompt.paint_system"
-    else:
-        raise ValueError(f"unknown prompt stage: {stage}")
+    protocol_key = prof.stage_protocol(stage_key)
 
     parts: list[str] = []
     persona_s = str(persona or "").strip()
@@ -63,9 +68,13 @@ def assemble_stage_system(
             else f"IDENTITY: {persona_s}"
         )
     parts.append(require_prompt_pack(rules, protocol_key))
-    mode_pack = interaction_mode_rules_pack(rules, ask_mode=ask_mode)
-    if mode_pack.strip():
-        parts.append(mode_pack.strip())
+    # Review (and any stage with mode_overlay: false) stays undiluted.
+    if prof.stage_uses_mode_overlay(stage_key):
+        mode_pack = interaction_mode_rules_pack(
+            rules, ask_mode=ask_mode, profile=prof
+        )
+        if mode_pack.strip():
+            parts.append(mode_pack.strip())
     for block in catalog_blocks or []:
         b = str(block or "").strip()
         if b:

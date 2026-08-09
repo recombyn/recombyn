@@ -80,7 +80,7 @@ def _optional_sqlite_index() -> Any | None:
     """IndexConfig for Sqlite/InMemory semantic search (CLIP Embeddings)."""
     try:
         from langgraph.store.base import IndexConfig
-        from app.services.design.aesthetics.clip_encoder import EMB_DIM
+        from app.services.agent_memory.clip_encoder import EMB_DIM
 
         return IndexConfig(
             embed=get_text_embeddings(),
@@ -398,7 +398,7 @@ def embed_long_memory(memory_id: str) -> bool:
                     updated_at=time.time(),
                 )
                 return False
-            from app.services.design.aesthetics.clip_encoder import EMB_DIM, MODEL_ID
+            from app.services.agent_memory.clip_encoder import EMB_DIM, MODEL_ID
 
             crud.update_agent_long_memory_embed(
                 session=session,

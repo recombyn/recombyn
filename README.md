@@ -24,7 +24,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** is a **canvas editor + AI Design Agent** (source-available).  
+**Recombyn** is a **canvas editor + AI Design Agent**.  
 Design on an infinite canvas; a LangGraph agent edits layers, shapes, text, and layout through conversation.
 
 Self-host in minutes with Docker Compose (default **MySQL** + Redis + web + API + **Yjs collab**). Local dev can use **SQLite** (empty `DATABASE_URL`), or **PostgreSQL** — see [docs/postgres-switch.md](docs/postgres-switch.md).
@@ -37,7 +37,7 @@ Self-host in minutes with Docker Compose (default **MySQL** + Redis + web + API 
 - **Live multiplayer** — Yjs sync for the same project (cursors, selection, undo); share view-only or edit
 - **Agent that paints** — Conversation plans and applies canvas ops
 - **Self-host first** — Same stack locally or on a server
-- **Composable** — Infra seeds + prompt packs + **5 core Agent skills** under `apps/api/data/`
+- **Composable** — Infra seeds + prompt packs + **5 core Agent skills** under `apps/api/seeds/`
 
 ## Core features
 
@@ -87,7 +87,8 @@ npm run dev:desktop
 npm run build:desktop:sidecar
 npm run build:desktop
 
-# Cloud desktop — same local API as the browser (:8000 / .env; set VITE_API_BASE_URL only when hosted)
+# Cloud — same API as browser (:8000 / .env)
+# Optional: VITE_API_BASE_URL when hosted
 npm run dev:desktop:cloud
 npm run build:desktop:cloud
 ```
@@ -102,7 +103,7 @@ apps/web/          React canvas + Agent UI + Yjs client
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket server (y-websocket)
 packages/          Shared builders & schemas
-docs/              self-hosting + desktop (engineering)
+docs/              self-hosting, agent-profile, desktop, canvas & web frontend
 deploy/            Dockerfiles / Nginx
 e2e/               Playwright
 ```
@@ -115,6 +116,10 @@ User-facing help **source** is private; CI publishes only the built static site 
 |--|--|
 | User docs | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
+| AgentProfile / sub-agents | [docs/agent-profile.md](docs/agent-profile.md) |
+| Canvas (RCB / SVG / Path2D / LOD) | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
+| Web data layer (Query / oRPC / nuqs) | [docs/web-frontend.md](docs/web-frontend.md) |
+| Scene JSON | [docs/scene-json-spec.md](docs/scene-json-spec.md) |
 | Desktop | [docs/desktop.md](docs/desktop.md) |
 | Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
 | Contributing · Security · CoC | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |

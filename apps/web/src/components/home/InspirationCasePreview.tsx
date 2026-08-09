@@ -370,7 +370,7 @@ function InspirationCasePreview({
   const prompt = resolveCasePrompt(caseMeta, t);
   const categoryLabel = t(`home.cases.cat.${normalizeCaseCategory(caseMeta.category)}`);
   const hasDoc = Boolean(activePanelUrl?.url || previewDoc);
-  const onShare = () => void shareCasePreview(title, author);
+  const onShare = () => shareCasePreview(title, author);
 
   return (
     <FloatingPortal>
@@ -515,7 +515,7 @@ function InspirationCasePreview({
                     <button
                       type="button"
                       aria-label={t('home.cases.share')}
-                      onClick={() => void onShare()}
+                      onClick={() => onShare()}
                       className="inline-flex items-center"
                     >
                       <HiOutlineShare className="h-4 w-4" strokeWidth={1.75} />
@@ -613,7 +613,7 @@ function InspirationCasePreview({
                   <button
                     type="button"
                     aria-label={t('home.cases.share')}
-                    onClick={() => void onShare()}
+                    onClick={() => onShare()}
                     className="inline-flex items-center transition hover:text-[var(--ink)]"
                   >
                     <HiOutlineShare className="h-4 w-4" strokeWidth={1.75} />

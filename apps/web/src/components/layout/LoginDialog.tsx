@@ -10,30 +10,19 @@ import {
   verifyEmailCode,
   verifySliderCaptcha,
   type SliderCaptchaChallenge,
-} from '@/apis/auth';
+} from '@/service/auth';
 import { setSession } from '@/store/modules/auth';
 import { cn } from '@/utils/classnames';
 import { isLoginOpen, readReturnToParam } from '@/utils/authReturnTo';
 import { docsUrl } from '@/utils/docsUrl';
 import { GOOGLE_CLIENT_ID, startGoogleOAuthRedirect } from '@/utils/googleOAuth';
 import { getToken } from '@/utils/token';
+import { getHttpErrorDetail, getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import { HiArrowPath, HiCheck, HiChevronDoubleRight, HiOutlineXMark } from 'react-icons/hi2';
 
-function apiDetail(err: unknown): string | null {
-  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-  if (typeof detail === 'string') return detail;
-  if (detail && typeof detail === 'object' && 'message' in detail) {
-    const msg = (detail as { message?: unknown }).message;
-    if (typeof msg === 'string') return msg;
-  }
-  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg);
-  return null;
-}
-
 function isNeedCaptcha(err: unknown): boolean {
-  const status = (err as { response?: { status?: number } })?.response?.status;
-  if (status === 428) return true;
-  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (getHttpStatus(err) === 428) return true;
+  const detail = getHttpErrorDetail(err);
   if (detail && typeof detail === 'object' && (detail as { code?: string }).code === 'need_captcha') {
     return true;
   }
@@ -168,7 +157,7 @@ function LoginSliderCaptcha({
 
   // First enter captcha panel (parent only mounts when showCaptcha) — not open-listen refetch.
   useEffect(() => {
-    void reload();
+    reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -248,7 +237,7 @@ function LoginSliderCaptcha({
       window.setTimeout(() => onVerified(res.captchaToken), 700);
     } catch {
       setStatus('error');
-      window.setTimeout(() => void reload(), 500);
+      window.setTimeout(() => reload(), 500);
     } finally {
       t0Ref.current = 0;
     }
@@ -306,7 +295,7 @@ function LoginSliderCaptcha({
           <button
             type="button"
             className="absolute right-1.5 top-1.5 z-[2] rounded bg-black/35 px-1.5 py-0.5 text-[11px] text-white hover:bg-black/50 disabled:opacity-40"
-            onClick={() => void reload()}
+            onClick={() => reload()}
             disabled={status === 'verify' || status === 'success' || status === 'loading'}
             aria-label={t('auth.captchaRefresh')}
           >
@@ -344,7 +333,7 @@ function LoginSliderCaptcha({
             style={{ left: TRACK_PAD + sliderX }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
-            onPointerUp={() => void onPointerUp()}
+            onPointerUp={() => onPointerUp()}
             onPointerCancel={() => {
               pressedRef.current = false;
               t0Ref.current = 0;
@@ -376,7 +365,7 @@ function LoginSliderCaptcha({
         <button
           type="button"
           className="mt-3 text-[12px] text-[var(--muted)] underline-offset-2 hover:underline"
-          onClick={() => void reload()}
+          onClick={() => reload()}
           disabled={status === 'verify' || status === 'success' || status === 'loading'}
         >
           {t('auth.captchaRefresh') || '换一张'}
@@ -504,7 +493,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
   };
 
   const onGetCode = async () => {
-    if (!ensureAgreedTerms(() => void onGetCode())) return;
+    if (!ensureAgreedTerms(() => onGetCode())) return;
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || !trimmed.includes('@')) {
       message.error(t('auth.invalidEmail'));
@@ -516,14 +505,14 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
       await trySendCode(pendingCaptchaToken);
     } catch (err) {
       if (isNeedCaptcha(err)) openCaptcha('send-code');
-      else message.error(apiDetail(err) || t('auth.sendFailed'));
+      else message.error(getHttpErrorMessage(err, t('auth.sendFailed')));
     } finally {
       setBusy(false);
     }
   };
 
   const onLogin = async () => {
-    if (!ensureAgreedTerms(() => void onLogin())) return;
+    if (!ensureAgreedTerms(() => onLogin())) return;
     const trimmed = email.trim().toLowerCase();
     const codeTrim = code.trim();
     if (!trimmed || !trimmed.includes('@')) {
@@ -556,7 +545,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
       );
     } catch (err) {
       if (isNeedCaptcha(err)) openCaptcha('send-code');
-      else message.error(apiDetail(err) || t('auth.codeInvalid'));
+      else message.error(getHttpErrorMessage(err, t('auth.codeInvalid')));
     } finally {
       setBusy(false);
     }
@@ -583,12 +572,12 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                 await trySendCode(token);
               } catch (err: unknown) {
                 if (isNeedCaptcha(err)) openCaptcha('send-code');
-                else message.error(apiDetail(err) || t('auth.sendFailed'));
+                else message.error(getHttpErrorMessage(err, t('auth.sendFailed')));
               } finally {
                 setBusy(false);
               }
             }
-            void retrySendCodeAfterCaptcha();
+            retrySendCodeAfterCaptcha();
           }}
         />
       ) : null}
@@ -688,7 +677,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') void onGetCode();
+                    if (e.key === 'Enter') onGetCode();
                   }}
                   className="!h-11 !rounded-lg !border-[#e5e5e5] !bg-white !px-3.5 !text-[#1a1a1a] placeholder:!text-[#aaa]"
                 />
@@ -705,14 +694,14 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') void onLogin();
+                      if (e.key === 'Enter') onLogin();
                     }}
                     className="!h-11 !rounded-lg !border-[#e5e5e5] !bg-white !px-3.5 !pr-24 !text-[#1a1a1a] placeholder:!text-[#aaa]"
                   />
                   <button
                     type="button"
                     disabled={busy || resendLeft > 0}
-                    onClick={() => void onGetCode()}
+                    onClick={() => onGetCode()}
                     className={cn(
                       'absolute right-3 top-1/2 -translate-y-1/2 text-[13px] font-medium text-[#333] transition hover:text-[#111]',
                       (busy || resendLeft > 0) && 'cursor-not-allowed opacity-50 hover:text-[#333]',
@@ -769,7 +758,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                   type="primary"
                   className="!h-11 !w-full !rounded-lg !border-none !bg-[#1a1a1a] !text-[14px] !font-medium !text-white hover:!bg-[#333]"
                   disabled={busy}
-                  onClick={() => void onLogin()}
+                  onClick={() => onLogin()}
                 >
                   {busy ? t('auth.sending') : t('auth.login')}
                 </Button>

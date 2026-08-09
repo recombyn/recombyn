@@ -2,81 +2,59 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useDispatch, useSelector } from 'react-redux';
 import {
   addNodeToDocument,
-  createImageNode,
-  createShapeNode,
-  createTextNode,
-  expandSelectionWithGroups,
-  fitImageSize,
-  groupNodesInDocument,
-  isNodeHidden,
-  isNodeLocked,
-  measureImageNaturalSize,
-  prepareVideoUploadPreview,
   removeNodesFromDocument,
   reorderNodesInDocument,
   listSceneNodes,
-  resolveSelectionNodeIds,
-  nodeIdsInsideFrames,
-  selectionSharedGroupId,
-  supportsFill,
-  ungroupNodesInDocument,
   updateNodeInDocument,
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createImageNode,
+  createShapeNode,
+  measureImageNaturalSize,
+  parseLottieAnimationData,
+  prepareVideoUploadPreview,
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
+  expandSelectionWithGroups,
+  selectionSharedGroupId,
+} from '@/components/rcb/scene/document/sceneGroups';
+import {
+  isNodeHidden,
+  isNodeLocked,
   isVideoNode,
-  isLottieNode,
-  isAudioNode,
   isExportableSceneNode,
   isGeneratorNode,
-  parseLottieAnimationData,
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  resolveSelectionNodeIds,
+  nodeIdsInsideFrames,
   type SceneClipboardPayload,
-} from '@/components/rcb/scene/document/sceneDocument';
+} from '@/components/rcb/scene/document/sceneClipboard';
 import {
   loadSceneOntoSvg,
   nodeLeftTop,
-  clearSceneDragPreview,
-  dedupeSceneNode,
-  previewSvgNodeAngle,
-  previewSvgNodeGeometry,
-  purgeOrphanSceneNodes,
   stampStrokeBakeZoomBucket,
 } from '@/components/rcb/scene/paint/sceneToSvg';
-import { patchNodesGeometry, sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
+import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import { strokeCenterlineToFilledOutline } from '@/components/rcb/scene/paint/outlineToPath';
 import { computeShapeBoolean, type ShapeBox } from '@/components/rcb/selection/shapeBoolean';
+import { createDragWriteCoalescer } from './dragWriteCoalescer';
 import {
-  HEAVY_PATH_D_CHARS,
-  STROKE_HIT,
-  sceneHitSlop,
-  distPointToPathD,
-  distPointToSegment,
-  hitTestPath2DLocal,
-  hitTestSvgNodeAtClient,
-  pathDContainsPoint,
-  pathStrokeHitsSceneBox,
-  rememberNodePath2D,
-  strokeEndpointsFromBox,
-  strokeNodeFromEndpoints,
-} from '@/components/rcb/scene/document/sceneShapes';
+  createCanvasSession,
+  layoutGeneratorPlateAtScene,
+} from './canvasSession';
+import { runCanvasCtxAction } from './runCanvasCtxAction';
 import {
-  deflateSelectionBox,
-  inflateBoxByVisualOutset,
-  inflateSelectionBox,
-  resolveStroke,
-  resolveStrokeAlign,
-} from '@/components/rcb/scene/document/sceneEffects';
-import { getShapeBaselineD } from '@/components/rcb/core/geometry';
-import { setSceneHitTestBridge } from '@/components/rcb/scene/document/sceneHitBridge';
-import { RcbSpatialIndex, nodeSceneAabb } from '@/components/rcb/core/spatialIndex';
+  setSceneHitTestBridge,
+} from '@/components/rcb/scene/document/sceneHitBridge';
+import { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
 import { useSvgBoard } from '@/components/rcb/canvas/useSvgBoard';
 import {
   RcbShapesLayer,
   replaceShapePaint,
   setSharedNodeEls,
-  getShapeHost,
   listShapeHosts,
-  rcbFitImageIntoViewport,
-  rcbLayoutGeneratorPlate,
   rcbScreenToScene,
-  GENERATOR_EMPTY_STROKE_OUTSET,
   type SvgBoardHandle,
 } from '@/components/rcb';
 import {
@@ -88,15 +66,11 @@ import {
   readFileAsDataUrl,
   waitForImageReady,
 } from '@/utils/uploadImage';
-import { registerAsset } from '@/apis/assets';
+import { registerAsset } from '@/service/assets';
+import { getHttpErrorMessage } from '@/service/client';
 import store from '@/store';
 import { message } from '@/components/base';
-import { exportFabricImage, exportCropSlots, type ExportImageFormat } from '@/components/rcb/scene/paint/exportImage';
 import { useTranslation } from 'react-i18next';
-import {
-  parseNodeText,
-  parseNodeTextStyle,
-} from '@/components/rcb/scene/document/sceneText';
 import {
   cssPreviewForGradient,
   parseFillGradient,
@@ -108,7 +82,6 @@ import {
   setActiveFrameId,
   setSelectedFrameIds,
   setMixedSelection,
-  updateArtboardFrame,
   updateArtboardFrames,
   setActiveTool,
   setDocument,
@@ -122,10 +95,6 @@ import {
   startVideoUploadPlaceholder,
   finishImageProcess,
   failImageProcess,
-  spawnImageGenerator,
-  spawnVideoGenerator,
-  spawnLottieGenerator,
-  spawnAudioGenerator,
   spawnLottie,
   spawnAudio,
   undo,
@@ -150,7 +119,6 @@ import {
 } from '@/components/editor/collab/collabRuntime';
 import SvgPaper from './SvgPaper';
 import { pointerToWorld, type ArtboardRect } from './pointerToWorld';
-import { createDragWriteCoalescer } from './dragWriteCoalescer';
 import {
   attachPickFilterOpts,
   ctxMenuSeedFrameIds,
@@ -175,14 +143,11 @@ import {
   PenDrawFeature,
   PenPathEditFeature,
   BucketFillFeature,
-  findPencilBrush,
+  DEFAULT_PENCIL_BRUSH_ID,
   STAMP_TINT_READY_EVENT,
   rcbCenterOnPoint,
   getDocumentGridSize,
-  snapCoordToGrid,
-  rcbDefaultPlaceFontSize,
 } from '@/components/rcb';
-import { parseFrameSelId } from '@/components/rcb/selection/SelectionFeature';
 import ImageProcessOverlay from '@/components/editor/nodes/ImageNode/ImageProcessOverlay';
 import ImageGeneratorOverlay from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorOverlay';
 import VideoGeneratorOverlay from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorOverlay';
@@ -197,11 +162,9 @@ import VideoNodeOverlay, {
 import LottieNodeOverlay, {
   type LottieGeomOverride,
 } from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
-import { downloadVideoNodeAsset } from '@/components/editor/nodes/VideoNode/VideoDownloadButton';
-import { replaceImageNodeFromFile } from '@/components/editor/nodes/ImageNode/ImageReplaceUploadControl';
-import { replaceVideoNodeFromFile } from '@/components/editor/nodes/VideoNode/VideoReplaceCornerButton';
 import type { PencilEraseStroke } from '@/components/rcb';
 import { erasePencilNode } from '@/components/rcb';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import TextInlineEditor from '@/components/editor/nodes/TextNode/TextInlineEditor';
 import CanvasContextMenu, {
   type ContextMenuState,
@@ -213,51 +176,10 @@ import {
   useRcbViewportEl,
 } from '@/components/rcb';
 
-type SceneBox = { left: number; top: number; width: number; height: number };
-
 const EMPTY_NODE_IDS: string[] = [];
 
-/** Fit generator plate to viewport, center on scene click (or fallback), snap to grid. */
-function layoutGeneratorPlateAtScene(opts: {
-  document: any;
-  camera: { zoom?: number };
-  stageEl: HTMLElement | null;
-  natural: { width: number; height: number };
-  center: { x: number; y: number } | null;
-  fit?: { minRatio?: number; maxRatio?: number };
-}): { x: number; y: number; width: number; height: number } {
-  const doc = opts.document;
-  const fallback = { x: 40, y: 40, width: 360, height: 360 };
-  if (!doc) return fallback;
-  const view = opts.stageEl?.getBoundingClientRect();
-  const zoom = Math.max(0.05, Number(opts.camera?.zoom) || 1);
-  const center =
-    opts.center && Number.isFinite(opts.center.x) && Number.isFinite(opts.center.y)
-      ? opts.center
-      : { x: 40 + fallback.width / 2, y: 40 + fallback.height / 2 };
-  if (!view || view.width <= 0 || view.height <= 0) {
-    const origin = sceneToDocumentCoords(
-      doc,
-      center.x - fallback.width / 2,
-      center.y - fallback.height / 2
-    );
-    return { ...fallback, x: origin.x, y: origin.y };
-  }
-  const laid = rcbLayoutGeneratorPlate({
-    natural: opts.natural,
-    viewport: { width: view.width, height: view.height },
-    zoom,
-    center,
-    gridSize: getDocumentGridSize(doc),
-    visualOutset: GENERATOR_EMPTY_STROKE_OUTSET,
-    fit: opts.fit,
-  });
-  const origin = sceneToDocumentCoords(doc, laid.left, laid.top);
-  return { x: origin.x, y: origin.y, width: laid.width, height: laid.height };
-}
-
 type SvgCanvasProps = {
-  document: any;
+  document: SceneDocument;
   readOnly?: boolean;
   /**
    * Skip image/video-generator plates and process-shimmer (share preview / export-like view).
@@ -275,7 +197,7 @@ type SvgCanvasProps = {
   onReady?: () => void;
   /** Open the editor AI agent dock (selection contextual bar). */
   onOpenAgent?: (opts?: { prompt?: string }) => void;
-  /** Right-click 「添加到 Chat」— one node id, `frame:id`, or multiple selected ids as one group. */
+  /** Right-click 銆屾坊鍔犲埌 Chat銆嶁€?one node id, `frame:id`, or multiple selected ids as one group. */
   onAddToChat?: (target: string | string[]) => void;
   /** When true, paper has no outer shadow (hosted inside HtmlArtboardFrame). */
   embedded?: boolean;
@@ -325,7 +247,9 @@ function SvgCanvas({
     const n = Number(s.editor.penStrokeWidth);
     return Number.isFinite(n) && n > 0 ? n : 1;
   });
-  const pencilBrushId = useSelector((s: any) => String(s.editor.pencilBrushId || 'solid'));
+  const pencilBrushId = useSelector((s: any) =>
+    String(s.editor.pencilBrushId || DEFAULT_PENCIL_BRUSH_ID)
+  );
   const pencilEraseMode = useSelector((s: any) => Boolean(s.editor.pencilEraseMode));
   const pencilPressureEnabled = useSelector((s: any) =>
     s.editor.pencilPressureEnabled !== false
@@ -467,10 +391,6 @@ function SvgCanvas({
   );
   const overlayRoot = useRcbOverlayRoot();
 
-  const publishVideoLiveGeom = useCallback((next: Record<string, VideoGeomOverride> | null) => {
-    dragWriteCoalesceRef.current.queueVideoGeom(next);
-  }, []);
-
   const onGeometryTransformingChange = useCallback((next: boolean) => {
     setGeometryTransforming(next);
     if (!next) {
@@ -540,7 +460,7 @@ function SvgCanvas({
     } catch {
       /* ignore */
     }
-  }, [infinite, paperW, paperH, boardEpoch]);
+  }, [infinite, paperW, paperH, boardEpoch, boardRef]);
 
   useEffect(() => {
     if (infinite) {
@@ -569,7 +489,7 @@ function SvgCanvas({
       onReady?.();
     }
     void loadScene();
-  }, [document, reloadToken, boardEpoch, onReady, infinite, omitNonExportable]);
+  }, [document, reloadToken, boardEpoch, onReady, infinite, omitNonExportable, boardRef]);
 
   useEffect(() => {
     if (!documentPatchToken || geometryTransforming) return;
@@ -582,7 +502,7 @@ function SvgCanvas({
       if (!id) return;
       void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
     });
-  }, [documentPatchToken, lastPatchedNodeIds, geometryTransforming]);
+  }, [documentPatchToken, lastPatchedNodeIds, geometryTransforming, boardRef]);
 
   // Stamp tip tint may resolve after first paint ? refresh pencil stamp strokes.
   useEffect(() => {
@@ -599,11 +519,11 @@ function SvgCanvas({
     listSceneNodes(doc).forEach(({ id, node }) => {
       if (node?.key !== 'shape') return;
       if (String(node.attrs?.shapeType || '') !== 'pencil') return;
-      const stamp = node.attrs?.brushStampSrc || findPencilBrush(node.attrs?.brushStyle).stampSrc;
+      const stamp = node.attrs?.brushStampSrc;
       if (!stamp) return;
       void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
     });
-  }, [stampTintEpoch]);
+  }, [stampTintEpoch, boardRef]);
 
   // Tip strokes are raster baked — rebake at higher zoom so they don't go soft.
   const stampBakeZoomRef = useRef(0);
@@ -622,383 +542,102 @@ function SvgCanvas({
       listSceneNodes(doc).forEach(({ id, node }) => {
         if (node?.key !== 'shape') return;
         if (String(node.attrs?.shapeType || '') !== 'pencil') return;
-        const stamp =
-          node.attrs?.brushStampSrc || findPencilBrush(node.attrs?.brushStyle).stampSrc;
+        const stamp = node.attrs?.brushStampSrc;
         if (!stamp) return;
         void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
       });
     }, 140);
     return () => window.clearTimeout(t);
-  }, [camera.zoom]);
+  }, [camera.zoom, boardRef]);
 
-  const listNodeIds = useCallback(() => {
-    const doc = documentRef.current;
-    const page = doc?.pages?.find((p: any) => p.id === doc?.activePageId) || doc?.pages?.[0];
-    const fromPage = page?.children;
-    if (Array.isArray(fromPage) && fromPage.length) return [...fromPage];
-    return [...(doc?.deltaSetLike?.ROOT?.children || [])];
-  }, []);
+  const cameraZoomRef = useRef(camera.zoom);
+  cameraZoomRef.current = camera.zoom;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  const overlayRootRef = useRef(overlayRoot);
+  overlayRootRef.current = overlayRoot;
+  const paperElRef = useRef(paperEl);
+  paperElRef.current = paperEl;
+  // boardRef identity flips with infinite mode — hold the live ref object.
+  const boardRefHolder = useRef(boardRef);
+  boardRefHolder.current = boardRef;
 
-  /** Spatial index — full rebuild on reload; incremental upsert on patched ids. */
-  const spatialIndexRef = useRef(new RcbSpatialIndex(256));
-  const spatialReloadRef = useRef<number | string | null>(null);
+  /**
+   * Spatial index — owned by SceneSpatialRuntime (reload / membership / patch).
+   * Never rebuild every AABB because size drifted by 1.
+   */
+  const spatialRuntimeRef = useRef(new SceneSpatialRuntime(256));
+  const session = useMemo(
+    () =>
+      createCanvasSession({
+        getDocument: () => documentRef.current,
+        setDocumentLocal: (doc) => {
+          documentRef.current = doc;
+        },
+        getBoard: () => boardRefHolder.current.current,
+        getZoom: () => cameraZoomRef.current,
+        isReadOnly: () => readOnlyRef.current,
+        dispatch,
+        spatial: spatialRuntimeRef.current,
+        setEditingTextId,
+        measureViewport: () =>
+          overlayRootRef.current?.getBoundingClientRect() ||
+          paperElRef.current?.parentElement?.getBoundingClientRect() ||
+          null,
+        getDragWriteCoalescer: () => dragWriteCoalesceRef.current,
+        getFrameGeomHistoryPushed: () => frameGeomHistoryPushedRef.current,
+        setFrameGeomHistoryPushed: (next) => {
+          frameGeomHistoryPushedRef.current = next;
+        },
+        publishVideoLiveGeom: (next) => {
+          dragWriteCoalesceRef.current.queueVideoGeom(next);
+        },
+        clearVideoLiveGeom: () => {
+          setVideoLiveGeomRef.current(null);
+        },
+      }),
+    [dispatch]
+  );
+  const {
+    listNodeIds,
+    getNodeBox,
+    hitTest,
+    hitTestFrame,
+    queryNodeIdsInRect,
+    finishToSelect,
+    onCreateShape,
+    onPlaceText,
+    imageSizeForViewport,
+    placeImageAt,
+    onGeometryCommit,
+    onGeometryPreview,
+    onAngleCommit,
+    onAnglePreview,
+  } = session;
+
   const nodeSpatialIndex = useMemo(() => {
-    const idx = spatialIndexRef.current;
+    const runtime = spatialRuntimeRef.current;
     const doc = document;
     if (!doc) {
-      idx.clear();
-      spatialReloadRef.current = null;
-      return idx;
+      runtime.clear();
+      return runtime.index;
     }
     const page = doc?.pages?.find((p: any) => p.id === doc?.activePageId) || doc?.pages?.[0];
     const fromPage = page?.children;
-    const ids: string[] = Array.isArray(fromPage) && fromPage.length
-      ? [...fromPage]
-      : [...(doc?.deltaSetLike?.ROOT?.children || [])];
-    // Drift (add/delete without reloadToken) → full rebuild so cull stays correct.
-    const needFull =
-      spatialReloadRef.current !== reloadToken ||
-      idx.size === 0 ||
-      ids.length < 48 ||
-      Math.abs(idx.size - ids.length) > 0;
-    if (needFull) {
-      idx.clear();
-      for (const id of ids) {
-        const box = nodeSceneAabb(doc, id, 32);
-        if (!box) continue;
-        idx.upsert({ id, ...box });
-      }
-      spatialReloadRef.current = reloadToken;
-      return idx;
-    }
-    // Incremental: refresh only nodes touched by the latest patch.
-    if (!lastPatchedNodeIds.length) return idx;
-    for (const id of lastPatchedNodeIds) {
-      if (!doc.deltaSetLike?.[id]) {
-        idx.remove(String(id));
-        continue;
-      }
-      const box = nodeSceneAabb(doc, id, 32);
-      if (!box) idx.remove(String(id));
-      else idx.upsert({ id: String(id), ...box });
-    }
-    return idx;
-  }, [document, documentPatchToken, reloadToken, lastPatchedNodeIds]);
-
-  const queryNodeIdsInRect = useCallback(
-    (box: { left: number; top: number; width: number; height: number }) => {
-      const all = listNodeIds();
-      // Always prefer spatial hits — returning every node on small docs made distant
-      // posters steal center-align guides; keep snaps to nearby / same-artboard targets.
-      const hits = nodeSpatialIndex.search(
-        box.left,
-        box.top,
-        box.left + box.width,
-        box.top + box.height
-      );
-      if (!hits.length) return [];
-      const allow = new Set(hits.map((h) => h.id));
-      // Keep document z-order.
-      return all.filter((id) => allow.has(id));
-    },
-    [listNodeIds, nodeSpatialIndex]
-  );
-
-  const getNodeBox = useCallback((nodeId: string): SceneBox | null => {
-    const doc = documentRef.current;
-    const node = doc?.deltaSetLike?.[nodeId];
-    if (!node) return null;
-    const { left, top } = nodeLeftTop(doc, node);
-    const geom: SceneBox = {
-      left,
-      top,
-      width: Math.max(1, Number(node.width) || 1),
-      height: Math.max(1, Number(node.height) || 1),
-    };
-    // Control box = path + stroke visual outer (resize / rotate follow ink).
-    return inflateSelectionBox(geom, node);
-  }, []);
-
-  /** Persist chrome box → stored path geometry. */
-  const toGeometryPatches = useCallback(
-    (
-      doc: any,
-      patches: Array<{ nodeId: string; left: number; top: number; width: number; height: number }>
-    ) =>
-      patches.map((p) => {
-        const node = doc?.deltaSetLike?.[p.nodeId];
-        const deflated = deflateSelectionBox(p, node);
-        return {
-          ...p,
-          left: deflated.left,
-          top: deflated.top,
-          width: deflated.width,
-          height: deflated.height,
-        };
-      }),
-    []
-  );
-  const hitTest = useCallback(
-    (x: number, y: number, screen?: { clientX: number; clientY: number }) => {
-      const doc = documentRef.current;
-      const board = boardRef.current;
-      // Infinite paper is 0×0 — always use camera zoom (page-space margin).
-      const zoom = Math.max(0.05, camera.zoom || 1);
-      // ~12 CSS px slop → scene units (must scale with zoom; raw STROKE_HIT as
-      // scene pad ≈ 480px fat finger at 4000% and blocks blank-click deselect).
-      const pad = sceneHitSlop(zoom);
-      const allIds = listNodeIds();
-      let order = [...allIds].reverse();
-      // Large scenes: only test spatially nearby candidates (z-order preserved among them).
-      // Falling through the full list made hover O(N) even with an index.
-      if (allIds.length >= 48) {
-        const nearby = nodeSpatialIndex.searchPoint(x, y, pad + 64 / zoom);
-        if (nearby.length) {
-          const allow = new Set(nearby.map((n) => n.id));
-          order = order.filter((id) => allow.has(id));
-        }
-      }
-      for (const id of order) {
-        const node = doc?.deltaSetLike?.[id];
-        if (!node || isNodeHidden(node)) continue;
-        const box = getNodeBox(id);
-        if (!box) continue;
-        const shapeType = String(node.attrs?.shapeType || '');
-        if (shapeType === 'line' || shapeType === 'arrow') {
-          const angle = Number(node.attrs?.angle) || 0;
-          const geom = deflateSelectionBox(box, node);
-          const d = getShapeBaselineD(node, {
-            width: Math.max(1, geom.width),
-            height: Math.max(1, geom.height),
-          });
-          if (d) {
-            let lx = x - geom.left;
-            let ly = y - geom.top;
-            if (Math.abs(angle) > 0.5) {
-              const cx = geom.width / 2;
-              const cy = geom.height / 2;
-              const rad = (-angle * Math.PI) / 180;
-              const dx = lx - cx;
-              const dy = ly - cy;
-              lx = dx * Math.cos(rad) - dy * Math.sin(rad) + cx;
-              ly = dx * Math.sin(rad) + dy * Math.cos(rad) + cy;
-            }
-            const { strokeWidth: sw } = resolveStroke(node, '#333333');
-            // Painted stroke + screen slop (not Math.max(sw, STROKE_HIT) in scene units).
-            const hitW = Math.max(sw > 0 ? sw : 2, 0) + pad * 2;
-            rememberNodePath2D(id, d);
-            if (hitTestPath2DLocal(d, lx, ly, { strokeWidth: hitW, lineCap: 'round', lineJoin: 'round' })) {
-              return id;
-            }
-          }
-          const ep = strokeEndpointsFromBox(box, angle);
-          if (distPointToSegment(x, y, ep.x0, ep.y0, ep.x1, ep.y1) <= pad) {
-            return id;
-          }
-          continue;
-        }
-        // Pen: stroke only. Pencil / closed filled path (e.g. boolean): fill + stroke.
-        if (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'path') {
-          const sw = Math.max(
-            1,
-            Number(node.attrs?.borderWidth ?? node.attrs?.['border-width'] ?? 2) || 2
-          );
-          const pathPad = sw / 2 + sceneHitSlop(zoom, 10);
-          // Closed boolean/path fills: hit interior, not only the outline.
-          const fillHit = shapeType !== 'pen' && supportsFill(node);
-          const inLooseBox =
-            x >= box.left - pathPad &&
-            x <= box.left + box.width + pathPad &&
-            y >= box.top - pathPad &&
-            y <= box.top + box.height + pathPad;
-          if (!inLooseBox) continue;
-
-          const d = String(node.attrs?.path || node.attrs?.d || '');
-          const heavyPath = d.length >= HEAVY_PATH_D_CHARS;
-
-          // Path2D cache: local fill/stroke hit (works while SVG host remounts).
-          const angle = Number(node.attrs?.angle) || 0;
-          let lx = x - box.left;
-          let ly = y - box.top;
-          if (Math.abs(angle) > 0.5) {
-            const cx = box.width / 2;
-            const cy = box.height / 2;
-            const rad = (-angle * Math.PI) / 180;
-            const dx = lx - cx;
-            const dy = ly - cy;
-            lx = dx * Math.cos(rad) - dy * Math.sin(rad) + cx;
-            ly = dx * Math.sin(rad) + dy * Math.cos(rad) + cy;
-          }
-          if (!heavyPath && d) {
-            rememberNodePath2D(id, d);
-            const hitW = sw + pathPad * 2;
-            if (
-              hitTestPath2DLocal(d, lx, ly, {
-                fill: fillHit,
-                strokeWidth: hitW,
-                fillRule:
-                  String(node.attrs?.['fill-rule'] || 'nonzero') === 'evenodd'
-                    ? 'evenodd'
-                    : 'nonzero',
-                lineCap: shapeType === 'pencil' ? 'round' : 'round',
-                lineJoin: 'round',
-              })
-            ) {
-              return id;
-            }
-          }
-
-          const svgEl = board?.nodeEls?.get(id);
-          if (svgEl && screen) {
-            const mode = shapeType === 'pencil' || fillHit ? 'auto' : 'stroke';
-            const hitW = sw + pathPad * 2;
-            if (
-              hitTestSvgNodeAtClient(svgEl, screen.clientX, screen.clientY, {
-                mode,
-                strokeHitWidth: hitW,
-              })
-            ) {
-              return id;
-            }
-            // Outlined text: trust DOM isPointInFill/Stroke — re-parsing the full
-            // multi-glyph `d` on every pointermove freezes the page.
-            if (heavyPath) continue;
-          }
-
-          // Unmounted / DOM miss: heavy paths → AABB only (never sample 12KB+ d).
-          if (heavyPath) {
-            if (
-              fillHit &&
-              lx >= 0 &&
-              ly >= 0 &&
-              lx <= box.width &&
-              ly <= box.height
-            ) {
-              return id;
-            }
-            continue;
-          }
-          if (fillHit) {
-            const rule = String(node.attrs?.['fill-rule'] || 'nonzero');
-            if (pathDContainsPoint(lx, ly, d, rule)) return id;
-          }
-          if (distPointToPathD(lx, ly, d) <= pathPad) return id;
-          continue;
-        }
-
-        // Geo shapes (rect/circle/star/…): Path2D baseline hit — same `d` as paint + selection chrome.
-        const key = String(node.key || '');
-        const isGeoShape =
-          key === 'shape' ||
-          key === 'rect' ||
-          key === 'ellipse' ||
-          shapeType === 'rect' ||
-          shapeType === 'roundRect' ||
-          shapeType === 'circle' ||
-          shapeType === 'triangle' ||
-          shapeType === 'star' ||
-          shapeType === 'polygon';
-        if (isGeoShape) {
-          const geom = deflateSelectionBox(box, node);
-          const gw = Math.max(1, geom.width);
-          const gh = Math.max(1, geom.height);
-          const d = getShapeBaselineD(node, { width: gw, height: gh });
-          const angle = Number(node.attrs?.angle) || 0;
-          if (d) {
-            let lx = x - geom.left;
-            let ly = y - geom.top;
-            if (Math.abs(angle) > 0.5) {
-              const cx = gw / 2;
-              const cy = gh / 2;
-              const rad = (-angle * Math.PI) / 180;
-              const dx = lx - cx;
-              const dy = ly - cy;
-              lx = dx * Math.cos(rad) - dy * Math.sin(rad) + cx;
-              ly = dx * Math.sin(rad) + dy * Math.cos(rad) + cy;
-            }
-            const { stroke, strokeWidth: sw } = resolveStroke(node, '#333333');
-            const align = resolveStrokeAlign(node.attrs);
-            // Match painted ink + screen slop. Never Math.max(sw, 12) in scene units.
-            const strokeHit =
-              stroke && stroke !== 'transparent' && sw > 0
-                ? (align === 'outside' ? sw * 2 : sw) + pad * 2
-                : 0;
-            rememberNodePath2D(id, d);
-            if (
-              hitTestPath2DLocal(d, lx, ly, {
-                fill: supportsFill(node),
-                strokeWidth: strokeHit,
-                lineCap: 'butt',
-                lineJoin: 'miter',
-              })
-            ) {
-              return id;
-            }
-          }
-          // Fallback AABB (visual outset) when Path2D unavailable / exotic paints.
-          const hitBox = inflateBoxByVisualOutset(geom, node);
-          const hitPad = pad;
-          if (Math.abs(angle) > 0.5) {
-            const cx = hitBox.left + hitBox.width / 2;
-            const cy = hitBox.top + hitBox.height / 2;
-            const rad = (-angle * Math.PI) / 180;
-            const dx = x - cx;
-            const dy = y - cy;
-            const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
-            const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
-            if (
-              Math.abs(lx) <= hitBox.width / 2 + hitPad &&
-              Math.abs(ly) <= hitBox.height / 2 + hitPad
-            ) {
-              return id;
-            }
-            continue;
-          }
-          if (
-            x >= hitBox.left - hitPad &&
-            x <= hitBox.left + hitBox.width + hitPad &&
-            y >= hitBox.top - hitPad &&
-            y <= hitBox.top + hitBox.height + hitPad
-          ) {
-            return id;
-          }
-          continue;
-        }
-
-        // Image / text / video / other: visual AABB.
-        const geom = deflateSelectionBox(box, node);
-        const hitBox = inflateBoxByVisualOutset(geom, node);
-        const hitPad = pad;
-        const angle = Number(node.attrs?.angle) || 0;
-        if (Math.abs(angle) > 0.5) {
-          const cx = hitBox.left + hitBox.width / 2;
-          const cy = hitBox.top + hitBox.height / 2;
-          const rad = (-angle * Math.PI) / 180;
-          const dx = x - cx;
-          const dy = y - cy;
-          const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
-          const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
-          if (
-            Math.abs(lx) <= hitBox.width / 2 + hitPad &&
-            Math.abs(ly) <= hitBox.height / 2 + hitPad
-          ) {
-            return id;
-          }
-          continue;
-        }
-        if (
-          x >= hitBox.left - hitPad &&
-          x <= hitBox.left + hitBox.width + hitPad &&
-          y >= hitBox.top - hitPad &&
-          y <= hitBox.top + hitBox.height + hitPad
-        ) {
-          return id;
-        }
-      }
-      return null;
-    },
-    [getNodeBox, listNodeIds, camera.zoom, nodeSpatialIndex]
-  );
+    const childrenSrc: string[] =
+      Array.isArray(fromPage) && fromPage.length
+        ? fromPage
+        : Array.isArray(doc?.deltaSetLike?.ROOT?.children)
+          ? doc.deltaSetLike.ROOT.children
+          : [];
+    return runtime.sync({
+      document: doc,
+      childrenIds: childrenSrc,
+      reloadToken,
+      patchedNodeIds: lastPatchedNodeIds,
+      aabbPad: 32,
+    });
+  }, [document, reloadToken, lastPatchedNodeIds]);
 
   useEffect(() => {
     setSceneHitTestBridge(hitTest);
@@ -1053,24 +692,6 @@ function SvgCanvas({
       dispatch(setCanvasAttachPickBlocked(false));
     };
   }, [canvasAttachPick, stageEl, dispatch, camera]);
-
-  const hitTestFrame = useCallback((x: number, y: number) => {
-    const frames: any[] = Array.isArray(documentRef.current?.frames)
-      ? documentRef.current.frames
-      : [];
-    for (let i = frames.length - 1; i >= 0; i -= 1) {
-      const frame = frames[i];
-      if (!frame || frame.locked || frame.hidden) continue;
-      const fx = Number(frame.x) || 0;
-      const fy = Number(frame.y) || 0;
-      const fw = Math.max(1, Number(frame.width) || 1);
-      const fh = Math.max(1, Number(frame.height) || 1);
-      if (x >= fx && x <= fx + fw && y >= fy && y <= fy + fh) {
-        return String(frame.id);
-      }
-    }
-    return null;
-  }, []);
 
   const onSelectFrame = useCallback(
     (frameId: string | null) => {
@@ -1249,415 +870,6 @@ function SvgCanvas({
     [dispatch, completeCanvasAttachPick]
   );
 
-  const rebuildNodes = useCallback((doc: any, ids: string[]) => {
-    const board = boardRef.current;
-    if (!board || !doc) return;
-    ids.forEach((id) => {
-      void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
-    });
-  }, []);
-
-  /** Line/arrow keep a fixed hit height ? length changes via width only. */
-  const normalizeGeomPatches = useCallback(
-    (
-      doc: any,
-      patches: Array<{ nodeId: string; left: number; top: number; width: number; height: number }>
-    ) =>
-      patches.map((p) => {
-        const t = String(doc?.deltaSetLike?.[p.nodeId]?.attrs?.shapeType || '');
-        if (t !== 'line' && t !== 'arrow') return p;
-        const midY = p.top + p.height / 2;
-        return {
-          ...p,
-          height: STROKE_HIT,
-          top: midY - STROKE_HIT / 2,
-          width: Math.max(1, p.width),
-        };
-      }),
-    []
-  );
-
-  const applyFrameGeometryPatches = useCallback(
-    (
-      patches: Array<{ nodeId: string; left: number; top: number; width: number; height: number }>,
-      opts?: { preview?: boolean }
-    ) => {
-      const nodePatches: typeof patches = [];
-      const frames: Array<{ id: string; x: number; y: number; width: number; height: number }> =
-        [];
-      for (const p of patches) {
-        const fid = parseFrameSelId(p.nodeId);
-        if (fid) {
-          frames.push({
-            id: fid,
-            x: p.left,
-            y: p.top,
-            width: Math.max(1, p.width),
-            height: Math.max(1, p.height),
-          });
-        } else {
-          nodePatches.push(p);
-        }
-      }
-      if (!frames.length) return { nodePatches, frames };
-      // Live preview only — commit merges frames into the document object below.
-      if (opts?.preview) {
-        // Push pre-gesture doc before the first Redux frame write (same as title-bar
-        // onFrameMoveStart). Nodes are still pre-gesture in Redux during preview.
-        if (!frameGeomHistoryPushedRef.current) {
-          dispatch(pushEditorHistory());
-          frameGeomHistoryPushedRef.current = true;
-        }
-        dragWriteCoalesceRef.current.queueFrames(frames);
-      }
-      return { nodePatches, frames };
-    },
-    [dispatch]
-  );
-
-  const onGeometryCommit = useCallback(
-    (
-      patches: Array<{ nodeId: string; left: number; top: number; width: number; height: number }>,
-      options?: { textResizeMode?: 'scale' | 'wrap'; skipHistory?: boolean }
-    ) => {
-      // Drop coalesced frame previews — commit writes the final document once.
-      dragWriteCoalesceRef.current.cancel();
-      const doc = documentRef.current;
-      const board = boardRef.current;
-      if (!doc || readOnly || !patches.length) return;
-      const { nodePatches, frames } = applyFrameGeometryPatches(patches);
-      let next = doc;
-      if (nodePatches.length) {
-        const normalized = normalizeGeomPatches(doc, toGeometryPatches(doc, nodePatches));
-        next = patchNodesGeometry(doc, normalized, {
-          fitTextBox: true,
-          textResizeMode: options?.textResizeMode,
-        });
-        // Sync SVG for node patches (below). Keep normalized in scope via rebuild from next.
-        documentRef.current = next;
-        if (board) {
-          normalized.forEach((p) => {
-            const el = board.nodeEls.get(p.nodeId) as any;
-            const shapeType = String(
-              el?.sceneShapeType ||
-                el?.attr?.('data-scene-shape-type') ||
-                next?.deltaSetLike?.[p.nodeId]?.attrs?.shapeType ||
-                ''
-            );
-            const isStrokeShape = shapeType === 'line' || shapeType === 'arrow';
-            const isText = next?.deltaSetLike?.[p.nodeId]?.key === 'text';
-            const didResize = Boolean(el?.__sceneDidResize);
-            clearSceneDragPreview(board.nodeEls, p.nodeId);
-            // Images/svg use scale preview while dragging — remount to bake
-            // width/height (and refresh the infinite SVG viewport) on commit.
-            if (didResize || isStrokeShape || isText) {
-              void replaceShapePaint(next, board.nodeEls, p.nodeId, board.root ? board : null);
-              return;
-            }
-            const synced = previewSvgNodeGeometry(board.nodeEls, p.nodeId, p);
-            if (!synced) {
-              void replaceShapePaint(next, board.nodeEls, p.nodeId, board.root ? board : null);
-              return;
-            }
-            const host = getShapeHost(p.nodeId);
-            if (host?.layer) {
-              dedupeSceneNode(host.layer, p.nodeId, board.nodeEls.get(p.nodeId) ?? null);
-            } else if (board.layer) {
-              dedupeSceneNode(board.layer, p.nodeId, board.nodeEls.get(p.nodeId) ?? null);
-            }
-          });
-          const validIds = next?.deltaSetLike?.ROOT?.children || [];
-          if (board.layer) {
-            purgeOrphanSceneNodes(board.layer, board.nodeEls, validIds);
-          } else {
-            [...board.nodeEls.keys()].forEach((id) => {
-              if (!validIds.includes(id)) board.nodeEls.delete(id);
-            });
-          }
-        }
-      }
-      // Merge frame boxes into the same document write so nodes don't clobber frames.
-      if (frames.length) {
-        const byId = new Map(frames.map((f) => [f.id, f]));
-        next = {
-          ...next,
-          frames: (Array.isArray(next.frames) ? next.frames : []).map((f: any) => {
-            const hit = byId.get(String(f?.id));
-            if (!hit) return f;
-            return { ...f, x: hit.x, y: hit.y, width: hit.width, height: hit.height };
-          }),
-        };
-      }
-      documentRef.current = next;
-      // Node-only preview leaves Redux pristine; frame preview already pushed history.
-      if (!options?.skipHistory && !frameGeomHistoryPushedRef.current) {
-        dispatch(pushEditorHistory());
-      }
-      frameGeomHistoryPushedRef.current = false;
-      dispatch(setDocumentFromCanvas(next));
-      // Same React turn as Redux doc — HTML plates must not fall back to stale
-      // coords between commit and onTransformingChange(false).
-      setVideoLiveGeom(null);
-    },
-    [dispatch, readOnly, normalizeGeomPatches, toGeometryPatches, applyFrameGeometryPatches]
-  );
-
-  /** Update SVG only — never replace while dragging (replace races pile ghost copies). */
-  const onGeometryPreview = useCallback(
-    (
-      patches: Array<{ nodeId: string; left: number; top: number; width: number; height: number }>,
-      options?: { textResizeMode?: 'scale' | 'wrap' }
-    ) => {
-      const doc = documentRef.current;
-      const board = boardRef.current;
-      if (!doc || readOnly || !patches.length) return;
-      const { nodePatches } = applyFrameGeometryPatches(patches, { preview: true });
-      if (!nodePatches.length || !board) return;
-      const normalized = normalizeGeomPatches(doc, toGeometryPatches(doc, nodePatches));
-      const next = patchNodesGeometry(doc, normalized, {
-        textResizeMode: options?.textResizeMode,
-      });
-      documentRef.current = next;
-      const videoOverrides: Record<string, VideoGeomOverride> = {};
-      let hasVideo = false;
-      normalized.forEach((p) => {
-        const node = next?.deltaSetLike?.[p.nodeId];
-        const isText = node?.key === 'text';
-        const box =
-          isText && options?.textResizeMode === 'wrap'
-            ? {
-                left: p.left,
-                top: p.top,
-                width: Math.max(1, Number(node.width) || p.width),
-                height: Math.max(1, Number(node.height) || p.height),
-              }
-            : p;
-        if (node?.key === 'video' || node?.key === 'lottie' || node?.key === 'audio') {
-          hasVideo = true;
-          const pending = dragWriteCoalesceRef.current.getPendingVideoGeom()?.[p.nodeId];
-          videoOverrides[p.nodeId] = {
-            left: box.left,
-            top: box.top,
-            width: Math.max(1, box.width),
-            height: Math.max(1, box.height),
-            angle: Number.isFinite(pending?.angle)
-              ? Number(pending!.angle)
-              : Number(node.attrs?.angle) || 0,
-          };
-        }
-        // Per-shape hosts may register before shared nodeEls is wired — recover.
-        if (!board.nodeEls.get(p.nodeId)) {
-          const hostEl = getShapeHost(p.nodeId)?.el;
-          if (hostEl) board.nodeEls.set(p.nodeId, hostEl);
-        }
-        previewSvgNodeGeometry(board.nodeEls, p.nodeId, box, {
-          textResizeMode: options?.textResizeMode,
-          plainText: isText ? parseNodeText(node.attrs || {}) : undefined,
-          textStyle: isText ? parseNodeTextStyle(node.attrs || {}) : undefined,
-        });
-      });
-      // Keep HTML <video> plates glued to chrome (Redux doc is still pre-gesture).
-      if (hasVideo) {
-        publishVideoLiveGeom({
-          ...(dragWriteCoalesceRef.current.getPendingVideoGeom() || {}),
-          ...videoOverrides,
-        });
-      }
-    },
-    [readOnly, normalizeGeomPatches, toGeometryPatches, applyFrameGeometryPatches, publishVideoLiveGeom]
-  );
-
-  const onAngleCommit = useCallback(
-    (nodeId: string, angleDeg: number, options?: { skipHistory?: boolean }) => {
-      if (readOnly || !nodeId) return;
-      const nextAngle = Number(angleDeg.toFixed(2));
-      const doc = documentRef.current;
-      if (doc?.deltaSetLike?.[nodeId]) {
-        const node = doc.deltaSetLike[nodeId];
-        documentRef.current = {
-          ...doc,
-          deltaSetLike: {
-            ...doc.deltaSetLike,
-            [nodeId]: {
-              ...node,
-              attrs: { ...node.attrs, angle: nextAngle },
-            },
-          },
-        };
-      }
-      dispatch(
-        patchDocumentNode({
-          nodeId,
-          patch: { attrs: { angle: nextAngle } },
-          skipHistory: Boolean(options?.skipHistory),
-        })
-      );
-    },
-    [dispatch, readOnly]
-  );
-
-  const onAnglePreview = useCallback(
-    (nodeId: string, angleDeg: number) => {
-      const doc = documentRef.current;
-      const board = boardRef.current;
-      if (!doc || !board || readOnly || !nodeId) return;
-      const node = doc.deltaSetLike?.[nodeId];
-      if (!node) return;
-      const nextAngle = Number(angleDeg.toFixed(2));
-      documentRef.current = {
-        ...doc,
-        deltaSetLike: {
-          ...doc.deltaSetLike,
-          [nodeId]: {
-            ...node,
-            attrs: { ...node.attrs, angle: nextAngle },
-          },
-        },
-      };
-      const synced = previewSvgNodeAngle(board.nodeEls, nodeId, nextAngle, documentRef.current);
-      if (!synced) {
-        void replaceShapePaint(
-          documentRef.current,
-          board.nodeEls,
-          nodeId,
-          board.root ? board : null
-        );
-      }
-      // HTML video / lottie plates read Redux doc — push live angle so rotate tracks chrome.
-      if (isVideoNode(node) || isLottieNode(node) || isAudioNode(node)) {
-        const live = documentRef.current?.deltaSetLike?.[nodeId] || node;
-        const { left, top } = nodeLeftTop(documentRef.current, live);
-        const pending = dragWriteCoalesceRef.current.getPendingVideoGeom()?.[nodeId];
-        publishVideoLiveGeom({
-          ...(dragWriteCoalesceRef.current.getPendingVideoGeom() || {}),
-          [nodeId]: {
-            left: pending?.left ?? left,
-            top: pending?.top ?? top,
-            width: Math.max(
-              1,
-              pending?.width != null ? pending.width : Number(live.width) || 1
-            ),
-            height: Math.max(
-              1,
-              pending?.height != null ? pending.height : Number(live.height) || 1
-            ),
-            angle: nextAngle,
-          },
-        });
-      }
-    },
-    [readOnly, publishVideoLiveGeom]
-  );
-
-  const finishToSelect = () => dispatch(setActiveTool('select'));
-
-  const onCreateShape = useCallback(
-    (
-      kind: string,
-      box: {
-        left: number;
-        top: number;
-        width: number;
-        height: number;
-        x0?: number;
-        y0?: number;
-        x1?: number;
-        y1?: number;
-      }
-    ) => {
-      const doc = documentRef.current;
-      if (!doc || readOnly) return;
-      const isStroke = kind === 'line' || kind === 'arrow';
-
-      if (isStroke && box.x0 != null && box.y0 != null && box.x1 != null && box.y1 != null) {
-        const a = sceneToDocumentCoords(doc, box.x0, box.y0);
-        const b = sceneToDocumentCoords(doc, box.x1, box.y1);
-        const placed = strokeNodeFromEndpoints({
-          x0: a.x,
-          y0: a.y,
-          x1: b.x,
-          y1: b.y,
-        });
-        const { id, node } = createShapeNode({
-          x: placed.x,
-          y: placed.y,
-          width: placed.width,
-          height: placed.height,
-          shapeType: kind,
-          fill: 'transparent',
-          angle: placed.angle,
-        });
-        const next = addNodeToDocument(doc, id, node);
-        documentRef.current = next;
-        // History without sceneReloadToken — remounting every host caused a one-frame jump.
-        dispatch(pushEditorHistory());
-        dispatch(setDocumentFromCanvas(next));
-        dispatch(setSelectedNodeIds([id]));
-        dispatch(setSelectedNodeId(id));
-        finishToSelect();
-        return;
-      }
-
-      // Circles / regular polygons / stars are already squared in ShapeDrawFeature
-      // (visual→geom). Do NOT Math.max(3, size) here — that inflated geom 2→3 and
-      // made committed ink jump from visual 3×3 to 4×4 after center stroke.
-      const origin = sceneToDocumentCoords(doc, box.left, box.top);
-      const { id, node } = createShapeNode({
-        x: origin.x,
-        y: origin.y,
-        width: box.width,
-        height: box.height,
-        shapeType: kind,
-        fill: '#FFFFFF',
-      });
-      const next = addNodeToDocument(doc, id, node);
-      documentRef.current = next;
-      dispatch(pushEditorHistory());
-      dispatch(setDocumentFromCanvas(next));
-      dispatch(setSelectedNodeIds([id]));
-      dispatch(setSelectedNodeId(id));
-      finishToSelect();
-    },
-    [dispatch, readOnly]
-  );
-
-  const onPlaceText = useCallback(
-    (point: { x: number; y: number; width?: number; autoSize?: boolean }) => {
-      const doc = documentRef.current;
-      if (!doc || readOnly) return;
-      const autoSize = point.autoSize !== false;
-      const gridSize = getDocumentGridSize(doc);
-      const zoom = Math.max(0.05, camera.zoom || 1);
-      // Screen-constant ~14px so 3000% zoom does not spawn document-14 glyphs.
-      const fontSize = rcbDefaultPlaceFontSize(zoom, 14);
-      const origin = sceneToDocumentCoords(
-        doc,
-        snapCoordToGrid(point.x, gridSize),
-        snapCoordToGrid(point.y, gridSize)
-      );
-      const fixedW = autoSize
-        ? 2
-        : Math.max(gridSize, snapCoordToGrid(Math.max(gridSize, point.width || 160), gridSize));
-      const { id, node } = createTextNode({
-        x: origin.x,
-        y: origin.y,
-        text: '',
-        width: fixedW,
-        // Height comes from measured font metrics — do not hardcode 20.
-        autoSize,
-        fontSize,
-      });
-      const next = addNodeToDocument(doc, id, node);
-      documentRef.current = next;
-      dispatch(setDocument(next));
-      dispatch(setSelectedNodeIds([id]));
-      dispatch(setSelectedNodeId(id));
-      setEditingTextId(id);
-      finishToSelect();
-    },
-    [dispatch, readOnly, camera.zoom]
-  );
-
   const onTextEditCommit = useCallback(
     (next: {
       attrs: Record<string, unknown>;
@@ -1758,55 +970,12 @@ function SvgCanvas({
       window.clearInterval(timer);
       applyHidden(false);
     };
-  }, [editingTextId, reloadToken, boardEpoch]);
+  }, [editingTextId, reloadToken, boardEpoch, boardRef]);
 
   /**
    * Size an incoming image against what is actually on screen, so the same file
    * lands at a usable size whether the user is zoomed way in or way out.
    */
-  const imageSizeForViewport = useCallback(
-    (natural: { width: number; height: number }) => {
-      const view =
-        overlayRoot?.getBoundingClientRect() ||
-        paperEl?.parentElement?.getBoundingClientRect() ||
-        null;
-      if (!view || view.width < 1 || view.height < 1) {
-        return fitImageSize(natural.width, natural.height, 2400);
-      }
-      return rcbFitImageIntoViewport(natural, view, camera.zoom);
-    },
-    [camera.zoom, overlayRoot, paperEl]
-  );
-
-  const placeImageAt = useCallback(
-    async (src: string, x: number, y: number) => {
-      if (readOnly) return;
-      try {
-        const natural = await measureImageNaturalSize(src);
-        const { width, height } = imageSizeForViewport(natural);
-        const latest = documentRef.current;
-        if (!latest) return;
-        const placed = rcbCenterOnPoint({ x, y }, { width, height });
-        const origin = sceneToDocumentCoords(latest, placed.left, placed.top);
-        const { id, node } = createImageNode({
-          x: origin.x,
-          y: origin.y,
-          width: placed.width,
-          height: placed.height,
-          src,
-        });
-        dispatch(setDocument(addNodeToDocument(latest, id, node)));
-        dispatch(setSelectedNodeId(id));
-        dispatch(setPendingImageSrc(null));
-        finishToSelect();
-      } catch {
-        dispatch(setPendingImageSrc(null));
-        finishToSelect();
-      }
-    },
-    [dispatch, imageSizeForViewport, readOnly]
-  );
-
   // Upload: place immediately at the visible viewport center (not world paper center).
   const autoPlaceSrcRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1853,10 +1022,6 @@ function SvgCanvas({
       const doc = documentRef.current;
       if (!doc || readOnly) return;
       const origin = sceneToDocumentCoords(doc, box.left, box.top);
-      const brush = findPencilBrush(pencilBrushId || 'solid');
-      const stampSrc =
-        meta?.brushStampSrc ||
-        (brush.kind === 'stamp' ? brush.stampSrc : undefined);
       const { id, node } = createShapeNode({
         x: origin.x,
         y: origin.y,
@@ -1868,8 +1033,7 @@ function SvgCanvas({
         borderWidth: penStrokeWidth,
         path: pathD,
         closed: false,
-        brushStyle: pencilBrushId || 'solid',
-        brushStampSrc: stampSrc,
+        brushStyle: pencilBrushId || DEFAULT_PENCIL_BRUSH_ID,
         opacity: penStrokeOpacity / 100,
       });
       if (meta?.pathPressure) {
@@ -2319,437 +1483,29 @@ function SvgCanvas({
   const clipboardApiRef = useRef<CanvasClipboardApi | null>(null);
 
   const runCtxAction = (action: CtxAction) => {
-    let ids = selectedIdsRef.current;
-    if (!ids.length && ctxMenu?.nodeId) ids = [ctxMenu.nodeId];
-
-    let placeAt: { x: number; y: number } | null = null;
-    if (ctxMenu && Number.isFinite(ctxMenu.sceneX) && Number.isFinite(ctxMenu.sceneY)) {
-      placeAt = { x: ctxMenu.sceneX, y: ctxMenu.sceneY };
-    }
-
-    const hitNodeId = ctxMenu?.nodeId ?? null;
-    const menuFrameId = ctxMenu?.frameId || activeFrameIdRef.current;
-    // Only expand via artboards that are actually in the selection (or the
-    // frame under the context-menu cursor). Do not use activeFrameId alone —
-    // that would pull unrelated board content into group / lock / export.
-    let frameIdsForAction = selectedFrameIdsRef.current;
-    if (!frameIdsForAction.length && ctxMenu?.frameId) {
-      frameIdsForAction = [String(ctxMenu.frameId)];
-    }
-    setCtxMenu(null);
-
-    if (action === 'upload') {
-      // Empty canvas only — disabled when right-clicking a node.
-      if (hitNodeId) return;
-      imagePlaceAtRef.current = placeAt;
-      imageInputRef.current?.click();
-      return;
-    }
-    if (action === 'replace') {
-      if (readOnly) return;
-      const targetId = hitNodeId || (ids.length === 1 ? ids[0] : null);
-      if (!targetId) return;
-      const node = documentRef.current?.deltaSetLike?.[targetId];
-      if (!node || isGeneratorNode(node)) return;
-      if (String(node?.attrs?.processStatus || '') === 'running') return;
-      const isImage = node.key === 'image';
-      const isVideo = isVideoNode(node);
-      if (!isImage && !isVideo) return;
-      const keepWidth = Math.max(1, Number(node.width) || 1);
-      const input = window.document.createElement('input');
-      input.type = 'file';
-      input.accept = isVideo ? 'video/*' : 'image/*';
-      input.style.display = 'none';
-      window.document.body.appendChild(input);
-      input.onchange = () => {
-        const file = input.files?.[0] ?? null;
-        input.remove();
-        if (!file) return;
-        const opts = {
-          dispatch,
-          nodeId: targetId,
-          keepWidth,
-          file,
-        };
-        if (isVideo) void replaceVideoNodeFromFile(opts);
-        else void replaceImageNodeFromFile(opts);
-      };
-      input.oncancel = () => input.remove();
-      input.click();
-      return;
-    }
-    if (
-      action === 'spawnImageGenerator' ||
-      action === 'spawnVideoGenerator' ||
-      action === 'spawnLottieGenerator' ||
-      action === 'spawnAudioGenerator'
-    ) {
-      const doc = documentRef.current;
-      if (!doc) return;
-      const specs = {
-        spawnImageGenerator: {
-          natural: { width: 1024, height: 1024 },
-          fit: { minRatio: 0.28, maxRatio: 0.42 },
-          nameKey: 'editor.tools.imageGenerator' as const,
-          dispatch: spawnImageGenerator,
-        },
-        spawnVideoGenerator: {
-          natural: { width: 1280, height: 720 },
-          fit: { minRatio: 0.28, maxRatio: 0.48 },
-          nameKey: 'editor.tools.videoGenerator' as const,
-          dispatch: spawnVideoGenerator,
-        },
-        spawnLottieGenerator: {
-          natural: { width: 200, height: 200 },
-          fit: { minRatio: 0.18, maxRatio: 0.32 },
-          nameKey: 'editor.tools.lottieGenerator' as const,
-          dispatch: spawnLottieGenerator,
-        },
-        spawnAudioGenerator: {
-          natural: { width: 720, height: 400 },
-          fit: { minRatio: 0.22, maxRatio: 0.4 },
-          nameKey: 'editor.tools.audioGenerator' as const,
-          dispatch: spawnAudioGenerator,
-        },
-      }[action];
-      const laid = layoutGeneratorPlateAtScene({
-        document: doc,
-        camera,
-        stageEl,
-        natural: specs.natural,
-        center: placeAt,
-        fit: specs.fit,
-      });
-      dispatch(
-        specs.dispatch({
-          x: laid.x,
-          y: laid.y,
-          width: laid.width,
-          height: laid.height,
-          name: t(specs.nameKey),
-        })
-      );
-      return;
-    }
-    if (action === 'addToChat') {
-      const clearAfter = () => {
-        dispatch(setSelectedNodeIds([]));
-        dispatch(setSelectedNodeId(null));
-        dispatch(setSelectedFrameIds([]));
-        dispatch(setActiveFrameId(null));
-      };
-      const seedNodes = ctxMenuSeedNodeIds(ids, hitNodeId);
-      const expanded = resolveSelectionNodeIds(
-        documentRef.current,
-        seedNodes,
-        frameIdsForAction
-      );
-      // Box / multi-select → one group chip (unless right-click landed on an unselected node).
-      if (
-        seedNodes.length &&
-        expanded.length > 1 &&
-        (!hitNodeId || expanded.includes(hitNodeId) || ids.includes(hitNodeId))
-      ) {
-        const attachable = filterChatAttachNodeIds(documentRef.current, expanded);
-        if (!attachable.length) return;
-        onAddToChat?.(attachable.length === 1 ? attachable[0]! : attachable);
-        clearAfter();
-        return;
-      }
-      const id = hitNodeId || ids[0];
-      if (id) {
-        const attachable = filterChatAttachNodeIds(documentRef.current, [id]);
-        if (!attachable.length) return;
-        onAddToChat?.(attachable[0]!);
-        clearAfter();
-        return;
-      }
-      const frameChip = frameIdsForAction[0] || menuFrameId;
-      if (frameChip) {
-        // Artboard selected (no node under cursor) — pin the frame into Chat.
-        onAddToChat?.(`frame:${frameChip}`);
-        clearAfter();
-      }
-      return;
-    }
-    if (action === 'group') {
-      const targetIds = resolveSelectionNodeIds(documentRef.current, ids, frameIdsForAction);
-      if (targetIds.length < 2) return;
-      const next = groupNodesInDocument(documentRef.current, targetIds);
-      dispatch(setDocument(next));
-      dispatch(setMixedSelection({ nodeIds: targetIds, frameIds: frameIdsForAction }));
-      return;
-    }
-    if (action === 'ungroup') {
-      const targetIds = resolveSelectionNodeIds(documentRef.current, ids, frameIdsForAction);
-      if (!targetIds.length) return;
-      const next = ungroupNodesInDocument(documentRef.current, targetIds);
-      dispatch(setDocument(next));
-      dispatch(setMixedSelection({ nodeIds: targetIds, frameIds: frameIdsForAction }));
-      return;
-    }
-    if (action === 'undo') {
-      if (!collabUndo()) dispatch(undo());
-      return;
-    }
-    if (action === 'redo') {
-      if (!collabRedo()) dispatch(redo());
-      return;
-    }
-    if (action === 'copy') {
-      clipboardApiRef.current?.copySelected(ids, frameIdsForAction);
-      return;
-    }
-    if (action === 'cut') {
-      clipboardApiRef.current?.cutSelected(ids, frameIdsForAction);
-      return;
-    }
-    if (action === 'paste') {
-      void clipboardApiRef.current?.pasteFromOsOrInternal(
-        placeAt ? { anchor: placeAt } : undefined
-      );
-      return;
-    }
-    if (action === 'duplicate') {
-      clipboardApiRef.current?.duplicateSelected(ids, frameIdsForAction);
-      return;
-    }
-    if (action === 'delete') {
-      let frameIds = selectedFrameIdsRef.current;
-      if (!frameIds.length && !ids.length) {
-        const fid = menuFrameId || activeFrameIdRef.current;
-        if (fid) frameIds = [String(fid)];
-      }
-      deleteCanvasSelection({ nodeIds: ids, frameIds });
-      return;
-    }
-    if (action === 'front' || action === 'forward' || action === 'backward' || action === 'back') {
-      const targetIds = resolveSelectionNodeIds(documentRef.current, ids, frameIdsForAction);
-      reorderLayer(action, targetIds.length ? targetIds : ids);
-      return;
-    }
-    if (action === 'toggleHidden') {
-      const seedNodes = ctxMenuSeedNodeIds(ids, hitNodeId);
-      // Frame-only selection has no hide target (artboards are not scene nodes).
-      if (!seedNodes.length) return;
-      const targetIds = resolveSelectionNodeIds(
-        documentRef.current,
-        seedNodes,
-        frameIdsForAction
-      ).filter((id) => !isGeneratorNode(documentRef.current?.deltaSetLike?.[id]));
-      if (!targetIds.length) return;
-      const doc = documentRef.current;
-      if (!doc) return;
-      // Hide if any target is visible; show only when all are hidden.
-      const anyVisible = targetIds.some((id) => !isNodeHidden(doc?.deltaSetLike?.[id]));
-      dispatch(pushEditorHistory());
-      let next = doc;
-      for (const id of targetIds) {
-        next = updateNodeInDocument(next, id, {
-          attrs: { hidden: anyVisible ? 'true' : 'false' },
-        });
-      }
-      dispatch(setDocumentFromCanvas(next));
-      // Drop selection on hide so the canvas cannot keep interacting with it.
-      // Unhide via layers eye, or re-select the layer then Show.
-      if (anyVisible) {
-        dispatch(setSelectedNodeIds([]));
-        dispatch(setSelectedNodeId(null));
-      }
-      return;
-    }
-    if (action === 'toggleLocked') {
-      const seedNodes = ctxMenuSeedNodeIds(ids, hitNodeId);
-      const targetIds = seedNodes.length
-        ? resolveSelectionNodeIds(documentRef.current, seedNodes, frameIdsForAction).filter(
-            (id) => !isGeneratorNode(documentRef.current?.deltaSetLike?.[id])
-          )
-        : [];
-      const doc = documentRef.current;
-      if (targetIds.length && doc) {
-        const anyUnlocked = targetIds.some((id) => !isNodeLocked(doc?.deltaSetLike?.[id]));
-        dispatch(pushEditorHistory());
-        let next = doc;
-        for (const id of targetIds) {
-          next = updateNodeInDocument(next, id, {
-            attrs: { locked: anyUnlocked ? 'true' : 'false' },
-          });
-        }
-        dispatch(setDocumentFromCanvas(next));
-      }
-      // Also toggle co-selected artboards (same gesture as node lock).
-      if (frameIdsForAction.length) {
-        const frames = Array.isArray(documentRef.current?.frames)
-          ? documentRef.current.frames
-          : [];
-        const anyFrameUnlocked = frameIdsForAction.some((fid) => {
-          const frame = frames.find((f: any) => f?.id === fid);
-          return frame && !frame.locked;
-        });
-        dispatch(
-          updateArtboardFrames({
-            patches: frameIdsForAction.map((fid) => ({
-              id: fid,
-              patch: { locked: anyFrameUnlocked },
-            })),
-          })
-        );
-        return;
-      }
-      if (!targetIds.length && menuFrameId) {
-        const frames = Array.isArray(documentRef.current?.frames)
-          ? documentRef.current.frames
-          : [];
-        const frame = frames.find((f: any) => f?.id === menuFrameId);
-        dispatch(
-          updateArtboardFrame({
-            id: menuFrameId,
-            patch: { locked: !Boolean(frame?.locked) },
-          })
-        );
-      }
-      return;
-    }
-    if (action === 'exportMp4' || action === 'exportMp3') {
-      const doc = documentRef.current;
-      const seedNodes = ctxMenuSeedNodeIds(ids, hitNodeId);
-      const targetIds = resolveSelectionNodeIds(
-        doc,
-        seedNodes,
-        frameIdsForAction
-      );
-      const videoNodes = targetIds
-        .map((id) => doc?.deltaSetLike?.[id])
-        .filter((node: any) => isVideoNode(node) && String(node?.attrs?.src || '').trim());
-      if (!videoNodes.length) {
-        message.warning(t('editor.noSelectionExport'));
-        return;
-      }
-      const mode = action === 'exportMp3' ? 'audio' : 'video';
-      const hideLoading = message.loading(
-        t(
-          mode === 'audio'
-            ? 'editor.videoToolbar.exportingAudio'
-            : 'editor.videoToolbar.exporting',
-          {
-            defaultValue: mode === 'audio' ? '正在导出音频…' : '正在导出视频…',
-          }
-        ),
-        0
-      );
-      const exportSelectedVideos = async () => {
-        try {
-          for (const node of videoNodes) {
-            const attrs = node?.attrs || {};
-            await downloadVideoNodeAsset({
-              src: String(attrs.src || ''),
-              name: String(node?.name || attrs.name || 'video'),
-              uploadKey: attrs.uploadKey != null ? String(attrs.uploadKey) : null,
-              cropX: attrs.cropX,
-              cropY: attrs.cropY,
-              cropW: attrs.cropW,
-              cropH: attrs.cropH,
-              trimStart: attrs.trimStart,
-              trimEnd: attrs.trimEnd,
-              flipX: attrs.flipX === true || attrs.flipX === 'true',
-              flipY: attrs.flipY === true || attrs.flipY === 'true',
-              mode,
-            });
-          }
-          hideLoading();
-          message.success(
-            t(mode === 'audio' ? 'editor.exportedAudio' : 'editor.exportedVideo', {
-              defaultValue: mode === 'audio' ? '已导出音频' : '已导出视频',
-            })
-          );
-        } catch (err) {
-          hideLoading();
-          console.warn('[ctx-video-export]', err);
-          message.error(
-            t(
-              mode === 'audio'
-                ? 'editor.videoToolbar.exportAudioFail'
-                : 'editor.videoToolbar.downloadFail',
-              {
-                defaultValue: mode === 'audio' ? '音频导出失败（可能无音轨）' : '下载失败',
-              }
-            )
-          );
-        }
-      };
-      exportSelectedVideos();
-      return;
-    }
-    if (action === 'exportPng' || action === 'exportJpg' || action === 'exportSvg') {
-      let format: ExportImageFormat = 'png';
-      if (action === 'exportJpg') format = 'jpeg';
-      else if (action === 'exportSvg') format = 'svg';
-      const doc = documentRef.current;
-      const seedNodes = ctxMenuSeedNodeIds(ids, hitNodeId);
-      // Mixed / node selection: export expanded nodes. Frame-only keeps crop export
-      // so artboard background is preserved.
-      if (seedNodes.length) {
-        const targetIds = resolveSelectionNodeIds(
-          documentRef.current,
-          seedNodes,
-          frameIdsForAction
-        );
-        if (targetIds.length) {
-          const ok = exportFabricImage({
-            selectionOnly: true,
-            nodeIds: targetIds,
-            document: doc,
-            format,
-            filename: t('editor.layerExportName'),
-          });
-          if (ok) {
-            message.success(t(format === 'svg' ? 'editor.exportedSvg' : 'editor.exportedImage'));
-          } else {
-            message.error(t('editor.exportFailed'));
-          }
-          return;
-        }
-      }
-      const exportFrameId = frameIdsForAction[0] || menuFrameId;
-      if (exportFrameId) {
-        const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-        const frame = frames.find((f: any) => f?.id === exportFrameId);
-        if (frame && frame.width > 0 && frame.height > 0) {
-          async function exportFrame() {
-            const n = await exportCropSlots({
-              crop: {
-                x: Number(frame.x) || 0,
-                y: Number(frame.y) || 0,
-                width: Number(frame.width) || 1,
-                height: Number(frame.height) || 1,
-              },
-              backgroundColor: frame.backgroundColor,
-              baseName: String(frame.name || t('editor.pageExportName')),
-              compress: false,
-              document: doc,
-              slots: [
-                {
-                  id: 'ctx',
-                  scale: 1,
-                  affixMode: 'suffix',
-                  affix: '',
-                  format,
-                },
-              ],
-            });
-            if (n > 0) {
-              message.success(
-                t(format === 'svg' ? 'editor.exportedSvg' : 'editor.exportedImage')
-              );
-            } else {
-              message.error(t('editor.exportFailed'));
-            }
-          }
-          void exportFrame();
-        }
-      }
-    }
+    runCanvasCtxAction(action, {
+      getCtxMenu: () => ctxMenu,
+      clearCtxMenu: () => setCtxMenu(null),
+      selectedIdsRef,
+      selectedFrameIdsRef,
+      activeFrameIdRef,
+      documentRef,
+      imagePlaceAtRef,
+      imageInputRef,
+      clipboardApiRef,
+      readOnly: Boolean(readOnly),
+      dispatch,
+      camera,
+      stageEl: stageEl ?? null,
+      t,
+      onAddToChat,
+      collabUndo,
+      collabRedo,
+      deleteCanvasSelection,
+      reorderLayer,
+    });
   };
+
   const runCtxActionRef = useRef(runCtxAction);
   runCtxActionRef.current = runCtxAction;
 
@@ -2828,8 +1584,7 @@ function SvgCanvas({
     } catch (err: any) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({}));
-      const detail = err?.response?.data?.detail || err?.message || '图片上传失败';
-      message.error(typeof detail === 'string' ? detail : '图片上传失败');
+      message.error(getHttpErrorMessage(err, '图片上传失败'));
     }
   };
 
@@ -2888,8 +1643,7 @@ function SvgCanvas({
       }
     } catch (err: any) {
       dispatch(failImageProcess({}));
-      const detail = err?.response?.data?.detail || err?.message || '视频上传失败';
-      message.error(typeof detail === 'string' ? detail : '视频上传失败');
+      message.error(getHttpErrorMessage(err, '视频上传失败'));
     }
   };
 
@@ -2976,8 +1730,7 @@ function SvgCanvas({
       }
     } catch (err: any) {
       if (isUploadAbortError(err)) return;
-      const detail = err?.response?.data?.detail || err?.message || '音频上传失败';
-      message.error(typeof detail === 'string' ? detail : '音频上传失败');
+      message.error(getHttpErrorMessage(err, '音频上传失败'));
     }
   };
 
@@ -3240,7 +1993,7 @@ function SvgCanvas({
         {/* Scene-space HTML overlays (selection / draw previews). Origin matches SVG. */}
         {/* Above frame/node stackOrder so preview select/hover strokes aren't covered. */}
         {/* Above HostPathChrome (z=1e6) so poly/star/radius knobs receive hits
-            over resize hotzones; wrapper is 0×0 + overflow visible, empty areas
+            over resize hotzones; wrapper is 0脳0 + overflow visible, empty areas
             still pass through to chrome / shapes. */}
         <div className="absolute left-0 top-0 z-[1000001] h-0 w-0 overflow-visible">
           <SelectionFeature

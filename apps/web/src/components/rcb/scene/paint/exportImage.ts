@@ -2,10 +2,13 @@ import { imageSrcToFile } from '@/utils/uploadImage';
 import { getSvgBoard, type SvgBoardHandle } from '@/components/rcb/canvas/svgBoardRegistry';
 import { createSvgBoard, loadSceneOntoSvg } from './sceneToSvg';
 import { nodeLeftTop } from './sceneToSvg';
-import { isExportableSceneNode } from '../document/sceneDocument';
+import {
+  isExportableSceneNode
+} from '../document/nodeCapabilities';
 import { strokeVisualOutset } from '../document/sceneEffects';
 import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 export type ExportImageFormat = 'png' | 'jpeg' | 'svg';
 
@@ -158,7 +161,7 @@ function rotatedAabb(x: number, y: number, w: number, h: number, angleDeg: numbe
   };
 }
 
-function boxFromSceneNode(document: any, node: any): SceneBox | null {
+function boxFromSceneNode(document: SceneDocument, node: SceneNodeInput): SceneBox | null {
   if (!node) return null;
   const { left, top } = nodeLeftTop(document, node);
   const w = Number(node.width);
@@ -456,8 +459,153 @@ export async function inlineSvgImages(
   return new XMLSerializer().serializeToString(root);
 }
 
-/** SVG string → Image → canvas → data URL (single pass at target pixel size). */
-function rasterizeSvgString(
+/** Encode / tip-bake prefer OffscreenCanvas worker (SVG decode stays on main). */
+function canUseRasterWorker(): boolean {
+  return (
+    typeof Worker !== 'undefined' &&
+    typeof OffscreenCanvas !== 'undefined' &&
+    typeof createImageBitmap === 'function'
+  );
+}
+
+let rasterWorker: Worker | null = null;
+let rasterWorkerId = 1;
+const rasterWorkerWaiters = new Map<
+  number,
+  { resolve: (url: string) => void; reject: (err: Error) => void }
+>();
+
+function getRasterWorker(): Worker | null {
+  if (!canUseRasterWorker()) return null;
+  if (rasterWorker) return rasterWorker;
+  try {
+    const w = new Worker(new URL('./exportRaster.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    w.onmessage = (ev: MessageEvent<{ id: number; ok: boolean; dataUrl?: string; error?: string }>) => {
+      const { id, ok, dataUrl, error } = ev.data || {};
+      const waiter = rasterWorkerWaiters.get(id);
+      if (!waiter) return;
+      rasterWorkerWaiters.delete(id);
+      if (ok && dataUrl) waiter.resolve(dataUrl);
+      else waiter.reject(new Error(error || 'raster-worker-failed'));
+    };
+    w.onerror = () => {
+      for (const [, waiter] of rasterWorkerWaiters) {
+        waiter.reject(new Error('raster-worker-crashed'));
+      }
+      rasterWorkerWaiters.clear();
+      rasterWorker = null;
+    };
+    rasterWorker = w;
+    return w;
+  } catch {
+    return null;
+  }
+}
+
+function encodeBitmapInWorker(
+  bitmap: ImageBitmap,
+  width: number,
+  height: number,
+  mime: string,
+  quality?: number,
+  transparent = false,
+  backgroundColor?: string
+): Promise<string> {
+  const w = getRasterWorker();
+  if (!w) {
+    bitmap.close();
+    return Promise.reject(new Error('no-raster-worker'));
+  }
+  const id = rasterWorkerId++;
+  return new Promise<string>((resolve, reject) => {
+    rasterWorkerWaiters.set(id, { resolve, reject });
+    try {
+      w.postMessage(
+        {
+          kind: 'encode',
+          id,
+          bitmap,
+          width,
+          height,
+          mime,
+          quality,
+          transparent,
+          backgroundColor,
+        },
+        [bitmap]
+      );
+    } catch (err) {
+      rasterWorkerWaiters.delete(id);
+      try {
+        bitmap.close();
+      } catch {
+        /* ignore */
+      }
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+export type StampBakeDabInput = {
+  x: number;
+  y: number;
+  size: number;
+  opacity: number;
+};
+
+/**
+ * Bake tip stamps → PNG data URL on the raster worker.
+ * Caller supplies tip ImageBitmap (transferred); falls back to rejection when worker missing.
+ */
+export function bakeStampStrokeInWorker(opts: {
+  tip: ImageBitmap;
+  dabs: StampBakeDabInput[];
+  strokeOpacity: number;
+  sceneWidth: number;
+  sceneHeight: number;
+  scale: number;
+  originX: number;
+  originY: number;
+}): Promise<string> {
+  const w = getRasterWorker();
+  if (!w) {
+    opts.tip.close();
+    return Promise.reject(new Error('no-raster-worker'));
+  }
+  const id = rasterWorkerId++;
+  return new Promise<string>((resolve, reject) => {
+    rasterWorkerWaiters.set(id, { resolve, reject });
+    try {
+      w.postMessage(
+        {
+          kind: 'stampBake',
+          id,
+          tip: opts.tip,
+          dabs: opts.dabs,
+          strokeOpacity: opts.strokeOpacity,
+          sceneWidth: opts.sceneWidth,
+          sceneHeight: opts.sceneHeight,
+          scale: opts.scale,
+          originX: opts.originX,
+          originY: opts.originY,
+        },
+        [opts.tip]
+      );
+    } catch (err) {
+      rasterWorkerWaiters.delete(id);
+      try {
+        opts.tip.close();
+      } catch {
+        /* ignore */
+      }
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+function rasterizeSvgStringMainThread(
   svgString: string,
   width: number,
   height: number,
@@ -487,7 +635,6 @@ function rasterizeSvgString(
           ctx.fillStyle = bg && bg !== 'transparent' ? bg : '#ffffff';
           ctx.fillRect(0, 0, pw, ph);
         }
-        // SVG already sized to pw×ph — draw 1:1 (no second upscale pass).
         ctx.drawImage(img, 0, 0, pw, ph);
         resolve(canvas.toDataURL(mime, quality));
       } catch (err) {
@@ -502,6 +649,57 @@ function rasterizeSvgString(
     };
     img.src = url;
   });
+}
+
+/** SVG string → data URL. Decode on main thread; PNG/JPEG encode prefers worker. */
+export async function rasterizeSvgString(
+  svgString: string,
+  width: number,
+  height: number,
+  mime: string,
+  quality?: number,
+  transparent = false,
+  backgroundColor?: string
+): Promise<string> {
+  const pw = Math.max(1, Math.round(width));
+  const ph = Math.max(1, Math.round(height));
+  if (canUseRasterWorker()) {
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('svg-image-load-failed'));
+        el.src = url;
+      });
+      const bitmap = await createImageBitmap(img);
+      try {
+        return await encodeBitmapInWorker(
+          bitmap,
+          pw,
+          ph,
+          mime,
+          quality,
+          transparent,
+          backgroundColor
+        );
+      } catch {
+        /* fall through to main-thread encode */
+      }
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  return rasterizeSvgStringMainThread(
+    svgString,
+    pw,
+    ph,
+    mime,
+    quality,
+    transparent,
+    backgroundColor
+  );
 }
 
 /**
@@ -752,7 +950,7 @@ async function exportOnce(options: ExportImageOptions): Promise<boolean> {
 }
 
 /** Download the scene document as pretty-printed JSON (round-trips with import). */
-export function exportDocumentJson(document: any, filename = 'document'): boolean {
+export function exportDocumentJson(document: SceneDocument, filename = 'document'): boolean {
   if (!document || typeof document !== 'object') return false;
   const blob = new Blob([JSON.stringify(document, null, 2)], {
     type: 'application/json;charset=utf-8',
@@ -766,7 +964,7 @@ export function exportDocumentJson(document: any, filename = 'document'): boolea
  * Best-effort — returns null when the board cannot be rasterized.
  */
 export async function renderComposerChipThumb(opts: {
-  document: any;
+  document: SceneDocument;
   nodeIds?: string[];
   frameId?: string | null;
   /** Longest edge of the raster preview (device pixels). */

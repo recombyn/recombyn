@@ -1,11 +1,12 @@
 import { useEffect, useState, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useMutation } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Dialog, Input, message } from '@/components/base';
-import { redeemCardKey } from '@/apis/wallet';
-import { normalizePlanId, type LedgerEntry, type PlanId } from '@/utils/wallet';
-import { syncFromServer } from '@/store/modules/wallet';
+import { apiQuery, getHttpErrorDetail, getHttpErrorMessage, getHttpStatus } from '@/service/client';
+import { invalidateWalletCache } from '@/service/wallet';
+import { normalizePlanId, type PlanId } from '@/utils/wallet';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { isDesktopLocal } from '@/utils/apiBase';
 
@@ -16,14 +17,53 @@ type RedeemPanelProps = {
   onCancel?: () => void;
 };
 
+type RedeemResult = {
+  kind?: string;
+  tokensAdded: number;
+  tokens: number;
+  planId?: string;
+  planExpiresAt?: number | null;
+  planLocked?: boolean;
+};
+
+function redeemErrorMessage(err: unknown, t: (key: string) => string): string {
+  const status = getHttpStatus(err);
+  const detail = getHttpErrorDetail(err);
+  const code =
+    detail && typeof detail === 'object' ? String((detail as { code?: unknown }).code || '') : '';
+  if (code === 'plan_locked') return t('wallet.planLockedRedeem');
+  if (code === 'rate_limited' || status === 429) return t('wallet.redeemRateLimited');
+  return getHttpErrorMessage(err, t('wallet.redeemFailed'));
+}
+
 /** Redeem form — usable inside settings modal or standalone dialog. */
 function RedeemPanel({ active = true, onRedeemed, onCancel }: RedeemPanelProps) {
   const { t } = useTranslation();
-  const dispatch = useDispatch();
   const navigate = useNavigate();
   const user = useSelector((state: any) => state.auth.user);
   const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false);
+
+  const redeemMutation = useMutation(
+    apiQuery.walletWalletRedeem.mutationOptions({
+      onSuccess: async (raw) => {
+        const res = raw as RedeemResult;
+        const planId = normalizePlanId(res.planId) as PlanId;
+        await invalidateWalletCache();
+        if (res.kind === 'plan') {
+          message.success(
+            t('wallet.redeemPlanSuccess', {
+              plan: t(`wallet.plan.${planId}`),
+              amount: res.tokensAdded,
+            })
+          );
+        } else {
+          message.success(t('wallet.redeemSuccess', { amount: res.tokensAdded }));
+        }
+        onRedeemed?.();
+        setCode('');
+      },
+    })
+  );
 
   useEffect(() => {
     if (active) setCode('');
@@ -40,53 +80,14 @@ function RedeemPanel({ active = true, onRedeemed, onCancel }: RedeemPanelProps) 
       navigate(buildLoginUrl('/home'));
       return;
     }
-    setBusy(true);
     try {
-      const res = await redeemCardKey(trimmed);
-      const ledger = (res.ledger || []) as LedgerEntry[];
-      const planId = normalizePlanId(res.planId) as PlanId;
-      dispatch(
-        syncFromServer({
-          tokens: res.tokens,
-          ledger,
-          planId,
-          planExpiresAt: res.planExpiresAt ?? null,
-          planLocked: Boolean(res.planLocked),
-        })
-      );
-      if (res.kind === 'plan') {
-        message.success(
-          t('wallet.redeemPlanSuccess', {
-            plan: t(`wallet.plan.${planId}`),
-            amount: res.tokensAdded,
-          })
-        );
-      } else {
-        message.success(t('wallet.redeemSuccess', { amount: res.tokensAdded }));
-      }
-      onRedeemed?.();
-      setCode('');
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const code =
-        detail && typeof detail === 'object' ? String((detail as any).code || '') : '';
-      if (code === 'plan_locked') {
-        message.error(t('wallet.planLockedRedeem'));
-      } else if (code === 'rate_limited' || err?.response?.status === 429) {
-        message.error(t('wallet.redeemRateLimited'));
-      } else {
-        const msg =
-          typeof detail === 'string'
-            ? detail
-            : detail && typeof detail === 'object' && (detail as any).message
-              ? String((detail as any).message)
-              : err?.message || t('wallet.redeemFailed');
-        message.error(msg);
-      }
-    } finally {
-      setBusy(false);
+      await redeemMutation.mutateAsync({ body: { code: trimmed } });
+    } catch (err: unknown) {
+      message.error(redeemErrorMessage(err, t));
     }
   };
+
+  const busy = redeemMutation.isPending;
 
   return (
     <div className="max-w-md">
@@ -100,7 +101,7 @@ function RedeemPanel({ active = true, onRedeemed, onCancel }: RedeemPanelProps) 
         placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
         className="!h-11 !rounded-xl !font-mono !tracking-wider"
         onKeyDown={(e: any) => {
-          if (e.key === 'Enter') void submit();
+          if (e.key === 'Enter') submit();
         }}
       />
       <div className="mt-5 flex items-center justify-start gap-2">
@@ -117,7 +118,9 @@ function RedeemPanel({ active = true, onRedeemed, onCancel }: RedeemPanelProps) 
         <button
           type="button"
           disabled={busy}
-          onClick={() => void submit()}
+          onClick={() => {
+            submit();
+          }}
           className="rounded-xl bg-[var(--ink)] px-3 py-2 text-[12px] font-medium text-[var(--on-brand)] transition hover:opacity-90 disabled:opacity-50"
         >
           {t('wallet.redeemNow')}

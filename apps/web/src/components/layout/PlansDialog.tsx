@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, memo } from 'react';
-import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineCheck,
@@ -8,6 +7,7 @@ import {
   HiOutlineHandThumbUp,
 } from 'react-icons/hi2';
 import { Dialog, message } from '@/components/base';
+import { useWalletSnapshot } from '@/service/wallet';
 import { PLAN_CATALOG, PLAN_ORDER, type PlanId } from '@/utils/wallet';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
@@ -24,11 +24,7 @@ const FAQ_IDS = ['units', 'chat', 'image', 'how'] as const;
 /** Plan cards — usable inside settings modal or standalone dialog. */
 function PlansPanel({ active = true, compact = false }: PlansPanelProps) {
   const { t, i18n } = useTranslation();
-  const current = useSelector((state: any) => (state.wallet?.planId as PlanId) || 'free');
-  const planLocked = useSelector((state: any) => Boolean(state.wallet?.planLocked));
-  const planExpiresAt = useSelector((state: any) =>
-    state.wallet?.planExpiresAt != null ? Number(state.wallet.planExpiresAt) : null
-  );
+  const { planId: current, planLocked, planExpiresAt } = useWalletSnapshot();
   const [picked, setPicked] = useState<PlanId>(current);
   const [faqOpen, setFaqOpen] = useState<string | null>('units');
 

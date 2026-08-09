@@ -5,7 +5,10 @@
  */
 
 import * as Y from 'yjs';
-import { normalizeDocument } from '@/components/rcb/scene/document/sceneDocument';
+import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
+import {
+  normalizeDocument
+} from '@/components/rcb/scene/document/sceneDocument';
 
 export const Y_ORIGIN_LOCAL = 'local';
 export const Y_ORIGIN_REMOTE = 'remote';
@@ -134,7 +137,7 @@ export function isYDocEmpty(doc: Y.Doc): boolean {
 
 /** Replace Y.Doc contents from a scene document (room seed / full resync). */
 export function seedYDocFromScene(doc: Y.Doc, scene: unknown) {
-  const normalized = normalizeDocument(scene);
+  const normalized = normalizeDocument(coerceSceneDocumentInput(scene));
   const meta = yMetaMap(doc);
   const frames = yFramesMap(doc);
   const nodes = yNodesMap(doc);
@@ -212,7 +215,7 @@ export function sceneFromYDoc(doc: Y.Doc): any {
     deltaSetLike,
     stackOrder: stackOrder.toArray().map(String),
   };
-  return normalizeDocument(scene);
+  return normalizeDocument(coerceSceneDocumentInput(scene));
 }
 
 /**

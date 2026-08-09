@@ -92,8 +92,20 @@ export default defineConfig(({ mode }) => {
       },
     },
     optimizeDeps: {
-      include: ['fontkit'],
-      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', '@ffmpeg/core'],
+      // Prebundle oRPC client stack; never pull `@orpc/server` (backend-only, not installed).
+      include: [
+        'fontkit',
+        '@orpc/client',
+        '@orpc/contract',
+        '@orpc/openapi-client',
+        '@orpc/openapi-client/fetch',
+        '@orpc/tanstack-query',
+        '@tanstack/react-query',
+        // nuqs RR adapter is a subpath export — without include Vite can 504 and blank the app.
+        'nuqs',
+        'nuqs/adapters/react-router/v6',
+      ],
+      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', '@ffmpeg/core', '@orpc/server'],
     },
     assetsInclude: ['**/*.wasm'],
     server: {

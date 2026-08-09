@@ -21,6 +21,8 @@ function productionMoveSettle(opts: {
   const threshold = smartSnapThreshold(opts.zoom);
   let next = { ...opts.box };
   let guides = [] as ReturnType<typeof snapMoveToSmartGuides>['guides'];
+  let smartX = false;
+  let smartY = false;
   if (threshold > 0 && opts.targets.length) {
     const smart = snapMoveToSmartGuides({
       box: next,
@@ -29,9 +31,16 @@ function productionMoveSettle(opts: {
     });
     next = smart.box;
     guides = smart.guides;
+    smartX = smart.snappedX;
+    smartY = smart.snappedY;
   }
   if (gridSize > 0) {
-    next = snapBoxToGrid(next, gridSize);
+    const pinned = snapBoxToGrid(next, gridSize);
+    next = {
+      ...next,
+      left: smartX ? next.left : pinned.left,
+      top: smartY ? next.top : pinned.top,
+    };
     guides = collectMoveSnapIndicators(next, opts.targets, GUIDE_COINCIDE_EPS);
   }
   return { box: next, threshold, guides };
@@ -82,6 +91,41 @@ describe('move snap (points + indicators)', () => {
     });
     // |100-95|=5 ≤ 8 → center-align on X
     expect(settled.box.left).toBe(60);
+  });
+
+  it('small mover still mid-mid snaps to oversized plate center', () => {
+    // Plate mid (200,100). Tiny rect near center must feel the magnet.
+    const plate = { left: -200, top: -200, width: 800, height: 600 };
+    const tiny = { left: 196, top: 94, width: 24, height: 18 }; // mid 208 / 103
+    expect(isOversizedMidSnapTarget(tiny, plate)).toBe(true);
+    const settled = productionMoveSettle({
+      box: tiny,
+      targets: [plate],
+      zoom: 1,
+      gridSize: 0,
+    });
+    expect(settled.box.left + settled.box.width / 2).toBeCloseTo(200, 6);
+    expect(settled.box.top + settled.box.height / 2).toBeCloseTo(100, 6);
+    expect(settled.guides.some((g) => g.kind === 'align' && g.axis === 'x')).toBe(true);
+    expect(settled.guides.some((g) => g.kind === 'align' && g.axis === 'y')).toBe(true);
+  });
+
+  it('odd-size center align is not yanked off by 1px grid pin', () => {
+    // Square 100×100 center 50; circle 99×99 needs left=0.5 for mid-mid.
+    // Start near center so mid magnet beats edge flush.
+    const square = { left: 0, top: 0, width: 100, height: 100 };
+    const circle = { left: 0.6, top: 0.6, width: 99, height: 99 }; // mid 50.1
+    const settled = productionMoveSettle({
+      box: circle,
+      targets: [square],
+      zoom: 1,
+      gridSize: 1,
+    });
+    expect(settled.box.left + settled.box.width / 2).toBeCloseTo(50, 6);
+    expect(settled.box.top + settled.box.height / 2).toBeCloseTo(50, 6);
+    // Old bug: snapBoxToGrid after smart → left 0 or 1, centers diverge → two guide dots.
+    expect(settled.box.left).toBeCloseTo(0.5, 6);
+    expect(settled.box.top).toBeCloseTo(0.5, 6);
   });
 
   it('still snaps edge flush and top-edge coincide', () => {

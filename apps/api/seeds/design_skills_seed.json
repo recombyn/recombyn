@@ -1,0 +1,128 @@
+{
+  "_comment": "OSS core skills for self-host Agent cold start (create / vision / edit / image).",
+  "items": [
+    {
+      "skill_key": "design_methodology",
+      "name": "Design methodology",
+      "category": "create",
+      "when_to_use": "Create from scratch: brief → direction → structure → place → self-check; route craft skills from catalog",
+      "scenes": "all",
+      "sort_weight": 100,
+      "preferred_tools": [
+        "create_frame",
+        "create_shape",
+        "create_text",
+        "create_image",
+        "create_svg",
+        "create_icon",
+        "create_lottie",
+        "boolean_op",
+        "outline_text",
+        "update_node"
+      ],
+      "prompt_positive": "# Design methodology\n\nProcess: **brief → direction → structure → place → self-check**.\nThis skill is the **step skeleton** — not a typography encyclopedia.\n\nMature craft (product design process + Anthropic skill routing): commit once, pull **1–3** catalog skills, execute with tool_ops.\n\nVisual craft (type, contrast, overflow, decoration): `need_skills` from the **Skills catalog** whose when_to_use matches (enabled only; never invent keys). Prefer **1–3** tightly matched skills — do not spray the catalog.\n\n## Principles\n1. **Brief before paint** — deliverable, audience, size, must-have copy.\n2. **Direction once** — one aesthetic + one signature focus end-to-end.\n3. **Route to playbooks** — deliverable/UI skills own layer order; this skill owns the sequence.\n4. **Frame first** on fixed sizes — never fake an artboard with a full-bleed bg rect.\n5. **Honesty** — never invent price/phone/logo/testimonials.\n\n## Brief (one line in thought)\nName deliverable, audience/job, size, and must-have copy. Ask if missing; never invent price/phone/logo.\n\n## Direction (commit once)\nPick **one** aesthetic and keep it end-to-end (minimal / editorial / industrial / organic / luxury / festive hand / playful geometric …).\nSpend boldness on **one** signature focus; keep surroundings quiet.\nAvoid AI-default looks unless the brief asks: purple-on-white gradients; Inter/Roboto/Arial stacks; warm-cream + terracotta serif cliché; hairline broadsheet pastiche; glow + pill spam.\n\nAlso pull `garden_style` / `frontend_ui` when taste and anti-slop matter.\n\n## Deliverables → layer order\n- **website / landing**: nav → hero (thesis) → benefits → CTA → footer; also `need_skills` **landing_page**\n- **product UI / SaaS chrome / settings**: `need_skills` **frontend_ui** (+ **shadcn_ui** when dense controls)\n- **dashboard / admin / console**: `need_skills` **dashboard_ui** (+ **frontend_ui**)\n- **mobile app / H5 screens**: `need_skills` **mobile_app_ui** (+ **frontend_ui**); single column; thumb-zone CTA; 8pt rhythm\n- **ecommerce hero / PDP**: subject-first modules → `need_skills` **ecommerce_surface**\n- **Banner**: copy in middle safe band; strong contrast; side quiet zones\n- **poster / roll-up / 易拉宝**: `need_skills` **poster_craft** — create_image hero first; never fake with shape piles\n- **resume / 简历**: `need_skills` **resume_layout** — scannable columns, no festive decoration\n- **icon set**: one stroke/fill language; constructive vector (shape + boolean_op + pen); equal cells; labels under marks\n- **motion / Lottie**: `need_skills` **motion_lottie** — not a static-icon substitute\n- **brush / pencil / 板绘**: `need_skills` **brush_ops**\n\nCraft gate: also `need_skills` **ui_ux_pro_max** when polishing. Brand sheet: **awesome_design_md**.\n\n## Structure (before heavy place)\nIn thought: 2–4 zone wireframe (who sits where). One hero zone dominates.\nFixed size (poster/mobile/H5/banner/login) → MUST `create_frame` first at WxH with a name, then place ALL content inside. Never fake an artboard with a full-bleed bg rect. Exception only if the user refuses a frame (不要画板/自由画布/不要 create_frame).\n\n## Place\n- Board/page fill → `create_shape` full-bleed rect **inside** the frame. Do **not** use `set_canvas_background` for artboard fills.\n- Poster/festive/illustrated: hero image first, then text on quieter regions.\n- Hierarchy: one primary title; supporting copy clearly smaller.\n- Type: catalog face ~≥90% match → `create_text`+fontFamily; else display/hero lettering → `create_image`+letteringText. Never invent font names.\n- Icons: primitives + `boolean_op` / pen; `create_svg`/`create_icon` only for simple marks.\n- Node ids only from SCENE.\n\n## Attachments\nUser images → also `need_skills` **vision_extract**. Finished poster refs = style reference (see that skill).\n\n## Self-check (before done)\n- [ ] Direction still coherent (no second competing palette/type mood)\n- [ ] Poster/festive: real hero image, not shape collage\n- [ ] Title fully inside board; margins OK; contrast OK\n- [ ] No emoji tofu / junk Material icons as festive props\n- [ ] Copy language matches the user\n- [ ] Routed playbooks loaded (1–3 keys) when deliverable matched\n",
+      "prompt_negative": "Do not dump tool_ops when key info is missing; do not invent prices/phones/logos; do not invent skill keys; do not expand coordinate cheat-sheets here; do not ship long essays in reply; do not invent fontFamily outside Available fonts; do not substitute shape piles for poster heroes; do not skip create_frame on fixed-size jobs unless the user refused a frame; do not use set_canvas_background for artboard fills; do not need_skills every catalog entry; do not use create_image/create_svg when user asked for Lottie; do not use create_lottie for static icons; do not mix two aesthetic directions.",
+      "triggers": [
+        {
+          "empty_canvas": true,
+          "intent_in": [
+            "create"
+          ]
+        },
+        {
+          "intent_in": [
+            "create"
+          ],
+          "min_prompt_chars": 24
+        }
+      ],
+      "mutex_group": "methodology",
+      "version": 24
+    },
+    {
+      "skill_key": "vision_extract",
+      "name": "Vision extract",
+      "category": "vision",
+      "when_to_use": "User attached images: classify deliverable; extract layout, palette, type mood; decide style-transfer vs cutout",
+      "scenes": "all",
+      "sort_weight": 90,
+      "preferred_tools": [
+        "create_frame",
+        "create_shape",
+        "create_text",
+        "create_image",
+        "update_node"
+      ],
+      "prompt_positive": "# Vision extract\n\nOnly describe what is **visible**. Do not invent modules, prices, or copy that are not in the image.\n\nMature craft (design critique + reference transfer): extract structure and roles, then choose a transfer mode before paint.\n\n## Principles\n1. **Visible only** — no invented SKUs, prices, or slogans.\n2. **Regions before pixels** — top/mid/bottom or grid occupancy first.\n3. **Pick a transfer mode** — style-only / subject-cutout / layout-only — before ops.\n4. **Lettering honesty** — ≥90% font match or regenerate lettering; never random calligraphy mapping.\n5. **Short extraction** — keep thought tight; paint via tool_ops.\n\n## Extract (fill mentally before paint)\n1. **Deliverable**: hero / PDP / Banner / poster / roll-up / web|App UI / illustration|icon\n2. **Regions**: top / mid / bottom (or grid); rough % occupancy\n3. **Elements**: subject, badges, CTAs, chrome, decorative props\n4. **Palette**: 3–5 hex (roles: bg / subject / accent / type)\n5. **Type mood**: display vs body; brush/custom vs geometric UI sans\n6. **Size/aspect**: suggest WxH when canvas is auto\n7. **Transfer mode** (pick one):\n   - **style-only**: finished poster/design with baked text → do NOT full-bleed `create_image(attachmentIndex)` (double text). Rebuild with genPrompt bg/subject + `create_text` for UI/body\n   - **subject-cutout**: user photo/product → `attachmentIndex` as a layer; build layout around it\n   - **layout-only**: keep regions/hierarchy; restyle palette/type\n\n## Lettering on refs\nHero/main title on the ref: catalog font only if ~**≥90%** similar (weight, structure, mood, language). Below that → `create_image` genPrompt + `letteringText` (plain plate / transparent cutout). Do not map 「书法感/手写/国潮」 to a random calligraphy font by default.\n\n## Route after extract\n| Seen deliverable | Prefer skill |\n|------------------|--------------|\n| Poster / festive | `poster_craft` + `image_gen` |\n| Ecommerce hero/PDP | `ecommerce_surface` |\n| UI chrome | `frontend_ui` / `dashboard_ui` / `mobile_app_ui` |\n| Landing | `landing_page` |\n| Resume | `resume_layout` |\n\n## Do not\n- Paste a finished composite full-bleed when text is baked in (double text)\n- Invent missing modules to “complete” the ref\n- Treat every ref as a subject-cutout\n\n## Output discipline\nKeep extraction short in thought; paint via tool_ops. Prefer clean genPrompt backgrounds over pasting a finished composite as the whole board.\n\n## Done when\nTransfer mode chosen; palette/roles noted; lettering path decided; no invented facts.\n",
+      "prompt_negative": "Do not invent prices, copy, or modules absent from the image. Do not paste a finished poster attach as a full-bleed layer. Do not hardcode calligraphy mood → a single catalog calligraphy font for hero titles.",
+      "triggers": [
+        {
+          "has_images": true,
+          "intent_in": [
+            "create"
+          ]
+        }
+      ],
+      "mutex_group": "vision",
+      "version": 10
+    },
+    {
+      "skill_key": "canvas_edit",
+      "name": "Canvas edit",
+      "category": "edit",
+      "when_to_use": "Edit existing canvas: add/recolor/rewrite/move/align/clear; brush/Lottie also need brush_ops / motion_lottie",
+      "scenes": "all",
+      "sort_weight": 70,
+      "preferred_tools": [
+        "create_shape",
+        "create_text",
+        "create_svg",
+        "create_icon",
+        "create_lottie",
+        "boolean_op",
+        "outline_text",
+        "update_node",
+        "delete_nodes",
+        "move_nodes",
+        "resize_nodes"
+      ],
+      "prompt_positive": "# Canvas edit\n\nSurgical changes on an **existing** SCENE. Prefer `update_node` / `move_nodes` / `resize_nodes` over delete+recreate.\n\nMature craft (Figma-style surgical edit + non-destructive refine): preserve structure, match neighbors, never invent ids.\n\n## Principles\n1. **Same id when possible** — update beats delete+create.\n2. **Preserve structure** — hero whitespace, PDP module order, banner mid-band.\n3. **Match neighbors** — missing size/color → borrow stroke, radius, type scale.\n4. **Route specialized edits** — brush → `brush_ops`; motion → `motion_lottie`.\n5. **Clear honestly** — delete nodes or frames; never fake-clear with a cover rect.\n\n## Decision\n1. **Local property** (fill, stroke, text, fontSize, opacity) → `update_node` same id\n2. **Position/size** → `move_nodes` / `resize_nodes` (or update x/y/w/h)\n3. **Add sibling** → `create_*` inside FOCUS frame; match existing spacing/radius language\n4. **Type change** (rect→circle) → `update_node` shapeType; keep id — do not delete+create\n5. **Brush / 板绘** → `need_skills` **brush_ops**\n6. **Lottie / motion** → `need_skills` **motion_lottie** (never swap for create_image)\n\n## Preserve structure\n| Surface | Keep |\n|---------|------|\n| Hero / poster | Subject + whitespace; do not crowd the focal zone |\n| PDP / ecommerce | Module order |\n| Banner | Copy in the safe mid-band |\n| Dashboard | Shell regions; do not scramble sidebar/KPI/main |\n| Resume | Column edges and section order |\n| Icons | Refine with `boolean_op` / pen / stroke; do not dump random `create_svg` unless asked |\n\n## Defaults\nMissing size/color → match neighboring nodes (same stroke weight, radius, type scale). Node ids **only** from SCENE / FOCUS.\n\n## Clear / wipe board\n- Clear content → `delete_nodes` with **all** SCENE node ids (Ask: propose then Confirm)\n- Delete artboard/page itself → `delete_frame` only when asked\n- NEVER fake-clear with a full-bleed opaque cover rect\n\n## Do not\n- Create an empty frame just to edit locals\n- Redesign unrelated boards\n- Invent ids\n- Rebuild a brush hero as ellipse piles\n- Replace requested Lottie with a static image\n\n## Done when\nRequested change applied; structure preserved; neighbor language matched; SCENE ids only.\n",
+      "prompt_negative": "Do not create an empty frame for local edits; do not delete+create to change type; do not fake-clear with a cover rect; do not replace requested Lottie with create_image.",
+      "triggers": [],
+      "mutex_group": "",
+      "version": 14
+    },
+    {
+      "skill_key": "image_gen",
+      "name": "Image generation",
+      "category": "image",
+      "when_to_use": "Poster/hero bitmap, genPrompt backgrounds, materials, or stylized lettering as image",
+      "scenes": "all",
+      "sort_weight": 88,
+      "preferred_tools": [
+        "create_image",
+        "create_frame",
+        "update_node"
+      ],
+      "prompt_positive": "# Image generation\n\nUse `create_image` with `genPrompt` (or `prompt`) for bitmaps — not editable `create_text` nodes.\n\nMature craft (prompt craft + poster hero discipline + lettering cutout): concrete subject/style/light/composition; honest typography gate.\n\n## Principles\n1. **Hero honesty** — festive/illustrated boards start with full/near-full `create_image`, not shape piles.\n2. **Typography gate (~90%)** — catalog face or lettering image; never invent font names.\n3. **Concrete prompts** — subject, medium, light, composition, color, negatives.\n4. **Stacking** — image first, then type/chrome on quieter regions.\n5. **No invented facts** inside the picture (logos, prices, phones) unless asked / letteringText.\n\n## When\n- **Poster / festive / illustrated hero**: always start with full or near-full-board `create_image` hero. Shape piles are not done.\n- **Photo / product / material / atmosphere** backgrounds.\n- **Display lettering** that fails the typography gate below.\n\n## Typography gate (~90%)\nCompare needed title look (USER_PROMPT + refs) to Available fonts:\n- ~**≥90%** similar → `create_text` + fontFamily\n- Below — especially hero/main titles → `create_image` + genPrompt + `letteringText` on a plain solid plate (hydrate cutout). Do **not** map 书法感/手写感/国潮/艺术字 to the nearest calligraphy font.\n- Body/UI/captions: prefer catalog faces; invent no font names.\nIf the user forbids image gen: skip `create_image`; plain `create_text` only.\n\n## genPrompt recipe (concise, concrete)\nInclude: **subject**, **style/medium**, **lighting/mood**, **composition/camera**, **color cues**, **negatives** (no watermark/logo/extra text unless letteringText).\nFor letteringText: isolate glyphs; high contrast plate; no busy background behind letters.\nAim for meticulously crafted atmosphere — not generic stock-template vibes.\n\n## Stacking\nHero image first → then `create_text` / UI chrome on quieter regions. Do not invent facts into the picture. Size/transparency details → TOOL_DETAILS.\n\n## Route\n| Brief | Also load |\n|-------|-----------|\n| Poster / roll-up | `poster_craft` |\n| Ecommerce product plate | `ecommerce_surface` |\n| Taste / anti-slop | `garden_style` |\n\n## Do not\n- Fake festive heroes with geometry\n- Bake unreadable gibberish text into the image when real `create_text` is needed\n- Ignore user “no image gen” constraints\n- Paste finished composites that double-print baked titles (see `vision_extract`)\n\n## Done when\nHero/atmosphere exists when required; lettering path respects the 90% gate; prompt is concrete; stacking leaves quiet zones for type.\n",
+      "prompt_negative": "If the user forbids image gen, do not create_image; do not invent fontFamily outside Available fonts; do not pick a catalog font for hero titles under ~90% similarity; do not hardcode 书法感/手写/国潮 → one calligraphy face; do not ship poster/festive work as shape-only geometry; do not invent logos/watermarks into genPrompt.",
+      "triggers": [
+        {
+          "empty_canvas": true,
+          "intent_in": [
+            "create"
+          ]
+        },
+        {
+          "intent_in": [
+            "create"
+          ],
+          "min_prompt_chars": 8
+        }
+      ],
+      "mutex_group": "image",
+      "version": 18
+    }
+  ],
+  "skills": []
+}

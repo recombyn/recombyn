@@ -1,19 +1,21 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  fetchWalletLedger,
-  type WalletLedgerDto,
-  type WalletLedgerKindFilter,
-} from '@/apis/wallet';
+import type {
+  PaginatedWalletLedger,
+  WalletLedgerDto,
+  WalletLedgerKindFilter,
+} from '@/models/wallet';
 import PlansDialog from '@/components/layout/PlansDialog';
 import RedeemDialog from '@/components/layout/RedeemDialog';
-import { syncFromServer } from '@/store/modules/wallet';
+import { apiQuery } from '@/service/client';
+import { useWalletSnapshot, type WalletSnapshot } from '@/service/wallet';
 import {
   PLAN_CATALOG,
   formatTokens,
   isTopOfferedPlan,
+  normalizePlanId,
   planLabelKey,
   type LedgerEntry,
   type PlanId,
@@ -26,6 +28,36 @@ import { SegmentedControl } from '@/components/base';
 type Filter = WalletLedgerKindFilter;
 
 const PAGE_SIZE = 15;
+
+type LedgerHeader = {
+  tokens: number;
+  planId: PlanId;
+  planLocked: boolean;
+  planExpiresAt: number | null;
+};
+
+/** Prefer fields on the ledger page response; else fall back to wallet.me snapshot. */
+function ledgerHeaderFromPage(
+  page: PaginatedWalletLedger | undefined,
+  fallback: Pick<WalletSnapshot, 'tokens' | 'planId' | 'planLocked' | 'planExpiresAt'>
+): LedgerHeader {
+  let tokens = fallback.tokens;
+  if (typeof page?.tokens === 'number') tokens = page.tokens;
+
+  let planId = fallback.planId;
+  if (page?.planId) planId = normalizePlanId(page.planId);
+
+  let planLocked = fallback.planLocked;
+  if (page?.planLocked !== undefined) planLocked = Boolean(page.planLocked);
+
+  let planExpiresAt = fallback.planExpiresAt;
+  if (page?.planExpiresAt !== undefined) {
+    if (page.planExpiresAt == null) planExpiresAt = null;
+    else planExpiresAt = Number(page.planExpiresAt);
+  }
+
+  return { tokens, planId, planLocked, planExpiresAt };
+}
 
 function formatPlanExpiry(ts: number, locale?: string) {
   const ms = ts > 1e12 ? ts : ts * 1000;
@@ -118,7 +150,7 @@ type Props = {
 
 /**
  * Usage & billing — Free / Plus / Pro / Ultra + top-up entry,
- * laid out in Cursor billing style (plan card → included credits → redeem → ledger).
+ * laid out as plan card → included credits → redeem → ledger.
  */
 function WalletLedgerPanel({
   embedded = false,
@@ -126,24 +158,36 @@ function WalletLedgerPanel({
   onRequestRedeem,
 }: Props = {}) {
   const { t, i18n } = useTranslation();
-  const dispatch = useDispatch();
   const desktopLocal = isDesktopLocal();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tokens = useSelector((state: any) => state.wallet?.tokens ?? 0);
-  const planId = useSelector((state: any) => state.wallet?.planId ?? 'free') as PlanId;
-  const planLocked = useSelector((state: any) => Boolean(state.wallet?.planLocked));
-  const planExpiresAt = useSelector((state: any) =>
-    state.wallet?.planExpiresAt != null ? Number(state.wallet.planExpiresAt) : null
-  );
+  const { tokens: walletTokens, planId: walletPlanId, planLocked: walletPlanLocked, planExpiresAt: walletExpires } =
+    useWalletSnapshot();
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [rows, setRows] = useState<LedgerEntry[]>([]);
-  const [loading, setLoading] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
 
-  /** Deep-link ?redeem=1 still opens redeem (legacy) — skip when embedded / local desktop. */
+  const ledgerQuery = useQuery({
+    ...apiQuery.walletWalletLedger.queryOptions({
+      input: {
+        query: { page, pageSize: PAGE_SIZE, kind: filter },
+      },
+    }),
+  });
+
+  const ledgerRes = ledgerQuery.data as PaginatedWalletLedger | undefined;
+  const rows = (ledgerRes?.items || []).map(toLedgerEntry);
+  const total = Number(ledgerRes?.total) || 0;
+  const loading = ledgerQuery.isFetching && !ledgerQuery.data;
+
+  const { tokens, planId, planLocked, planExpiresAt } = ledgerHeaderFromPage(ledgerRes, {
+    tokens: walletTokens,
+    planId: walletPlanId,
+    planLocked: walletPlanLocked,
+    planExpiresAt: walletExpires,
+  });
+
+  /** Deep-link ?redeem=1 still opens redeem (legacy) 鈥?skip when embedded / local desktop. */
   useEffect(() => {
     if (embedded || desktopLocal) return;
     const flag = (searchParams.get('redeem') || '').trim();
@@ -189,51 +233,6 @@ function WalletLedgerPanel({
   const usedPct = Math.min(100, Math.round((planUsed / creditCap) * 100));
   const hasExtra = balance > creditCap;
 
-  const load = useCallback(
-    async (nextFilter: Filter, nextPage: number, signal?: { cancelled: boolean }) => {
-      if (!signal?.cancelled) setLoading(true);
-      try {
-        const res = await fetchWalletLedger({
-          page: nextPage,
-          pageSize: PAGE_SIZE,
-          kind: nextFilter,
-        });
-        if (signal?.cancelled) return;
-        setRows((res.items || []).map(toLedgerEntry));
-        setTotal(Number(res.total) || 0);
-        setPage(Number(res.page) || nextPage);
-        if (typeof res.tokens === 'number') {
-          dispatch(
-            syncFromServer({
-              tokens: res.tokens,
-              planId: res.planId,
-              planExpiresAt: res.planExpiresAt ?? null,
-              planLocked: Boolean(res.planLocked),
-            })
-          );
-        }
-      } catch {
-        if (signal?.cancelled) return;
-        setRows([]);
-        setTotal(0);
-      } finally {
-        if (!signal?.cancelled) setLoading(false);
-      }
-    },
-    [dispatch]
-  );
-
-  // First enter billing — hydrate ledger once; filter changes load via click below.
-  useEffect(() => {
-    const signal = { cancelled: false };
-    setPage(1);
-    void load(filter, 1, signal);
-    return () => {
-      signal.cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount hydrate only
-  }, [load]);
-
   const filters: { id: Filter; label: string }[] = [
     { id: 'all', label: t('wallet.filterAll') },
     { id: 'redeem', label: t('wallet.typeRedeem') },
@@ -248,7 +247,6 @@ function WalletLedgerPanel({
 
   const goPage = (next: number) => {
     setPage(next);
-    void load(filter, next);
   };
 
   const ghostBtn =
@@ -371,13 +369,12 @@ function WalletLedgerPanel({
             <h2 className="text-[15px] font-medium text-[var(--ink)]">
               {t('wallet.usageActivityTitle')}
             </h2>
-            <SegmentedControl<Filter>
+            <SegmentedControl
               aria-label={t('wallet.usageActivityTitle')}
               value={filter}
               onChange={(next) => {
-                setFilter(next);
+                setFilter(next as Filter);
                 setPage(1);
-                void load(next, 1);
               }}
               options={filters.map(({ id, label }) => ({ value: id, label }))}
             />
@@ -532,7 +529,10 @@ function WalletLedgerPanel({
           <RedeemDialog
             open={redeemOpen}
             onClose={() => setRedeemOpen(false)}
-            onRedeemed={() => void load(filter, 1)}
+            onRedeemed={() => {
+              setPage(1);
+              ledgerQuery.refetch();
+            }}
           />
           <PlansDialog open={plansOpen} onClose={() => setPlansOpen(false)} />
         </>

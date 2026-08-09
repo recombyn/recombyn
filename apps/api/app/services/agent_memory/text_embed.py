@@ -25,7 +25,7 @@ def encode_text_vec(text: str) -> Any | None:
         return None
     t0 = time.time()
     try:
-        from app.services.design.aesthetics.clip_encoder import (
+        from app.services.agent_memory.clip_encoder import (
             clip_available,
             clip_status,
             encode_text,

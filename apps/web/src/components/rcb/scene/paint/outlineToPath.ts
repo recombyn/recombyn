@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Convert geometric shapes / text / strokes into editable SVG path `d`.
  * Used by 轮廓化 — each shapeType has its own outline*Local builder; shared
@@ -26,15 +27,13 @@ import {
   textVisualLines,
 } from '@/components/rcb/scene/document/sceneText';
 import {
-  findPencilBrush,
-  isStampBrush,
-  outlinePathFromPoints,
   parsePathPressures,
   parseSimplePathPoints,
   pencilInkPathFromPoints,
 } from '@/components/rcb/tools/pencilBrushes';
 import { getShapeBaselineD, PathBuilder } from '@/components/rcb/core/geometry';
 import { computeShapeBoolean, type ShapeBox } from '@/components/rcb/selection/shapeBoolean';
+import { getInfiniteSvgPaintZoom } from '@/components/rcb/scene/paint/sceneToSvg';
 
 export type OutlineResult = {
   pathD: string;
@@ -50,7 +49,7 @@ export type OutlineResult = {
 };
 
 /** Shapes / text / stroke tools that can become an editable filled path. */
-export function canOutlineNode(node: any): boolean {
+export function canOutlineNode(node: SceneNodeInput): boolean {
   if (!node) return false;
   if (node.key === 'text') return Boolean(parseNodeText(node.attrs || {}).trim());
   if (node.key === 'rect' || node.key === 'ellipse') return true;
@@ -70,7 +69,7 @@ export function canOutlineNode(node: any): boolean {
 }
 
 /** Already an editable path (pen / boolean / outlined). */
-export function isEditablePathNode(node: any): boolean {
+export function isEditablePathNode(node: SceneNodeInput): boolean {
   if (!node) return false;
   if (node.key === 'path') {
     return Boolean(String(node.attrs?.path || node.attrs?.d || '').trim());
@@ -87,7 +86,7 @@ export function isEditablePathNode(node: any): boolean {
  * Vector baseline path in local space — delegates to geometry kernel (SoT).
  */
 export function geometryIndicatorPathD(
-  node: any,
+  node: SceneNodeInput,
   opts?: { width?: number; height?: number }
 ): string | null {
   return getShapeBaselineD(node, opts);
@@ -747,16 +746,18 @@ function outlineFromSvgStroke(opts: {
   linecap?: CanvasLineCap;
   linejoin?: CanvasLineJoin;
   fillColor: string;
+  zoom?: number;
 }): OutlineResult | null {
   const raw = String(opts.pathD || '').trim();
   const sw = Math.max(0.5, Number(opts.strokeWidth) || 1);
   if (!raw) return null;
   const linecap = opts.linecap || 'butt';
   const linejoin = opts.linejoin || 'miter';
+  const zoom = opts.zoom ?? 1;
 
   const finish = (d: string | null): OutlineResult | null => {
     if (!d) return null;
-    const cleaned = sparsifyOutlineForEdit(d, sw) || d;
+    const cleaned = sparsifyOutlineForEdit(d, sw, zoom) || d;
     return { pathD: cleaned, closed: true, fillColor: opts.fillColor };
   };
 
@@ -779,14 +780,40 @@ function outlineFromSvgStroke(opts: {
   return u ? finish(u.pathD) : finish(parts.map((p) => p.pathD).join(' '));
 }
 
+export type OutlineBuildOpts = {
+  /** CSS zoom — denser edit verts when zoomed in, sparser when zoomed out. */
+  zoom?: number;
+};
+
+/** Scene-space RDP / merge tolerance so edit knobs stay ~constant on screen. */
+function outlineEditTolerance(strokeWidth: number, zoom = 1): number {
+  const z = Math.max(0.15, Math.min(8, Number(zoom) || 1));
+  const half = Math.max(0.5, strokeWidth / 2);
+  // ~6 CSS px between knobs along the silhouette.
+  const fromZoom = 6 / z;
+  const floor = Math.max(0.4, half * 0.08);
+  const ceil = Math.max(floor * 1.25, half * 0.38);
+  return Math.min(ceil, Math.max(floor, fromZoom));
+}
+
+/** Soft cap on editable verts per ring — grows with zoom, hard-capped for UI. */
+function outlineEditMaxPts(zoom = 1): number {
+  const z = Math.max(0.15, Math.min(8, Number(zoom) || 1));
+  return Math.round(Math.min(280, Math.max(28, 36 * Math.sqrt(z) * 2.2)));
+}
+
 /**
  * Drop near-duplicate / colinear verts so path-edit shows corner knobs only.
- * Must not reshape the silhouette (no aggressive maxPts collapse).
+ * Tolerance + maxPts scale with zoom (zoomed out → fewer points).
  */
-function sparsifyOutlineForEdit(d: string, strokeWidth: number): string | null {
-  const half = Math.max(0.5, strokeWidth / 2);
-  const mergeEps = Math.max(0.55, Math.min(1.6, half * 0.14));
-  const rdpEps = Math.max(0.45, Math.min(1.2, half * 0.12));
+function sparsifyOutlineForEdit(
+  d: string,
+  strokeWidth: number,
+  zoom = 1
+): string | null {
+  const eps = outlineEditTolerance(strokeWidth, zoom);
+  const maxPts = outlineEditMaxPts(zoom);
+  const mergeEps = Math.max(0.45, Math.min(eps * 0.85, eps));
 
   const rings = String(d || '')
     .split(/(?=[Mm])/)
@@ -797,7 +824,7 @@ function sparsifyOutlineForEdit(d: string, strokeWidth: number): string | null {
   for (const ring of rings) {
     let verts = polylineVertsFromLinearPath(ring.replace(/[Zz]\s*$/i, ''));
     if (!verts || verts.length < 3) {
-      const sparse = sparsifyClosedPathD(ring, rdpEps, Math.max(24, verts?.length ?? 48));
+      const sparse = sparsifyClosedPathD(ring, eps, maxPts);
       if (sparse) out.push(sparse);
       else out.push(ring);
       continue;
@@ -813,12 +840,10 @@ function sparsifyOutlineForEdit(d: string, strokeWidth: number): string | null {
       const b = merged[merged.length - 1];
       if (Math.hypot(a[0] - b[0], a[1] - b[1]) < mergeEps) merged.pop();
     }
-    // Colinear only — keep every real corner (no hard maxPts cull).
-    const simplified = simplifyClosedPolyline(
+    const simplified = simplifyClosedPolylineCornerAware(
       merged.length >= 3 ? merged : verts,
-      rdpEps,
-      9999,
-      rdpEps * 1.5
+      eps,
+      maxPts
     );
     if (simplified.length < 3) {
       out.push(ring);
@@ -1163,65 +1188,65 @@ export function strokeCenterlineToFilledOutline(
   });
 }
 
-function nodeBoxSize(node: any): { w: number; h: number } {
+function nodeBoxSize(node: SceneNodeInput): { w: number; h: number } {
   return {
     w: Math.max(1, Number(node.width) || 1),
     h: Math.max(1, Number(node.height) || 1),
   };
 }
 
-function nodeStrokeWidth(node: any, fallback = 2): number {
+function nodeStrokeWidth(node: SceneNodeInput, fallback = 2): number {
   return Math.max(
     1,
     Number(node.attrs?.['border-width'] ?? node.attrs?.borderWidth ?? fallback) || fallback
   );
 }
 
-function nodeStrokeInk(node: any, fallback = '#333333'): string {
+function nodeStrokeInk(node: SceneNodeInput, fallback = '#333333'): string {
   return String(node.attrs?.['border-color'] || node.attrs?.stroke || fallback);
 }
 
-function nodeFillColor(node: any, fallback = '#FFFFFF'): string {
+function nodeFillColor(node: SceneNodeInput, fallback = '#FFFFFF'): string {
   return String(node.attrs?.['fill-color'] || node.attrs?.fill || fallback);
 }
 
 /** Bake attrs.angle into path so every shape’s path-edit matches the painted silhouette. */
-function withBakedNodeAngle(node: any, outline: OutlineResult | null): OutlineResult | null {
+function withBakedNodeAngle(node: SceneNodeInput, outline: OutlineResult | null): OutlineResult | null {
   if (!outline) return null;
   const { w, h } = nodeBoxSize(node);
   return bakeNodeAngleIntoOutline(outline, w, h, Number(node.attrs?.angle) || 0);
 }
 
-function outlinePencilLocal(node: any): OutlineResult | null {
+function outlinePencilLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
   const raw = String(node.attrs?.path || node.attrs?.d || '').trim();
   if (!raw) return null;
   const sw = nodeStrokeWidth(node, 10);
   const brushId = String(node.attrs?.brushStyle || 'solid');
-  const brush = findPencilBrush(brushId);
-  const stampSrc = node.attrs?.brushStampSrc != null ? String(node.attrs.brushStampSrc) : '';
   const ink = nodeStrokeInk(node);
   const linecap = readStrokeLinecap(node.attrs, 'pencil');
   const pts = parseSimplePathPoints(raw);
   if (pts.length < 2) return null;
 
-  // Match sceneToSvg freehand ink (pressure + brush taper), including stamp fallback.
+  // Match scene paint ribbon, but RDP the centerline first — live capture is dense.
   const pressures = parsePathPressures(node.attrs?.pathPressure, pts.length);
-  const outlineD = isStampBrush(brushId, stampSrc || brush.stampSrc)
-    ? outlinePathFromPoints(pts, sw, brushId, { linecap })
-    : pencilInkPathFromPoints(pts, sw, brushId, {
-        linecap,
-        pressures,
-        pressureEnabled: true,
-      });
+  const outlineD = pencilInkPathFromPoints(pts, sw, brushId, {
+    linecap,
+    pressures,
+    pressureEnabled: true,
+    simplify: true,
+    pathStyle: 'linear',
+  });
   if (!outlineD.trim()) return null;
+  // Q midpoints → screen-space sparse M/L ring for path-edit knobs.
+  const sparse = sparsifyOutlineForEdit(outlineD, sw, zoom) || outlineD;
   return withBakedNodeAngle(node, {
-    pathD: normalizePathDForEdit(outlineD) || outlineD,
+    pathD: normalizePathDForEdit(sparse) || sparse,
     closed: true,
     fillColor: ink,
   });
 }
 
-function outlinePenLocal(node: any): OutlineResult | null {
+function outlinePenLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
   const raw = String(node.attrs?.path || node.attrs?.d || '').trim();
   if (!raw) return null;
   return withBakedNodeAngle(
@@ -1232,12 +1257,13 @@ function outlinePenLocal(node: any): OutlineResult | null {
       linecap: readStrokeLinecap(node.attrs, 'pen'),
       linejoin: readStrokeLinejoin(node.attrs, 'pen'),
       fillColor: nodeStrokeInk(node),
+      zoom,
     })
   );
 }
 
 /** Horizontal shaft stroke → filled ribbon; rotation baked afterward. */
-function outlineLineLocal(node: any): OutlineResult | null {
+function outlineLineLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
   const { w, h } = nodeBoxSize(node);
   const mid = h / 2;
   return withBakedNodeAngle(
@@ -1248,12 +1274,13 @@ function outlineLineLocal(node: any): OutlineResult | null {
       linecap: readStrokeLinecap(node.attrs, 'line'),
       linejoin: readStrokeLinejoin(node.attrs, 'line'),
       fillColor: nodeStrokeInk(node),
+      zoom,
     })
   );
 }
 
 /** Shaft + V head (multi-subpath stroke) → one silhouette; rotation baked afterward. */
-function outlineArrowLocal(node: any): OutlineResult | null {
+function outlineArrowLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
   const { w, h } = nodeBoxSize(node);
   const d = getShapeBaselineD({
     key: 'shape',
@@ -1270,12 +1297,13 @@ function outlineArrowLocal(node: any): OutlineResult | null {
       linecap: readStrokeLinecap(node.attrs, 'arrow'),
       linejoin: readStrokeLinejoin(node.attrs, 'arrow'),
       fillColor: nodeStrokeInk(node),
+      zoom,
     })
   );
 }
 
 /** Circle / ellipse fill baseline (inner hole + arc params preserved). */
-function outlineCircleLocal(node: any): OutlineResult | null {
+function outlineCircleLocal(node: SceneNodeInput): OutlineResult | null {
   const { w, h } = nodeBoxSize(node);
   const d =
     getShapeBaselineD({
@@ -1301,7 +1329,7 @@ function outlineCircleLocal(node: any): OutlineResult | null {
  * Rect / roundRect fill only — keep SVG stroke on the node (outlineNodePatch).
  * Do NOT densify A-arcs (normalizePathDForEdit); round joins would scallop edges.
  */
-function outlineRectLocal(node: any): OutlineResult | null {
+function outlineRectLocal(node: SceneNodeInput): OutlineResult | null {
   const { w, h } = nodeBoxSize(node);
   const r = clampCornerRadii(radiiFromAttrs(node.attrs), w, h);
   return withBakedNodeAngle(node, {
@@ -1312,7 +1340,7 @@ function outlineRectLocal(node: any): OutlineResult | null {
 }
 
 /** Triangle / star / polygon fill (rounded vertices kept as A arcs). */
-function outlinePolyLocal(node: any, shapeType: 'triangle' | 'star' | 'polygon'): OutlineResult | null {
+function outlinePolyLocal(node: SceneNodeInput, shapeType: 'triangle' | 'star' | 'polygon'): OutlineResult | null {
   const { w, h } = nodeBoxSize(node);
   const sides = sidesFromAttrs(node.attrs) || DEFAULT_SHAPE_SIDES;
   const pts = shapeVertexPoints(
@@ -1336,7 +1364,7 @@ function outlinePolyLocal(node: any, shapeType: 'triangle' | 'star' | 'polygon')
  * Per-shape outline entry — each kind has its own builder so stroke vs fill,
  * multi-subpath arrows, and angle baking stay explicit and consistent.
  */
-function outlineShapeLocal(node: any): OutlineResult | null {
+function outlineShapeLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
   const key = node.key;
   let shapeType = String(node.attrs?.shapeType || 'rect');
   if (key === 'ellipse') shapeType = 'circle';
@@ -1344,13 +1372,13 @@ function outlineShapeLocal(node: any): OutlineResult | null {
 
   switch (shapeType) {
     case 'pencil':
-      return outlinePencilLocal(node);
+      return outlinePencilLocal(node, zoom);
     case 'pen':
-      return outlinePenLocal(node);
+      return outlinePenLocal(node, zoom);
     case 'line':
-      return outlineLineLocal(node);
+      return outlineLineLocal(node, zoom);
     case 'arrow':
-      return outlineArrowLocal(node);
+      return outlineArrowLocal(node, zoom);
     case 'circle':
       return outlineCircleLocal(node);
     case 'rect':
@@ -1472,7 +1500,7 @@ function markOutsideEmpty(
  * Fallback when the font file is unavailable — prefer `outlineTextFromFont` (fontkit).
  * Traces each character separately so adjacent CJK glyphs do not merge / cancel.
  */
-function outlineTextLocal(node: any): OutlineResult | null {
+function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   if (typeof document === 'undefined') return null;
   const plain = parseNodeText(node.attrs || {}).trim();
   if (!plain) return null;
@@ -1615,16 +1643,17 @@ function fitOutlineResult(result: OutlineResult): OutlineResult | null {
 }
 
 /** Build local-space outline path for a node (sync; text uses canvas fallback). */
-export function buildOutlinePath(node: any): OutlineResult | null {
+export function buildOutlinePath(node: SceneNodeInput, opts?: OutlineBuildOpts): OutlineResult | null {
   if (!canOutlineNode(node)) return null;
+  const zoom = resolveOutlineZoom(opts?.zoom);
   let result: OutlineResult | null = null;
   if (node.key === 'text') result = outlineTextLocal(node);
-  else result = outlineShapeLocal(node);
+  else result = outlineShapeLocal(node, zoom);
   return fitOutlineResult(result as OutlineResult);
 }
 
 /** Ensure the CSS face used for canvas tracing is ready (avoids empty / tofu outlines). */
-async function ensureTextFontsLoaded(node: any): Promise<void> {
+async function ensureTextFontsLoaded(node: SceneNodeInput): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts?.load) return;
   try {
     const style = parseNodeTextStyle(node.attrs || {});
@@ -1644,13 +1673,22 @@ async function ensureTextFontsLoaded(node: any): Promise<void> {
  * Falls back to canvas contour when the face has no downloadable font file
  * or the face is missing glyphs for the text (.notdef boxes).
  */
-export async function buildOutlinePathAsync(node: any): Promise<OutlineResult | null> {
+export async function buildOutlinePathAsync(
+  node: SceneNodeInput,
+  opts?: OutlineBuildOpts
+): Promise<OutlineResult | null> {
   if (!canOutlineNode(node)) return null;
+  const zoom = resolveOutlineZoom(opts?.zoom);
   if (node.key === 'text') {
     try {
       const { outlineTextFromFont } = await import('@/components/rcb/scene/paint/outlineTextFont');
       const fromFont = await outlineTextFromFont(node);
-      if (fromFont?.pathD) return fitOutlineResult(fromFont);
+      if (fromFont?.pathD) {
+        const sw = Math.max(1, Number(node.attrs?.fontSize) || 14) * 0.08;
+        const sparse =
+          sparsifyOutlineForEdit(fromFont.pathD, sw, zoom) || fromFont.pathD;
+        return fitOutlineResult({ ...fromFont, pathD: sparse });
+      }
     } catch (err) {
       console.warn('[outline] fontkit outline failed, using canvas fallback', err);
     }
@@ -1658,15 +1696,22 @@ export async function buildOutlinePathAsync(node: any): Promise<OutlineResult | 
     return fitOutlineResult(outlineTextLocal(node) as OutlineResult);
   }
   try {
-    return fitOutlineResult(outlineShapeLocal(node) as OutlineResult);
+    return fitOutlineResult(outlineShapeLocal(node, zoom) as OutlineResult);
   } catch (err) {
     console.warn('[outline] shape outline failed', err);
     return null;
   }
 }
 
+function resolveOutlineZoom(explicit?: number): number {
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) {
+    return Math.max(0.15, Math.min(8, explicit));
+  }
+  return Math.max(0.15, Math.min(8, getInfiniteSvgPaintZoom() || 1));
+}
+
 /** Attrs + geometry patch after outline — keeps paint, switches to editable path. */
-export function outlineNodePatch(node: any, outline: OutlineResult) {
+export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
   const prev = { ...(node.attrs || {}) };
   const fill =
     outline.fillColor ||

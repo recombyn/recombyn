@@ -1,6 +1,6 @@
 /** Tree-shaped font catalog loader. */
 
-import { fetchFonts } from '@/apis/fonts';
+import { apiQuery, queryClient } from '@/service/client';
 import type { FontChild, FontFaceFormat, FontFamilyNode, FontWeightOption } from './fontCatalogTypes';
 
 export type { FontChild, FontFaceFormat, FontFamilyNode, FontWeightOption } from './fontCatalogTypes';
@@ -131,7 +131,12 @@ export function injectFontFaces(catalog: FontFamilyNode[], opts?: { force?: bool
 }
 
 async function loadCatalogFromApi(): Promise<FontFamilyNode[]> {
-  const page = await fetchFonts({ page: 1, pageSize: 500 });
+  const page = (await queryClient.ensureQueryData({
+    ...apiQuery.fontsListFontsEndpoint.queryOptions({
+      input: { query: { page: 1, pageSize: 500 } },
+    }),
+    staleTime: 5 * 60_000,
+  })) as { items?: unknown[] };
   return normalizeCatalog(page.items || []);
 }
 

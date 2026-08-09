@@ -33,9 +33,11 @@ import {
   isLottieGeneratorNode,
   isVideoGeneratorNode,
   isNodeHidden,
-  isNodeLocked,
+  isNodeLocked
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
   listSceneNodes,
-  parseStackKey,
+  parseStackKey
 } from '@/components/rcb/scene/document/sceneDocument';
 import { cn } from '@/utils/classnames';
 import {

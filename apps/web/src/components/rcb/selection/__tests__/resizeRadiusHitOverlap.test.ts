@@ -14,6 +14,7 @@ import {
   radiusParkSceneForBox,
 } from '../SelectionChrome';
 import {
+  pathRadiusSeatAlong,
   radiusParkAlongBisector,
   radiusSeatInset,
 } from '../chrome/CornerRadiusHandlesOverlay';
@@ -78,17 +79,15 @@ function seCornerHitLayout(boxW: number, boxH: number, zoom: number, r = 0) {
   };
 }
 
-/** Path-mode: seat along inward 45° bisector. */
+/** Path-mode: seat along fill bisector (no axis amplification). */
 function sePathHitLayout(boxW: number, boxH: number, zoom: number, r = 0) {
   const z = Math.max(0.05, zoom);
   const inv = 1 / z;
   const hitScale = chromeHitScaleForBox(boxW, boxH, z);
   const parkScene = radiusParkSceneForBox(boxW, boxH, z);
-  const halfSide = Math.min(boxW, boxH) / 2;
-  const inset = radiusSeatInset(r, halfSide, parkScene);
   const ix = -Math.SQRT1_2;
   const iy = -Math.SQRT1_2;
-  const along = radiusParkAlongBisector(inset, ix, iy);
+  const along = pathRadiusSeatAlong(r, parkScene);
 
   const halfHit = (CHROME_HANDLE_HIT_PX * hitScale * inv) / 2;
   const resizeHit = aabbFixed(boxW, boxH, halfHit);
@@ -105,6 +104,7 @@ function sePathHitLayout(boxW: number, boxH: number, zoom: number, r = 0) {
     axisClearanceScreen: axisClearanceScene * z,
     radiusCx,
     radiusCy,
+    along,
     resizeHit,
     radiusInteractive: radiusHandlesFitOnScreen(boxW, boxH, z),
   };
@@ -214,5 +214,13 @@ describe('resize vs radius hit pads (icon-centered)', () => {
     const park = 13;
     const along = radiusParkAlongBisector(park, -Math.SQRT1_2, -Math.SQRT1_2);
     expect(along * Math.SQRT1_2).toBeCloseTo(park, 10);
+  });
+
+  it('path seat along does not amplify for skinny bisectors', () => {
+    const park = radiusParkSceneForBox(400, 300, 1);
+    const seat = pathRadiusSeatAlong(0, park);
+    expect(seat).toBeCloseTo(park, 5);
+    // Old bug: park / min(|ix|,|iy|) with iy≈0.05 → ~20× blow-up.
+    expect(seat).toBeLessThan(park * 1.01);
   });
 });

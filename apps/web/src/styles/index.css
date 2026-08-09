@@ -273,8 +273,9 @@ html[data-theme='dark'] .rcb-home-composer-glow::before {
 .rcb-artboard-process-shimmer {
   position: relative;
   overflow: hidden;
+  /* Opaque cover — paint/review/retry must not show through until settle. */
   background-color: #e4ecf4;
-  background-image: linear-gradient(105deg, #d5e0eb 0%, #eef3f8 42%, #f7f9fb 100%);
+  background-image: linear-gradient(105deg, #d5e0eb 0%, #e8eef5 45%, #eef3f8 100%);
   background-repeat: no-repeat;
 }
 
