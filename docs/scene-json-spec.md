@@ -1,6 +1,8 @@
 # Scene JSON spec
 
-Aligned with the Web editor runtime docs and `packages/scene-schema`.
+Aligned with the Web editor runtime and `packages/scene-schema`.
+
+Canvas paint / Path2D / LOD: **[canvas-architecture.md](./canvas-architecture.md)**.
 
 ```json
 {
@@ -23,4 +25,11 @@ Aligned with the Web editor runtime docs and `packages/scene-schema`.
 }
 ```
 
-Full schema: `packages/scene-schema/schema/scene-document.schema.json`.
+Also common on saved projects:
+
+- `frames` — artboards
+- `stackOrder` — unified paint order (`frame:id` | `node:id`, bottom → top)
+- `pages` / `activePageId` — page children when used
+
+Types: `apps/web/src/components/rcb/sceneNode.ts`.  
+Full JSON Schema: `packages/scene-schema/schema/scene-document.schema.json`.

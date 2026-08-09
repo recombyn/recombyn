@@ -42,7 +42,7 @@ git config --global user.email "you@example.com"
 git config --global --get user.email
 ```
 
-Do **not** add `Co-authored-by: Cursor` (or similar bot trailers) unless you intentionally want that co-author on the commit.
+Do **not** add AI-assistant `Co-authored-by` trailers unless you intentionally want that co-author on the commit.
 
 ## Branch & pull request flow (CLI)
 

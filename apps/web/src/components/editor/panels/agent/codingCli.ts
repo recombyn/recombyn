@@ -223,7 +223,7 @@ export async function runCodingCliDesktop(opts: {
           /* ignore */
         }
       }
-      void killCliOnAbort();
+      killCliOnAbort();
       finish(() => reject(new DOMException('Aborted', 'AbortError')));
     };
 
@@ -260,7 +260,7 @@ export async function runCodingCliDesktop(opts: {
         finish(() => reject(err instanceof Error ? err : new Error(String(err))));
       }
     }
-    void startCodingCliRun();
+    startCodingCliRun();
   });
 }
 

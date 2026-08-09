@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Provider } from 'react-redux';
 import 'virtual:svg-icons-register';
 import '@/i18n';
@@ -11,6 +12,7 @@ import App from '@/App';
 import { store } from '@/store';
 import { MessageContainer } from '@/components/base';
 import { loadFontCatalog } from '@/components/rcb/scene/document/fontCatalog';
+import { queryClient } from '@/service/client';
 
 applyTheme(getStoredThemeMode());
 void loadFontCatalog();
@@ -18,8 +20,10 @@ void loadFontCatalog();
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Provider store={store}>
-      <App />
-      <MessageContainer />
+      <QueryClientProvider client={queryClient}>
+        <App />
+        <MessageContainer />
+      </QueryClientProvider>
     </Provider>
   </React.StrictMode>
 );

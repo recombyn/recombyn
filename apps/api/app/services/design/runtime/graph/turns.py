@@ -4,13 +4,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from app.services.design.aesthetics.scorer import (
-    normalize_need_aesthetics,
-    parse_use_user_refs,
-)
 from app.services.design.ops.tool_ops_contract import normalize_need_tools
 from app.services.design.ops.validate import extract_json_object
-from app.services.design.prompts.knowledge_store import normalize_need_knowledge
 from app.services.design.prompts.prompt_build import _edit_context_block
 from app.services.design.prompts.rules_text import _as_text
 from app.services.design.runtime.host import (
@@ -345,23 +340,14 @@ def _normalize_agent_turn_obj(obj: dict[str, Any] | None) -> dict[str, Any]:
     need_tools = normalize_need_tools(
         obj.get("need_tools") or obj.get("needTools") or obj.get("tools_needed")
     )
-    need_knowledge = normalize_need_knowledge(
-        obj.get("need_knowledge") or obj.get("needKnowledge")
-    )
     from app.services.design.prompts.skill_store import parse_need_skills_with_pins
+    from app.services.design.runtime.subagent import parse_need_subagents
 
     need_skills, skill_version_pins, skill_input_args, skill_parse_errs = (
         parse_need_skills_with_pins(obj.get("need_skills") or obj.get("needSkills"))
     )
-    need_aesthetics = normalize_need_aesthetics(
-        obj.get("need_aesthetics")
-        if "need_aesthetics" in obj
-        else obj.get("needAesthetics")
-    )
-    use_user_refs = parse_use_user_refs(
-        obj.get("use_user_refs")
-        if "use_user_refs" in obj
-        else obj.get("useUserRefs")
+    need_subagents = parse_need_subagents(
+        obj.get("need_subagents") or obj.get("needSubagents")
     )
     return {
         "intent": intent,
@@ -369,13 +355,11 @@ def _normalize_agent_turn_obj(obj: dict[str, Any] | None) -> dict[str, Any]:
         "thought": thought,
         "tool_ops_raw": ops_raw,
         "need_tools": need_tools,
-        "need_knowledge": need_knowledge,
         "need_skills": need_skills,
+        "need_subagents": need_subagents,
         "skill_version_pins": skill_version_pins,
         "skill_input_args": skill_input_args,
         "skill_parse_errs": skill_parse_errs,
-        "need_aesthetics": need_aesthetics,
-        "use_user_refs": use_user_refs,
         "choices": choices,
         "apply_choice": apply_choice,
         "choice_ui": choice_ui,
@@ -452,21 +436,15 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
     )
     _append_pending_reinject(
         pending_parts,
-        rt.pending_knowledge_details,
-        rules=rt.rules,
-        prompt_key="agent.prompt.pending_knowledge",
-    )
-    _append_pending_reinject(
-        pending_parts,
         rt.pending_skill_details,
         rules=rt.rules,
         prompt_key="agent.prompt.pending_skills",
     )
     _append_pending_reinject(
         pending_parts,
-        rt.pending_aesthetics_details,
+        getattr(rt, "pending_subagent_details", "") or "",
         rules=rt.rules,
-        prompt_key="agent.prompt.pending_aesthetics",
+        prompt_key="agent.prompt.pending_subagents",
     )
     pending_blocks = ("\n\n".join(pending_parts) + "\n\n") if pending_parts else ""
 

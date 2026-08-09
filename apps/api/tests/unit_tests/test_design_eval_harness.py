@@ -282,17 +282,3 @@ def test_chat_persists_ask_fields(tmp_path, monkeypatch):
         assert m.get("choiceUi", {}).get("mode") == "confirm"
     finally:
         restore_default_sqlite_engine()
-
-def test_thin_corpus_fail_open(monkeypatch):
-    from app.services.design.aesthetics import scorer as scorer_mod
-
-    monkeypatch.setattr(scorer_mod, "clip_available", lambda: True)
-    monkeypatch.setattr(scorer_mod, "_min_corpus_size", lambda: 3)
-    monkeypatch.setattr(
-        scorer_mod,
-        "list_ready_embeddings",
-        lambda **_k: [{"id": 1, "scene": "website"}],
-    )
-    out = scorer_mod.score_design_image(image_url="data:image/jpeg;base64,xx", scene="website")
-    assert out["status"] == "thin_corpus"
-    assert out["pass"] is True

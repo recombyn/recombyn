@@ -1,0 +1,48 @@
+{
+  "skill_key": "landing_page",
+  "name": "landing_page",
+  "displayName": "Landing / website",
+  "description": "Landing and marketing page: hero thesis, section rhythm, clear CTA",
+  "when_to_use": "Landing page / 落地页 / 官网 / website / marketing page / homepage hero — multi-section web layout (not resume, not pure poster)",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 79,
+  "version": "2.0.0",
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "create_image",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create"
+      ],
+      "prompt_includes_any": [
+        "落地页",
+        "官网",
+        "landing",
+        "homepage",
+        "网站",
+        "营销页"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Do not ship a landing as a single festive poster with no sections; do not invent pricing tiers or logos; do not use five competing CTAs.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "落地页 / 官网",
+      "description": "落地页与官网：英雄主张、区块节奏、清晰 CTA"
+    },
+    "en": {
+      "displayName": "Landing / website",
+      "description": "Landing page section rhythm and hero thesis"
+    }
+  }
+}

@@ -2,29 +2,28 @@ import { useEffect, useState, type ReactNode, memo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
+import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { HiOutlineArrowLeft } from 'react-icons/hi2';
-import { getMe } from '@/apis/auth';
-import { fetchWallet } from '@/apis/wallet';
 import AccountSettingsDialog from '@/components/layout/AccountSettingsDialog';
 import WalletLedgerPanel from '@/components/layout/WalletLedgerPanel';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import AgentModelsPanel from '@/components/editor/panels/agent/AgentModelsPanel';
 import AccountProfileTab from '@/components/account/AccountProfileTab';
+import { apiQuery } from '@/service/client';
+import { useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
 import { setSession, type AuthUser } from '@/store/modules/auth';
-import { selectBillingEnabled, syncFromServer } from '@/store/modules/wallet';
-import type { LedgerEntry } from '@/utils/wallet';
 import { getToken } from '@/utils/token';
 import { readReturnToParam } from '@/utils/authReturnTo';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
-type AccountTab = 'profile' | 'usage' | 'agent';
+const ACCOUNT_TABS = ['profile', 'usage', 'agent'] as const;
+type AccountTab = (typeof ACCOUNT_TABS)[number];
 
-function parseTab(raw: string | null): AccountTab {
-  if (raw === 'usage') return 'usage';
-  if (raw === 'agent') return 'agent';
-  return 'profile';
-}
+const accountTabParser = parseAsStringLiteral(ACCOUNT_TABS)
+  .withDefault('profile')
+  .withOptions({ history: 'replace', clearOnDefault: true });
 
 function accountPageTitle(tab: AccountTab, t: (key: string) => string): string {
   switch (tab) {
@@ -56,88 +55,62 @@ function accountShowsSubtitle(tab: AccountTab): boolean {
 function AccountSettingsPage(): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tab = parseTab(searchParams.get('tab'));
+  const [tab, setTabState] = useQueryState('tab', accountTabParser);
+  const [searchParams] = useSearchParams();
   const user = useSelector((s: any) => s.auth.user as AuthUser | null);
-  const tokens = useSelector((s: any) => s.wallet?.tokens ?? 0);
-  const creditsIncluded = useSelector((s: any) => s.wallet?.creditsIncluded ?? 150);
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const { tokens, creditsIncluded } = useWalletSnapshot();
+  const billingEnabled = useBillingEnabled();
   const hideBillingUi = isDesktopLocal() || !billingEnabled;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const setTab = (next: AccountTab) => {
     if (hideBillingUi && next === 'usage') return;
-    const from = searchParams.get('from');
-    const nextParams = new URLSearchParams();
-    if (next !== 'profile') nextParams.set('tab', next);
-    if (from) nextParams.set('from', from);
-    setSearchParams(nextParams, { replace: true });
+    void setTabState(next);
   };
 
   useEffect(() => {
     if (!hideBillingUi || tab !== 'usage') return;
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete('tab');
-        return next;
-      },
-      { replace: true }
-    );
-  }, [hideBillingUi, tab, setSearchParams]);
+    void setTabState('profile');
+  }, [hideBillingUi, tab, setTabState]);
+
+  const authed = Boolean(getToken());
+
+  const meQuery = useQuery({
+    ...apiQuery.authAuthMe.queryOptions({
+      enabled: authed,
+    }),
+  });
 
   useEffect(() => {
-    if (!getToken()) return;
-    let cancelled = false;
-    async function hydrateAccount() {
-      try {
-        const res = await getMe();
-        if (cancelled || !getToken()) return;
-        dispatch(
-          setSession({
-            user: {
-              id: res.user.id,
-              email: res.user.email,
-              name: res.user.name,
-              avatar: res.user.avatar,
-              provider: res.user.provider,
-              bio: res.user.bio,
-              role: res.user.role,
-            },
-            token: getToken() || undefined,
-          })
-        );
-        if (typeof res.tokens === 'number') {
-          dispatch(syncFromServer({ tokens: res.tokens, planId: (res as any).planId }));
+    const res = meQuery.data as
+      | {
+          user: {
+            id?: string;
+            email: string;
+            name: string;
+            avatar?: string | null;
+            provider: string;
+            bio?: string | null;
+            role?: string;
+          };
         }
-      } catch {
-        /* ignore */
-      }
-    }
-    async function hydrateWallet() {
-      try {
-        const res = await fetchWallet();
-        if (cancelled || !getToken()) return;
-        dispatch(
-          syncFromServer({
-            tokens: res.tokens,
-            billingEnabled: res.billingEnabled,
-            planId: res.planId,
-            planExpiresAt: res.planExpiresAt ?? null,
-            planLocked: Boolean(res.planLocked),
-            ledger: (res.ledger || []) as LedgerEntry[],
-          })
-        );
-      } catch {
-        /* ignore */
-      }
-    }
-    void hydrateAccount();
-    void hydrateWallet();
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch]);
+      | undefined;
+    if (!res?.user || !getToken()) return;
+    dispatch(
+      setSession({
+        user: {
+          id: res.user.id,
+          email: res.user.email,
+          name: res.user.name,
+          avatar: res.user.avatar,
+          provider: res.user.provider,
+          bio: res.user.bio,
+          role: res.user.role,
+        },
+        token: getToken() || undefined,
+      })
+    );
+  }, [dispatch, meQuery.data]);
 
   const creditCap = Math.max(1, Number(creditsIncluded) || 150);
   const balance = Math.max(0, Number(tokens) || 0);

@@ -26,20 +26,32 @@ export function purgeLegacyCustomThumbCache(): void {
   }
 }
 
+/** Project list/publish covers served publicly via uploads route (no Bearer). */
+const PROJECT_COVER_PATH =
+  /^projects\/[^/]+\/[^/]+\/thumb[^/]*\.(?:jpe?g|png|webp|gif)$/i;
+
 /**
  * Pin upload/API thumb URLs to the current page origin (vite proxy), and
  * turn bare storage keys into `/api/v1/uploads/files/…` paths.
- * Public CDN / COS hosts are left unchanged.
+ * Project cover COS URLs are rewritten to the same-origin proxy — anonymous
+ * COS GET often returns 403 when bucket public-read is disabled.
  */
 export function toBrowserThumbUrl(url: string | null | undefined): string {
   const raw = String(url || '').trim();
   if (!raw || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
 
-  if (typeof window !== 'undefined' && /^https?:\/\//i.test(raw)) {
+  if (/^https?:\/\//i.test(raw)) {
     try {
       const u = new URL(raw);
       if (u.pathname.startsWith('/api/v1/uploads/')) {
-        return `${window.location.origin}${u.pathname}${u.search}${u.hash}`;
+        if (typeof window !== 'undefined') {
+          return `${window.location.origin}${u.pathname}${u.search}${u.hash}`;
+        }
+        return `${u.pathname}${u.search}${u.hash}`;
+      }
+      const path = decodeURIComponent(u.pathname).replace(/^\/+/, '');
+      if (PROJECT_COVER_PATH.test(path)) {
+        return `/api/v1/uploads/files/${path}`;
       }
       return raw;
     } catch {
@@ -90,13 +102,18 @@ export function normalizeProjectThumbnailUrls(
   input: string | string[] | null | undefined,
   version?: number | string | null
 ): string[] {
-  const list = Array.isArray(input)
-    ? input
-    : typeof input === 'string' && input.trim()
-      ? [input]
-      : [];
+  let list: string[] = [];
+  if (Array.isArray(input)) list = input;
+  else if (typeof input === 'string' && input.trim()) list = [input];
   return list
     .map((u) => withThumbCacheBust(u, version))
     .filter(Boolean)
     .slice(0, 4);
+}
+
+/** Card / Redux cover field: null | single url | collage urls. */
+export function collageOrSingleThumb(urls: string[]): string | string[] | null {
+  if (urls.length === 0) return null;
+  if (urls.length === 1) return urls[0]!;
+  return urls;
 }

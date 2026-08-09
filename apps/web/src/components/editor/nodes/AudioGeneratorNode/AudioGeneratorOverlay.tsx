@@ -1,9 +1,12 @@
 import { useMemo, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
-import { isAudioGeneratorNode } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isAudioGeneratorNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import AudioGeneratorCard from '@/components/editor/nodes/AudioGeneratorNode/AudioGeneratorCard';
 import { EMPTY_ID_LIST } from '@/store/modules/editor';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
  * World-layer Audio Generator composers (same lattice as video / Lottie generators).
@@ -13,7 +16,7 @@ function AudioGeneratorOverlay({
   hidden,
   readOnly,
 }: {
-  document: any;
+  document: SceneDocument;
   /** Hide while move / resize / rotate is in progress. */
   hidden?: boolean;
   readOnly?: boolean;

@@ -42,7 +42,7 @@ export interface SelectOption {
   value: string | number;
   label: React.ReactNode;
   disabled?: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   data?: any;
 }
 
@@ -103,7 +103,7 @@ const Select = forwardRef<HTMLDivElement, SelectProps>(
         }),
         shift({ padding: 5 }),
         sizeMiddleware({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           apply({ rects, elements }: any) {
             Object.assign(elements.floating.style, {
               width: `${rects.reference.width}px`,

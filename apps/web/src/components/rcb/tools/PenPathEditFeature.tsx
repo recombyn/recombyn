@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 ﻿import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -45,7 +46,7 @@ function anchorHasHandles(a: PenAnchor) {
 type Props = {
   enabled: boolean;
   nodeId: string;
-  document: any;
+  document: SceneDocument;
   paperEl: HTMLElement | null;
   stageEl?: HTMLElement | null;
   /**
@@ -375,7 +376,7 @@ function setHandle(
   };
 }
 
-function loadSceneAnchors(document: any, nodeId: string) {
+function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   const node = document?.deltaSetLike?.[nodeId];
   if (!node) return null;
   const raw = String(node.attrs?.path || node.attrs?.d || '');

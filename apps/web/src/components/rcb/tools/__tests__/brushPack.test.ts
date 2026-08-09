@@ -9,7 +9,6 @@ import {
   findPencilBrush,
   listPencilBrushes,
   setCustomPencilBrushes,
-  setOfficialPencilBrushes,
   stampSpacingForBrush,
   STAMP_MAX_DABS,
 } from '../pencilBrushes';
@@ -34,7 +33,6 @@ describe('recombyn brush pack', () => {
   });
 
   it('builtin wheel starts with vector brushes then tip stamps', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const list = listPencilBrushes();
     expect(list.slice(0, 3).map((b) => b.id)).toEqual([
@@ -52,7 +50,6 @@ describe('recombyn brush pack', () => {
   });
 
   it('keeps fixed tip spacing (does not sparsify into dots)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const brush = findPencilBrush('solid');
     const pts = [];

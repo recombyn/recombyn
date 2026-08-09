@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   createEmptyDocument,
-  createShapeNode,
   addNodeToDocument,
-  updateNodeInDocument,
+  updateNodeInDocument
 } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createShapeNode
+} from '@/components/rcb/scene/document/nodeFactories';
 
 describe('updateNodeInDocument COW', () => {
   it('shares untouched nodes and path strings across patches', () => {

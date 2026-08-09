@@ -1,9 +1,10 @@
 import { message } from '@/components/base';
+import { getHttpErrorMessage } from '@/service/client';
 import { uploadImageFile, readFileAsDataUrl } from '@/utils/uploadImage';
 import {
   captureVideoPosterFrame,
-  measureVideoNaturalSize,
-} from '@/components/rcb/scene/document/sceneDocument';
+  measureVideoNaturalSize
+} from '@/components/rcb/scene/document/nodeFactories';
 import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
 
 type DispatchLike = (action: unknown) => unknown;
@@ -119,8 +120,7 @@ export async function replaceVideoNodeFromFile(opts: {
   } catch (err: any) {
     if (alive()) {
       dispatch(finishImageProcess({ nodeId }));
-      const detail = err?.response?.data?.detail || err?.message || '替换视频失败';
-      message.error(typeof detail === 'string' ? detail : '替换视频失败');
+      message.error(getHttpErrorMessage(err, '替换视频失败'));
     }
   }
 }

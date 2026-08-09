@@ -12,6 +12,7 @@ import {
   strokeVisualOutset,
 } from '../../scene/document/sceneEffects';
 import { resolveClosedDrawBoxes } from '../../tools/ShapeDrawFeature';
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /**
  * Production move policy when gridSize > 0:
@@ -20,7 +21,7 @@ import { resolveClosedDrawBoxes } from '../../tools/ShapeDrawFeature';
  */
 function moveSnapVisualOnly(opts: {
   path: { left: number; top: number; width: number; height: number };
-  node: any;
+  node: SceneNodeInput;
   gridSize: number;
   dx?: number;
   dy?: number;
@@ -48,7 +49,7 @@ function moveSnapVisualOnly(opts: {
 
 function assertInkOnGrid(
   path: { left: number; top: number; width: number; height: number },
-  node: any,
+  node: SceneNodeInput,
   gridSize: number
 ) {
   const ink = inflateBoxByVisualOutset(path, node);

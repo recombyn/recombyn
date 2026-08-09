@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useDispatch, useSelector, useStore } from 'react-redux';
 import { useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -14,11 +15,12 @@ import {
 } from '@floating-ui/react';
 import { HiOutlineBookOpen } from 'react-icons/hi2';
 import {
-  listModels,
   generateImage,
   generateVideo,
+  type ChatModelsResponse,
   type LlmModel,
-} from '@/apis/chat';
+} from '@/service/chat';
+import { apiQuery } from '@/service/client';
 import {
   agentAttachmentLimit,
   cloudImageFallbackId,
@@ -48,12 +50,7 @@ import {
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';
-import type { UserAsset } from '@/apis/assets';
-import {
-  deleteChatSessionApi,
-  fetchChatSessions,
-  upsertChatSessionApi,
-} from '@/apis/chatSessions';
+import type { UserAsset } from '@/models/assets';
 import { getToken } from '@/utils/token';
 import {
   deleteUploadedFile,
@@ -75,7 +72,7 @@ import {
   type AgentComposerHandle,
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
-import { fetchDesignSkills, pauseDesignRun, fetchDesignRunStatus, type DesignSkillCard } from '@/apis/design';
+import { pauseDesignRun, fetchDesignRunStatus, type DesignSkillCard, type DesignCatalog, type DesignScene } from '@/service/design';
 import AgentDockHeader, {
   type AgentEngineMode,
   type CodingCliOption,
@@ -111,9 +108,11 @@ import {
   type AgentStepEvent,
 } from '@/components/editor/panels/agent/runDesignAgent';
 import {
-  canAttachNodeToChat,
-  captureVideoPosterFrame,
-} from '@/components/rcb/scene/document/sceneDocument';
+  canAttachNodeToChat
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
+  captureVideoPosterFrame
+} from '@/components/rcb/scene/document/nodeFactories';
 import {
   applyClientFrameHints,
   applyMemoryPatch,
@@ -156,11 +155,6 @@ import {
   loadAgentRoutePrefs,
   AgentRoutePrefsEditor,
 } from '@/components/editor/panels/agent/AgentModelsPanel';
-import {
-  fetchDesignCatalog,
-  type DesignCatalog,
-  type DesignScene,
-} from '@/apis/design';
 import { setAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
 import {
@@ -177,7 +171,8 @@ import ModelPickerPanel, {
 } from '@/components/editor/panels/agent/ModelPickerPanel';
 import { cn } from '@/utils/classnames';
 import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
-import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick, type PlanId } from '@/utils/wallet';
+import { useWalletSnapshot } from '@/service/wallet';
+import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick } from '@/utils/wallet';
 import {
   buildDesignSceneSnapshot,
   buildImageGenRequestBody,
@@ -370,7 +365,7 @@ type AgentDockProps = {
   draftImageAspectRatio?: string | null;
   /** Home → editor: product category scene (website / mobile / image / poster). */
   draftScene?: DesignScene | null;
-  /** Right-click 「添加到 Chat」— node id, `frame:id`, or multiple ids as one 组N chip. */
+  /** Right-click 銆屾坊鍔犲埌 Chat銆嶁€?node id, `frame:id`, or multiple ids as one 缁凬 chip. */
   attachToChat?: string | string[] | null;
   onAttachConsumed?: () => void;
   /** Onboarding spotlight target id (`data-tour`). */
@@ -529,7 +524,7 @@ function AgentDock({
   const activeFrameId = useSelector(
     (s: any) => (s.editor.document?.activeFrameId as string | null) ?? null
   );
-  const planId = useSelector((s: any) => (s.wallet?.planId as PlanId) || 'free');
+  const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
 
   const [models, setModels] = useState<LlmModel[]>([]);
@@ -560,7 +555,7 @@ function AgentDock({
   contextChipsRef.current = contextChips;
   const pinnedContextKeysRef = useRef<Set<string>>(new Set());
   const contextDismissedKeyRef = useRef<string | null>(null);
-  /** Dedup canvas→composer applies (React StrictMode runs effects twice). */
+  /** Dedup canvas鈫抍omposer applies (React StrictMode runs effects twice). */
   const attachToChatLockRef = useRef<string | null>(null);
   const pendingCanvasAttachLockRef = useRef<string | null>(null);
   const onlyImageInteraction =
@@ -591,7 +586,7 @@ function AgentDock({
   const [designCatalog, setDesignCatalog] = useState<DesignCatalog | null>(null);
   const canvasUi = canvasUiProp || null;
   const [newChatTip, setNewChatTip] = useState(false);
-  /** Cursor-like: edit a past user message in-place. */
+  /** Edit a past user message in-place. */
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   // First paint must use stored width — a later setState(360→stored) reflows the stage.
@@ -660,99 +655,119 @@ function AgentDock({
     if (fid) lastAgentFrameIdRef.current = String(fid);
   }, [sessionId, taskState?.canvas?.last_agent_frame_id]);
 
-  const catalogInflightRef = useRef<Promise<DesignCatalog | null> | null>(null);
-  const modelsInflightRef = useRef<Promise<LlmModel[]> | null>(null);
-  const skillsInflightRef = useRef<Promise<DesignSkillCard[]> | null>(null);
   const codingClisInflightRef = useRef<Promise<CodingCliOption[]> | null>(null);
   const lastHydrateSignalRef = useRef(0);
+  const modelsUnavailableWarnRef = useRef(false);
+  const modelsErrToastRef = useRef(false);
+  const [skillsWanted, setSkillsWanted] = useState(false);
 
-  const ensureDesignCatalogLoaded = async (): Promise<DesignCatalog | null> => {
-    if (designCatalog) return designCatalog;
-    if (catalogInflightRef.current) return catalogInflightRef.current;
-    const pending = (async () => {
-      try {
-        const cat = await fetchDesignCatalog();
-        setDesignCatalog(cat);
-        void warmAgentRoutePresetRules(cat.global_rules);
-        const keys = (cat.canvas_tools || []).map((t) => t.op_key).filter(Boolean);
-        if (keys.length) setAllowedCanvasToolKeys(keys);
-        setStyleGroupId((prev) => prev ?? cat.style_groups?.[0]?.id ?? null);
-        return cat;
-      } catch {
-        return null;
-      } finally {
-        catalogInflightRef.current = null;
-      }
-    })();
-    catalogInflightRef.current = pending;
-    return pending;
-  };
+  const modelsQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+    enabled: open,
+  });
 
-  const ensureModelsLoaded = async (): Promise<LlmModel[]> => {
-    if (modelsStatus === 'ready') return models;
-    if (modelsInflightRef.current) return modelsInflightRef.current;
-    setModelsStatus('loading');
-    const pending = (async () => {
-      try {
-        const res = await listModels();
-        warmOpenrouterAvailability(res?.openrouterAvailable);
-        const list = normalizeModelList(res?.models, res?.imageModels, res?.videoModels);
-        setModels(list);
-        setModelsStatus('ready');
-        setAvailable(Boolean(res?.available));
-        setModel((prev) => {
-          if (!canPickModel) return planAllowsModelId('free', prev) ? prev : 'auto';
-          if (prev === 'auto') return prev;
-          if (prev && list.some((m) => m.id === prev)) return prev;
-          return 'auto';
-        });
-        if (!res?.available) {
-          message.warning(
-            '未配置 API Key。请在 apps/api/.env 中设置 DEEPSEEK_API_KEY 或 LLM_API_KEY。'
-          );
-        }
-        return list;
-      } catch (err: any) {
-        setModels([]);
-        setModelsStatus('error');
-        setAvailable(false);
+  const designCatalogQuery = useQuery({
+    ...apiQuery.designDesignCatalog.queryOptions(),
+    staleTime: 60_000,
+    enabled: open,
+  });
+
+  const skillsQuery = useQuery({
+    ...apiQuery.designDesignSkillsPicker.queryOptions({
+      input: { query: {} },
+    }),
+    staleTime: 60_000,
+    enabled: open && skillsWanted,
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    if (modelsQuery.isPending) {
+      setModelsStatus('loading');
+      return;
+    }
+    if (modelsQuery.isError) {
+      setModels([]);
+      setModelsStatus('error');
+      setAvailable(false);
+      if (!modelsErrToastRef.current) {
+        modelsErrToastRef.current = true;
+        const err = modelsQuery.error;
         message.error(
-          err?.message ||
+          (err instanceof Error && err.message) ||
             '无法加载模型列表。请先启动后端：npm run dev:api（端口 8000）'
         );
-        return [] as LlmModel[];
-      } finally {
-        modelsInflightRef.current = null;
       }
-    })();
-    modelsInflightRef.current = pending;
-    return pending;
-  };
+      return;
+    }
+    if (!modelsQuery.isFetched) return;
+    const res = modelsQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModels([]);
+      setModelsStatus('error');
+      setAvailable(false);
+      return;
+    }
+    modelsErrToastRef.current = false;
+    warmOpenrouterAvailability(res.openrouterAvailable);
+    const list = normalizeModelList(res.models, res.imageModels, res.videoModels);
+    setModels(list);
+    setModelsStatus('ready');
+    setAvailable(Boolean(res.available));
+    setModel((prev) => {
+      if (!canPickModel) return planAllowsModelId('free', prev) ? prev : 'auto';
+      if (prev === 'auto') return prev;
+      if (prev && list.some((m) => m.id === prev)) return prev;
+      return 'auto';
+    });
+    if (!res.available && !modelsUnavailableWarnRef.current) {
+      modelsUnavailableWarnRef.current = true;
+      message.warning(
+        '未配置 API Key。请在 apps/api/.env 中设置 DEEPSEEK_API_KEY 或 LLM_API_KEY。'
+      );
+    }
+  }, [
+    open,
+    modelsQuery.data,
+    modelsQuery.isPending,
+    modelsQuery.isError,
+    modelsQuery.isFetched,
+    modelsQuery.error,
+    canPickModel,
+  ]);
 
-  const loadSkillCatalog = async (): Promise<DesignSkillCard[]> => {
-    if (skillsInflightRef.current) return skillsInflightRef.current;
-    const pending = (async () => {
-      try {
-        const res = await fetchDesignSkills();
-        const items = res.items || [];
-        setSkillCatalog(items);
-        return items;
-      } catch {
-        setSkillCatalog([]);
-        return [] as DesignSkillCard[];
-      } finally {
-        skillsInflightRef.current = null;
-      }
-    })();
-    skillsInflightRef.current = pending;
-    return pending;
+  useEffect(() => {
+    if (!open) return;
+    const cat = designCatalogQuery.data as DesignCatalog | undefined;
+    if (!cat) return;
+    setDesignCatalog(cat);
+    warmAgentRoutePresetRules(cat.global_rules);
+    const keys = (cat.canvas_tools || []).map((t) => t.op_key).filter(Boolean);
+    if (keys.length) setAllowedCanvasToolKeys(keys);
+    setStyleGroupId((prev) => prev ?? cat.style_groups?.[0]?.id ?? null);
+  }, [open, designCatalogQuery.data]);
+
+  useEffect(() => {
+    if (!skillsWanted || !skillsQuery.isFetched) return;
+    if (skillsQuery.isError) {
+      setSkillCatalog([]);
+      return;
+    }
+    const items =
+      ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items || []);
+    setSkillCatalog(items);
+  }, [skillsWanted, skillsQuery.data, skillsQuery.isFetched, skillsQuery.isError]);
+
+  const loadSkillCatalog = () => {
+    setSkillsWanted(true);
   };
 
   const ensureCodingClisLoaded = async (): Promise<CodingCliOption[]> => {
     if (!desktopShell) return [];
     if (codingClis.length) return codingClis;
     if (codingClisInflightRef.current) return codingClisInflightRef.current;
-    const pending = (async () => {
+    async function loadCodingClis(): Promise<CodingCliOption[]> {
       try {
         const rows = await listCodingClisDesktop();
         setCodingClis(rows);
@@ -769,15 +784,14 @@ function AgentDock({
       } finally {
         codingClisInflightRef.current = null;
       }
-    })();
+    }
+    const pending = loadCodingClis();
     codingClisInflightRef.current = pending;
     return pending;
   };
 
   const hydrateDockData = () => {
-    void ensureDesignCatalogLoaded();
-    void ensureModelsLoaded();
-    void ensureCodingClisLoaded();
+    ensureCodingClisLoaded();
   };
 
   useEffect(() => {
@@ -984,9 +998,9 @@ function AgentDock({
     }
     if (boot.modelId) {
       setModel(boot.modelId);
-      const image = isImageKind({ id: boot.modelId });
-      const video = isVideoKind({ id: boot.modelId });
-      setComposerMode(image ? 'image' : video ? 'video' : 'agent');
+      if (isImageKind({ id: boot.modelId })) setComposerMode('image');
+      else if (isVideoKind({ id: boot.modelId })) setComposerMode('video');
+      else setComposerMode('agent');
     }
     if (boot.interactionMode === 'agent') {
       setInteractionMode('agent');
@@ -1032,7 +1046,7 @@ function AgentDock({
     attachToChatLockRef.current = token;
     const payload = attachToChat;
     onAttachConsumed?.();
-    void applyCanvasAttachPayload({
+    applyCanvasAttachPayload({
       document,
       payload,
       existingChips: contextChipsRef.current,
@@ -1080,7 +1094,7 @@ function AgentDock({
     pendingCanvasAttachLockRef.current = token;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    void applyCanvasAttachPayload({
+    applyCanvasAttachPayload({
       document,
       payload,
       existingChips: contextChipsRef.current,
@@ -1182,7 +1196,9 @@ function AgentDock({
       const s = Math.max(1, totalSeconds);
       const lang = i18n.language || 'en';
       if (s < 60) {
-        return lang.startsWith('zh') ? `${s} 秒` : lang.startsWith('ja') ? `${s}秒` : `${s}s`;
+        if (lang.startsWith('zh')) return `${s} 秒`;
+        if (lang.startsWith('ja')) return `${s}秒`;
+        return `${s}s`;
       }
       const m = Math.floor(s / 60);
       const r = s % 60;
@@ -1256,7 +1272,7 @@ function AgentDock({
               /* ignore */
             }
           }
-          void purgeContextAttachment();
+          purgeContextAttachment();
         }
       }
     }
@@ -1279,7 +1295,7 @@ function AgentDock({
             /* ignore */
           }
         }
-        void deleteRemovedAttachmentUpload();
+        deleteRemovedAttachmentUpload();
       }
     }
     setContextChips(next);
@@ -1430,7 +1446,7 @@ function AgentDock({
                     /* ignore */
                   }
                 }
-                void purgeOrphanUpload();
+                purgeOrphanUpload();
               }
               return prev;
             }
@@ -1580,7 +1596,7 @@ function AgentDock({
                 });
               }
             }
-            void attachSelection();
+            attachSelection();
           } else {
             dispatch(
               startCanvasAttachPick({
@@ -1681,7 +1697,7 @@ function AgentDock({
           /* ignore */
         }
       }
-      void pauseLiveDesignRun();
+      pauseLiveDesignRun();
     }
     abortRef.current?.abort();
     if (desktopShell && engineMode === 'cli') {
@@ -1693,7 +1709,7 @@ function AgentDock({
           /* ignore */
         }
       }
-      void killCodingCliOnStop();
+      killCodingCliOnStop();
     }
     dispatch(setAgentBusy(false));
     setSending(false);
@@ -1849,7 +1865,7 @@ function AgentDock({
         /* keep Resume button; user can retry */
       }
     }
-    void autoResumePausedDesign();
+    autoResumePausedDesign();
     return () => {
       cancelled = true;
     };
@@ -2083,13 +2099,11 @@ function AgentDock({
         );
       } catch (err) {
         if (ac.signal.aborted) return;
-        const msg =
-          err instanceof Error && err.message ? err.message : t('agent.requestFailed');
         patchAssistant(
           (m) => m.id === assistantId,
           (m) =>
             finishAssistantPatch(m, {
-              content: humanizeDesignError(t, msg),
+              content: humanizeDesignError(t, 'internal_error'),
               videoPendingCount: undefined,
               steps: [],
             })
@@ -2350,13 +2364,11 @@ function AgentDock({
         );
       } catch (err) {
         if (ac.signal.aborted) return;
-        const msg =
-          err instanceof Error && err.message ? err.message : t('agent.requestFailed');
         patchAssistant(
           (m) => m.id === assistantId,
           (m) =>
             finishAssistantPatch(m, {
-              content: humanizeDesignError(t, msg),
+              content: humanizeDesignError(t, 'internal_error'),
               imagePendingCount: undefined,
               steps: [],
             })
@@ -2488,6 +2500,7 @@ function AgentDock({
           thinking: t('agent.canvasProcessThinking'),
           exploring: t('agent.canvasProcessExploring'),
           editing: t('agent.canvasProcessEditing'),
+          reviewing: t('agent.canvasProcessReviewing'),
         },
         memory: {
           medium: memoryMedium,
@@ -2566,7 +2579,7 @@ function AgentDock({
         );
         return;
       case 'apply':
-        void send({
+        send({
           text: next.text,
           raw: true,
           displayContent: next.text,
@@ -2577,7 +2590,7 @@ function AgentDock({
         });
         return;
       case 'reply':
-        void send({ text: next.text, raw: true, displayContent: next.text });
+        send({ text: next.text, raw: true, displayContent: next.text });
         return;
       default:
         return;
@@ -2595,7 +2608,7 @@ function AgentDock({
     if (!text) return;
     if (modelsStatus === 'loading' || modelsStatus === 'idle') return;
     pendingAutoSubmitRef.current = null;
-    void send(text);
+    send(text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, modelsStatus, draftPrompt, location.search, currentId, routeProjectId]);
 
@@ -2703,7 +2716,7 @@ function AgentDock({
     if (!draft) return;
     const idx = messages.findIndex((x) => x.id === id);
     if (idx < 0) return;
-    void send({
+    send({
       text: draft,
       priorMessages: messages.slice(0, idx),
     });
@@ -2739,7 +2752,7 @@ function AgentDock({
     closePopovers();
     setHistoryOpen((v) => {
       const next = !v;
-      if (next) void refreshSessions();
+      if (next) refreshSessions();
       return next;
     });
   };
@@ -2755,7 +2768,7 @@ function AgentDock({
           /* ignore */
         }
       }
-      void killCodingCliOnClose();
+      killCodingCliOnClose();
     }
     dispatch(setAgentBusy(false));
     setSending(false);
@@ -2804,7 +2817,7 @@ function AgentDock({
       setMentionQuery('');
       setSkillQuery(slash.query);
       setSkillPanelOpen(true);
-      void loadSkillCatalog();
+      loadSkillCatalog();
       return;
     }
     if (at.open) {
@@ -2985,7 +2998,7 @@ function AgentDock({
     onOpenChange: (open) => {
       setSkillPanelOpen(open);
       if (!open) setSkillQuery('');
-      else void loadSkillCatalog();
+      else loadSkillCatalog();
     },
     placement: 'bottom-start',
     strategy: 'fixed',
@@ -3012,7 +3025,7 @@ function AgentDock({
         editor?.getBoundingClientRect() ??
         new DOMRect(),
     });
-    void mentionFloating.update();
+    mentionFloating.update();
   }, [
     mentionPanelOpen,
     mentionQuery,
@@ -3034,7 +3047,7 @@ function AgentDock({
         editor?.getBoundingClientRect() ??
         new DOMRect(),
     });
-    void skillFloating.update();
+    skillFloating.update();
   }, [
     skillPanelOpen,
     skillQuery,
@@ -3148,7 +3161,7 @@ function AgentDock({
         onContextsChange={onContextsChange}
         value={editDraft}
         onChange={onEditDraftChange}
-        onSubmit={() => void submitEditUserMessage()}
+        onSubmit={() => submitEditUserMessage()}
         onEscape={() => escapeComposer({ cancelEdit: true })}
         sending={sending}
         onStop={stopGeneration}
@@ -3222,7 +3235,7 @@ function AgentDock({
         onRestore={restoreCheckpoint}
         onChoice={handleAskChoice}
         onResume={(id) => {
-          void resumeGeneration(id);
+          resumeGeneration(id);
         }}
         onOpenSession={openSession}
         onDeleteSession={deleteSession}
@@ -3250,7 +3263,7 @@ function AgentDock({
               onContextsChange={onContextsChange}
               value={input}
               onChange={onInputChange}
-              onSubmit={() => void send()}
+              onSubmit={() => send()}
               onEscape={() => escapeComposer()}
               sending={sending}
               onStop={stopGeneration}

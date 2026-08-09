@@ -1,10 +1,10 @@
-"""Hardcoded Cursor-style design-run stages (every runtime phase).
+"""Hardcoded design-run stages (every runtime phase).
 
 Emits `explored` parent + nested `item` lines for:
 prepare → scene → prompt → model → lookup → validate → ops →
 scene_check → critic → refine → done
 
-Labels / event map: apps/api/data/progress_stages.json
+Labels / event map: apps/api/seeds/progress_stages.json
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ from typing import Any
 
 
 def _load_progress_stages() -> tuple[dict[str, str], dict[str, str]]:
-    from app.core.config import resolve_data_file
+    from app.core.config import resolve_seed_file
 
-    path = resolve_data_file("progress_stages.json")
+    path = resolve_seed_file("progress_stages.json")
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -59,6 +59,10 @@ def stage_for_event(ev: dict[str, Any]) -> str | None:
         if st in ("routing", "chat"):
             return None
         return "scene"
+    if et in ("critique_start", "critique_done"):
+        return "critic"
+    if et == "skill_start" and str(ev.get("skill_key") or "") == "review":
+        return "critic"
     if et == "activity":
         aid = str(ev.get("id") or "")
         kind = str(ev.get("kind") or "")
@@ -116,7 +120,7 @@ def explored_stage_event(
     item_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Cursor-style Explored row: parent `explore-pipeline` + one nested item.
+    Explored row: parent `explore-pipeline` + one nested item.
 
     FE upserts the parent and merges `item` into `items[]`.
     """

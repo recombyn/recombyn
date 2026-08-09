@@ -1,7 +1,7 @@
 import {
   fitImageSize,
-  parseLottieAnimationData,
-} from '@/components/rcb/scene/document/sceneDocument';
+  parseLottieAnimationData
+} from '@/components/rcb/scene/document/nodeFactories';
 
 export type SystemPastePayload =
   | { kind: 'image'; file: File }

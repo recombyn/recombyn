@@ -13,12 +13,14 @@ import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import AuthHeader from '@/components/layout/AuthHeader';
 import { useIsDesktopShell } from '@/components/layout/DesktopTitlebar';
+import { refreshHomeNavPanel, refreshHomeProjectsList } from '@/components/layout/HomeBody';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { cn } from '@/utils/classnames';
 import { getToken } from '@/utils/token';
 
 type Props = {
   setNav: (id: string) => void;
+  nav?: string;
 };
 
 type HomeNavKey = 'home' | 'mine' | 'account' | 'skills';
@@ -28,7 +30,7 @@ function isHomeNavKey(key: string): key is HomeNavKey {
 }
 
 /** Floating top-right — account chip; mobile also has nav menu after avatar. */
-function HomeTopBar({ setNav }: Props) {
+function HomeTopBar({ setNav, nav }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const desktop = useIsDesktopShell();
@@ -37,7 +39,15 @@ function HomeTopBar({ setNav }: Props) {
 
   const goNav = (id: HomeNavKey) => {
     if ((id === 'mine' || id === 'account' || id === 'skills') && !authed) {
-      navigate(buildLoginUrl('/home'));
+      navigate(buildLoginUrl(`/home?nav=${id}`));
+      return;
+    }
+    if ((id === 'home' || id === 'mine') && nav === id) {
+      refreshHomeProjectsList();
+      return;
+    }
+    if ((id === 'account' || id === 'skills') && nav === id) {
+      refreshHomeNavPanel(id);
       return;
     }
     setNav(id);

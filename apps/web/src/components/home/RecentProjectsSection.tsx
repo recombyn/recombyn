@@ -11,6 +11,7 @@ import {
   renameProjectOnCloud,
   requestProjectFlush,
 } from '@/components/editor/useProjectCloudSync';
+import { invalidateProjectsListCache } from '@/service/projects';
 import { deleteTemplate, renameTemplateById } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 
@@ -72,11 +73,18 @@ function RecentProjectsSection({
     const id = String(item.id || '');
     if (!id) return;
     dispatch(renameTemplateById({ id, name: next }));
-    if (currentId === id) {
-      requestProjectFlush();
-    } else {
-      void renameProjectOnCloud(id, next);
+    async function pushRename() {
+      try {
+        if (currentId === id) {
+          requestProjectFlush();
+        } else {
+          await renameProjectOnCloud(id, next);
+        }
+      } finally {
+        invalidateProjectsListCache();
+      }
     }
+    pushRename();
   };
 
   const openRename = (item: ProjectItem) => {
@@ -98,6 +106,7 @@ function RecentProjectsSection({
     try {
       await removeProjectFromCloud(id);
       dispatch(deleteTemplate(id));
+      invalidateProjectsListCache();
       message.destructive(t('common.delete'));
     } catch {
       message.error(t('home.batchDeleteFailed'));
@@ -134,7 +143,9 @@ function RecentProjectsSection({
                 showPublish={false}
                 onRename={() => openRename(item)}
                 onCommitRename={(name) => commitRenameFor(item, name)}
-                onDelete={() => void commitDelete(item)}
+                onDelete={() => {
+                  commitDelete(item);
+                }}
               />
             ))}
       </div>

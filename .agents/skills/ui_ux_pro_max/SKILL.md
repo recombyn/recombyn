@@ -1,45 +1,61 @@
-# UI/UX Pro Max — Design Intelligence
+# UI / UX craft gate
 
-开源改编自 [ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)（MIT）。给 Design Agent 用的画布决策百科，不是 IDE 脚本。
+Quality bar for canvas deliverables — readability, hierarchy, overflow, and hero vs shape choices.
 
-## 何时加载
+Mature craft (WCAG contrast habits + production design QA + Anthropic “fix higher failures first”): run the gate before declaring done.
 
-- 新建落地页 / Dashboard / SaaS / 移动物料 / **海报 / Banner**
-- 选风格、配色、字体、间距与信息层级
-- 审查可读性、对比度、触控与反馈
+## Principles
+1. **Higher failures first** — hero/contrast/overflow beat decoration polish.
+2. **One language** — festive hand / minimal UI / editorial … end-to-end.
+3. **Readable always** — body contrast and no clipped glyphs are non-negotiable.
+4. **Hero honesty** — festive/illustrated briefs need real `create_image`, not shape piles.
+5. **UI affordances** — labels, hit targets, and errors must be visible without hover.
 
-## 优先级检查（高 → 低）
+## Workflow
+1. Name deliverable (SaaS UI, landing, ecommerce, banner, poster/rollup, icon …).
+2. Apply checklist **high → low**; fix higher failures first.
+3. Confirm one style language end-to-end.
+4. Place into FOCUS frame; SCENE ids only.
+5. Tick pre-paint checklist, then emit or finalize ops.
 
-1. **海报 / 节日插画主视觉**：先 `create_image` + `genPrompt` 做全幅（或接近全幅）主视觉；再叠文案。**禁止**只用一堆 `create_shape` 拼南瓜/月亮冒充海报
-2. **可读性 / 对比度**：正文 ≥ 4.5:1；大标题 ≥ 3:1；勿用相近色压在同色背景上（如紫字压紫雾）
-3. **溢出**：任意 `create_text` 的字形必须完整落在画板内；预留边距（竖海报左右 ≥ 5% 宽）；字号过大就降字号或拆行，禁止裁切
-4. **层级**：一眼只认一个主标题；副文案明显更小；勿堆 5+ 段同权重口号
-5. **风格一致**：选定一种风格语言后贯彻到底（节日手绘 / 极简 UI / 杂志…），勿混用互斥语言
-6. **字体选型**：UI / 信息字 → `create_text` + Available fonts；节日展示字 / 特效字若目录字体气质不合 → `create_image` + `letteringText`（勿拿 Bebas 等 UI 字硬套插画海报）
-7. **装饰克制**：禁止把 Material / 通用 UI 图标当节日装饰；`create_text` 勿塞 emoji（易缺字变 □）；shape 仅作少量点缀，不是主画面
-8. **触控与反馈**（可交互物料）：可点区域够大；勿只靠 hover
-9. **表单**（若有）：可见标签；错误就近
+## Priority checklist
+1. **Poster / festive hero**: `create_image`+genPrompt first (full/near-full). Do not fake with shape piles.
+2. **Contrast**: body ≥ ~4.5:1; large titles ≥ ~3:1; no near-hue on near-hue.
+3. **Overflow**: every `create_text` glyph inside the board; side margins (vertical posters ≥ ~5% width); shrink/wrap — never clip.
+4. **Hierarchy**: one primary title; supporting clearly smaller; avoid 5+ equal slogans.
+5. **Consistency**: one language (festive hand / minimal UI / editorial …).
+6. **Type**: UI/info → `create_text`+Available fonts; festive display fonts cannot match → `create_image`+letteringText.
+7. **Decoration**: no Material/generic UI icons as festive props; no emoji inside `create_text`; shapes are accents, not the hero.
+8. **Hit targets** (UI): large enough; do not rely on hover alone.
+9. **Forms**: visible labels; errors adjacent to fields.
 
-## 风格选型提示
+## Spacing / rhythm
+Pick a base step (4 or 8) and stick to it for gaps, padding, and type scale jumps. Align columns; avoid 1–2px “almost” misalignment.
 
-| 物料 | 倾向 |
-|------|------|
-| SaaS / 后台 | 清晰层级、克制色、可扫描表格与表单 |
-| 落地页 / 品牌 | 明确主视觉 + CTA；留白或受控密度二选一 |
-| 电商主图 | 主体最大；角标克制；少干扰 |
-| Banner | 文案在中部安全带；对比够 |
-| **海报 / 易拉宝** | **生图主视觉** + 上中下信息组；安静区放主标题；少而尖的文案 |
+## Deliverable hints
+| Deliverable | Lean toward | Also |
+|-------------|-------------|------|
+| SaaS / admin | Clear hierarchy, restrained color, scannable tables/forms | `dashboard_ui` |
+| Landing / brand | Hero thesis + CTA; whitespace or controlled density | `landing_page` |
+| Ecommerce hero | Subject largest; sparse badges | `ecommerce_surface` |
+| Banner | Mid-band copy; strong contrast; quiet sides | `poster_craft` cues |
+| Poster / rollup | Generated hero + top/mid/bottom copy; quiet zone for title | `poster_craft` |
+| Mobile screen | Single column; thumb-zone primary CTA | `mobile_app_ui` |
+| Resume / CV | Document scan path; no festive chrome | `resume_layout` |
 
-## 落层前自检（海报尤其）
+## Pre-paint checklist
+- [ ] Hero image exists when the brief needs one
+- [ ] Title fully visible, not hard against the edge
+- [ ] Copy clears the background
+- [ ] One focal point + ≤2 support lines
+- [ ] No stray SVG / emoji tofu
+- [ ] Base spacing step consistent
+- [ ] Primary action obvious (UI) or thesis obvious (marketing)
 
-- [ ] 已有 `create_image` 主视觉（不是纯 shape 拼贴）
-- [ ] 主标题完整可见、未贴边裁切
-- [ ] 文案与背景对比够，不压在嘈杂细节上
-- [ ] 只有 1 个视觉焦点 + 至多 1～2 条支撑文案
-- [ ] 无无关 SVG / emoji 豆腐块
+## Do not
+- Polish shadows while text is clipped
+- Pass a festive brief with only geometric decoration
+- Treat this gate as a substitute for surface playbooks
 
-## 画布落地
-
-- 先定物料与尺寸，再落层；节点 id 只用 SCENE 已有
-- 配色等数字细则可再 `need_knowledge`
-- 坐标与 op 细则交给目录里启用的 layout / canvas 类 skill；本 skill 负责质量门槛与选型
+## Done when
+All high-priority checks pass; remaining issues are minor polish only; SCENE ids only.

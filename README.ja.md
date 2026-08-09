@@ -24,7 +24,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** は **キャンバスエディタ + AI Design Agent**（ソースアベイラブル）です。  
+**Recombyn** は **キャンバスエディタ + AI Design Agent** です。  
 無限キャンバス上でデザインし、LangGraph エージェントが会話を通じてレイヤー・図形・テキスト・レイアウトを編集します。
 
 Docker Compose で数分でセルフホストできます（既定は **MySQL** + Redis + Web + API + **Yjs コラボ**）。ローカル開発では空の `DATABASE_URL` で **SQLite**、または **PostgreSQL** — [docs/postgres-switch.md](docs/postgres-switch.md) を参照。
@@ -37,7 +37,7 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 - **リアルタイム共同編集** — 同一プロジェクトを Yjs 同期（カーソル、選択、Undo）。閲覧のみ / 編集を共有可能
 - **描画する Agent** — 会話で計画し、キャンバス操作を適用
 - **セルフホスト優先** — ローカルもサーバーも同じスタック
-- **組み合わせ可能** — インフラ seed + プロンプトパック + `apps/api/data/` の **コア Agent skills**
+- **組み合わせ可能** — インフラ seed + プロンプトパック + `apps/api/seeds/` の **コア Agent skills**
 
 ## 主な機能
 
@@ -102,7 +102,7 @@ apps/web/          React キャンバス + Agent UI + Yjs クライアント
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket サーバー（y-websocket）
 packages/          共有ビルダー & スキーマ
-docs/              アーキテクチャ + セルフホスト + デスクトップ（開発者向け）
+docs/              アーキテクチャ + セルフホスト + デスクトップ + キャンバス / Web データ層（開発者向け）
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
@@ -112,7 +112,10 @@ e2e/               Playwright
 ## ドキュメント / コミュニティ
 
 - ユーザー向け: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
-- セルフホスト / 構成: [docs/self-hosting.md](docs/self-hosting.md) · [デスクトップ](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
+- セルフホスト / 構成: [docs/self-hosting.md](docs/self-hosting.md) · [AgentProfile / サブエージェント](docs/agent-profile.md) · [デスクトップ](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
+- キャンバス（RCB / SVG / Path2D / LOD）: [docs/canvas-architecture.md](docs/canvas-architecture.md)
+- Web データ層（Query / oRPC / nuqs）: [docs/web-frontend.md](docs/web-frontend.md)
+- Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md)
 - [コントリビュート](CONTRIBUTING.md) · [セキュリティ](SECURITY.md) · [行動規範](CODE_OF_CONDUCT.md)
 - Issue / PR テンプレートは `.github/`
 

@@ -11,8 +11,7 @@ import {
   deleteProjectApi,
   deleteProjectsApi,
   fetchProject,
-} from '@/apis/projects';
-import axios, { type AxiosError } from 'axios';
+} from '@/service/projects';
 import store from '@/store';
 import {
   clearEditorDirty,
@@ -22,6 +21,7 @@ import {
 } from '@/store/modules/editor';
 import { isOwnedTemplate } from '@/utils/templatesStorage';
 import { getToken } from '@/utils/token';
+import { getHttpStatus, getHttpErrorBody } from '@/service/client';
 import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
 import {
   buildProjectDocumentPatch,
@@ -71,9 +71,7 @@ export function flushCurrentProjectNow(opts?: FlushProjectOptions): Promise<void
       /* ignore */
     }
   })();
-  return (async () => {
-    await next;
-  })();
+  return next;
 }
 
 /** Multi-tab / stale client lost the race — server document is newer. */
@@ -91,11 +89,21 @@ export class ProjectRevisionConflictError extends Error {
   }
 }
 
+export type CloudAck = {
+  revision: number;
+  thumbnailUrl?: string | string[] | null;
+};
+
+/** Discriminated write outcome — callers branch on `status`, not nested catch. */
+export type CloudWriteResult =
+  | { status: 'ok'; ack: CloudAck }
+  | { status: 'conflict'; conflict: ProjectRevisionConflictError }
+  | { status: 'failed' };
+
 function asConflict(err: unknown): ProjectRevisionConflictError | null {
-  if (!axios.isAxiosError(err)) return null;
-  const ax = err as AxiosError<{ detail?: unknown }>;
-  if (ax.response?.status !== 412) return null;
-  const detail = ax.response.data?.detail;
+  if (getHttpStatus(err) !== 412) return null;
+  const body = getHttpErrorBody(err) as { detail?: unknown } | undefined;
+  const detail = body && typeof body === 'object' ? body.detail : undefined;
   const row =
     detail && typeof detail === 'object'
       ? (detail as Record<string, unknown>)
@@ -108,13 +116,19 @@ function asConflict(err: unknown): ProjectRevisionConflictError | null {
   });
 }
 
-async function withProjectConflict<T>(fn: () => Promise<T>): Promise<T> {
+/** Single IO boundary: network throws become a status the caller can judge. */
+async function tryCloudApi<T>(fn: () => Promise<T>): Promise<
+  | { status: 'ok'; data: T }
+  | { status: 'conflict'; conflict: ProjectRevisionConflictError }
+  | { status: 'failed' }
+> {
   try {
-    return await fn();
+    return { status: 'ok', data: await fn() };
   } catch (err) {
-    const conflict = asConflict(err);
-    if (conflict) throw conflict;
-    throw err;
+    const conflict =
+      err instanceof ProjectRevisionConflictError ? err : asConflict(err);
+    if (conflict) return { status: 'conflict', conflict };
+    return { status: 'failed' };
   }
 }
 
@@ -125,7 +139,11 @@ type ThumbUpload = {
 };
 
 function applyThumbUpload(
-  data: { thumbnailDataUrl?: string | null; thumbnailDataUrls?: string[] | null; thumbnailUrls?: string[] | null },
+  data: {
+    thumbnailDataUrl?: string | null;
+    thumbnailDataUrls?: string[] | null;
+    thumbnailUrls?: string[] | null;
+  },
   thumb: ThumbUpload
 ) {
   if (thumb.thumbnailUrls?.length) data.thumbnailUrls = thumb.thumbnailUrls;
@@ -133,10 +151,92 @@ function applyThumbUpload(
   if (thumb.thumbnailDataUrl) data.thumbnailDataUrl = thumb.thumbnailDataUrl;
 }
 
-function ackThumbnail(url: string | string[] | null | undefined, version?: number): string | string[] | null {
+function ackThumbnail(
+  url: string | string[] | null | undefined,
+  version?: number
+): string | string[] | null {
   const list = normalizeProjectThumbnailUrls(url, version);
   if (!list.length) return null;
   return list.length === 1 ? list[0] : list;
+}
+
+function clearDirtyIfSameDoc(
+  dispatch: ReturnType<typeof useDispatch>,
+  pushedDoc: unknown
+): void {
+  const after = store.getState().editor as { document: unknown };
+  if (after.document === pushedDoc) dispatch(clearEditorDirty());
+}
+
+async function applyCloudAck(opts: {
+  dispatch: ReturnType<typeof useDispatch>;
+  projectId: string;
+  contentHash: string;
+  pushedDoc: unknown;
+  ack?: CloudAck;
+}): Promise<void> {
+  const nextThumb = ackThumbnail(opts.ack?.thumbnailUrl, opts.ack?.revision ?? Date.now());
+  if (nextThumb) {
+    opts.dispatch(
+      setTemplateThumbnail({
+        id: opts.projectId,
+        thumbnail: nextThumb,
+        custom: false,
+      })
+    );
+  }
+  await markProjectDraftSynced(
+    opts.projectId,
+    opts.contentHash,
+    opts.ack?.revision ?? null
+  );
+  clearDirtyIfSameDoc(opts.dispatch, opts.pushedDoc);
+}
+
+export function asCloudRevision(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.floor(n);
+}
+
+function isDraftAlreadyAcked(
+  draft: { syncedAt?: number | null; contentHash?: string; name?: string } | null | undefined,
+  contentHash: string,
+  name: string
+): boolean {
+  return Boolean(
+    draft?.syncedAt &&
+      draft.contentHash === contentHash &&
+      String(draft.name || '') === name
+  );
+}
+
+function fullPutReason(
+  baseDoc: unknown | null,
+  baseRevision: number | null,
+  preferFull: boolean | undefined
+): string {
+  if (!baseDoc) return 'missing_baseDocument';
+  if (baseRevision == null) return 'missing_baseRevision';
+  if (preferFull) return 'preferFull';
+  return 'fallback';
+}
+
+function ackFromProject(project: {
+  revision?: unknown;
+  thumbnailUrl?: string | string[] | null;
+} | null | undefined): CloudAck | null {
+  const revision = asCloudRevision(project?.revision);
+  if (revision == null) return null;
+  return {
+    revision,
+    thumbnailUrl: project?.thumbnailUrl ?? null,
+  };
+}
+
+/** Placeholder until a real conflict dialog lands — keeps EditorPage mount valid. */
+export function ProjectRevisionConflictDialog() {
+  return null;
 }
 
 /** Push one owned project to the API (no-op when logged out). */
@@ -146,49 +246,26 @@ export async function pushProjectToCloud(payload: {
   document: unknown;
   thumb?: ThumbUpload;
   baseRevision?: number | null;
-}): Promise<{ revision: number; thumbnailUrl?: string | string[] | null } | undefined> {
-  if (!getToken()) return undefined;
-  if (!payload.id || !payload.document) return undefined;
-  const base =
-    payload.baseRevision != null && Number.isFinite(Number(payload.baseRevision))
-      ? Math.max(1, Math.floor(Number(payload.baseRevision)))
-      : null;
+}): Promise<CloudWriteResult> {
+  if (!getToken()) return { status: 'failed' };
+  if (!payload.id || !payload.document) return { status: 'failed' };
+  const base = asCloudRevision(payload.baseRevision);
   const data: Parameters<typeof upsertProjectApi>[0] = {
     id: payload.id,
     name: payload.name || 'Untitled',
     document: payload.document as Record<string, unknown>,
-    // Auto cover always uploads; clears a stuck thumbnailCustom lock on the server.
     thumbnailCustom: false,
   };
   if (payload.thumb) applyThumbUpload(data, payload.thumb);
   if (base != null) data.baseRevision = base;
-  if (import.meta.env.DEV) {
-    console.info('[project-sync] PUT thumb', {
-      id: payload.id,
-      urls: payload.thumb?.thumbnailUrls?.length || 0,
-      dataUrls: payload.thumb?.thumbnailDataUrls?.length || 0,
-    });
-  }
-  const res = await withProjectConflict(() =>
-    upsertProjectApi(
-      data,
-      base != null ? { 'If-Match': `"${base}"` } : undefined
-    )
+
+  const outcome = await tryCloudApi(() =>
+    upsertProjectApi(data, base != null ? { 'If-Match': `"${base}"` } : undefined)
   );
-  const revision = Number(res?.project?.revision);
-  if (!(Number.isFinite(revision) && revision >= 1)) return undefined;
-  if (import.meta.env.DEV) {
-    console.info('[project-sync] PUT ack', {
-      id: payload.id,
-      revision,
-      thumbnailUrl: res?.project?.thumbnailUrl,
-      thumbnailCustom: res?.project?.thumbnailCustom,
-    });
-  }
-  return {
-    revision,
-    thumbnailUrl: res?.project?.thumbnailUrl ?? null,
-  };
+  if (outcome.status !== 'ok') return outcome;
+  const ack = ackFromProject(outcome.data?.project);
+  if (!ack) return { status: 'failed' };
+  return { status: 'ok', ack };
 }
 
 /** Incremental node patch — requires a known baseRevision. */
@@ -198,9 +275,9 @@ export async function patchProjectToCloud(payload: {
   baseRevision: number;
   patch: NonNullable<ReturnType<typeof buildProjectDocumentPatch>>['patch'];
   thumb?: ThumbUpload;
-}): Promise<{ revision: number; thumbnailUrl?: string | string[] | null } | undefined> {
-  if (!getToken()) return undefined;
-  if (!payload.id || !(payload.baseRevision >= 1)) return undefined;
+}): Promise<CloudWriteResult> {
+  if (!getToken()) return { status: 'failed' };
+  if (!payload.id || !(payload.baseRevision >= 1)) return { status: 'failed' };
   const base = Math.max(1, Math.floor(Number(payload.baseRevision)));
   const data: Parameters<typeof patchProjectApi>[1] = {
     baseRevision: base,
@@ -218,48 +295,29 @@ export async function patchProjectToCloud(payload: {
     data.activeFrameId = payload.patch.activeFrameId;
   }
   if (payload.patch.canvas) data.canvas = payload.patch.canvas;
-  if (import.meta.env.DEV) {
-    console.info('[project-sync] PATCH thumb', {
-      id: payload.id,
-      urls: payload.thumb?.thumbnailUrls?.length || 0,
-      dataUrls: payload.thumb?.thumbnailDataUrls?.length || 0,
-    });
-  }
-  const res = await withProjectConflict(() =>
-    patchProjectApi(payload.id, data, {
-      'If-Match': `"${base}"`,
-    })
+
+  const outcome = await tryCloudApi(() =>
+    patchProjectApi(payload.id, data, { 'If-Match': `"${base}"` })
   );
-  const revision = Number(res?.project?.revision);
-  if (!(Number.isFinite(revision) && revision >= 1)) return undefined;
-  if (import.meta.env.DEV) {
-    console.info('[project-sync] PATCH ack', {
-      id: payload.id,
-      revision,
-      thumbnailUrl: res?.project?.thumbnailUrl,
-      thumbnailCustom: res?.project?.thumbnailCustom,
-    });
-  }
-  return {
-    revision,
-    thumbnailUrl: res?.project?.thumbnailUrl ?? null,
-  };
+  if (outcome.status !== 'ok') return outcome;
+  const ack = ackFromProject(outcome.data?.project);
+  if (!ack) return { status: 'failed' };
+  return { status: 'ok', ack };
 }
 
 export async function removeProjectFromCloud(id: string): Promise<void> {
   if (!id) return;
   await deleteProjectDraft(id);
   if (!getToken()) return;
-  try {
-    await deleteProjectApi(id);
-  } catch {
-    /* ignore — local delete still proceeds */
-  }
+  // Local draft already gone — cloud miss is fine.
+  await tryCloudApi(() => deleteProjectApi(id));
 }
 
 /** Batch remove owned projects from the API (no-op when logged out). */
 export async function removeProjectsFromCloud(ids: string[]): Promise<void> {
-  const list = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  const list = [
+    ...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)),
+  ];
   if (!list.length) return;
   await deleteProjectDrafts(list);
   if (!getToken()) return;
@@ -268,13 +326,9 @@ export async function removeProjectsFromCloud(ids: string[]): Promise<void> {
 
 /** Ask the open editor to flush the project to the cloud immediately. */
 export function requestProjectFlush() {
-  try {
-    // Clears debounce timers when useProjectCloudSync is mounted.
+  if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(FLUSH_NOW_EVENT));
-  } catch {
-    /* ignore */
   }
-  // Single flush — event only clears timers (does not enqueue a second flush).
   void flushCurrentProjectNow();
 }
 
@@ -299,55 +353,127 @@ export async function renameProjectOnCloud(id: string, name: string): Promise<vo
 
   if (!getToken()) return;
 
-  const rev =
-    draft?.cloudRevision != null && Number(draft.cloudRevision) >= 1
-      ? Number(draft.cloudRevision)
-      : null;
+  const rev = asCloudRevision(draft?.cloudRevision);
   if (rev != null && draft?.document) {
-    try {
-      const acked = await patchProjectToCloud({
-        id: projectId,
-        name: nextName,
-        baseRevision: rev,
-        patch: {},
-      });
+    const patched = await patchProjectToCloud({
+      id: projectId,
+      name: nextName,
+      baseRevision: rev,
+      patch: {},
+    });
+    if (patched.status === 'ok') {
       await markProjectDraftSynced(
         projectId,
         draft.contentHash,
-        acked?.revision ?? rev
+        patched.ack.revision
       );
       return;
-    } catch (err) {
-      if (!(err instanceof ProjectRevisionConflictError)) {
-        /* fall through to full fetch + put */
-      }
     }
   }
 
-  try {
-    const res = await fetchProject(projectId);
-    const proj = res.project;
-    if (!proj?.document) return;
-    const existingUrls = normalizeProjectThumbnailUrls(proj.thumbnailUrl);
-    const acked = await pushProjectToCloud({
-      id: projectId,
-      name: nextName,
-      document: proj.document,
-      thumb: existingUrls.length ? { thumbnailUrls: existingUrls } : undefined,
-      baseRevision: Number(proj.revision) >= 1 ? Number(proj.revision) : null,
+  const fetched = await tryCloudApi(() => fetchProject(projectId));
+  if (fetched.status !== 'ok') return;
+  const proj = fetched.data.project;
+  if (!proj?.document) return;
+  const existingUrls = normalizeProjectThumbnailUrls(proj.thumbnailUrl);
+  const pushed = await pushProjectToCloud({
+    id: projectId,
+    name: nextName,
+    document: proj.document,
+    thumb: existingUrls.length ? { thumbnailUrls: existingUrls } : undefined,
+    baseRevision: asCloudRevision(proj.revision),
+  });
+  if (pushed.status !== 'ok') return;
+  await putProjectDraft({
+    projectId,
+    name: nextName,
+    document: proj.document,
+    updatedAt: Date.now(),
+    syncedAt: Date.now(),
+    cloudRevision: asCloudRevision(pushed.ack.revision ?? proj.revision),
+    baseDocument: proj.document,
+  });
+}
+
+/** Prefer incremental PATCH; fall back to full PUT. Callers judge `status`. */
+export async function syncOwnedDocumentToCloud(opts: {
+  id: string;
+  name: string;
+  document: unknown;
+  baseRevision: number | null;
+  baseDoc: unknown | null;
+}): Promise<CloudWriteResult> {
+  const { id, name, document, baseRevision, baseDoc } = opts;
+  const delta =
+    baseDoc && baseRevision != null
+      ? buildProjectDocumentPatch(baseDoc, document)
+      : null;
+
+  if (delta && !delta.preferFull && baseRevision != null) {
+    const patched = await patchProjectToCloud({
+      id,
+      name,
+      baseRevision,
+      patch: delta.patch,
     });
-    await putProjectDraft({
-      projectId,
-      name: nextName,
-      document: proj.document,
-      updatedAt: Date.now(),
-      syncedAt: Date.now(),
-      cloudRevision: acked?.revision ?? Number(proj.revision) ?? null,
-      baseDocument: proj.document,
-    });
-  } catch {
-    /* local rename already applied — stay pending for next sync */
+    if (patched.status !== 'failed') return patched;
+    if (import.meta.env.DEV) {
+      console.warn('[project-sync] PATCH failed → full PUT');
+    }
+    return pushProjectToCloud({ id, name, document, baseRevision });
   }
+
+  if (!delta && baseDoc && baseRevision != null) {
+    return patchProjectToCloud({ id, name, baseRevision, patch: {} });
+  }
+
+  if (import.meta.env.DEV) {
+    console.info('[project-sync] full PUT', {
+      id,
+      reason: fullPutReason(baseDoc, baseRevision, delta?.preferFull),
+    });
+  }
+  return pushProjectToCloud({ id, name, document, baseRevision });
+}
+
+function isLocalDraftNewerThanConflict(
+  local: Awaited<ReturnType<typeof getProjectDraft>>,
+  conflict: ProjectRevisionConflictError
+): boolean {
+  return Boolean(
+    local?.document &&
+      !local.syncedAt &&
+      Number(local.updatedAt || 0) > Number(conflict.updatedAt || 0)
+  );
+}
+
+async function handleFlushConflict(opts: {
+  dispatch: ReturnType<typeof useDispatch>;
+  projectId: string;
+  name: string;
+  pushedDoc: unknown;
+  contentHash: string;
+  conflict: ProjectRevisionConflictError;
+}): Promise<void> {
+  const local = await getProjectDraft(opts.projectId);
+  if (!isLocalDraftNewerThanConflict(local, opts.conflict)) {
+    await adoptCloudOnConflict(opts.dispatch, opts.projectId, opts.name);
+    return;
+  }
+  const forced = await pushProjectToCloud({
+    id: opts.projectId,
+    name: opts.name,
+    document: opts.pushedDoc,
+    baseRevision: null,
+  });
+  if (forced.status !== 'ok') return;
+  await applyCloudAck({
+    dispatch: opts.dispatch,
+    projectId: opts.projectId,
+    contentHash: opts.contentHash,
+    pushedDoc: opts.pushedDoc,
+    ack: forced.ack,
+  });
 }
 
 /** On 412: adopt cloud document so this tab does not overwrite a newer revision. */
@@ -356,33 +482,29 @@ async function adoptCloudOnConflict(
   projectId: string,
   fallbackName: string
 ): Promise<boolean> {
-  try {
-    const res = await fetchProject(projectId);
-    const proj = res.project;
-    if (!proj?.document) return false;
-    const revision = Number(proj.revision);
-    dispatch(
-      importDocument({
-        id: proj.id || projectId,
-        name: proj.name || fallbackName,
-        document: proj.document,
-        source: 'user',
-      })
-    );
-    await putProjectDraft({
-      projectId: proj.id || projectId,
+  const fetched = await tryCloudApi(() => fetchProject(projectId));
+  if (fetched.status !== 'ok') return false;
+  const proj = fetched.data.project;
+  if (!proj?.document) return false;
+  dispatch(
+    importDocument({
+      id: proj.id || projectId,
       name: proj.name || fallbackName,
       document: proj.document,
-      updatedAt: Number(proj.updatedAt) || Date.now(),
-      syncedAt: Date.now(),
-      cloudRevision: Number.isFinite(revision) && revision >= 1 ? revision : null,
-      baseDocument: proj.document,
-    });
-    dispatch(clearEditorDirty());
-    return true;
-  } catch {
-    return false;
-  }
+      source: 'user',
+    })
+  );
+  await putProjectDraft({
+    projectId: proj.id || projectId,
+    name: proj.name || fallbackName,
+    document: proj.document,
+    updatedAt: Number(proj.updatedAt) || Date.now(),
+    syncedAt: Date.now(),
+    cloudRevision: asCloudRevision(proj.revision),
+    baseDocument: proj.document,
+  });
+  dispatch(clearEditorDirty());
+  return true;
 }
 
 /** Editor: debounce local draft + cloud upsert while editing. */
@@ -419,13 +541,10 @@ export function useProjectCloudSync() {
       currentId: string | null;
       templates: any[];
     };
-    const isDirty = Boolean(ed.dirty);
-    const doc = ed.document;
     const id = ed.currentId;
     const tpl = ed.templates.find((t) => t.id === id);
-    if ((!isDirty && !force) || !doc || !id || !tpl) return;
-    if (id.startsWith('share_')) return;
-    if (!isOwnedTemplate(tpl)) return;
+    if ((!ed.dirty && !force) || !ed.document || !id || !tpl) return;
+    if (id.startsWith('share_') || !isOwnedTemplate(tpl)) return;
     if (flushingRef.current) {
       pendingFlushRef.current = true;
       return;
@@ -433,14 +552,9 @@ export function useProjectCloudSync() {
     flushingRef.current = true;
 
     try {
-      // Snapshot into the in-memory library entry, but keep dirty until cloud ACK
-      // (or until local draft is enough when logged out).
       dispatch(persistCurrent({ keepDirty: true }));
       const pushedDoc = (store.getState().editor as { document: unknown }).document;
       const name = String(tpl.name || 'Untitled');
-
-      // 1) Local persistenceKey draft first (durable before cloud).
-      // putProjectDraft hashes once — reuse draft.contentHash (do not stringify again).
       const draft = await putProjectDraft({
         projectId: id,
         name,
@@ -452,173 +566,49 @@ export function useProjectCloudSync() {
       });
       const contentHash = draft?.contentHash || hashDocument(pushedDoc);
 
-      // Skip cloud when content + name already ACKed — unless leave-force.
-      if (
-        !force &&
-        draft?.syncedAt &&
-        draft.contentHash === contentHash &&
-        String(draft.name || '') === name
-      ) {
-        const after = store.getState().editor as { document: unknown };
-        if (after.document === pushedDoc) dispatch(clearEditorDirty());
+      if (!force && isDraftAlreadyAcked(draft, contentHash, name)) {
+        clearDirtyIfSameDoc(dispatch, pushedDoc);
+        return;
+      }
+      if (!getToken() || (isCollabCloudPersistOwned() && !force)) {
+        clearDirtyIfSameDoc(dispatch, pushedDoc);
         return;
       }
 
-      // Covers: API builds ≤4 tiles from the saved document (not client raster).
-      const thumb: ThumbUpload = {};
-
-      // Logged out: local draft (+ optional in-memory cover on first/force) is enough.
-      if (!getToken()) {
-        const after = store.getState().editor as { document: unknown };
-        if (after.document === pushedDoc) dispatch(clearEditorDirty());
+      const written = await syncOwnedDocumentToCloud({
+        id,
+        name,
+        document: pushedDoc,
+        baseRevision: asCloudRevision(draft?.cloudRevision),
+        baseDoc: draft?.baseDocument ?? null,
+      });
+      if (written.status === 'ok') {
+        await applyCloudAck({
+          dispatch,
+          projectId: id,
+          contentHash,
+          pushedDoc,
+          ack: written.ack,
+        });
         return;
       }
-
-      const baseRevision =
-        draft?.cloudRevision != null && Number(draft.cloudRevision) >= 1
-          ? Number(draft.cloudRevision)
-          : null;
-
-      // Y room owns cloud document writes only after seed + edit role.
-      if (isCollabCloudPersistOwned() && !force) {
-        if (baseRevision != null && (thumb.thumbnailDataUrls || thumb.thumbnailDataUrl || thumb.thumbnailUrls)) {
-          try {
-            const acked = await patchProjectToCloud({
-              id,
-              name,
-              baseRevision,
-              patch: {},
-              thumb,
-            });
-            const nextThumb = ackThumbnail(acked?.thumbnailUrl);
-            if (nextThumb) {
-              dispatch(
-                setTemplateThumbnail({
-                  id,
-                  thumbnail: nextThumb,
-                  custom: false,
-                })
-              );
-            }
-          } catch (err) {
-            if (import.meta.env.DEV) {
-              console.warn('[project-sync] collab cover patch failed', err);
-            }
-          }
-        }
-        const after = store.getState().editor as { document: unknown };
-        if (after.document === pushedDoc) dispatch(clearEditorDirty());
-        return;
+      if (written.status === 'conflict') {
+        await handleFlushConflict({
+          dispatch,
+          projectId: id,
+          name,
+          pushedDoc,
+          contentHash,
+          conflict: written.conflict,
+        });
       }
-
-      const baseDoc = draft?.baseDocument ?? null;
-      const delta =
-        baseDoc && baseRevision != null
-          ? buildProjectDocumentPatch(baseDoc, pushedDoc)
-          : null;
-
-      try {
-        let acked:
-          | { revision: number; thumbnailUrl?: string | string[] | null }
-          | undefined;
-        if (delta && !delta.preferFull && baseRevision != null) {
-          try {
-            acked = await patchProjectToCloud({
-              id,
-              name,
-              baseRevision,
-              patch: delta.patch,
-              thumb,
-            });
-          } catch (err) {
-            if (err instanceof ProjectRevisionConflictError) throw err;
-            acked = await pushProjectToCloud({
-              id,
-              name,
-              document: pushedDoc,
-              thumb,
-              baseRevision,
-            });
-          }
-        } else {
-          acked = await pushProjectToCloud({
-            id,
-            name,
-            document: pushedDoc,
-            thumb,
-            baseRevision,
-          });
-        }
-        const nextThumb = ackThumbnail(acked?.thumbnailUrl, acked?.revision ?? Date.now());
-        if (nextThumb) {
-          dispatch(
-            setTemplateThumbnail({
-              id,
-              thumbnail: nextThumb,
-              custom: false,
-            })
-          );
-        }
-        await markProjectDraftSynced(id, contentHash, acked?.revision ?? null);
-        const after = store.getState().editor as { document: unknown };
-        if (after.document === pushedDoc) {
-          dispatch(clearEditorDirty());
-        }
-      } catch (err) {
-        if (err instanceof ProjectRevisionConflictError) {
-          let local = null;
-          try {
-            local = await getProjectDraft(id);
-          } catch {
-            local = null;
-          }
-          const localNewer =
-            Boolean(local?.document) &&
-            !local?.syncedAt &&
-            Number(local?.updatedAt || 0) > Number(err.updatedAt || 0);
-          if (localNewer) {
-            try {
-              const acked = await pushProjectToCloud({
-                id,
-                name,
-                document: pushedDoc,
-                thumb,
-                baseRevision: null,
-              });
-              const nextThumb = ackThumbnail(
-                acked?.thumbnailUrl,
-                acked?.revision ?? Date.now()
-              );
-              if (nextThumb) {
-                dispatch(
-                  setTemplateThumbnail({
-                    id,
-                    thumbnail: nextThumb,
-                    custom: false,
-                  })
-                );
-              }
-              await markProjectDraftSynced(id, contentHash, acked?.revision ?? null);
-              const after = store.getState().editor as { document: unknown };
-              if (after.document === pushedDoc) dispatch(clearEditorDirty());
-            } catch {
-              /* stay dirty for retry */
-            }
-          } else {
-            await adoptCloudOnConflict(dispatch, id, name);
-          }
-        }
-        // Stay dirty so the next debounce / tab-hide / delete flush retries
-        // (unless adopt / force-put cleared dirty). Local draft already holds bytes.
-      }
+      // failed → stay dirty for debounce / hide / delete flush retry
     } finally {
       flushingRef.current = false;
       const still = store.getState().editor as { dirty: boolean; currentId: string | null };
       const queued = pendingFlushRef.current;
       pendingFlushRef.current = false;
-      const needAgain = queued || (still.dirty && still.currentId === id);
-      if (needAgain && still.currentId === id) {
-        // Immediate retry when delete/edit arrived mid-flush; else normal debounce.
+      if (still.currentId === id && (queued || still.dirty)) {
         scheduleFlush(queued ? 0 : DEBOUNCE_MS);
       }
     }
@@ -688,3 +678,18 @@ export function useProjectCloudSync() {
     };
   }, []);
 }
+
+/** On 412: adopt the newer cloud document (no conflict dialog yet). */
+export async function applyProjectRevisionConflictChoice(opts: {
+  dispatch: (action: unknown) => unknown;
+  projectId: string;
+  name: string;
+  /** Call-site compatibility; unused until a conflict dialog lands. */
+  localDocument?: unknown;
+  mode?: 'solo' | 'collab';
+  thumb?: ThumbUpload;
+}): Promise<'adopted' | 'failed'> {
+  const ok = await adoptCloudOnConflict(opts.dispatch as never, opts.projectId, opts.name);
+  return ok ? 'adopted' : 'failed';
+}
+

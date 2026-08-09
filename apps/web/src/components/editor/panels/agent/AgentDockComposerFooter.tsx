@@ -103,7 +103,7 @@ function AgentDockComposerFooter({
                           /* silently ignore */
                         }
                       }
-                      void saveLongMemorySuggestion();
+                      saveLongMemorySuggestion();
                       onSavedLongSuggestion?.(i);
                     }}
                   >

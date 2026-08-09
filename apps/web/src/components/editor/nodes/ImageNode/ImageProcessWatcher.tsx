@@ -1,11 +1,11 @@
 import { useEffect, useRef, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { message } from '@/components/base';
-import { processImageTool } from '@/apis/imageTools';
+import { processImageTool } from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
-import { fetchWallet } from '@/apis/wallet';
+import { apiQuery, getHttpErrorMessage, getHttpStatus, queryClient } from '@/service/client';
 import { failImageProcess, finishImageProcess } from '@/store/modules/editor';
-import { syncFromServer } from '@/store/modules/wallet';
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const AI_KINDS = new Set([
   'upscale',
@@ -38,7 +38,7 @@ function aspectFromBox(w: number, h: number): string {
   return `${Math.round(rw / d)}:${Math.round(rh / d)}`;
 }
 
-function resolutionFor(kind: string, node: any): string | undefined {
+function resolutionFor(kind: string, node: SceneNodeInput): string | undefined {
   if (kind === 'upscale') {
     const tw = Number(node?.attrs?.processTargetWidth) || 0;
     if (tw >= 3500) return '4K';
@@ -61,26 +61,25 @@ async function persistProcessedSrc(src: string, filename: string): Promise<strin
   }
 }
 
-function refreshWallet(dispatch: (action: unknown) => void) {
-  async function loadWallet() {
-    try {
-      const res = await fetchWallet();
-      dispatch(syncFromServer({ tokens: res.tokens }));
-    } catch {
-      /* ignore wallet refresh errors */
-    }
+async function refreshWallet() {
+  try {
+    // Force refresh after spend — share cache key with App / AccountSettings.
+    await queryClient.fetchQuery({
+      ...apiQuery.walletWalletMe.queryOptions(),
+      staleTime: 0,
+    });
+  } catch {
+    /* ignore wallet refresh errors */
   }
-  void loadWallet();
 }
 
-function processFailMessage(err: any): string {
-  const status = err?.response?.status;
-  const detail = err?.response?.data?.detail || err?.message;
-  if (status === 402 || detail === 'Insufficient credits' || detail === 'Insufficient tokens')
+function processFailMessage(err: unknown): string {
+  const status = getHttpStatus(err);
+  const msg = getHttpErrorMessage(err, '');
+  if (status === 402 || msg === 'Insufficient credits' || msg === 'Insufficient tokens')
     return 'Token 不足，请充值后再试';
   if (status === 401) return '请先登录后再使用 AI 工具';
-  const msg = typeof detail === 'string' ? detail : '';
-  if (/timeout/i.test(msg) || err?.code === 'ECONNABORTED')
+  if (/timeout/i.test(msg) || (err as { code?: string })?.code === 'ECONNABORTED')
     return '图片分层超时，请稍后重试（大图首次加载模型会更慢）';
   if (msg.trim()) return msg;
   return '图片处理失败';
@@ -184,7 +183,7 @@ function ImageProcessWatcher() {
               kind === 'editElements' ? '图片分层完成（可单独改主体/文字）' : '文字识别完成'
             );
           }
-          refreshWallet(dispatch);
+          await refreshWallet();
           return;
         }
 
@@ -230,14 +229,14 @@ function ImageProcessWatcher() {
           adjust: '调整完成',
         };
         message.success(labels[kind] || '处理完成');
-        refreshWallet(dispatch);
+        await refreshWallet();
       } catch (err: any) {
         if (cancelled || isUploadAbortError(err)) return;
         fail(processFailMessage(err));
       }
     };
 
-    void run();
+    run();
     return () => {
       cancelled = true;
       ac.abort();

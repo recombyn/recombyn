@@ -1,33 +1,58 @@
-# shadcn/ui — 组件组合说明书
+# shadcn/ui composition
 
-开源改编自 [shadcn-ui/ui](https://github.com/shadcn-ui/ui) skills（MIT）。画布上没有真正的 React 组件树，但要用同一套**组合语法**来摆结构与状态。
+Map product UI onto the canvas with shadcn-like grammar — **no React tree**, only shapes + text (+ optional image).
 
-## 原则
+Mature craft (shadcn/ui + Radix semantics + design-token roles): variants as roles, consistent radius/spacing, labeled states.
 
-1. **先组合，再发明**：设置页 ≈ 分区标题 + 卡片 + 表单控件；仪表 ≈ 侧栏/顶栏 + 卡片 + 表/图
-2. **变体优先**：描边 / 次要 / 危险 用角色表达，勿手写一套新按钮皮
-3. **语义色**：背景 / 前景 / 主色 / 静音 / 危险；禁止到处 `蓝500` 式随意色
+## Principles
+1. **Roles, not one-off skins** — primary / secondary / ghost / destructive mean the same everywhere.
+2. **Semantic color** — background / foreground / primary / muted / danger — not random “blue 500”.
+3. **One radius + spacing rhythm** across the board.
+4. **Labeled states** — never color alone for active/error/disabled.
+5. **Compose from patterns** — invent chrome only if nothing fits.
 
-## 结构规则（画布等价）
+## Workflow
+1. Name the screen job (settings, dashboard, form, dialog, marketing section …).
+2. Pull tokens from `frontend_ui` / `awesome_design_md` if available.
+3. Compose from the pattern table; keep heights aligned within a control family.
+4. Verify labels, errors, and primary action.
+5. SCENE / FOCUS ids only.
 
-| 需要 | 组合方式 |
-|------|----------|
-| 操作 | 主按钮 + 次要/幽灵按钮；加载态要可见 |
-| 表单 | 标签 + 控件 + 帮助/错误就近；相关项成组 |
-| 数据 | 表 / 卡片 / 徽章 / 头像 |
-| 导航 | 顶栏或侧栏；面包屑；分页 |
-| 叠层 | 对话框 / 侧板 / 确认框；必须有标题级文案 |
-| 反馈 | Toast / Alert / 进度 / 骨架 |
+## Pattern → canvas ops
+| Need | Compose |
+|------|---------|
+| Button primary | Filled shape (role primary) + centered label; loading = visible state |
+| Button secondary/ghost | Stroke or muted fill + label; same height as primary |
+| Destructive | Danger fill/stroke + clear label |
+| Input | Label text above; field shape; optional placeholder; error text adjacent |
+| Form group | Related fields stacked with shared left edge; section title if needed |
+| Card | Surface shape + title + body + optional action row |
+| Table | Header row + aligned columns; zebra optional; no clipped cells |
+| Nav | Top or side bar; items as text (active = weight **and** color) |
+| Tabs | Row of labels; active underline/bar; panel below |
+| Dialog / drawer | Overlay dim optional; panel with **title** + body + actions |
+| Toast / alert | Compact surface + short message; icon optional but not emoji tofu |
+| Badge / avatar | Small pill or circle + short text/initials |
+| Skeleton | Muted bars matching content layout (loading) |
+| Switch / checkbox | Affordances labeled by adjacent text — not color alone |
 
-## 关键禁止
+## Density notes
+| Context | Lean |
+|---------|------|
+| Settings | Comfortable field spacing; clear section titles |
+| Dashboard | Tighter tables OK; keep header distinct |
+| Marketing embed | Fewer controls; one primary CTA |
 
-- 用裸间距堆字段却没有标签层级
-- 对话框/抽屉没有标题信息
-- 状态只靠颜色（必须有文字或图标）
-- 卡片内容一锅粥：应有标题区 / 内容区 / 操作区层次
+## Do not
+- Stack fields with only spacing and no labels
+- Open dialog/drawer without a title
+- Rely on color alone for state (add text/weight)
+- Dump title/body/actions into one undifferentiated blob
+- Mix Material festive icons into product UI chrome
+- Emit React/JSX — canvas tool_ops only
 
-## 画布落地
+## Related
+`frontend_ui` (direction/tokens), `dashboard_ui` / `mobile_app_ui` / `landing_page` (surfaces).
 
-- 用 shape + text 表达卡片、分隔、按钮态；保持同一圆角与间距节奏
-- 节点 id 仅使用 SCENE 已有
-- 需要品牌参数时加载 `awesome_design_md`；需要美学配方时加载 `garden_style`
+## Done when
+Hierarchy reads in one glance; interactive states are labeled; spacing rhythm is consistent; primary action is obvious; SCENE ids only.

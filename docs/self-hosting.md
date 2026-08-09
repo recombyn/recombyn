@@ -11,7 +11,7 @@ Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite)
 | Web editor | http://localhost:3000 |
 | API | http://localhost:8000 (`/docs`) |
 | Collab (Yjs WS) | compose `collab` · browser via `ws://localhost:3000/collab/…` (prod: `wss://`) |
-| Agent seeds | prompt packs + **5 core skills** from `apps/api/data/` |
+| Agent seeds | prompt packs + skills + **AgentProfile** YAML from `apps/api/seeds/` |
 | **MySQL 8** | compose service + volume `mysql_data` |
 | Redis | Celery / queues |
 
@@ -23,18 +23,19 @@ Host tools can reach MySQL at `127.0.0.1:3306` (same user/password). Change via 
 
 **Dev without Docker MySQL:** leave `DATABASE_URL` empty → SQLite at `storage/recombyn.db`.
 
-Default config loads from seed JSON under `apps/api/data/` on first API start.
+Default config loads from seed JSON under `apps/api/seeds/` on first API start.
 
-| Seed | Shipped in `apps/api/data/` | Notes |
+| Seed | Shipped in `apps/api/seeds/` | Notes |
 |------|------------------------------|--------|
-| Prompt packs | `design_prompt_packs/` (`_index.json` + `*.md`) | `type=system` ≈25 stage protocols; `type=template` ≈70 inject lines |
-| Skills (core) | 5 playbooks in `design_skills_seed.json` | `design_methodology` / `vision_extract` / `aesthetics_align` / `canvas_edit` / `image_gen` |
-| Skills (ext) | `design_skills/<key>/` + repo `.agents/skills/` | e.g. `brush_ops`, `motion_lottie`, `ui_ux_pro_max` — also Admin zip / folders |
-| Knowledge / tokens / models | Shipped | Expand further via Admin after install |
+| Prompt packs | `design_prompt_packs/` (`_index.json` + `stages/*.md` + `snippets.md`) | `type=system` stage protocols; `type=template` inject lines — git seed upserts DB on boot |
+| AgentProfile | `agents/profiles/*.yaml` + `agents/bindings.yaml` | Topology / roles / subagents — see [agent-profile.md](./agent-profile.md) |
+| Skills (core) | playbooks in `design_skills_seed.json` | e.g. `design_methodology` / `vision_extract` / `canvas_edit` / `image_gen` |
+| Skills (ext) | `design_skills/<key>/` + repo `.agents/skills/` | e.g. `brush_ops`, `motion_lottie`, `poster_craft`, `resume_layout`, `ecommerce_surface`, `landing_page`, `frontend_ui`, `dashboard_ui`, `mobile_app_ui`, `ui_ux_pro_max` — also Admin zip / folders |
+| Tokens / models | Shipped | Expand further via Admin after install |
 | Canvas actions, fonts, dicts, stages | Shipped | |
-| Aesthetics corpus | **Not** in seed | Upload quality samples in Admin for CLIP RAG; thin corpus → fail-open |
 
-Layout of files under `apps/api/data/`: [data/README.md](../apps/api/data/README.md) (file map only).
+Layout of files under `apps/api/seeds/`: [seeds/README.md](../apps/api/seeds/README.md).  
+AgentProfile / sub-agents: [agent-profile.md](./agent-profile.md).
 
 ## Architecture
 
@@ -57,9 +58,9 @@ HTTP     app/api/routes/* + deps.py
 Domain   app/services/*          (design / plaza / wallet / …)
 Data     models.py + crud.py     SQLModel Session
 DDL      app/services/db         init_schema / ensure_*
-Seeds    apps/api/data/**        INSERT missing on boot (do not overwrite Admin rows)
+Seeds    apps/api/seeds/**        INSERT missing on boot (do not overwrite Admin rows)
 Design   services.design.runtime → design_stream → LangGraph
-         services.design.prompts → Skill / prompt pack / knowledge
+         services.design.prompts → Skill / prompt pack / system prompts
          services.design.ops     → tool_ops contract
 ```
 
@@ -83,14 +84,18 @@ URL prefix: `/api/v1`. `/import/*` requires login.
 POST /api/v1/design/run
   → orchestrator.run_design_job          # auth, hold, BYOK, rules
       → design_run.design_stream
-          → graph.build.run_agent_graph  # LangGraph driver
+          → graph.build.run_agent_graph  # LangGraph driver (Profile template)
               → bootstrap
-                   ├─ apply_ops? → apply_confirm → observe → settle
+                   ├─ apply_ops? → apply_confirm → observe → …
                    └─ memory → intent → decide → paint_ops
                         ├─ Ask + ops → propose → settle    # Confirm = new run
-                        └─ Agent → action → observe → settle
-                             └─ critique fail → paint_ops (retry)
+                        └─ Agent → action → observe
+                             ├─ critique fail → paint_ops
+                             └─ ok → review (forked) → settle
+                                  └─ must_fix → paint_ops (budget from Profile loops)
 ```
+
+Details: [agent-profile.md](./agent-profile.md).
 
 | HTTP | Role |
 |------|------|
@@ -114,7 +119,7 @@ Two layers — do not mix product routing with model I/O:
                          │ astream + interrupt bridge
                          ▼
                LangGraph outer graph (checkpointer)
-               bootstrap → … → paint → observe → settle
+               bootstrap → … → paint → observe → review → settle
                          │ per-node
           ┌──────────────┼──────────────┐
           ▼              ▼              ▼
@@ -126,21 +131,25 @@ Outer graph (dynamic `Command(goto=…)`):
 
 ```text
 START → bootstrap
-          ├─ apply_ops? → apply_confirm → observe → settle
+          ├─ apply_ops? → apply_confirm → observe → …
           └─ memory → intent_classify → design_agent (decide)
                            ├─ chat / clarify only → settle
                            └─ needs paint → paint_ops
                                   ├─ Ask → propose → settle
                                   └─ Agent → action → observe
                                          ├─ critique fail → paint_ops
-                                         └─ ok → settle → END
+                                         ├─ ok → review (forked subagent)
+                                         │      ├─ must_fix → paint_ops
+                                         │      └─ pass → settle → END
+                                         └─ review off → settle → END
 ```
 
 | Node | Role |
 |------|------|
-| `design_agent` | Decide: reply / `need_*` — **no** canvas ops |
+| `design_agent` | Decide: reply / `need_tools` / `need_skills` / `need_subagents` — **no** canvas ops |
 | `paint_ops` | Structured `tool_ops` only |
-| `observe` | Wait FE scene (`interrupt`); critique |
+| `observe` | Wait FE scene (`interrupt`); structural critique |
+| `review` | Forked quality gate (`ReviewTurn.v1`); may force paint retry |
 | `propose` | Ask preview → Confirm as **new** run |
 
 Inside a node: assemble pack → LangChain stream/structured → validate ops → `Command(update, goto)`.  
@@ -154,13 +163,16 @@ Checkpointer: `thread_id = design:{task_id}` — prod refuses memory; see [postg
 | Path | Role |
 |------|------|
 | `runtime/orchestrator.py` | Gate + `design_stream` |
+| `runtime/agent_profile.py` | AgentProfile load / contracts / `$kv` policy |
+| `runtime/subagent.py` | Forked sub-agent spawn + Redis job results |
 | `runtime/graph/build.py` | StateGraph + lease + interrupt driver |
-| `runtime/graph/nodes/` | bootstrap / decide / paint / observe / … |
-| `runtime/host/` | prompts, placement, ops_gate, resources |
+| `runtime/graph/nodes/` | bootstrap / decide / paint / observe / review / … |
+| `runtime/host/` | prompts, placement, ops_gate, resources (`need_*`) |
 | `prompts/prompt_pack_store.py` · `skill_store/` | Packs + skills |
 | `ops/tool_ops_contract.py` | Canvas tool registry |
 
-Env knobs: `DESIGN_GRAPH_REQUIRE_DURABLE_CHECKPOINT`, `DESIGN_RUN_LEASE_TTL_SEC`, `DESIGN_CRITIQUE_*`, `DESIGN_AESTHETICS_*`.
+Env knobs: `AGENT_PROFILE_ID`, `DESIGN_GRAPH_REQUIRE_DURABLE_CHECKPOINT`, `DESIGN_RUN_LEASE_TTL_SEC`, `DESIGN_CRITIQUE_ENABLED`, `DESIGN_REVIEW_AGENT_ENABLED`, `DESIGN_GRAPH_NODE_TIMEOUT_SEC`.  
+Profile / sub-agents: [agent-profile.md](./agent-profile.md).
 
 ## Database options
 
@@ -176,51 +188,55 @@ LangGraph checkpoints: [postgres-switch.md](./postgres-switch.md#langgraph-check
 
 ## Agent content: skills & prompt packs
 
-**One line:** Prompt packs = engine **protocol**; Skills = job **playbooks**. Same rule in one place — packs **route**, skills **teach**.
+**One line:** Prompt packs = engine **protocol**; Skills = job **playbooks**; AgentProfile = **topology + subagents**. Same rule in one place — packs **route**, skills **teach**, Profile **wires**.
 
-LC/LG call chain: [Architecture · Design Agent](#design-agent--call-chain) above.
+LC/LG call chain: [Architecture · Design Agent](#design-agent--call-chain) above.  
+Profile YAML: [agent-profile.md](./agent-profile.md).
 
 ```text
 User turn
-  → Decide (react_system + need_tools_overlay)
-      · intent / need_skills / need_tools — no long craft text
-  → Lazy-load Skill bodies (SKILL_DETAILS)
+  → Decide (need_tools_overlay)
+      · intent / need_skills / need_tools / need_subagents — no long craft text
+      · host may auto-spawn research / vision_scout
+  → Lazy-load Skill bodies + SubAgent results
   → Paint (paint_system)
-      · tool_ops + FOCUS / size; craft from loaded skills only
+      · tool_ops + FOCUS / size; craft from loaded skills / subagent notes
+  → Observe → Review (forked) → settle | paint retry
 ```
 
 | Layer | Owns | Does not own |
 |-------|------|----------------|
+| AgentProfile | Stages, roles, subagent catalog, `$kv` policy | Pack prose / skill steps |
 | `type=system` packs | JSON contract, Ask/Agent gates, FOCUS/size, when to `need_*` | Poster layout, brush args, Lottie playbook |
 | `type=template` packs | One-line inject strings (headers, empty states) | “How to use” / `format_*` / code-path notes |
 | Skills | How a class of work is done | Stage JSON / HITL `choice_ui` |
-| Knowledge | Numeric / encyclopedia detail | Execution protocol |
+| Sub-agents | Forked specialist turns (`ReviewTurn` / scout / research) | Parent chat history |
 
 ### Skills namespaces
 
 | Namespace | Source | Notes |
 |-----------|--------|--------|
 | `core` | `design_skills_seed.json` | Bare keys (`design_methodology`); aliases `core.<key>` |
-| `ext` | `data/design_skills/<key>/` (`_meta.json` + `SKILL.md`) | e.g. `brush_ops`, `motion_lottie`; also `.agents/skills/` encyclopedias |
+| `ext` | `seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`) | e.g. `brush_ops`, `motion_lottie`; also `.agents/skills/` encyclopedias |
 | `user` | Admin API | Always `user.<local>`; cannot claim core keys |
 
 Env: `DESIGN_SKILLS_HOT_RELOAD` (default true), `DESIGN_SKILLS_HOT_RELOAD_INTERVAL_SEC`. Manual: Admin `POST /api/v1/admin/design/skills/resync`.
 
-Pack layout: `data/design_skills/<key>/_meta.json` + `SKILL.md` (copy `example_ext/` to add one).
+Pack layout: `seeds/design_skills/<key>/_meta.json` + `SKILL.md` (copy `example_ext/` to add one).
 
 ### Prompt packs
 
-- Seed: `data/design_prompt_packs/_index.json` + `<kind>.md` (filename = `kind`).
+- Seed: `seeds/design_prompt_packs/_index.json` + `stages/*.md` + `snippets.md` (bodies marked `<!-- pack:<kind> -->`).
 - `when_to_use` on **skills** → model catalog; on **templates** → Admin short label only (`注入模板 · …`).
-- API start syncs seed `type` + `when_to_use` into DB; **body** / `used_by` stay Admin-owned after first insert (paint_system has a marker bump for stale OSS bodies).
+- API start **upserts** pack rows from seed (body / title / used_by / when / scenes / pack_type / sort_order). Git seed wins over Admin UI edits on the next ensure.
 
 ### Where to edit
 
 | Change | Edit |
 |--------|------|
-| Stage must-follow rules | `type=system` pack `.md` (e.g. `ask_system.md`, `paint_system.md`) |
+| Stage must-follow rules | `stages/*.md` section for that kind (e.g. `decide.md` → `ask_system`, `paint.md` → `paint_system`) |
 | How a design job is done | Skill seed or `design_skills/<pack>/SKILL.md` |
-| One inject line | `type=template` `.md` — keep short |
+| One inject line | `snippets.md` section — keep short |
 
 Do not duplicate craft into `paint_system` / `react_system`. Brush / Lottie → ext skills `brush_ops` / `motion_lottie`; core skills only route to them.
 

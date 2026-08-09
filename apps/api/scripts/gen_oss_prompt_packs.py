@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-OUT_DIR = Path(__file__).resolve().parents[1] / "data" / "design_prompt_packs"
+OUT_DIR = Path(__file__).resolve().parents[1] / "seeds" / "design_prompt_packs"
 
 # Short protocol bodies — enough for cold-start Agent; not product-tuned copy.
 BODIES: dict[str, tuple[str, list[str], str]] = {
@@ -13,7 +13,7 @@ BODIES: dict[str, tuple[str, list[str], str]] = {
         "Decide — resource protocol (OSS)",
         ["decide"],
         """# Decide stage (resource protocol)
-Catalogs (tools / skills / knowledge / aesthetics) are injected in system when loaded.
+Catalogs (tools / skills) are injected in system when loaded.
 This stage only declares resource needs. tool_ops MUST be [].
 Paint runs later after resources load.
 Return one structured decide payload (intent + needs). Do not claim canvas edits here.
@@ -180,20 +180,10 @@ Do not say Ask cannot edit — propose + confirm is the path.""",
         ["resources"],
         """Loading canvas tools: {names}""",
     ),
-    "agent.prompt.pending_knowledge": (
-        "Pending knowledge (OSS)",
-        ["resources"],
-        """Loading knowledge: {names}""",
-    ),
     "agent.prompt.pending_skills": (
         "Pending skills (OSS)",
         ["resources"],
         """Loading skills: {names}""",
-    ),
-    "agent.prompt.pending_aesthetics": (
-        "Pending aesthetics (OSS)",
-        ["resources"],
-        """Loading aesthetic references…""",
     ),
     "agent.prompt.default_assistant_name": (
         "Default assistant name (OSS)",
@@ -258,7 +248,7 @@ Do not say Ask cannot edit — propose + confirm is the path.""",
     "agent.prompt.skill_catalog_empty": (
         "Skill catalog empty (OSS)",
         ["resources", "decide"],
-        """(no runtime skills — add Admin skills or data/design_skills packs)""",
+        """(no runtime skills — add Admin skills or seeds/design_skills packs)""",
     ),
     "agent.prompt.skill_details_header": (
         "Skill details header (OSS)",
@@ -269,26 +259,6 @@ Do not say Ask cannot edit — propose + confirm is the path.""",
         "Skill details truncated (OSS)",
         ["resources", "decide"],
         """…(truncated)""",
-    ),
-    "agent.prompt.knowledge_catalog_header": (
-        "Knowledge catalog header (OSS)",
-        ["resources", "decide"],
-        """## Knowledge (need_knowledge to load)""",
-    ),
-    "agent.prompt.knowledge_catalog_empty": (
-        "Knowledge catalog empty (OSS)",
-        ["resources", "decide"],
-        """(no knowledge entries)""",
-    ),
-    "agent.prompt.knowledge_details_header": (
-        "Knowledge details header (OSS)",
-        ["resources", "decide"],
-        """## Knowledge details""",
-    ),
-    "agent.prompt.knowledge_when_line": (
-        "Knowledge when line (OSS)",
-        ["resources", "decide"],
-        """when: {when}""",
     ),
     "agent.prompt.focus_frame_authority": (
         "Focus frame authority (OSS)",
@@ -315,94 +285,7 @@ Do not say Ask cannot edit — propose + confirm is the path.""",
         ["resources"],
         """## Injected prompt packs""",
     ),
-    "agent.prompt.prompt_packs_retired_catalog": (
-        "Retired packs catalog (OSS)",
-        ["resources"],
-        """(retired prompt packs omitted)""",
-    ),
 }
-
-# Minimal aesthetic glue so aesthetics paths don't hard-miss when force-synced.
-_AESTHETIC_GLUE = {
-    "agent.prompt.aesthetic_refs_user": ("Aesthetic refs — user", ["aesthetics"], "User aesthetic references:"),
-    "agent.prompt.aesthetic_refs_corpus": ("Aesthetic refs — corpus", ["aesthetics"], "Corpus aesthetic references:"),
-    "agent.prompt.aesthetic_refs_clip_fallback": ("Aesthetic refs — clip", ["aesthetics"], "(clip embedding fallback)"),
-    "agent.prompt.aesthetic_refs_section_good": ("Aesthetic section good", ["aesthetics"], "### Good"),
-    "agent.prompt.aesthetic_refs_section_ok": ("Aesthetic section ok", ["aesthetics"], "### OK"),
-    "agent.prompt.aesthetic_refs_section_bad": ("Aesthetic section bad", ["aesthetics"], "### Avoid"),
-    "agent.prompt.aesthetic_refs_empty_ok": ("Aesthetic empty ok", ["aesthetics"], "(none)"),
-    "agent.prompt.aesthetic_refs_empty_bad": ("Aesthetic empty bad", ["aesthetics"], "(none)"),
-    "agent.prompt.aesthetic_refs_empty_bad_user": ("Aesthetic empty bad user", ["aesthetics"], "(none from user)"),
-    "agent.prompt.aesthetic_refs_footer": ("Aesthetic refs footer", ["aesthetics"], "Use refs as style guidance, not copy."),
-    "agent.prompt.aesthetic_refs_vision_hint": ("Aesthetic vision hint", ["aesthetics"], "Describe visual structure briefly."),
-    "agent.prompt.aesthetic_refs_no_image_hint": ("Aesthetic no image", ["aesthetics"], "No reference image attached."),
-    "agent.prompt.aesthetic_refs_bad_item": ("Aesthetic bad item", ["aesthetics"], "- avoid: {item}"),
-    "agent.prompt.aesthetic_refs_verb_imitate": ("Aesthetic verb imitate", ["aesthetics"], "imitate"),
-    "agent.prompt.aesthetic_refs_verb_surpass": ("Aesthetic verb surpass", ["aesthetics"], "surpass"),
-    "agent.prompt.aesthetic_refs_verb_avoid": ("Aesthetic verb avoid", ["aesthetics"], "avoid"),
-    "agent.prompt.aesthetic_catalog": ("Aesthetic catalog", ["aesthetics"], "## Aesthetic catalog"),
-    "agent.prompt.aesthetic_gap_ref": ("Aesthetic gap ref", ["aesthetics"], "ref gap: {detail}"),
-    "agent.prompt.aesthetic_gap_ref_comment": ("Aesthetic gap ref comment", ["aesthetics"], "reference mismatch"),
-    "agent.prompt.aesthetic_gap_layout_detail": ("Aesthetic gap layout", ["aesthetics"], "layout: {detail}"),
-    "agent.prompt.aesthetic_gap_layout_hint": ("Aesthetic gap layout hint", ["aesthetics"], "Improve layout hierarchy."),
-    "agent.prompt.aesthetic_gap_color_detail": ("Aesthetic gap color", ["aesthetics"], "color: {detail}"),
-    "agent.prompt.aesthetic_gap_color_hint": ("Aesthetic gap color hint", ["aesthetics"], "Tighten the palette."),
-    "agent.prompt.aesthetic_gap_aesthetic_detail": ("Aesthetic gap aesthetic", ["aesthetics"], "aesthetic: {detail}"),
-    "agent.prompt.aesthetic_gap_aesthetic_hint": ("Aesthetic gap aesthetic hint", ["aesthetics"], "Raise overall polish."),
-    "agent.prompt.aesthetic_gap_score_detail": ("Aesthetic gap score", ["aesthetics"], "score: {detail}"),
-    "agent.prompt.aesthetic_gap_score_hint": ("Aesthetic gap score hint", ["aesthetics"], "Target a higher score."),
-    "agent.prompt.aesthetic_tokens_header": ("Aesthetic tokens header", ["aesthetics"], "## Aesthetic tokens"),
-    "agent.prompt.aesthetic_tokens_priority_user": ("Tokens priority user", ["aesthetics"], "priority: user"),
-    "agent.prompt.aesthetic_tokens_priority_corpus": ("Tokens priority corpus", ["aesthetics"], "priority: corpus"),
-    "agent.prompt.aesthetic_tokens_section_user": ("Tokens section user", ["aesthetics"], "### User tokens"),
-    "agent.prompt.aesthetic_tokens_section_good_secondary": ("Tokens section good 2", ["aesthetics"], "### Good (secondary)"),
-    "agent.prompt.aesthetic_tokens_section_good": ("Tokens section good", ["aesthetics"], "### Good"),
-    "agent.prompt.aesthetic_tokens_section_ok": ("Tokens section ok", ["aesthetics"], "### OK"),
-    "agent.prompt.aesthetic_tokens_section_bad": ("Tokens section bad", ["aesthetics"], "### Bad"),
-    "agent.prompt.aesthetic_tokens_comment": ("Tokens comment", ["aesthetics"], "{comment}"),
-    "agent.prompt.aesthetic_tokens_extract_fail": ("Tokens extract fail", ["aesthetics"], "(token extract failed)"),
-    "agent.prompt.aesthetic_tokens_primary_override": ("Tokens primary override", ["aesthetics"], "primary override"),
-    "agent.prompt.aesthetic_tokens_src_user": ("Tokens src user", ["aesthetics"], "user"),
-    "agent.prompt.aesthetic_tokens_src_good": ("Tokens src good", ["aesthetics"], "good"),
-    "agent.prompt.aesthetic_tokens_verb_user": ("Tokens verb user", ["aesthetics"], "follow"),
-    "agent.prompt.aesthetic_tokens_verb_secondary": ("Tokens verb secondary", ["aesthetics"], "prefer"),
-}
-
-
-def main() -> None:
-    items: list[dict] = []
-    sort_i = 0
-    merged = {**BODIES, **_AESTHETIC_GLUE}
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    for kind, (title, used_by, body) in merged.items():
-        sort_i += 10
-        text = body.strip() + "\n"
-        (OUT_DIR / f"{kind}.md").write_text(text, encoding="utf-8")
-        items.append(
-            {
-                "kind": kind,
-                "title": title,
-                "type": "system",
-                "group": "oss_baseline",
-                "usedBy": used_by,
-                "scenes": "all",
-                "selectable": False,
-                "sort_order": sort_i,
-                "when_to_use": "OSS baseline.",
-            }
-        )
-    payload = {
-        "_comment": (
-            "OSS runnable baseline (English, minimal) for Agent cold start. "
-            "Bodies live in sibling *.md (filename = kind)."
-        ),
-        "kindLabels": {k: t for k, (t, _, __) in merged.items()},
-        "items": items,
-    }
-    (OUT_DIR / "_index.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    print(f"wrote {OUT_DIR} items={len(items)}")
 
 
 if __name__ == "__main__":

@@ -17,8 +17,7 @@ from pydantic import BaseModel, Field
 from app.services.agent_memory.long_term import insert_long_memory
 from app.services.design.readpath.catalog import ensure_design_catalog, get_catalog_payload
 from app.services.design.runtime.orchestrator import run_design_job
-from app.services.design.readpath.library_store import list_library_items
-from app.services.design.readpath.library_seed import list_public_brushes
+from app.services.design.runtime.pipeline_support import _run_error_code
 from app.services.design.prompts.rules_text import _safe_print
 
 router = APIRouter(prefix="/design", tags=["design"])
@@ -239,15 +238,6 @@ class DesignRunIn(BaseModel):
     prompt: str = Field(..., min_length=1)
     scene: str | None = None
     style_group_id: int | None = None
-    style_pack_id: int | None = Field(
-        default=None, description="design_library_item id (kind=style) — DESIGN.md tokens"
-    )
-    template_id: int | None = Field(
-        default=None, description="design_library_item id (kind=template) — composition skeleton"
-    )
-    prompt_pattern_id: int | None = Field(
-        default=None, description="design_library_item id (kind=prompt)"
-    )
     user_selected_model: str | None = "auto"
     # End-user Auto routing prefs (tier models / vision / image). Server ignores cost levers.
     route_overrides: dict[str, str] | None = None
@@ -457,9 +447,6 @@ async def design_run(
                     prompt=body.prompt,
                     scene=body.scene,
                     style_group_id=body.style_group_id,
-                    style_pack_id=body.style_pack_id,
-                    template_id=body.template_id,
-                    prompt_pattern_id=body.prompt_pattern_id,
                     user_selected_model=body.user_selected_model or "auto",
                     canvas_id=body.canvas_id,
                     canvas_size=body.canvas_size,
@@ -512,7 +499,7 @@ async def design_run(
 
                 if kind == "err":
                     msg = str(payload)[:800] or "design_run_failed"
-                    yield _sse_data({"type": "error", "message": msg})
+                    yield _sse_data({"type": "error", "code": _run_error_code(msg), "message": msg})
                     break
 
                 state.out_n += 1
@@ -704,7 +691,7 @@ async def design_run_resume(
                     if isinstance(payload, asyncio.CancelledError):
                         break
                     msg = str(payload)[:800] or "design_resume_failed"
-                    yield _sse_data({"type": "error", "message": msg})
+                    yield _sse_data({"type": "error", "code": _run_error_code(msg), "message": msg})
                     break
 
                 state.out_n += 1
@@ -733,27 +720,6 @@ async def design_run_resume(
             "X-Accel-Buffering": "no",
         },
     )
-
-
-@router.get("/library")
-def design_library(
-    kind: str | None = None,
-    scene: str | None = None,
-    q: str | None = None,
-    page: int = 1,
-    page_size: int = 24,
-) -> dict[str, Any]:
-    """Public official materials (enabled only)."""
-    ensure_design_catalog()
-    return list_library_items(
-        kind=kind, scene=scene, q=q, enabled=True, page=page, page_size=page_size
-    )
-
-
-@router.get("/brushes")
-def design_brushes() -> dict[str, Any]:
-    """Brush wheel presets for the main-site pencil tool."""
-    return {"items": list_public_brushes()}
 
 
 class LottieGenerateIn(BaseModel):

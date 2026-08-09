@@ -1,1 +1,0 @@
-(clip embedding fallback)

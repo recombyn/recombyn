@@ -94,7 +94,12 @@ apps/docs/dist/
 apps/api/.agents/
 apps/api/skills-lock.json
 apps/api/_tmp_*
+apps/api/.tmp_*
 apps/api/list_packs.py
+
+# Local agent smoke / stress scratch (never commit)
+.tmp-*
+.tmp_*
 
 # Cursor IDE local (rules / skills / plans — do not publish)
 .cursor/

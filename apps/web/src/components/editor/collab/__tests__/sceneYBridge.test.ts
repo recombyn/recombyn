@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { createEmptyDocument } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createEmptyDocument
+} from '@/components/rcb/scene/document/sceneDocument';
 import { diffScenesForCollab, tryClaimRoomSeed, yBootMap } from '../sceneYBridge';
 
 describe('diffScenesForCollab', () => {
@@ -16,8 +18,26 @@ describe('diffScenesForCollab', () => {
   it('patches a single changed node without full reload', () => {
     const prev = createEmptyDocument({ width: 800, height: 600 });
     prev.deltaSetLike = {
-      ROOT: { children: ['n1'] },
-      n1: { key: 'shape', width: 100, height: 40, attrs: { shapeType: 'rect' } },
+      ROOT: {
+        id: 'ROOT',
+        key: 'entry',
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        attrs: {},
+        children: ['n1'],
+      },
+      n1: {
+        id: 'n1',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        attrs: { shapeType: 'rect' },
+        children: [],
+      },
     };
     prev.pages = [{ id: 'page', children: ['n1'] }];
     const next = structuredClone(prev);
@@ -44,14 +64,50 @@ describe('diffScenesForCollab', () => {
   it('tracks node add/remove and pageChildren', () => {
     const prev = createEmptyDocument({ width: 800, height: 600 });
     prev.deltaSetLike = {
-      ROOT: { children: ['n1'] },
-      n1: { key: 'shape', width: 10, height: 10, attrs: {} },
+      ROOT: {
+        id: 'ROOT',
+        key: 'entry',
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        attrs: {},
+        children: ['n1'],
+      },
+      n1: {
+        id: 'n1',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        attrs: {},
+        children: [],
+      },
     };
     prev.pages = [{ id: 'page', children: ['n1'] }];
     const next = structuredClone(prev);
     delete next.deltaSetLike.n1;
-    next.deltaSetLike.n2 = { key: 'shape', width: 20, height: 20, attrs: {} };
-    next.deltaSetLike.ROOT = { children: ['n2'] };
+    next.deltaSetLike.n2 = {
+      id: 'n2',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 20,
+      attrs: {},
+      children: [],
+    };
+    next.deltaSetLike.ROOT = {
+      id: 'ROOT',
+      key: 'entry',
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      attrs: {},
+      children: ['n2'],
+    };
     next.pages = [{ id: 'page', children: ['n2'] }];
     const diff = diffScenesForCollab(prev, next);
     expect(diff.mode).toBe('patch');

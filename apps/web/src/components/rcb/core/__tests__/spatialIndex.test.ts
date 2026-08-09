@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { RcbSpatialIndex, boxesIntersect } from '../spatialIndex';
+import {
+  RcbSpatialIndex,
+  SceneSpatialRuntime,
+  boxesIntersect,
+  buildIdRankMap,
+  sortIdsByRank,
+} from '../spatialIndex';
 
 describe('RcbSpatialIndex', () => {
   it('finds items by point and rect', () => {
@@ -21,6 +27,17 @@ describe('RcbSpatialIndex', () => {
     expect(idx.size).toBe(1);
   });
 
+  it('has / ids track membership', () => {
+    const idx = new RcbSpatialIndex(100);
+    idx.upsert({ id: 'a', minX: 0, minY: 0, maxX: 10, maxY: 10 });
+    expect(idx.has('a')).toBe(true);
+    expect(idx.has('b')).toBe(false);
+    expect([...idx.ids()]).toEqual(['a']);
+    idx.remove('a');
+    expect(idx.has('a')).toBe(false);
+    expect(idx.size).toBe(0);
+  });
+
   it('boxesIntersect', () => {
     expect(
       boxesIntersect(
@@ -34,5 +51,77 @@ describe('RcbSpatialIndex', () => {
         { minX: 11, minY: 0, maxX: 20, maxY: 10 }
       )
     ).toBe(false);
+  });
+});
+
+describe('sortIdsByRank', () => {
+  it('orders candidates without scanning the full list', () => {
+    const rank = buildIdRankMap(['a', 'b', 'c', 'd', 'e']);
+    expect(sortIdsByRank(['e', 'a', 'c'], rank, { ascending: true })).toEqual([
+      'a',
+      'c',
+      'e',
+    ]);
+    expect(sortIdsByRank(['e', 'a', 'c'], rank, { ascending: false })).toEqual([
+      'e',
+      'c',
+      'a',
+    ]);
+  });
+});
+
+describe('SceneSpatialRuntime', () => {
+  function makeDoc(ids: string[]) {
+    const delta: Record<string, any> = {
+      ROOT: { children: ids },
+    };
+    ids.forEach((id, i) => {
+      delta[id] = {
+        id,
+        x: i * 100,
+        y: 0,
+        width: 40,
+        height: 40,
+        attrs: {},
+      };
+    });
+    return { deltaSetLike: delta };
+  }
+
+  it('syncs membership without full rebuild on patch-only', () => {
+    const runtime = new SceneSpatialRuntime(100);
+    const children = ['a', 'b', 'c'];
+    const doc = makeDoc(children);
+    runtime.sync({ document: doc, childrenIds: children, reloadToken: 1 });
+    expect(runtime.size).toBe(3);
+
+    // Same children identity + geometry patch on b
+    doc.deltaSetLike.b.x = 500;
+    runtime.sync({
+      document: doc,
+      childrenIds: children,
+      reloadToken: 1,
+      patchedNodeIds: ['b'],
+    });
+    expect(runtime.size).toBe(3);
+    expect(runtime.index.searchPoint(520, 20).map((h) => h.id)).toEqual(['b']);
+    expect(runtime.index.searchPoint(100, 20)).toEqual([]);
+  });
+
+  it('hitCandidateIds sorts spatial hits top-first without full-list filter', () => {
+    const runtime = new SceneSpatialRuntime(100);
+    const children = Array.from({ length: 60 }, (_, i) => `n${i}`);
+    const doc = makeDoc(children);
+    runtime.sync({ document: doc, childrenIds: children, reloadToken: 1 });
+    const order = runtime.hitCandidateIds({
+      x: 20,
+      y: 20,
+      pad: 30,
+      allIds: children,
+    });
+    expect(order.length).toBeGreaterThan(0);
+    expect(order.length).toBeLessThan(children.length);
+    // Top-most among nearby should come first (higher child index near x=20 is n0 only).
+    expect(order[0]).toBe('n0');
   });
 });

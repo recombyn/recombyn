@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   peekHomeAgentBoot,
   clearHomeAgentBoot,
@@ -11,14 +12,15 @@ import {
 } from '@/utils/homeAgentBoot';
 import { withReturnTo } from '@/utils/authReturnTo';
 import { store } from '@/store';
-import { useProjectCloudSync, flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
+import { useProjectCloudSync, flushCurrentProjectNow, ProjectRevisionConflictDialog } from '@/components/editor/useProjectCloudSync';
 import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvider';
 import { isCollabActive } from '@/components/editor/collab/collabRuntime';
 import type { ComposerContext } from '@/components/editor/panels/AgentComposerInput';
 import AgentDock from '@/components/editor/panels/AgentDock';
 import DevPropertiesPanel from '@/components/editor/panels/DevPropertiesPanel';
 import ShareDialog from '@/components/editor/panels/ShareDialog';
-import { fetchShareApi, updateShareDocumentApi } from '@/apis/shares';
+import { apiClient } from '@/service/client';
+import type { ShareDto } from '@/models/shares';
 import EditorBootOverlay from '@/components/editor/chrome/EditorBootOverlay';
 import {
   RCB_DEFAULT_CAMERA as DEFAULT_CAMERA,
@@ -39,8 +41,11 @@ import EditorToolStrip from '@/components/editor/chrome/EditorToolStrip';
 import type { PathEditSubtool } from '@/components/editor/chrome/PathEditToolbar';
 import { getDocumentGridSize } from '@/components/rcb/selection/alignGuides';
 import { cn } from '@/utils/classnames';
-import { fetchProject } from '@/apis/projects';
-import { createEmptyDocument, listSceneNodes } from '@/components/rcb/scene/document/sceneDocument';
+import { fetchProject } from '@/service/projects';
+import {
+  createEmptyDocument,
+  listSceneNodes
+} from '@/components/rcb/scene/document/sceneDocument';
 import {
   getProjectDraft,
   getProjectSession,
@@ -61,7 +66,7 @@ import {
   bakeDocumentOrigin,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
-import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
+import { normalizeProjectThumbnailUrls, collageOrSingleThumb } from '@/utils/projectThumb';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
 import { cssSolidWithOpacity } from '@/components/base/colorPanel';
@@ -95,7 +100,7 @@ function rcbJumpLog(event: string, data: Record<string, unknown> = {}) {
   w.__rcbJumpDump = () => JSON.stringify(w.__rcbJumpLog, null, 2);
 }
 
-function documentToCanvasFill(document: any, themeFallback: string): FillPanelValue {
+function documentToCanvasFill(document: SceneDocument, themeFallback: string): FillPanelValue {
   const raw = String(document?.backgroundColor || '').trim();
   const fillType = parseFillType(document?.backgroundFillType);
   const panelType = (
@@ -112,15 +117,17 @@ function documentToCanvasFill(document: any, themeFallback: string): FillPanelVa
     fillType: panelType,
     fillColor: raw || themeFallback,
     fillOpacity: Number(document?.backgroundOpacity ?? 100),
-    fillGradient: document?.backgroundGradient,
-    fillImageSrc: document?.backgroundImageSrc,
+    fillGradient: document?.backgroundGradient as FillPanelValue['fillGradient'],
+    fillImageSrc: document?.backgroundImageSrc != null ? String(document.backgroundImageSrc) : undefined,
     fillImageFit: parseFillImageFit(document?.backgroundImageFit),
-    fillImageRotate: document?.backgroundImageRotate,
-    fillImageAdjust: document?.backgroundImageAdjust || DEFAULT_FILL_IMAGE_ADJUST,
+    fillImageRotate: Number(document?.backgroundImageRotate || 0) as FillPanelValue['fillImageRotate'],
+    fillImageAdjust:
+      (document?.backgroundImageAdjust as FillPanelValue['fillImageAdjust']) ||
+      DEFAULT_FILL_IMAGE_ADJUST,
   };
 }
 
-function computeWorldSurface(doc: any, frames: ArtboardFrame[]) {
+function computeWorldSurface(doc: SceneDocument, frames: ArtboardFrame[]) {
   let maxX = 3600;
   let maxY = 2400;
   for (const f of frames) {
@@ -195,7 +202,7 @@ function unionSceneBox(a: SceneBox | null, b: SceneBox): SceneBox {
 }
 
 /** Union of artboards + scene nodes for zoom-to-fit. */
-function editorContentBounds(doc: any, frames: ArtboardFrame[]): SceneBox {
+function editorContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): SceneBox {
   let box: SceneBox | null = null;
   for (const f of frames) {
     box = unionSceneBox(box, {
@@ -217,8 +224,8 @@ function editorContentBounds(doc: any, frames: ArtboardFrame[]): SceneBox {
   return box;
 }
 
-/** True when the scene has real artboards/nodes — not the empty-doc fallback box. */
-function editorHasFitContent(doc: any, frames: ArtboardFrame[]): boolean {
+/** True when the scene has real artboards/nodes 鈥?not the empty-doc fallback box. */
+function editorHasFitContent(doc: SceneDocument, frames: ArtboardFrame[]): boolean {
   for (const f of frames) {
     if ((Number(f.width) || 0) >= 2 && (Number(f.height) || 0) >= 2) return true;
   }
@@ -257,7 +264,7 @@ function shouldApplyHomeAgentBoot(opts: {
 }
 
 function computeStageBackground(
-  document: any,
+  document: SceneDocument,
   followThemeCanvas: boolean,
   themeCanvas: string
 ): string | undefined {
@@ -327,7 +334,7 @@ function persistUnsyncedDraft(
   });
 }
 
-/** Keep /editor/:id when cloud has no row yet — never mint a second nanoid. */
+/** Keep /editor/:id when cloud has no row yet 鈥?never mint a second nanoid. */
 function seedLocalProjectForUrl(
   targetId: string,
   dispatch: ReturnType<typeof useDispatch>,
@@ -362,7 +369,9 @@ async function hydrateShareTarget(
   isCancelled: () => boolean
 ) {
   try {
-    const res = await fetchShareApi(targetId);
+    const res = (await apiClient.sharesSharesGet({
+      params: { share_id: targetId },
+    })) as { share: ShareDto };
     if (isCancelled()) return;
     const s = res.share;
     if (!s?.document || !s.viewerCanEdit) {
@@ -472,15 +481,13 @@ async function hydrateCloudProject(
     );
     {
       const thumbs = normalizeProjectThumbnailUrls(proj.thumbnailUrl, proj.updatedAt);
-      if (thumbs.length) {
-        dispatch(
-          setTemplateThumbnail({
-            id: proj.id,
-            thumbnail: thumbs.length === 1 ? thumbs[0] : thumbs,
-            custom: Boolean(proj.thumbnailCustom),
-          })
-        );
-      }
+      dispatch(
+        setTemplateThumbnail({
+          id: proj.id,
+          thumbnail: collageOrSingleThumb(thumbs),
+          custom: Boolean(proj.thumbnailCustom),
+        })
+      );
     }
     void putProjectDraft({
       projectId: proj.id,
@@ -524,7 +531,7 @@ function EditorPage() {
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   const [camera, setCamera] = useState<CanvasCamera>(DEFAULT_CAMERA);
   const [agentOpen, setAgentOpen] = useState(true);
-  /** Bumps AgentDock hydrate (catalog/models) — first enter starts at 1; reopen via openAgentPanel. */
+  /** Bumps AgentDock hydrate (catalog/models) 鈥?first enter starts at 1; reopen via openAgentPanel. */
   const [agentOpenSignal, setAgentOpenSignal] = useState(1);
   const [inspectOpen, setInspectOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -546,7 +553,7 @@ function EditorPage() {
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [minimapOpen, setMinimapOpen] = useState(false);
   const [canvasBgOpen, setCanvasBgOpen] = useState(false);
-  /** Enter page / fit-to-canvas — menu highlights「适应画布」until user picks another zoom. */
+  /** Enter page / fit-to-canvas 鈥?menu highlights銆岄€傚簲鐢诲竷銆島ntil user picks another zoom. */
   const [zoomFitActive, setZoomFitActive] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [toolsExpanded, setToolsExpanded] = useState(false);
@@ -568,7 +575,7 @@ function EditorPage() {
   /** Local session: selection + grid. Camera fits once after stage layout (below). */
   const sessionReadyForIdRef = useRef<string | null>(null);
   const didInitialFitRef = useRef(false);
-  /** User pan/zoom — do not overwrite with auto-fit. */
+  /** User pan/zoom 鈥?do not overwrite with auto-fit. */
   const cameraUserTouchedRef = useRef(false);
   const gridUserTouchedRef = useRef(false);
   /** Apply sessionStorage home boot at most once per EditorPage lifetime. */
@@ -606,7 +613,10 @@ function EditorPage() {
     shareSaveTimer.current = window.setTimeout(() => {
       async function persistShareDocument() {
         try {
-          await updateShareDocumentApi(id, document);
+          await apiClient.sharesSharesUpdateDocument({
+            params: { share_id: id },
+            body: { document: document as Record<string, unknown> },
+          });
         } catch {
           /* ignore */
         }
@@ -716,7 +726,7 @@ function EditorPage() {
 
   /**
    * Catch late auto-fit / collab camera writes AFTER boot.
-   * Skip when the user already owns the camera — otherwise every wheel zoom
+   * Skip when the user already owns the camera 鈥?otherwise every wheel zoom
    * spam-logs as `afterReveal` and looks like a reveal fight (it is not).
    */
   useEffect(() => {
@@ -736,15 +746,15 @@ function EditorPage() {
     });
   }, [bootOpen, camera.x, camera.y, camera.zoom, stageSize.width, stageSize.height]);
 
-  // Scene paper follows content bounds only. Camera pan/zoom is CSS on RcbCanvas —
+  // Scene paper follows content bounds only. Camera pan/zoom is CSS on RcbCanvas 鈥?
   // never resize/slide SVG viewBox to chase the frustum.
   const worldSurface = document
     ? computeWorldSurface(document, frames)
     : { x: 0, y: 0, width: 3600, height: 2400 };
-  // RcbCanvas autofit disabled here — we only center once on first load (below).
+  // RcbCanvas autofit disabled here 鈥?we only center once on first load (below).
   const worldBounds = { x: 0, y: 0, width: 0, height: 0 };
 
-  /** Stable embedded scene doc — avoid `document={{...}}` identity churn each render.
+  /** Stable embedded scene doc 鈥?avoid `document={{...}}` identity churn each render.
    * Paper fill is transparent here so SVG hosts don't paint over the stage CSS fill.
    * Reducers preserve real stage `backgroundColor` when this view doc is committed. */
   const canvasDocument = useMemo(() => {
@@ -753,7 +763,7 @@ function EditorPage() {
       ...document,
       x: 0,
       y: 0,
-      // Content bounds only — viewport coverage is handled by viewRect, not doc size.
+      // Content bounds only 鈥?viewport coverage is handled by viewRect, not doc size.
       width: worldSurface.width,
       height: worldSurface.height,
       backgroundColor: 'transparent',
@@ -821,7 +831,7 @@ function EditorPage() {
         };
       }
 
-      // Shared document edit — same EditorPage chrome; persist via shares API.
+      // Shared document edit 鈥?same EditorPage chrome; persist via shares API.
       if (targetId.startsWith('share_')) {
         void hydrateShareTarget(targetId, dispatch, navigate, t, () => cancelled);
         return () => {
@@ -839,7 +849,7 @@ function EditorPage() {
     return () => {
       cancelled = true;
     };
-    // Only re-run when route / nav intent changes — not on every doc edit.
+    // Only re-run when route / nav intent changes 鈥?not on every doc edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, routeProjectId, location.search, navigate, t]);
 
@@ -850,7 +860,7 @@ function EditorPage() {
     cameraUserTouchedRef.current = false;
     gridUserTouchedRef.current = false;
     setZoomFitActive(true);
-    // Keep previous camera until fit — snapping to DEFAULT here causes a visible jump.
+    // Keep previous camera until fit 鈥?snapping to DEFAULT here causes a visible jump.
     dispatch(setGridMode(false));
   }, [currentId, dispatch]);
 
@@ -866,7 +876,7 @@ function EditorPage() {
         session = null;
       }
       if (cancelled) return;
-      // Do not restore session.camera — enter page always fits content once after load.
+      // Do not restore session.camera 鈥?enter page always fits content once after load.
       if (!gridUserTouchedRef.current) {
         dispatch(setGridMode(Boolean(session?.isGridMode)));
       }
@@ -908,7 +918,7 @@ function EditorPage() {
     return () => window.clearTimeout(timer);
   }, [currentId, camera, selectedNodeIds, selectedFrameIds, isGridMode]);
 
-  /** Home agent / plaza 「做同款」— prefill composer chips / prompt (peek until AgentDock consumes). */
+  /** Home agent / plaza 銆屽仛鍚屾銆嶁€?prefill composer chips / prompt (peek until AgentDock consumes). */
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('createNew') === '1') return;
@@ -1097,7 +1107,7 @@ function EditorPage() {
     if (!el) return;
     cameraUserTouchedRef.current = true;
     setZoomFitActive(false);
-    // Layout px (clientWidth) — same space as camera.x/y. getBoundingClientRect is visual
+    // Layout px (clientWidth) 鈥?same space as camera.x/y. getBoundingClientRect is visual
     // and drifts under browser zoom / CSS scale, which makes content jump off-screen.
     setCamera((c) =>
       zoomAtPoint(c, nextZoom, el.clientWidth / 2, el.clientHeight / 2)
@@ -1130,14 +1140,14 @@ function EditorPage() {
     const el = stageRef.current;
     const vw = el?.clientWidth || 0;
     const vh = el?.clientHeight || 0;
-    // Match RcbCanvas autofit gate — tiny/unlaid-out stages must not count as fitted.
+    // Match RcbCanvas autofit gate 鈥?tiny/unlaid-out stages must not count as fitted.
     if (vw < 40 || vh < 40) {
       rcbJumpLog('fitView.skipTiny', { vw, vh });
       return false;
     }
     const doc = (store.getState() as any).editor?.document;
     const fr: ArtboardFrame[] = Array.isArray(doc?.frames) ? doc.frames : [];
-    // Empty scene → 100%. With content → fit all artboards/nodes with 120px margins.
+    // Empty scene 鈫?100%. With content 鈫?fit all artboards/nodes with 120px margins.
     if (!editorHasFitContent(doc, fr)) {
       const next = { ...DEFAULT_CAMERA, zoom: 1 };
       rcbJumpLog('fitView.empty100', { vw, vh, next });
@@ -1160,19 +1170,19 @@ function EditorPage() {
       bootOpen: bootOpenRef.current,
       userTouched: cameraUserTouchedRef.current,
     });
-    // Camera pan/zoom only — never move node/frame scene coordinates.
+    // Camera pan/zoom only 鈥?never move node/frame scene coordinates.
     setCamera(next);
     setZoomFitActive(true);
     return true;
   }, []);
 
-  /** Manual fit (toolbar / shortcut) — stop auto re-fit after this. */
+  /** Manual fit (toolbar / shortcut) 鈥?stop auto re-fit after this. */
   const onFitViewManual = useCallback((): boolean => {
     cameraUserTouchedRef.current = true;
     return onFitView();
   }, [onFitView]);
 
-  /** Pan/zoom from the canvas — marks camera as user-owned. */
+  /** Pan/zoom from the canvas 鈥?marks camera as user-owned. */
   const onCanvasCameraChange = useCallback((next: CanvasCamera) => {
     cameraUserTouchedRef.current = true;
     setZoomFitActive(false);
@@ -1185,14 +1195,14 @@ function EditorPage() {
   }, []);
 
   /**
-   * Fit camera **before** boot overlay dismisses — once content is visible, never
+   * Fit camera **before** boot overlay dismisses 鈥?once content is visible, never
    * auto-adjust again (no post-reveal re-fit when AgentDock width settles).
    */
   useEffect(() => {
     if (!document || !currentId) return;
     if (didInitialFitRef.current) return;
 
-    // Bake store origin before first fit — canvasDocument paints at 0,0; a late
+    // Bake store origin before first fit 鈥?canvasDocument paints at 0,0; a late
     // align remount would jump every host after the overlay lifts.
     const ox = Number(document.x) || 0;
     const oy = Number(document.y) || 0;
@@ -1214,7 +1224,7 @@ function EditorPage() {
       return;
     }
 
-    // Boot already gone (e.g. empty → agent added nodes): skip auto-fit to avoid jump.
+    // Boot already gone (e.g. empty 鈫?agent added nodes): skip auto-fit to avoid jump.
     if (!bootOpenRef.current) {
       didInitialFitRef.current = true;
       return;
@@ -1391,6 +1401,7 @@ function EditorPage() {
   const projectName = currentTemplate?.name || t('home.untitled');
   return (
     <CollabRoomProvider stageEl={stageEl} camera={camera} onCameraChange={setCamera}>
+      <ProjectRevisionConflictDialog />
       <div
         className={cn(
           'relative flex h-full flex-col overflow-hidden',

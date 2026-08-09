@@ -1,4 +1,6 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -12,8 +14,9 @@ import {
   useInteractions,
 } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
-import { generateVideo, listModels, type LlmModel } from '@/apis/chat';
-import { selectBillingEnabled } from '@/store/modules/wallet';
+import { generateVideo, type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   rcbScreenPxToScene,
@@ -41,7 +44,7 @@ import {
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';
-import type { UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
 import { AspectRatioGlyph } from '@/components/editor/panels/agent/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   ModelBrandIcon,
@@ -49,10 +52,15 @@ import ModelPickerPanel, {
 import { applyCanvasPickToImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import {
   canAttachNodeToChat,
-  captureVideoPosterFrame,
-  clearImageProcessAttrs,
-  expandSelectionWithGroups,
-} from '@/components/rcb/scene/document/sceneDocument';
+  canvasAttachPickPayload,
+  clearImageProcessAttrs
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
+  captureVideoPosterFrame
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
+  expandSelectionWithGroups
+} from '@/components/rcb/scene/document/sceneGroups';
 import {
   clearCanvasAttachPick,
   consumePendingCanvasAttach,
@@ -72,7 +80,7 @@ import store from '@/store';
 
 type Props = {
   nodeId: string;
-  /** Scene plate box — composer anchors under it; promote keeps document geometry. */
+  /** Scene plate box 鈥?composer anchors under it; promote keeps document geometry. */
   sceneBox: { x: number; y: number; width: number; height: number };
   /** Composer only shows while the generator node is selected. */
   showComposer?: boolean;
@@ -167,7 +175,7 @@ function plateSizeForVideoAspect(
 /** Attach currently selected canvas nodes/frames into the video composer (excl. host). */
 function attachSelectionToVideoComposer(opts: {
   hostNodeId: string;
-  document: any;
+  document: SceneDocument;
   selectedNodeIds: string[];
   selectedFrameIds: string[];
   existing: ComposerContext[];
@@ -192,9 +200,8 @@ function attachSelectionToVideoComposer(opts: {
   const attachable = seed.filter((id) => canAttachNodeToChat(doc?.deltaSetLike?.[id]));
   const frameId = (selectedFrameIds || []).find(Boolean) || null;
   if (!attachable.length && !frameId) return false;
-  const payload =
-    attachable.length > 1 ? attachable : attachable.length === 1 ? attachable[0]! : `frame:${frameId}`;
-  void applyCanvasPickToImageComposer({
+  const payload = canvasAttachPickPayload(attachable, frameId);
+  applyCanvasPickToImageComposer({
     document: doc,
     payload,
     existing,
@@ -241,7 +248,7 @@ function VideoSegmentPill({
   );
 }
 
-/** Aspect chips + resolution + duration — video's answer to ImageAspectRatioPicker. */
+/** Aspect chips + resolution + duration 鈥?video's answer to ImageAspectRatioPicker. */
 function VideoSettingsPanel({
   aspectRatio,
   resolution,
@@ -314,7 +321,7 @@ function VideoSettingsPanel({
 
       <div>
         <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">
-          {t('editor.tools.videoDuration', { defaultValue: '时长' })}
+          {t('editor.tools.videoDuration', { defaultValue: '鏃堕暱' })}
         </p>
         <VideoSegmentedTrack>
           {VIDEO_DURATIONS.map((n) => (
@@ -402,7 +409,7 @@ function VideoGeneratorCard({
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    void applyCanvasPickToImageComposer({
+    applyCanvasPickToImageComposer({
       document: editorDocument || (store.getState() as any).editor?.document,
       payload,
       existing: contextsRef.current,
@@ -442,28 +449,43 @@ function VideoGeneratorCard({
     return () => cancelAnimationFrame(id);
   }, [showComposer, nodeId, disabled]);
 
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    setModelsStatus('loading');
-    async function loadModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const unique = buildVideoGeneratorModelList(res);
-        setModels(unique);
-        setModelsStatus('ready');
-        const nextId = nextVideoModelId(unique, modelId);
-        if (nextId) setModelId(nextId);
-      } catch {
-        if (!cancelled) setModelsStatus('error');
-      }
+    if (modelsCatalogQuery.isPending) {
+      setModelsStatus('loading');
+      return;
     }
-    void loadModels();
+    if (modelsCatalogQuery.isError) {
+      setModelsStatus('error');
+      return;
+    }
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModelsStatus('error');
+      return;
+    }
+    const unique = buildVideoGeneratorModelList(res);
+    setModels(unique);
+    setModelsStatus('ready');
+    const nextId = nextVideoModelId(unique, modelId);
+    if (nextId) setModelId(nextId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+  ]);
+
+  useEffect(() => {
     return () => {
-      cancelled = true;
       abortRef.current?.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const attachments = useMemo(
@@ -477,7 +499,7 @@ function VideoGeneratorCard({
     [contexts]
   );
   const selectedModel = models.find((m) => m.id === modelId);
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const billingEnabled = useBillingEnabled();
   const creditCost = estimateVideoCredits(selectedModel);
   const settingsSummary = `${resolution} · ${aspectRatio} · ${duration}s`;
 
@@ -554,7 +576,7 @@ function VideoGeneratorCard({
           });
           const serverUrl = String(uploaded.url || '').trim();
           const localPreview = String(uploaded.previewDataUrl || thumb || preview).trim();
-          // Local `/api/v1/uploads/…` needs auth — keep local data URL for media preview;
+          // Local `/api/v1/uploads/鈥 needs auth 鈥?keep local data URL for media preview;
           // use public https URL when available.
           const mediaUrl =
             serverUrl.startsWith('http://') || serverUrl.startsWith('https://')
@@ -580,9 +602,9 @@ function VideoGeneratorCard({
           });
         } catch (err: any) {
           setContexts((prev) => prev.filter((c) => c.key !== key));
-          const detail =
-            err?.response?.data?.detail || err?.message || t('agent.uploadFailed', { name: file.name });
-          message.error(typeof detail === 'string' ? detail : t('agent.uploadFailed', { name: file.name }));
+          message.error(
+            getHttpErrorMessage(err, t('agent.uploadFailed', { name: file.name }))
+          );
         }
       })
     );
@@ -673,7 +695,7 @@ function VideoGeneratorCard({
       getBoundingClientRect: () =>
         inputRef.current?.getAtMentionAnchorRect?.() ?? new DOMRect(),
     });
-    void mentionFloating.update();
+    mentionFloating.update();
   }, [mentionOpen, mentionQuery, prompt, mentionFloating.refs, mentionFloating.update]);
 
   const onGenerate = async () => {
@@ -704,8 +726,8 @@ function VideoGeneratorCard({
         resolution,
         duration,
       };
-      // First-frame / style refs — video refs are attachable but never sent as body.images.
-      // Canvas 编组 lands as kind:'group' chips (not attachment strip).
+      // First-frame / style refs 鈥?video refs are attachable but never sent as body.images.
+      // Canvas 缂栫粍 lands as kind:'group' chips (not attachment strip).
       const refImages = contextsRef.current
         .filter((c) => c.kind === 'attachment' || c.kind === 'group')
         .map((c) => String(c.dataUrl || c.thumbUrl || '').trim())
@@ -729,9 +751,9 @@ function VideoGeneratorCard({
       try {
         poster = await captureVideoPosterFrame(src);
       } catch {
-        /* poster is a nice-to-have — video still plays without it */
+        /* poster is a nice-to-have 鈥?video still plays without it */
       }
-      // Promote in place — keep the generator plate's document x/y/size so the
+      // Promote in place 鈥?keep the generator plate's document x/y/size so the
       // result appears exactly where the plate was (sceneBox is origin-relative).
       dispatch(
         finishVideoGenerator({
@@ -748,9 +770,7 @@ function VideoGeneratorCard({
       if (doc) {
         dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
       }
-      const detail =
-        err?.response?.data?.detail || err?.message || t('editor.tools.videoGenFail');
-      message.error(typeof detail === 'string' ? detail : t('editor.tools.videoGenFail'));
+      message.error(getHttpErrorMessage(err, t('editor.tools.videoGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);
@@ -922,12 +942,12 @@ function VideoGeneratorCard({
                 setPrompt(next);
                 maybeOpenMentionFromAt(next);
               }}
-              onSubmit={() => void onGenerate()}
+              onSubmit={() => onGenerate()}
               disabled={disabled || sending}
               placeholder={t('editor.tools.videoGenPlaceholder')}
               className="min-h-full w-full text-[13px]"
               onPasteImages={(files) => {
-                void attachRefFiles(files);
+                attachRefFiles(files);
               }}
             />
           </div>
@@ -1049,7 +1069,7 @@ function VideoGeneratorCard({
                   type="button"
                   disabled={disabled || sending || attachmentsUploading || !prompt.trim()}
                   aria-label={t('editor.tools.videoGenSubmit')}
-                  onClick={() => void onGenerate()}
+                  onClick={() => onGenerate()}
                   className={cn(
                     'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition',
                     'bg-[var(--ink)] text-[var(--on-brand)] disabled:opacity-40',

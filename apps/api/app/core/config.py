@@ -132,12 +132,8 @@ class Settings(BaseSettings):
     design_graph_require_durable_checkpoint: bool = True
     # Post-paint structure/spatial critique in observe (SSE critique_* + optional re-paint).
     design_critique_enabled: bool = True
-    # When FE posts preview_image, run CLIP aesthetics score in critique (fail-open).
-    design_critique_aesthetics: bool = True
-    # Soft-skip scoring when ready+good corpus is thinner than this (fail-open).
-    design_aesthetics_min_corpus: int = 2
-    # Optional override for aesthetics.score_threshold admin rule (0 = use admin/default).
-    design_aesthetics_score_threshold: float = 0.0
+    # LLM Review Agent after observe (Profile stage review; forked subagent when catalog says so).
+    design_review_agent_enabled: bool = True
     # Cross-worker run lease TTL (seconds). Resume steals after expiry.
     design_run_lease_ttl_sec: float = 90.0
     # Scene-feedback poll interval when waiting across workers (ms).
@@ -174,9 +170,12 @@ class Settings(BaseSettings):
     langfuse_tracing: bool = False
     langfuse_project_id: str = ""
 
-    # Design skills: poll seed JSON + .agents/skills + data/design_skills for hot reload.
+    # Design skills: poll seed JSON + .agents/skills + seeds/design_skills for hot reload.
     design_skills_hot_reload: bool = True
     design_skills_hot_reload_interval_sec: float = 2.0
+
+    # Active AgentProfile id (seeds/agents/profiles/{id}.yaml). Empty → bindings.default.
+    agent_profile_id: str = "design.canvas"
 
     # Phase 5: table cells + SAM/LaMa models
     expand_table_cells: bool = True
@@ -262,16 +261,16 @@ def is_desktop_local() -> bool:
     return bool(getattr(settings, "desktop_local_auto_login", False))
 
 
-def api_data_dir() -> Path:
-    """Seed root: apps/api/data (prompt packs, skills, knowledge, …)."""
-    return _API_ROOT / "data"
+def api_seeds_dir() -> Path:
+    """Seed root: apps/api/seeds (prompt packs, skills, …)."""
+    return _API_ROOT / "seeds"
 
 
-def resolve_data_file(*parts: str) -> Path:
-    """Resolve a seed file under apps/api/data/."""
-    return api_data_dir().joinpath(*parts)
+def resolve_seed_file(*parts: str) -> Path:
+    """Resolve a seed file under apps/api/seeds/."""
+    return api_seeds_dir().joinpath(*parts)
 
 
-def resolve_data_dir(*parts: str) -> Path:
-    """Resolve a seed directory under apps/api/data/."""
-    return api_data_dir().joinpath(*parts)
+def resolve_seed_dir(*parts: str) -> Path:
+    """Resolve a seed directory under apps/api/seeds/."""
+    return api_seeds_dir().joinpath(*parts)

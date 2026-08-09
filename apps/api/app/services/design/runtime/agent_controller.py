@@ -17,12 +17,15 @@ from app.services.design.runtime.graph.build import (
     cleanup_design_checkpoint,
     get_design_run_status,
     invalidate_agent_graph_cache,
+    list_topology_templates,
     request_design_cancel,
     request_design_pause,
+    resolve_topology_graph,
     resume_agent_graph,
     run_agent_graph,
     start_design_checkpoint_ttl_scheduler,
     sweep_stale_design_checkpoints,
+    validate_profile_topology,
 )
 from app.services.design.runtime.graph.state import (
     AgentRunState as _AgentRunState,
@@ -79,6 +82,7 @@ from app.services.design.runtime.graph.nodes.apply import (
     _node_propose,
 )
 from app.services.design.runtime.graph.nodes.observe import _node_observe
+from app.services.design.runtime.graph.nodes.review import _node_review_agent
 from app.services.design.runtime.graph.nodes.settle import _node_settle
 
 __all__ = [n for n in dir() if not n.startswith("_") or n.startswith("__")]

@@ -1,6 +1,7 @@
-/**
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+﻿/**
  * Lottie generator composer under the empty plate.
- * On-plate generate → POST /design/lottie/generate → promote to Lottie node.
+ * On-plate generate 鈫?POST /design/lottie/generate 鈫?promote to Lottie node.
  */
 import {
   memo,
@@ -13,6 +14,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
@@ -32,9 +34,10 @@ import {
   HiOutlinePlus,
   HiOutlineViewfinderCircle,
 } from 'react-icons/hi2';
-import { listModels, type LlmModel } from '@/apis/chat';
-import { generateLottie } from '@/apis/design';
-import { selectBillingEnabled } from '@/store/modules/wallet';
+import { type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { generateLottie } from '@/service/design';
+import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   rcbScreenPxToScene,
@@ -61,7 +64,7 @@ import {
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';
-import type { UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
 import { AspectRatioGlyph } from '@/components/editor/panels/agent/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   ModelBrandIcon,
@@ -70,10 +73,15 @@ import { buildByokAwareModelList, modelSupportsVisionInput } from '@/components/
 import { applyCanvasPickToImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import {
   canAttachNodeToChat,
-  clearImageProcessAttrs,
-  expandSelectionWithGroups,
-  parseLottieAnimationData,
-} from '@/components/rcb/scene/document/sceneDocument';
+  canvasAttachPickPayload,
+  clearImageProcessAttrs
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
+  expandSelectionWithGroups
+} from '@/components/rcb/scene/document/sceneGroups';
+import {
+  parseLottieAnimationData
+} from '@/components/rcb/scene/document/nodeFactories';
 import {
   clearCanvasAttachPick,
   consumePendingCanvasAttach,
@@ -99,7 +107,7 @@ type Props = {
 
 const LOTTIE_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 const DEFAULT_LOTTIE_ASPECT = '1:1';
-/** Seconds — shorter than video; typical UI / logo loops. */
+/** Seconds 鈥?shorter than video; typical UI / logo loops. */
 const LOTTIE_DURATIONS = [1, 2, 3, 5, 8, 10] as const;
 const DEFAULT_LOTTIE_DURATION = 3;
 const DEFAULT_AGENT_MODEL_ID = '';
@@ -193,7 +201,7 @@ function isImageFile(file: File) {
 
 function attachSelectionToLottieComposer(opts: {
   hostNodeId: string;
-  document: any;
+  document: SceneDocument;
   selectedNodeIds: string[];
   selectedFrameIds: string[];
   existing: ComposerContext[];
@@ -218,9 +226,8 @@ function attachSelectionToLottieComposer(opts: {
   const attachable = seed.filter((id) => canAttachNodeToChat(doc?.deltaSetLike?.[id]));
   const frameId = (selectedFrameIds || []).find(Boolean) || null;
   if (!attachable.length && !frameId) return false;
-  const payload =
-    attachable.length > 1 ? attachable : attachable.length === 1 ? attachable[0]! : `frame:${frameId}`;
-  void applyCanvasPickToImageComposer({
+  const payload = canvasAttachPickPayload(attachable, frameId);
+  applyCanvasPickToImageComposer({
     document: doc,
     payload,
     existing,
@@ -398,7 +405,7 @@ function LottieGeneratorCard({
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    void applyCanvasPickToImageComposer({
+    applyCanvasPickToImageComposer({
       document: editorDocument || (store.getState() as any).editor?.document,
       payload,
       existing: contextsRef.current,
@@ -411,28 +418,38 @@ function LottieGeneratorCard({
     });
   }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
 
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    setModelsStatus('loading');
-    async function loadModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const unique = buildLottieChatModelList(res);
-        setModels(unique);
-        setModelsStatus('ready');
-        const nextId = nextLottieChatModelId(unique, modelId);
-        if (nextId) setModelId(nextId);
-      } catch {
-        if (!cancelled) setModelsStatus('error');
-      }
+    if (modelsCatalogQuery.isPending) {
+      setModelsStatus('loading');
+      return;
     }
-    void loadModels();
-    return () => {
-      cancelled = true;
-    };
+    if (modelsCatalogQuery.isError) {
+      setModelsStatus('error');
+      return;
+    }
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModelsStatus('error');
+      return;
+    }
+    const unique = buildLottieChatModelList(res);
+    setModels(unique);
+    setModelsStatus('ready');
+    const nextId = nextLottieChatModelId(unique, modelId);
+    if (nextId) setModelId(nextId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -462,7 +479,7 @@ function LottieGeneratorCard({
     () => (needsVisionModel ? models.filter((m) => modelSupportsVisionInput(m)) : models),
     [models, needsVisionModel]
   );
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const billingEnabled = useBillingEnabled();
   const creditCost = estimateLottieCredits(selectedModel, duration);
   const settingsSummary = `${aspectRatio} · ${duration}s`;
 
@@ -584,7 +601,7 @@ function LottieGeneratorCard({
       getBoundingClientRect: () =>
         inputRef.current?.getAtMentionAnchorRect?.() ?? new DOMRect(),
     });
-    void mentionFloating.update();
+    mentionFloating.update();
   }, [mentionOpen, mentionQuery, prompt, mentionFloating.refs, mentionFloating.update]);
 
   const persistGenSettings = (patch: {
@@ -600,7 +617,7 @@ function LottieGeneratorCard({
     dispatch(patchDocumentNode({ nodeId, patch: { attrs } }));
   };
 
-  // Image refs require a vision-capable model — auto-switch when current can't see images.
+  // Image refs require a vision-capable model 鈥?auto-switch when current can't see images.
   useEffect(() => {
     if (!needsVisionModel || !models.length) return;
     if (modelSupportsVisionInput(selectedModel)) return;
@@ -712,9 +729,7 @@ function LottieGeneratorCard({
       if (doc) {
         dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
       }
-      const detail =
-        err?.response?.data?.detail || err?.message || t('editor.tools.lottieGenFail');
-      message.error(typeof detail === 'string' ? detail : t('editor.tools.lottieGenFail'));
+      message.error(getHttpErrorMessage(err, t('editor.tools.lottieGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);
@@ -818,7 +833,7 @@ function LottieGeneratorCard({
             accept="image/*"
             multiple
             className="hidden"
-            onChange={(e) => void onPickRef(e)}
+            onChange={(e) => onPickRef(e)}
           />
         </div>
 
@@ -840,12 +855,12 @@ function LottieGeneratorCard({
               setPrompt(next);
               maybeOpenMentionFromAt(next);
             }}
-            onSubmit={() => void onGenerate()}
+            onSubmit={() => onGenerate()}
             disabled={disabled || sending}
             placeholder={t('editor.tools.lottieGenPlaceholder')}
             className="min-h-full w-full text-[13px]"
             onPasteImages={(files) => {
-              void attachRefFiles(files);
+              attachRefFiles(files);
             }}
           />
         </div>
@@ -962,7 +977,7 @@ function LottieGeneratorCard({
                 type="button"
                 disabled={disabled || sending || !prompt.trim()}
                 aria-label={t('editor.tools.lottieGenSubmit')}
-                onClick={() => void onGenerate()}
+                onClick={() => onGenerate()}
                 className={cn(
                   'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition',
                   'bg-[var(--ink)] text-[var(--on-brand)] disabled:opacity-40',

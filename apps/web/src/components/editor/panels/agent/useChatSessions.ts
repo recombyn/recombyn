@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  deleteChatSessionApi,
-  fetchChatSessions,
-  upsertChatSessionApi,
-  type ChatSessionMessageDto,
-} from '@/apis/chatSessions';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ChatSessionMessageDto } from '@/models/chatSessions';
+import { apiClient, apiQuery } from '@/service/client';
 import type { TaskState } from '@/components/editor/panels/agent/agentMemory';
 import type { ChatUiMessage } from '@/components/editor/panels/agent/ChatTurnList';
 import { getToken } from '@/utils/token';
@@ -42,6 +39,16 @@ export type ChatSession = {
 };
 
 const MAX_CHAT_SESSIONS = 40;
+
+type RemoteSessionDto = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  taskState?: TaskState | null;
+  messages?: ChatSessionMessageDto[];
+};
+
+type SessionsListPayload = { sessions?: RemoteSessionDto[] };
 
 function titleFromMessages(messages: ChatSessionMessage[]): string {
   const first = messages.find((m) => m.role === 'user' && m.content.trim());
@@ -127,13 +134,7 @@ function toUiMessages(session: ChatSession): ChatUiMessage[] {
   }));
 }
 
-function dtoToSession(dto: {
-  id: string;
-  title: string;
-  updatedAt: number;
-  taskState?: TaskState | null;
-  messages?: ChatSessionMessageDto[];
-}): ChatSession {
+function dtoToSession(dto: RemoteSessionDto): ChatSession {
   return {
     id: dto.id,
     title: dto.title || '新对话',
@@ -157,6 +158,13 @@ function dtoToSession(dto: {
       ...pickAskPersistFields(m),
     })),
   };
+}
+
+function mapRemoteSessions(data: unknown): ChatSession[] {
+  const res = data as SessionsListPayload | undefined;
+  return (res?.sessions || []).map((s) =>
+    dtoToSession({ ...s, taskState: s.taskState as TaskState | undefined })
+  );
 }
 
 function messagesToPersisted(messages: ChatUiMessage[]): ChatSessionMessage[] {
@@ -202,9 +210,25 @@ function messagesToPersisted(messages: ChatUiMessage[]): ChatSessionMessage[] {
     }));
 }
 
+function sessionPayloadJson(session: {
+  id: string;
+  title: string;
+  messages: ChatSessionMessage[];
+  taskState?: TaskState | null;
+}): string {
+  return JSON.stringify({
+    id: session.id,
+    title: session.title,
+    messages: session.messages,
+    taskState: session.taskState || null,
+  });
+}
+
 /** Agent chat — in-memory + API when logged in. No localStorage session dumps. */
 export function useChatSessions(documentId: string | null | undefined) {
   const scope = (documentId || '').trim() || '__none__';
+  const queryClient = useQueryClient();
+  const [apiEnabled, setApiEnabled] = useState(() => isChatLoggedIn());
   const [readyScope, setReadyScope] = useState<string | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionId, setSessionId] = useState(() => chatUid());
@@ -218,10 +242,71 @@ export function useChatSessions(documentId: string | null | undefined) {
   const pendingSyncRef = useRef<PendingChatSync | null>(null);
   const lastSyncedJson = useRef<string>('');
   const apiDisabledRef = useRef(false);
+  /** Scope that already opened its first remote (or empty) session. */
+  const openedScopeRef = useRef<string | null>(null);
+
+  const sessionsQueryKey = apiQuery.chatSessionsGetSessions.queryKey({
+    input: { query: { projectId: scope || '__none__' } },
+  });
+
+  const sessionsQuery = useQuery({
+    ...apiQuery.chatSessionsGetSessions.queryOptions({
+      input: { query: { projectId: scope || '__none__' } },
+      enabled: apiEnabled,
+    }),
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+  const putSessionMutation = useMutation({
+    mutationFn: async (pending: PendingChatSync) => {
+      await apiClient.chatSessionsPutSession({
+        body: {
+          projectId: pending.projectId || '__none__',
+          id: pending.id,
+          title: pending.title,
+          messages: pending.messages,
+          ...(pending.taskState != null ? { taskState: pending.taskState } : {}),
+        },
+      });
+      return pending;
+    },
+    onSuccess: (pending) => {
+      lastSyncedJson.current = pending.payloadJson;
+    },
+    onError: (_err, pending) => {
+      if (!pendingSyncRef.current) pendingSyncRef.current = pending;
+    },
+  });
+  const putSessionMutateRef = useRef(putSessionMutation.mutate);
+  putSessionMutateRef.current = putSessionMutation.mutate;
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiClient.chatSessionsRemoveSession({
+        params: { session_id: id },
+      });
+      return id;
+    },
+    onSuccess: (id) => {
+      queryClient.setQueryData(sessionsQueryKey, (old: unknown) => {
+        const prev = old as SessionsListPayload | undefined;
+        if (!prev?.sessions) return old;
+        return {
+          ...prev,
+          sessions: prev.sessions.filter((s) => s.id !== id),
+        };
+      });
+    },
+  });
+  const deleteSessionMutateRef = useRef(deleteSessionMutation.mutate);
+  deleteSessionMutateRef.current = deleteSessionMutation.mutate;
+
+  const refetchSessionsRef = useRef(sessionsQuery.refetch);
+  refetchSessionsRef.current = sessionsQuery.refetch;
 
   const flushPendingSync = useCallback(() => {
     if (syncTimer.current) {
@@ -229,87 +314,73 @@ export function useChatSessions(documentId: string | null | undefined) {
       syncTimer.current = null;
     }
     const pending = pendingSyncRef.current;
-    if (!pending || !isChatLoggedIn() || apiDisabledRef.current) return;
+    if (!pending || !apiEnabled || apiDisabledRef.current) return;
     if (pending.payloadJson === lastSyncedJson.current) return;
     pendingSyncRef.current = null;
-    async function upsertPendingSession() {
-      try {
-        await upsertChatSessionApi({
-          projectId: pending.projectId || '__none__',
-          id: pending.id,
-          title: pending.title,
-          messages: pending.messages,
-          ...(pending.taskState != null ? { taskState: pending.taskState } : {}),
-        });
-        lastSyncedJson.current = pending.payloadJson;
-      } catch (err: any) {
-        if (err?.response?.status === 401) apiDisabledRef.current = true;
-        if (!pendingSyncRef.current) pendingSyncRef.current = pending;
-      }
-    }
-    void upsertPendingSession();
-  }, []);
+    putSessionMutateRef.current(pending);
+  }, [apiEnabled]);
 
   useEffect(() => {
-    let cancelled = false;
     flushPendingSync();
+    openedScopeRef.current = null;
     setReadyScope(null);
     setSessions([]);
     setSessionId(chatUid());
     setMessages([]);
     setTaskState(null);
     lastSyncedJson.current = '';
-
-    if (!isChatLoggedIn() || apiDisabledRef.current) {
+    if (!apiEnabled) {
       setReadyScope(scope);
+      openedScopeRef.current = scope;
+    }
+  }, [scope, apiEnabled, flushPendingSync]);
+
+  useEffect(() => {
+    if (!apiEnabled) return;
+
+    if (sessionsQuery.isError) {
+      if (openedScopeRef.current !== scope) {
+        setSessionId(chatUid());
+        setMessages([]);
+        setTaskState(null);
+        openedScopeRef.current = scope;
+        setReadyScope(scope);
+      }
       return;
     }
 
-    async function loadRemoteSessions() {
-      try {
-        const res = await fetchChatSessions({
-          projectId: scope || '__none__',
-        });
-        if (cancelled) return;
-        const remote = (res.sessions || []).map((s) =>
-          dtoToSession({ ...s, taskState: s.taskState as TaskState | undefined })
-        );
-        setSessions(remote);
-        if (remote[0]) {
-          setSessionId(remote[0].id);
-          setMessages(toUiMessages(remote[0]));
-          setTaskState(remote[0].taskState || null);
-          lastSyncedJson.current = JSON.stringify({
-            id: remote[0].id,
-            title: remote[0].title,
-            messages: remote[0].messages,
-            taskState: remote[0].taskState || null,
-          });
-        } else {
-          setSessionId(chatUid());
-          setMessages([]);
-        }
-      } catch (err: any) {
-        if (err?.response?.status === 401) apiDisabledRef.current = true;
-        if (!cancelled) {
-          setSessionId(chatUid());
-          setMessages([]);
-        }
-      } finally {
-        if (!cancelled) setReadyScope(scope);
-      }
-    }
-    void loadRemoteSessions();
+    if (sessionsQuery.isPending && !sessionsQuery.data) return;
 
-    return () => {
-      cancelled = true;
-      flushPendingSync();
-    };
-  }, [scope, flushPendingSync]);
+    const remote = mapRemoteSessions(sessionsQuery.data);
+    setSessions(remote);
+
+    if (openedScopeRef.current === scope) return;
+
+    if (remote[0]) {
+      setSessionId(remote[0].id);
+      setMessages(toUiMessages(remote[0]));
+      setTaskState(remote[0].taskState || null);
+      lastSyncedJson.current = sessionPayloadJson(remote[0]);
+    } else {
+      setSessionId(chatUid());
+      setMessages([]);
+      setTaskState(null);
+      lastSyncedJson.current = '';
+    }
+    openedScopeRef.current = scope;
+    setReadyScope(scope);
+  }, [
+    apiEnabled,
+    scope,
+    sessionsQuery.data,
+    sessionsQuery.isError,
+    sessionsQuery.isPending,
+  ]);
 
   useEffect(() => {
     const onUnauthorized = () => {
       apiDisabledRef.current = true;
+      setApiEnabled(false);
     };
     window.addEventListener('recombine:auth-unauthorized', onUnauthorized);
     return () => window.removeEventListener('recombine:auth-unauthorized', onUnauthorized);
@@ -343,16 +414,27 @@ export function useChatSessions(documentId: string | null | undefined) {
       messages: persistedMsgs,
       taskState,
     };
-    setSessions((prev) => upsertChatSession(prev, persisted));
-
-    if (!isChatLoggedIn() || apiDisabledRef.current) return;
-
-    const payloadJson = JSON.stringify({
-      id: persisted.id,
-      title: persisted.title,
-      messages: persisted.messages,
-      taskState: taskState || null,
+    setSessions((prev) => {
+      const next = upsertChatSession(prev, persisted);
+      queryClient.setQueryData(sessionsQueryKey, (old: unknown) => {
+        const prevPayload = old as SessionsListPayload | undefined;
+        return {
+          ...(prevPayload && typeof prevPayload === 'object' ? prevPayload : {}),
+          sessions: next.map((s) => ({
+            id: s.id,
+            title: s.title,
+            updatedAt: s.updatedAt,
+            taskState: s.taskState || null,
+            messages: s.messages,
+          })),
+        };
+      });
+      return next;
     });
+
+    if (!apiEnabled || apiDisabledRef.current) return;
+
+    const payloadJson = sessionPayloadJson(persisted);
     if (payloadJson === lastSyncedJson.current) return;
     pendingSyncRef.current = {
       projectId: scope,
@@ -373,7 +455,17 @@ export function useChatSessions(documentId: string | null | undefined) {
         syncTimer.current = null;
       }
     };
-  }, [messages, sessionId, scope, readyScope, flushPendingSync, taskState]);
+  }, [
+    messages,
+    sessionId,
+    scope,
+    readyScope,
+    flushPendingSync,
+    taskState,
+    apiEnabled,
+    queryClient,
+    sessionsQueryKey,
+  ]);
 
   const startNewChat = useCallback(() => {
     flushPendingSync();
@@ -392,12 +484,7 @@ export function useChatSessions(documentId: string | null | undefined) {
       setSessionId(found.id);
       setMessages(toUiMessages(found));
       setTaskState(found.taskState || null);
-      lastSyncedJson.current = JSON.stringify({
-        id: found.id,
-        title: found.title,
-        messages: found.messages,
-        taskState: found.taskState || null,
-      });
+      lastSyncedJson.current = sessionPayloadJson(found);
     },
     [flushPendingSync]
   );
@@ -405,15 +492,8 @@ export function useChatSessions(documentId: string | null | undefined) {
   const deleteSession = useCallback(
     (id: string) => {
       setSessions((prev) => prev.filter((sess) => sess.id !== id));
-      if (isChatLoggedIn()) {
-        async function deleteRemoteSession() {
-          try {
-            await deleteChatSessionApi(id);
-          } catch {
-            /* ignore */
-          }
-        }
-        void deleteRemoteSession();
+      if (apiEnabled && !apiDisabledRef.current) {
+        deleteSessionMutateRef.current(id);
       }
       if (id === sessionId) {
         const nid = chatUid();
@@ -423,25 +503,15 @@ export function useChatSessions(documentId: string | null | undefined) {
         lastSyncedJson.current = '';
       }
     },
-    [sessionId]
+    [sessionId, apiEnabled]
   );
 
   /** Re-fetch session list (history panel open). Keeps the active turn in place. */
   const refreshSessions = useCallback(async () => {
     flushPendingSync();
-    if (!isChatLoggedIn() || apiDisabledRef.current) return;
-    try {
-      const res = await fetchChatSessions({
-        projectId: scope || '__none__',
-      });
-      const remote = (res.sessions || []).map((s) =>
-        dtoToSession({ ...s, taskState: s.taskState as TaskState | undefined })
-      );
-      setSessions(remote);
-    } catch (err: any) {
-      if (err?.response?.status === 401) apiDisabledRef.current = true;
-    }
-  }, [flushPendingSync, scope]);
+    if (!apiEnabled || apiDisabledRef.current) return;
+    await refetchSessionsRef.current();
+  }, [flushPendingSync, apiEnabled]);
 
   const chatTitle =
     messages.length === 0 ? '新对话' : titleFromMessages(messages as ChatSessionMessage[]);

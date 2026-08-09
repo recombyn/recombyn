@@ -14,6 +14,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
@@ -27,8 +28,9 @@ import {
   useInteractions,
 } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlinePlus } from 'react-icons/hi2';
-import { generateAudio, listModels, type LlmModel } from '@/apis/chat';
-import { selectBillingEnabled } from '@/store/modules/wallet';
+import { generateAudio, type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, message, Tooltip } from '@/components/base';
 import { rcbScreenPxToScene, useRcbCamera } from '@/components/rcb';
 import {
@@ -53,11 +55,13 @@ import {
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';
-import type { UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
 import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/ModelPickerPanel';
-import { clearImageProcessAttrs } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  clearImageProcessAttrs
+} from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   finishAudioGenerator,
   patchDocumentNode,
@@ -191,32 +195,47 @@ function AudioGeneratorCard({
     return () => cancelAnimationFrame(id);
   }, [showComposer, nodeId, disabled]);
 
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    setModelsStatus('loading');
-    async function loadModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const unique = buildAudioGeneratorModelList(res);
-        setModels(unique);
-        setModelsStatus('ready');
-        const nextId = nextAudioModelId(unique, modelId);
-        if (nextId) setModelId(nextId);
-      } catch {
-        if (!cancelled) setModelsStatus('error');
-      }
+    if (modelsCatalogQuery.isPending) {
+      setModelsStatus('loading');
+      return;
     }
-    void loadModels();
+    if (modelsCatalogQuery.isError) {
+      setModelsStatus('error');
+      return;
+    }
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModelsStatus('error');
+      return;
+    }
+    const unique = buildAudioGeneratorModelList(res);
+    setModels(unique);
+    setModelsStatus('ready');
+    const nextId = nextAudioModelId(unique, modelId);
+    if (nextId) setModelId(nextId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+  ]);
+
+  useEffect(() => {
     return () => {
-      cancelled = true;
       abortRef.current?.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedModel = models.find((m) => m.id === modelId);
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const billingEnabled = useBillingEnabled();
   const creditCost = estimateAudioCredits(selectedModel);
 
   const removeContext = (key: string) =>
@@ -291,12 +310,8 @@ function AudioGeneratorCard({
           });
         } catch (err: any) {
           setContexts((prev) => prev.filter((c) => c.key !== key));
-          const detail =
-            err?.response?.data?.detail ||
-            err?.message ||
-            t('agent.uploadFailed', { name: file.name });
           message.error(
-            typeof detail === 'string' ? detail : t('agent.uploadFailed', { name: file.name })
+            getHttpErrorMessage(err, t('agent.uploadFailed', { name: file.name }))
           );
         }
       })
@@ -383,7 +398,7 @@ function AudioGeneratorCard({
       getBoundingClientRect: () =>
         inputRef.current?.getAtMentionAnchorRect?.() ?? new DOMRect(),
     });
-    void mentionFloating.update();
+    mentionFloating.update();
   }, [mentionOpen, mentionQuery, prompt, mentionFloating.refs, mentionFloating.update]);
 
   const promoteAudio = async (opts: {
@@ -444,11 +459,7 @@ function AudioGeneratorCard({
         if (doc) {
           dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
         }
-        const detail =
-          err?.response?.data?.detail ||
-          err?.message ||
-          t('editor.tools.audioGenFail');
-        message.error(typeof detail === 'string' ? detail : t('editor.tools.audioGenFail'));
+        message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
       } finally {
         setSending(false);
       }
@@ -501,9 +512,7 @@ function AudioGeneratorCard({
       if (doc) {
         dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
       }
-      const detail =
-        err?.response?.data?.detail || err?.message || t('editor.tools.audioGenFail');
-      message.error(typeof detail === 'string' ? detail : t('editor.tools.audioGenFail'));
+      message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);
@@ -579,7 +588,7 @@ function AudioGeneratorCard({
               }}
               disabled={disabled || sending}
               placeholder={t('editor.tools.audioGenPlaceholder')}
-              onSubmit={() => void onGenerate()}
+              onSubmit={() => onGenerate()}
               className="min-h-full w-full text-[13px]"
             />
           </div>
@@ -645,7 +654,7 @@ function AudioGeneratorCard({
                 type="button"
                 disabled={disabled || sending || !canSubmit}
                 aria-label={t('editor.tools.audioGenSubmit')}
-                onClick={() => void onGenerate()}
+                onClick={() => onGenerate()}
                 className={cn(
                   'inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium',
                   'bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90',
@@ -676,7 +685,7 @@ function AudioGeneratorCard({
             type="file"
             accept="audio/*"
             className="hidden"
-            onChange={(e) => void onPickFile(e)}
+            onChange={(e) => onPickFile(e)}
           />
         </div>
       </WorldScreenChromeRoot>

@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Text → vector path via fontkit (TrueType / CFF / WOFF / WOFF2 glyph outlines).
  * Prefer this over canvas raster tracing — glyphs stay complete and crisp.
@@ -152,7 +153,7 @@ function measureLayoutWidth(
  * Build closed glyph paths for a text node using the catalog font file.
  * Returns null when the face has no downloadable url (caller may raster-fallback).
  */
-export async function outlineTextFromFont(node: any): Promise<OutlineResult | null> {
+export async function outlineTextFromFont(node: SceneNodeInput): Promise<OutlineResult | null> {
   if (typeof document === 'undefined' || !node) return null;
   const plain = parseNodeText(node.attrs || {}).trim();
   if (!plain) return null;
@@ -230,7 +231,7 @@ export async function outlineTextFromFont(node: any): Promise<OutlineResult | nu
 }
 
 /** Warm catalog + resolve url (for UI / diagnostics). */
-export async function canOutlineTextFromFont(node: any): Promise<boolean> {
+export async function canOutlineTextFromFont(node: SceneNodeInput): Promise<boolean> {
   if (!node || node.key !== 'text') return false;
   await loadFontCatalog();
   const style = parseNodeTextStyle(node.attrs || {});

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { HiOutlinePencil } from 'react-icons/hi2';
-import { updateProfile } from '@/apis/auth';
+import { apiQuery } from '@/service/client';
 import { Button, message } from '@/components/base';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { setUser, type AuthUser } from '@/store/modules/auth';
@@ -48,6 +49,15 @@ function AccountProfilePanel() {
     reader.readAsDataURL(file);
   };
 
+  const queryClient = useQueryClient();
+  const saveProfileMutation = useMutation(
+    apiQuery.authAuthPatchProfile.mutationOptions({
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({ queryKey: apiQuery.authAuthMe.key() });
+      },
+    })
+  );
+
   const onSave = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
@@ -66,7 +76,13 @@ function AccountProfilePanel() {
     const nextBio = bio.trim().slice(0, MAX_BIO) || null;
     setSaving(true);
     try {
-      const res = await updateProfile({ name: trimmed, bio: nextBio, avatar });
+      const res = (await saveProfileMutation.mutateAsync({
+        body: {
+          name: trimmed,
+          bio: nextBio,
+          avatar,
+        },
+      })) as { user: AuthUser };
       dispatch(
         setUser({
           ...user,
@@ -154,7 +170,7 @@ function AccountProfilePanel() {
                 loading={saving}
                 disabled={saving}
                 className="!rounded-xl"
-                onClick={() => void onSave()}
+                onClick={() => onSave()}
               >
                 {t('common.save')}
               </Button>

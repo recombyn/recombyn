@@ -329,7 +329,7 @@ def next_nodes_after(
 
 
 _INJECT_SOURCES = frozenset(
-    {"canvas_tools", "knowledge", "aesthetics", "memory", "prompt"}
+    {"canvas_tools", "memory", "prompt", "fonts"}
 )
 _INJECT_MODES = frozenset({"none", "catalog", "details"})
 
@@ -371,14 +371,14 @@ def default_inject_for_node(node: dict[str, Any]) -> dict[str, Any] | None:
     table: dict[str, dict[str, Any]] = {
         "thought": {
             "mode": "catalog",
-            "catalogs": ["canvas_tools", "knowledge", "aesthetics"],
+            "catalogs": ["canvas_tools"],
             "deferDetails": True,
             "specs": ["agent.prompt.react_system"],
             "validate": ["json_contract"],
         },
         "dual_sample": {
             "mode": "catalog",
-            "catalogs": ["canvas_tools", "knowledge", "aesthetics"],
+            "catalogs": ["canvas_tools"],
             "deferDetails": True,
         },
         "plan": {"mode": "none", "specs": ["agent.prompt.plan_system"]},
@@ -387,17 +387,6 @@ def default_inject_for_node(node: dict[str, Any]) -> dict[str, Any] | None:
             "specs": ["agent.prompt.intent_classify"],
         },
         "memory": {"mode": "details", "source": "memory"},
-        "need_knowledge": {"mode": "catalog", "source": "knowledge"},
-        "knowledge_details": {"mode": "details", "source": "knowledge"},
-        "need_aesthetics": {"mode": "catalog", "source": "aesthetics"},
-        "aesthetics_details": {
-            "mode": "details",
-            "source": "aesthetics",
-            "specs": [
-                "aesthetics.prompt.vision_structure",
-                "aesthetics.vision.structure_schema",
-            ],
-        },
         "need_tools": {"mode": "catalog", "source": "canvas_tools"},
         "tool_details": {
             "mode": "details",
@@ -420,12 +409,8 @@ def default_inject_for_node(node: dict[str, Any]) -> dict[str, Any] | None:
         return dict(table[pk])
     if kind == "guard":
         return {"mode": "none", "validate": ["validate.checklist", "svg_markup"]}
-    if cap == "knowledge" and kind == "resource":
-        return {"mode": "details", "source": "knowledge"}
-    if kind == "prompt" or (cap == "prompt" and kind in ("resource", "knowledge", "prompt")):
+    if kind == "prompt" or (cap == "prompt" and kind in ("resource", "prompt")):
         return {"mode": "details", "source": "prompt"}
-    if cap == "aesthetics":
-        return {"mode": "details", "source": "aesthetics"}
     if cap == "canvas_tools":
         return {"mode": "details", "source": "canvas_tools"}
     return None
@@ -438,8 +423,7 @@ def catalogs_from_need_edge_conditions(conditions: list[str]) -> list[str]:
         c = str(raw or "")
         for token, src in (
             ("need_tools", "canvas_tools"),
-            ("need_aesthetics", "aesthetics"),
-            ("need_knowledge", "knowledge"),
+            ("need_skills", "prompt"),
         ):
             if token in c and src not in out:
                 out.append(src)
@@ -514,8 +498,6 @@ def build_catalog_blocks(
     scene: str,
 ) -> list[str]:
     """Format short catalog blocks for thought system prompt."""
-    from app.services.design.aesthetics.scorer import format_aesthetics_catalog
-    from app.services.design.prompts.knowledge_store import format_knowledge_catalog
     from app.services.design.ops.tool_ops_contract import format_canvas_tools_catalog
     from app.services.fonts_store import format_fonts_catalog
 
@@ -523,10 +505,6 @@ def build_catalog_blocks(
     for src in catalogs:
         if src == "canvas_tools":
             blocks.append(format_canvas_tools_catalog(rules))
-        elif src == "knowledge":
-            blocks.append(format_knowledge_catalog(scene=scene))
-        elif src == "aesthetics":
-            blocks.append(format_aesthetics_catalog(scene=scene))
         elif src == "fonts":
             blocks.append(format_fonts_catalog())
     return [b for b in blocks if b]

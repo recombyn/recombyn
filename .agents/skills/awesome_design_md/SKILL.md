@@ -1,32 +1,53 @@
-# Awesome DesignMD — 品牌视觉参数注入器
+# Brand visual parameters
 
-灵感来自 [bergside/awesome-design-skills](https://github.com/bergside/awesome-design-skills)（MIT）的 DESIGN.md / SKILL.md 模式。本包给 Design Agent：先固化品牌参数，再落画布。
+Turn a visual system into a **parameter sheet**, then execute every `tool_ops` against that sheet — do not invent a new style each turn.
 
-## 目标
+Mature craft (design-token / brand-guidelines discipline + theme-factory thinking): roles over random hex; cover/merge/accent-only when switching systems.
 
-把「一种视觉系统」写成短参数表，后续 tool_ops 都遵守，而不是每轮临时发明风格。
+## Principles
+1. **Sheet is law for this run** — local edits must not break semantic colors or type scale.
+2. **Roles > scattered hex** — primary / secondary / accent / muted / danger mean something.
+3. **Ask short, never invent** — missing logo/slogan/hex → ask; do not fabricate brand assets.
+4. **Declare switch mode** — cover / merge / accent-only when changing systems.
+5. **Prefer update over wipe** — recolor / resize / spacing on existing nodes first.
 
-## 参数表（动手前写清）
+## Workflow
+1. Style name or reference given → extract the sheet (ask only for missing slots).
+2. Custom brand → ask the shortest questions to fill the sheet.
+3. Lock sheet as hard constraints; paint against it.
+4. Switching style → declare **cover / merge / accent-only**, then `update_node` systematically.
+5. Self-check: one palette mood, one type mood across the board.
 
-| 维度 | 要定的内容 |
-|------|------------|
-| 品牌语气 | 一句话（如：冷静工程感 / 温暖编辑感） |
-| 主色 / 辅色 / 强调色 | 语义角色 + 代表色 |
-| 字体 | 展示字 + 正文字；字重阶梯 |
-| 圆角 / 线宽 | 统一尺度 |
-| 间距节奏 | 基准步进（如 4/8） |
-| 卡片/表面 | 是否描边、阴影强度 |
-| 禁止项 | 明确不要的套路 |
+## Parameter sheet (fill before paint)
+| Slot | Capture |
+|------|---------|
+| Tone | One sentence (calm engineering / warm editorial / …) |
+| Colors | Primary / secondary / accent as **roles** + sample hex |
+| Type | Display + body; weight ladder (regular/medium/bold) |
+| Radius / stroke | Shared scale (e.g. 8 / 12 / 16; stroke 1–2) |
+| Spacing | Base step (4 or 8) |
+| Surfaces | Border? Shadow strength? Flat vs elevated |
+| Forbidden | Explicit anti-patterns for this brand |
 
-## 工作流
+## Apply on canvas
+| Sheet slot | Ops |
+|------------|-----|
+| Color roles | Map to fills/strokes; keep text on readable surfaces |
+| Type scale | Jump sizes per sheet; no second display face mid-run |
+| Radius/stroke | Shared on cards/buttons/inputs |
+| Spacing | Gaps and padding from base step |
+| Cover switch | Replace palette/type systematically via `update_node` |
+| Merge switch | Keep structure, swap roles |
+| Accent-only | Touch primary/CTA only; leave neutrals |
 
-1. 若用户给了风格名或参考：抽取上表参数（缺则 ask，勿瞎补 Logo/口号）
-2. 若用户要自定义品牌：用最短问答补齐参数表
-3. 将参数当作本轮硬约束执行；局部修改也不得破坏语义色与字阶
-4. 切换风格时先声明「覆盖 / 合并 / 仅主题色」，再改节点
+## Do not
+- Invent logos, slogans, or trademark marks
+- Introduce a competing second palette mid-run without declaring switch mode
+- Wipe the board when a recolor pass would suffice
+- Treat hex samples as more important than roles
 
-## 画布落地
+## Related
+`frontend_ui` (direction), `garden_style` (taste), `shadcn_ui` (control grammar).
 
-- 优先改已有节点的填色/字号/间距，避免整页推倒
-- 节点 id 仅使用 SCENE 已有
-- 需要百科级选型时可再加载 `ui_ux_pro_max`；需要大胆配方可再加载 `garden_style`
+## Done when
+One coherent sheet visible across the artboard; no competing second palette or type mood; SCENE ids only.

@@ -127,3 +127,28 @@ export { default as HtmlArtboardFrame } from './frames/HtmlArtboardFrame';
 export { default as FrameDrawFeature } from './frames/FrameDrawFeature';
 export { default as FrameMoveFeature } from './frames/FrameMoveFeature';
 export type { ArtboardFrame } from './frames/types';
+
+// Document node types (persistent scene JSON)
+export type {
+  SceneNode,
+  SceneNodeInput,
+  SceneNodeKey,
+  SceneNodeAttrs,
+  SceneDocument,
+  SceneDocumentParsed,
+  SceneDeltaSet,
+  ScenePage,
+  CreatedSceneNode,
+  ValidateSceneDocumentResult,
+} from './sceneNode';
+export {
+  isSceneNode,
+  SceneDocumentSchema,
+  SceneNodeSchema,
+  SceneDeltaSetSchema,
+  SceneRootNodeSchema,
+  validateSceneDocument,
+  parseAndValidateSceneJson,
+  coerceSceneDocumentInput,
+} from './sceneNode';
+export type { SceneNodeRef } from './scene/document/nodeCapabilities';
