@@ -75,7 +75,23 @@ def _normalize_resume_snap(raw: Any) -> dict[str, Any] | None:
     return None
 
 
-def _critique_enabled() -> bool:
+def _critique_enabled(rt: Any | None = None) -> bool:
+    """Prefer AgentProfile / rules overlay, then settings.design_critique_enabled."""
+    rules = getattr(rt, "rules", None) if rt is not None else None
+    if isinstance(rules, dict):
+        raw = str(rules.get("design.critique.enabled") or "").strip().lower()
+        if raw in ("0", "false", "off", "no"):
+            return False
+        if raw in ("1", "true", "on", "yes"):
+            return True
+    try:
+        from app.services.design.runtime.agent_profile import get_active_agent_profile
+
+        prof = get_active_agent_profile()
+        if "critique_enabled" in prof.runtime_flags:
+            return bool(prof.runtime_flags["critique_enabled"])
+    except Exception:
+        pass
     try:
         from app.core.config import settings
 
@@ -84,58 +100,27 @@ def _critique_enabled() -> bool:
         return True
 
 
-def _aesthetics_critique_enabled() -> bool:
+def _should_route_to_review(rt: Any) -> bool:
+    """True when Profile enables review stage and Review Agent setting is on."""
     try:
         from app.core.config import settings
 
-        return bool(getattr(settings, "design_critique_aesthetics", True))
+        if not bool(getattr(settings, "design_review_agent_enabled", True)):
+            return False
+    except Exception:
+        pass
+    try:
+        from app.services.design.runtime.agent_profile import get_active_agent_profile
+
+        prof = get_active_agent_profile()
+        enabled = {
+            str(s).strip().lower()
+            for s in (prof.stages_enabled or ())
+            if str(s).strip()
+        }
+        return "review" in enabled
     except Exception:
         return True
-
-
-def _aesthetic_critique_issues(
-    *,
-    preview_image: str | None,
-    scene_key: str,
-) -> list[str]:
-    """CLIP score vs grade=good corpus; fail-open when unavailable."""
-    if not _aesthetics_critique_enabled():
-        return []
-    url = str(preview_image or "").strip()
-    if not url:
-        return []
-    try:
-        from app.services.design.aesthetics.scorer import score_design_image
-
-        result = score_design_image(
-            image_url=url,
-            scene=str(scene_key or "website").strip() or "website",
-        )
-    except Exception:
-        return []
-    if not isinstance(result, dict):
-        return []
-    # unavailable / skipped / thin_corpus / error all set pass=True (fail-open).
-    if result.get("pass") is not False:
-        return []
-    issues: list[str] = []
-    score = result.get("score")
-    thr = result.get("threshold")
-    if score is not None and thr is not None:
-        issues.append(f"aesthetics score {float(score):.2f} < {float(thr):.2f}")
-    for gap in result.get("gaps") or []:
-        if not isinstance(gap, dict):
-            continue
-        kind = str(gap.get("kind") or "gap").strip()
-        detail = str(gap.get("detail") or gap.get("hint") or "").strip()
-        bit = f"aesthetics:{kind}"
-        if detail:
-            bit = f"{bit}: {detail[:160]}"
-        if bit not in issues:
-            issues.append(bit)
-        if len(issues) >= 5:
-            break
-    return issues[:5]
 
 
 def _create_op_xy(op: dict[str, Any]) -> tuple[float, float] | None:
@@ -220,7 +205,7 @@ def _run_post_paint_critique(
     preview_image: str | None = None,
 ) -> list[str]:
     """Deterministic critique after FE scene lands. Emits critique_* SSE."""
-    if not _critique_enabled() or not st.painted:
+    if not _critique_enabled(rt) or not st.painted:
         return []
     _emit(
         {
@@ -245,12 +230,6 @@ def _run_post_paint_critique(
         if issue not in issues:
             issues.append(issue)
     for issue in _long_canvas_coverage_issues(rt):
-        if issue not in issues:
-            issues.append(issue)
-    for issue in _aesthetic_critique_issues(
-        preview_image=preview_image,
-        scene_key=str(rt.scene_key or ""),
-    ):
         if issue not in issues:
             issues.append(issue)
     issues = [str(x).strip() for x in issues if str(x).strip()][:10]
@@ -538,9 +517,9 @@ def _format_critique_reflect_note(issues: list[str]) -> str:
             "Continue long page: ONLY add create_* below the current content bottom; "
             "no clear_canvas / no recreate top hero; fill remaining height."
         )
-    if any("aesthetics" in str(x).lower() for x in issues):
+    if any("aesthetic" in str(x).lower() for x in issues):
         lines.append(
-            "Aesthetic gaps: improve layout rhythm, contrast, and whitespace; "
+            "Visual craft: improve layout rhythm, contrast, and whitespace; "
             "avoid stacking everything in one corner; no clipped titles."
         )
     if any(
@@ -756,9 +735,31 @@ async def _node_observe(
         and not rt.turn.get("done")
         and st.painted
     ):
+        # Cheap structural gate before (optional) LLM Review.
         return await _retry_paint_from_critique(
             rt, st, round_i=round_i, issues=critique_issues
         )
+
+    if _should_route_to_review(rt) and st.painted:
+        from app.services.design.runtime.graph.nodes.review import stash_review_context
+
+        stash_review_context(
+            st.task_id,
+            preview_image=preview_image,
+            signals=list(critique_issues or []),
+        )
+        st.push_log(
+            phase="observe",
+            summary="观察完成 → Review Agent",
+            has_preview=bool(preview_image) or None,
+            critique_signals=len(critique_issues or []) or None,
+        )
+        rt.flags["scene_ready"] = True
+        rt.flags["op_failed"] = False
+        rt.flags["retry"] = False
+        rt.terminal = False
+        return Command(update=_bump(rt), goto="review")
+
     if critique_issues:
         tip = await _llm_ux_reply(
             rt,

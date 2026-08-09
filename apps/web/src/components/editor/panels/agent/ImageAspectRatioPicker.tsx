@@ -8,7 +8,7 @@ import SizePresetPanel, {
   isCanvasSizeAutoHint,
   normalizeCanvasSizeChip,
 } from '@/components/editor/chrome/SizePresetPanel';
-import type { ImageLimits } from '@/apis/chat';
+import type { ImageLimits } from '@/service/chat';
 import { cn } from '@/utils/classnames';
 
 /**

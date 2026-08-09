@@ -242,6 +242,7 @@ def list_runtime_skills(
     scene: str = "website",
     enabled_only: bool = True,
     user_id: str | None = None,
+    namespaces: list[str] | tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     from .ensure import ensure_design_skills
 
@@ -249,6 +250,15 @@ def list_runtime_skills(
     scene_l = str(scene or "website").strip().lower() or "website"
     uid = str(user_id or "").strip() or None
     prefs = _load_user_skill_prefs(uid) if uid else {}
+    allow_ns: set[str] | None = None
+    if namespaces is not None:
+        allow_ns = {
+            str(x).strip().lower()
+            for x in namespaces
+            if str(x or "").strip()
+        }
+        if not allow_ns:
+            allow_ns = None
     with Session(core_db.engine) as session:
         rows = crud.list_design_skills_runtime(
             session=session, enabled_only=enabled_only
@@ -261,6 +271,8 @@ def list_runtime_skills(
         if not key or key in seen:
             continue
         ns = str(item.get("namespace") or NS_USER)
+        if allow_ns is not None and ns not in allow_ns:
+            continue
         owner = str(item.get("ownerUserId") or "").strip() or None
         # User-owned extension skills are isolated to that user.
         if ns == NS_USER and owner and uid and owner != uid:
@@ -338,8 +350,13 @@ def _apply_mutex(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out.append(r)
     return out
 
-def format_skills_catalog(*, scene: str = "website", user_id: str | None = None) -> str:
-    rows = list_runtime_skills(scene=scene, user_id=user_id)
+def format_skills_catalog(
+    *,
+    scene: str = "website",
+    user_id: str | None = None,
+    namespaces: list[str] | tuple[str, ...] | None = None,
+) -> str:
+    rows = list_runtime_skills(scene=scene, user_id=user_id, namespaces=namespaces)
     from app.services.design.prompts.prompt_pack_store import render_prompt_body
 
     header = render_prompt_body("agent.prompt.skill_catalog_header").strip()
@@ -632,7 +649,7 @@ def skill_resource_allowlist(
     """Which internal need_* resources loaded skills may unlock.
 
     None = unrestricted (platform-only skills without explicit ACL).
-    set() = deny knowledge / prompts / aesthetics.
+    set() = deny tools / prompts.
     Any user-extension skill in the load set → never unrestricted.
     """
     if not _normalize_loaded_skill_keys(skill_keys, scene=scene):
@@ -708,23 +725,11 @@ def filter_need_resources_by_skill_acl(
     *,
     skill_keys: list[str],
     scene: str,
-    need_knowledge: list[str],
-    need_aesthetics: bool,
-) -> tuple[list[str], bool, list[str]]:
-    """Drop internal resource requests blocked by custom-skill ACL."""
-    allow = skill_resource_allowlist(skill_keys, scene=scene)
-    if allow is None:
-        return list(need_knowledge or []), bool(need_aesthetics), []
-    errs: list[str] = []
-    k = list(need_knowledge or [])
-    a = bool(need_aesthetics)
-    if k and "knowledge" not in allow:
-        errs.append("skill_acl_deny:knowledge")
-        k = []
-    if a and "aesthetics" not in allow:
-        errs.append("skill_acl_deny:aesthetics")
-        a = False
-    return k, a, errs
+) -> list[str]:
+    """No-op — domain content is skills/prompts only."""
+    _ = (skill_keys, scene)
+    return []
+
 
 def filter_ops_by_skill_allowlist(
     ops: list[dict[str, Any]],
@@ -856,20 +861,17 @@ def _rule_matches(
     empty_canvas: bool,
     has_images: bool,
     intent: str,
-    need_aesthetics: bool = False,
     prompt_chars: int = 0,
+    prompt: str = "",
 ) -> bool:
     if not isinstance(rule, dict) or not rule:
         return False
     intent_l = str(intent or "").strip().lower()
+    prompt_l = str(prompt or "").lower()
 
     if "empty_canvas" in rule and bool(rule.get("empty_canvas")) != bool(empty_canvas):
         return False
     if "has_images" in rule and bool(rule.get("has_images")) != bool(has_images):
-        return False
-    if "need_aesthetics" in rule and bool(rule.get("need_aesthetics")) != bool(
-        need_aesthetics
-    ):
         return False
     if "min_prompt_chars" in rule:
         try:
@@ -892,15 +894,30 @@ def _rule_matches(
         if want and not intent_l:
             return False
 
+    raw_includes = rule.get("prompt_includes_any") or rule.get("promptIncludesAny")
+    if raw_includes is not None:
+        if isinstance(raw_includes, str):
+            needles = [p.strip().lower() for p in raw_includes.split(",") if p.strip()]
+        elif isinstance(raw_includes, list):
+            needles = [str(x).strip().lower() for x in raw_includes if str(x).strip()]
+        else:
+            needles = []
+        if needles and not any(n in prompt_l for n in needles):
+            return False
+        if needles and not prompt_l:
+            return False
+
     keys = set(rule.keys()) & {
         "empty_canvas",
         "has_images",
-        "need_aesthetics",
         "intent_in",
         "intents",
         "min_prompt_chars",
+        "prompt_includes_any",
+        "promptIncludesAny",
     }
     return bool(keys)
+
 
 def resolve_triggered_skill_keys(
     *,
@@ -908,14 +925,16 @@ def resolve_triggered_skill_keys(
     empty_canvas: bool = False,
     has_images: bool = False,
     intent: str = "",
-    need_aesthetics: bool = False,
     prompt_chars: int = 0,
+    prompt: str = "",
     already_loaded: list[str] | None = None,
     max_n: int = 6,
-    aesthetics_triggers_only: bool = False,
 ) -> list[str]:
     loaded = {str(x).strip().lower() for x in (already_loaded or []) if str(x).strip()}
     matched: list[dict[str, Any]] = []
+    prompt_text = str(prompt or "")
+    if not prompt_chars and prompt_text:
+        prompt_chars = len(prompt_text.strip())
     for row in list_runtime_skills(scene=scene):
         key = str(row.get("skillKey") or "").strip().lower()
         if not key or key in loaded:
@@ -923,22 +942,14 @@ def resolve_triggered_skill_keys(
         rules = row.get("triggers") or []
         if not rules:
             continue
-        if aesthetics_triggers_only:
-            rules = [
-                r
-                for r in rules
-                if isinstance(r, dict) and "need_aesthetics" in r
-            ]
-            if not rules:
-                continue
         if any(
             _rule_matches(
                 rule,
                 empty_canvas=empty_canvas,
                 has_images=has_images,
                 intent=intent,
-                need_aesthetics=need_aesthetics,
                 prompt_chars=prompt_chars,
+                prompt=prompt_text,
             )
             for rule in rules
         ):

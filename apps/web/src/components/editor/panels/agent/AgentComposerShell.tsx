@@ -44,7 +44,7 @@ import {
   formatCanvasSizeChipLabel,
   isCanvasSizeAutoHint,
 } from '@/components/editor/chrome/SizePresetPanel';
-import { selectBillingEnabled } from '@/store/modules/wallet';
+import { useBillingEnabled } from '@/service/wallet';
 import { cn } from '@/utils/classnames';
 
 /** Run mode — Auto toggle = agent; image/video models still use composerMode for gen UI. */
@@ -62,7 +62,7 @@ export type ImageModeComposerControls = {
   onAspectRatioChange: (ratio: string) => void;
   onImageCountChange: (count: number) => void;
   /** Catalog limits for the selected image model (resolutions / pixel floor). */
-  imageLimits?: import('@/apis/chat').ImageLimits | null;
+  imageLimits?: import('@/service/chat').ImageLimits | null;
   creditCost: number;
   /** Full model name — tooltip / aria only (trigger is icon-only). */
   modelLabel: string;
@@ -267,9 +267,9 @@ type Props = {
   interactionMode?: ComposerInteractionMode;
   onInteractionModeChange?: (mode: ComposerInteractionMode) => void;
   allowedInteractionModes?: ComposerInteractionMode[];
-  /** Image-mode settings / model / credit send (Image Generator–style chrome). */
+  /** Image-mode settings / model / credit send (Image Generator鈥搒tyle chrome). */
   imageModeControls?: ImageModeComposerControls | null;
-  /** Video-mode settings / model / credit send (Video Generator–style chrome). */
+  /** Video-mode settings / model / credit send (Video Generator鈥搒tyle chrome). */
   videoModeControls?: VideoModeComposerControls | null;
   modelButtonProps: {
     /** @deprecated Unused — model chip no longer shows a hover tip. */
@@ -551,7 +551,7 @@ function AttachmentAudioPreview({ src }: { src: string }): ReactNode {
     const el = audioRef.current;
     if (!el) return;
     if (el.paused) {
-      void el.play();
+      el.play();
       setPlaying(true);
     } else {
       el.pause();
@@ -980,7 +980,7 @@ function buildPickFromCanvasButton(opts: {
 
 /**
  * Shared agent composer card — input + toolbar (attach / model / send).
- * Used for both the dock footer and in-place message edit (Cursor-style).
+ * Used for both the dock footer and in-place message edit.
  */
 function AgentComposerShell({
   inputRef,
@@ -1024,7 +1024,7 @@ function AgentComposerShell({
   aspectButtonPlacement = 'start',
 }: Props): ReactNode {
   const { t } = useTranslation();
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const billingEnabled = useBillingEnabled();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [aspectOpen, setAspectOpen] = useState(false);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);

@@ -34,6 +34,7 @@ from app.services.design.runtime.graph.nodes import (
     _node_observe,
     _node_paint_ops,
     _node_propose,
+    _node_review_agent,
     _node_settle,
 )
 from app.services.design.runtime.graph.state import (
@@ -43,12 +44,10 @@ from app.services.design.runtime.graph.state import (
     _DEFAULT_MAX_REFLECT,
     _DEFAULT_MAX_ROUNDS,
 )
+from app.services.design.runtime.agent_profile import resolve_tool_host
 from app.services.design.runtime.pipeline_support import _normalize_ref_images, _user_facing_run_error
 from app.services.design.prompts.rules_text import _as_text
-from app.services.design.ops.tool_ops_contract import format_canvas_tools_catalog, format_canvas_tools_for_model
-from app.services.design.prompts.knowledge_store import format_knowledge_catalog
 from app.services.design.prompts.skill_store import format_skills_catalog
-from app.services.design.aesthetics.scorer import format_aesthetics_catalog
 from app.services.fonts_store import format_fonts_catalog
 from app.services.design.admin.task_store import (
     STATUS_CANCELLED,
@@ -76,6 +75,9 @@ from app.services.design.admin.task_store import (
 )
 
 _log = logging.getLogger(__name__)
+# Compiled graphs keyed by topology template id (AgentProfile.topology.template).
+_TEMPLATE_GRAPHS: dict[str, Any] = {}
+# Back-compat alias — tests / callers that still poke the singleton.
 _LC_DESIGN_GRAPH: Any = None
 _DESIGN_HOLD_FNS: dict[str, tuple[Any, Any]] = {}
 _DESIGN_HOLD_LOCK = threading.Lock()
@@ -86,6 +88,26 @@ _RUN_CONTROL_LOCK = threading.Lock()
 
 _INTENT_PAUSE = "pause"
 _INTENT_CANCEL = "cancel"
+
+TEMPLATE_CANVAS_OPS_V1 = "canvas_ops_v1"
+
+# Logical stage ids used in AgentProfile.topology.stages_enabled (not node names).
+_CANVAS_OPS_V1_SUPPORTED = frozenset(
+    {
+        "bootstrap",
+        "apply_confirm",
+        "memory",
+        "intent",
+        "decide",
+        "paint",
+        "action",
+        "observe",
+        "propose",
+        "review",
+        "settle",
+    }
+)
+_CANVAS_OPS_V1_REQUIRED = frozenset({"intent", "decide", "paint", "observe"})
 
 
 class _SceneInterruptPark(Exception):
@@ -417,6 +439,7 @@ def _persist_lifecycle(
 def invalidate_agent_graph_cache(flow_id: str | None = None) -> None:
     del flow_id
     global _LC_DESIGN_GRAPH
+    _TEMPLATE_GRAPHS.clear()
     _LC_DESIGN_GRAPH = None
 
 
@@ -554,7 +577,10 @@ async def _cleanup_design_thread(graph: Any, thread_id: str) -> None:
 
 
 def _build_lc_design_graph():
-    """Fixed outer graph: … → paint_ops → action → observe → settle (retry paint on fail)."""
+    """canvas_ops_v1 — … → paint → action → observe → review → settle.
+
+    Review may loop back to paint_ops on must_fix (Profile topology.loops).
+    """
     from app.core.config import settings
 
     g = StateGraph(GraphState)
@@ -567,6 +593,7 @@ def _build_lc_design_graph():
         "paint_ops",
         "action",
         "observe",
+        "review",
         "propose",
         "__settle__",
         END,
@@ -589,8 +616,8 @@ def _build_lc_design_graph():
     }
     if node_timeout is not None:
         paint_kw["timeout"] = node_timeout
-    # observe only waits on FE (~12s) — no LLM graph retry.
-    observe_kw: dict[str, Any] = {
+    # observe / review: no whole-node graph retry (LLM has in-node fail-open).
+    once_kw: dict[str, Any] = {
         "destinations": dest,
         "retry_policy": RetryPolicy(
             max_attempts=1,
@@ -599,6 +626,8 @@ def _build_lc_design_graph():
             max_interval=8.0,
         ),
     }
+    if node_timeout is not None:
+        once_kw["timeout"] = node_timeout
     g.add_node("bootstrap", _node_bootstrap, destinations=dest)
     g.add_node("apply_confirm", _node_apply_confirm, destinations=dest)
     g.add_node("memory", _node_memory, **io_kw)
@@ -606,7 +635,8 @@ def _build_lc_design_graph():
     g.add_node("design_agent", _node_design_agent, **io_kw)
     g.add_node("paint_ops", _node_paint_ops, **paint_kw)
     g.add_node("action", _node_action, destinations=dest)
-    g.add_node("observe", _node_observe, **observe_kw)
+    g.add_node("observe", _node_observe, **once_kw)
+    g.add_node("review", _node_review_agent, **once_kw)
     g.add_node("propose", _node_propose, destinations=dest)
     g.add_node("__settle__", _node_settle, destinations=(END,))
     g.add_edge(START, "bootstrap")
@@ -615,11 +645,98 @@ def _build_lc_design_graph():
     return g.compile()
 
 
-def _lc_design_graph():
+def build_canvas_ops_v1_graph():
+    """Topology template builder for ``canvas_ops_v1``."""
+    return _build_lc_design_graph()
+
+
+def _topology_registry() -> dict[str, dict[str, Any]]:
+    """Live template registry — Admin flow JSON is not listed here."""
+    return {
+        TEMPLATE_CANVAS_OPS_V1: {
+            "builder": build_canvas_ops_v1_graph,
+            "supported_stages": _CANVAS_OPS_V1_SUPPORTED,
+            "required_stages": _CANVAS_OPS_V1_REQUIRED,
+        },
+    }
+
+
+def list_topology_templates() -> list[str]:
+    return sorted(_topology_registry().keys())
+
+
+def validate_profile_topology(profile: Any) -> None:
+    """Fail-fast if Profile template/stages are unknown or incomplete."""
+    tid = str(getattr(profile, "topology_template", "") or "").strip()
+    meta = _topology_registry().get(tid)
+    if meta is None:
+        known = ", ".join(list_topology_templates()) or "(none)"
+        raise ValueError(
+            f"unknown topology template {tid!r} for profile "
+            f"{getattr(profile, 'id', '?')!r}; known: {known}"
+        )
+    supported: frozenset[str] = meta["supported_stages"]
+    required: frozenset[str] = meta["required_stages"]
+    enabled = {
+        str(x).strip().lower()
+        for x in (getattr(profile, "stages_enabled", ()) or ())
+        if str(x).strip()
+    }
+    unknown = sorted(enabled - supported)
+    if unknown:
+        raise ValueError(
+            f"profile {getattr(profile, 'id', '?')!r} stages_enabled not in "
+            f"template {tid!r}: {unknown}"
+        )
+    missing = sorted(required - enabled)
+    if missing:
+        raise ValueError(
+            f"profile {getattr(profile, 'id', '?')!r} missing required stages "
+            f"for {tid!r}: {missing}"
+        )
+
+
+def resolve_topology_graph(profile: Any | None = None) -> Any:
+    """Compile (cached) LangGraph for the active / given AgentProfile template."""
     global _LC_DESIGN_GRAPH
-    if _LC_DESIGN_GRAPH is None:
-        _LC_DESIGN_GRAPH = _build_lc_design_graph()
-    return _LC_DESIGN_GRAPH
+    from app.services.design.runtime.agent_profile import (
+        get_active_agent_profile,
+        validate_profile_surface,
+    )
+
+    prof = profile or get_active_agent_profile()
+    validate_profile_topology(prof)
+    validate_profile_surface(prof)
+    tid = str(prof.topology_template).strip()
+    cached = _TEMPLATE_GRAPHS.get(tid)
+    if cached is not None:
+        return cached
+    builder = _topology_registry()[tid]["builder"]
+    graph = builder()
+    _TEMPLATE_GRAPHS[tid] = graph
+    if tid == TEMPLATE_CANVAS_OPS_V1:
+        _LC_DESIGN_GRAPH = graph
+    return graph
+
+
+def _lc_design_graph():
+    """Resolve live graph from active AgentProfile.topology.template."""
+    return resolve_topology_graph()
+
+
+def _bind_topology_run_meta(rt: AgentRuntime) -> str:
+    """Stamp runtime with live topology template id; return template id."""
+    from app.services.design.runtime.agent_profile import get_active_agent_profile
+
+    tid = str(
+        get_active_agent_profile().topology_template or TEMPLATE_CANVAS_OPS_V1
+    ).strip()
+    rt.decision.route = f"langgraph:{tid}"
+    rt.flow_id = tid
+    rt.flow_version = 1
+    rt.run.flow_id = tid
+    rt.run.flow_version = 1
+    return tid
 
 
 def _bind_pending_ask_proposal(
@@ -700,6 +817,21 @@ async def run_agent_graph(
     pid = _as_text(project_id).strip() or "__none__"
     max_rounds = S._int_rule(rules, "agent.react.max_rounds", _DEFAULT_MAX_ROUNDS) or _DEFAULT_MAX_ROUNDS
     max_reflect = S._int_rule(rules, "agent.react.max_reflect", _DEFAULT_MAX_REFLECT)
+    # Profile topology.loops: review must_fix → paint max (Review Agent budget).
+    review_loop_max: int | None = None
+    try:
+        from app.services.design.runtime.agent_profile import get_active_agent_profile
+
+        for frm, when, to, mx in get_active_agent_profile().topology_loops or ():
+            if (
+                str(frm).lower() == "review"
+                and str(when).lower() == "must_fix"
+                and str(to).lower() in ("paint", "paint_ops")
+            ):
+                review_loop_max = max(1, int(mx))
+                break
+    except Exception:
+        review_loop_max = None
 
     scene_key, _ = resolve_agent_scene(scene, prompt, canvas_size, rules=rules)
     scene_key = scene_key or _scene_key(scene) or ""
@@ -735,14 +867,22 @@ async def run_agent_graph(
         scene=scene_key or None,
     )
 
-    tools_block = format_canvas_tools_for_model(rules)
-    tools_catalog = format_canvas_tools_catalog(rules)
+    tools_host = resolve_tool_host()
+    tools_block = tools_host.format_full(rules)
+    tools_catalog = tools_host.format_catalog(rules)
     scene_for_cat = scene_key or "website"
-    skills_catalog, knowledge_catalog, aesthetics_catalog, fonts_catalog = (
+    from app.services.design.runtime.agent_profile import get_active_agent_profile
+    from app.services.design.runtime.subagent import format_subagents_catalog
+
+    skill_namespaces = tuple(get_active_agent_profile().skills_namespaces or ())
+    skills_catalog, fonts_catalog = (
         await asyncio.gather(
-            asyncio.to_thread(format_skills_catalog, scene=scene_for_cat, user_id=user_id),
-            asyncio.to_thread(format_knowledge_catalog, scene=scene_for_cat),
-            asyncio.to_thread(format_aesthetics_catalog, scene=scene_for_cat),
+            asyncio.to_thread(
+                format_skills_catalog,
+                scene=scene_for_cat,
+                user_id=user_id,
+                namespaces=skill_namespaces or None,
+            ),
             asyncio.to_thread(format_fonts_catalog),
         )
     )
@@ -750,6 +890,7 @@ async def run_agent_graph(
     persona = S._resolve_agent_persona(rules, user_selected_model)
     size_auto_hint = S._prompt_text(rules, "agent.prompt.size_auto")
     chat_fallback_tmpl = S._prompt_text(rules, "agent.prompt.chat_fallback")
+    subagents_catalog = format_subagents_catalog(get_active_agent_profile())
     # Decide-stage packs + catalogs (full tool/skill bodies arrive via need_*).
     system = assemble_stage_system(
         rules,
@@ -759,9 +900,8 @@ async def run_agent_graph(
         catalog_blocks=[
             tools_catalog if defer_tools else tools_block,
             skills_catalog,
-            knowledge_catalog,
-            aesthetics_catalog,
             fonts_catalog,
+            subagents_catalog,
         ],
     )
 
@@ -800,6 +940,9 @@ async def run_agent_graph(
         spatial_summary=spatial_summary if isinstance(spatial_summary, dict) else None,
     )
     rt.flags["mode"] = ui_mode
+    rt.flags["review_left"] = int(
+        review_loop_max if review_loop_max is not None else max_reflect or 1
+    )
     _bind_pending_ask_proposal(
         rt,
         proposal_id=proposal_id,
@@ -824,20 +967,18 @@ async def run_agent_graph(
     _register_active_run(task_id)
 
     graph = await asyncio.to_thread(_lc_design_graph)
-    rt.decision.route = "langgraph:create_agent"
-    rt.flow_id = "lc_design"
-    rt.flow_version = 1
-    rt.run.flow_id = "lc_design"
-    rt.run.flow_version = 1
+    topo_id = _bind_topology_run_meta(rt)
     thread_id = _design_thread_id(task_id)
     merge_task_meta(
         task_id,
         {
+            "flow_id": topo_id,
+            "flow_version": 1,
             "run_lifecycle": build_run_lifecycle(
                 thread_id=thread_id,
                 resumable=True,
                 interrupt_kind=None,
-            )
+            ),
         },
     )
 
@@ -855,7 +996,7 @@ async def run_agent_graph(
         refund_hold_fn=refund_hold_fn,
         scene_key=scene_key or "",
         ui_mode=ui_mode,
-        run_name=f"lc_design:{task_id[:8]}",
+        run_name=f"{topo_id}:{task_id[:8]}",
     ):
         yield ev
 

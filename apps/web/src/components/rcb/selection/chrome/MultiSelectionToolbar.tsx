@@ -17,18 +17,26 @@ import { boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   addNodeToDocument,
-  createShapeNode,
+  removeNodesFromDocument
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createShapeNode
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
   groupNodesInDocument,
-  removeNodesFromDocument,
-  resolveSelectionNodeIds,
   selectionSharedGroupId,
+  ungroupNodesInDocument
+} from '@/components/rcb/scene/document/sceneGroups';
+import {
+  resolveSelectionNodeIds
+} from '@/components/rcb/scene/document/sceneClipboard';
+import {
   supportsAspectPresets,
   supportsCornerRadius,
   supportsFill,
   supportsStroke,
-  supportsBooleanOp,
-  ungroupNodesInDocument,
-} from '@/components/rcb/scene/document/sceneDocument';
+  supportsBooleanOp
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   openShapeStylePanel,
   patchDocumentNodes,
@@ -56,12 +64,13 @@ import {
 } from '../resizeGeometry';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { computeShapeBoolean, applyBooleanResultPaint, type BoolMode } from '../shapeBoolean';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const ASPECT_ORIG_W = 'aspect-original-width';
 const ASPECT_ORIG_H = 'aspect-original-height';
 
 /** Match SelectionFeature: images default locked; others free unless attrs say so. */
-function readNodeAspectLocked(node: any): boolean {
+function readNodeAspectLocked(node: SceneNodeInput): boolean {
   const raw = node?.attrs?.lockAspect;
   if (raw === true || raw === 'true' || raw === 1 || raw === '1') return true;
   if (raw === false || raw === 'false' || raw === 0 || raw === '0') return false;
@@ -69,7 +78,7 @@ function readNodeAspectLocked(node: any): boolean {
 }
 
 /** Multi-select lock: on when selection includes images (unless any unlocked). */
-function readMultiAspectLocked(document: any, nodeIds: string[]): boolean {
+function readMultiAspectLocked(document: SceneDocument, nodeIds: string[]): boolean {
   const nodes = nodeIds.map((id) => document?.deltaSetLike?.[id]).filter(Boolean);
   if (!nodes.length) return false;
   const hasExplicitUnlock = nodes.some((n) => {
@@ -83,7 +92,7 @@ function readMultiAspectLocked(document: any, nodeIds: string[]): boolean {
 type SceneBox = { left: number; top: number; width: number; height: number };
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   nodeIds: string[];
   /** Co-selected artboards — group/ungroup expand to content inside them. */
   frameIds?: string[];
@@ -120,7 +129,7 @@ type NodeBox = {
   attrs?: Record<string, unknown>;
 };
 
-function readBoxes(document: any, nodeIds: string[]): NodeBox[] {
+function readBoxes(document: SceneDocument, nodeIds: string[]): NodeBox[] {
   return nodeIds
     .map((id) => {
       const node = document?.deltaSetLike?.[id];
@@ -326,7 +335,7 @@ function MultiSelectionToolbar({
     [boxes, document]
   );
 
-  const allSupport = (pred: (node: any) => boolean) =>
+  const allSupport = (pred: (node: SceneNodeInput) => boolean) =>
     opNodeIds.length > 0 &&
     opNodeIds.every((id) => pred(document?.deltaSetLike?.[id]));
 
@@ -373,6 +382,8 @@ function MultiSelectionToolbar({
     if (!result) {
       if (mode === 'intersect') {
         message.warning('没有重叠区域');
+      } else if (mode === 'subtract') {
+        message.warning('相减后没有剩余图形');
       } else {
         message.warning('布尔运算失败');
       }

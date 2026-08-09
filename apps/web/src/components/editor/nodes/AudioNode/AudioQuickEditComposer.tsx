@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Floating quick-edit chat under a selected audio plate (toolbar → 快速编辑).
  * Same strip as AudioGenerator: TTS regenerate, or upload local audio in place.
@@ -11,10 +12,12 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
 import { HiArrowUp, HiOutlinePlus } from 'react-icons/hi2';
-import { generateAudio, listModels, type LlmModel } from '@/apis/chat';
+import { generateAudio, type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
 import { Dropdown, message, Tooltip } from '@/components/base';
 import {
   RcbOverlayPortal,
@@ -36,7 +39,9 @@ import {
 import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/ModelPickerPanel';
 import { buildByokAwareModelList } from '@/components/editor/panels/agent/llmModelMeta';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
-import { clearImageProcessAttrs } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  clearImageProcessAttrs
+} from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   closeImageToolPanel,
   patchDocumentNode,
@@ -103,7 +108,7 @@ function AudioQuickEditComposer({
   nodeId,
   box,
 }: {
-  document: any;
+  document: SceneDocument;
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
@@ -155,29 +160,38 @@ function AudioQuickEditComposer({
     return () => cancelAnimationFrame(id);
   }, [nodeId]);
 
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    async function loadModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const list = buildAudioModelList(res);
-        setModels(list);
-        if (list.length && !list.some((m) => m.id === modelId)) {
-          const preferred =
-            (!isDesktopLocal() && list.find((m) => m.id === DEFAULT_AUDIO_MODEL_ID)) || list[0];
-          if (preferred) setModelId(preferred.id);
-        }
-      } catch {
-        if (!cancelled) setModels([]);
-      }
+    if (modelsCatalogQuery.isPending) return;
+    if (modelsCatalogQuery.isError) {
+      setModels([]);
+      return;
     }
-    void loadModels();
-    return () => {
-      cancelled = true;
-    };
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModels([]);
+      return;
+    }
+    const list = buildAudioModelList(res);
+    setModels(list);
+    if (list.length && !list.some((m) => m.id === modelId)) {
+      const preferred =
+        (!isDesktopLocal() && list.find((m) => m.id === DEFAULT_AUDIO_MODEL_ID)) || list[0];
+      if (preferred) setModelId(preferred.id);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeId]);
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+    nodeId,
+  ]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -260,12 +274,8 @@ function AudioQuickEditComposer({
           });
         } catch (err: any) {
           setContexts((prev) => prev.filter((c) => c.key !== key));
-          const detail =
-            err?.response?.data?.detail ||
-            err?.message ||
-            t('agent.uploadFailed', { name: file.name });
           message.error(
-            typeof detail === 'string' ? detail : t('agent.uploadFailed', { name: file.name })
+            getHttpErrorMessage(err, t('agent.uploadFailed', { name: file.name }))
           );
         }
       })
@@ -344,9 +354,7 @@ function AudioQuickEditComposer({
       } catch (err: any) {
         const doc = (store.getState() as any).editor?.document;
         if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
-        const detail =
-          err?.response?.data?.detail || err?.message || t('editor.tools.audioGenFail');
-        message.error(typeof detail === 'string' ? detail : t('editor.tools.audioGenFail'));
+        message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
       } finally {
         setSending(false);
       }
@@ -396,9 +404,7 @@ function AudioQuickEditComposer({
       if (ac.signal.aborted) return;
       const doc = (store.getState() as any).editor?.document;
       if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
-      const detail =
-        err?.response?.data?.detail || err?.message || t('editor.tools.audioGenFail');
-      message.error(typeof detail === 'string' ? detail : t('editor.tools.audioGenFail'));
+      message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);

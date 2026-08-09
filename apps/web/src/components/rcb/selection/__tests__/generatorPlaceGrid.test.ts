@@ -8,8 +8,8 @@ import {
 import {
   createImageGeneratorNode,
   createVideoGeneratorNode,
-  createVideoNode,
-} from '../../scene/document/sceneDocument';
+  createVideoNode
+} from '../../scene/document/nodeFactories';
 import { inflateBoxByVisualOutset, strokeVisualOutset } from '../../scene/document/sceneEffects';
 import { snapCoordToGrid } from '../alignGuides';
 

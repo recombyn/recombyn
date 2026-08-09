@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Uniform-grid spatial index for scene AABBs (culling + hit candidate filter).
  * Dependency-free for the rcb core.
@@ -28,6 +29,15 @@ export class RcbSpatialIndex {
 
   get size() {
     return this.byId.size;
+  }
+
+  has(id: string) {
+    return this.byId.has(id);
+  }
+
+  /** Indexed ids (unordered). Prefer for membership sync — not a cull hot path. */
+  ids(): IterableIterator<string> {
+    return this.byId.keys();
   }
 
   clear() {
@@ -114,9 +124,35 @@ export function boxesIntersect(
   return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
 }
 
+/** Bottom→top rank from ROOT/page children (O(N) once per id-list change). */
+export function buildIdRankMap(ids: readonly string[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (let i = 0; i < ids.length; i += 1) m.set(ids[i], i);
+  return m;
+}
+
+/**
+ * Order candidate ids by document rank without scanning the full id list.
+ * ascending = bottom→top (paint / cull); descending = top→bottom (hit-test).
+ */
+export function sortIdsByRank(
+  ids: Iterable<string>,
+  rank: Map<string, number>,
+  opts?: { ascending?: boolean }
+): string[] {
+  const ascending = opts?.ascending !== false;
+  const out = Array.from(ids);
+  out.sort((a, b) => {
+    const ra = rank.get(a) ?? -1;
+    const rb = rank.get(b) ?? -1;
+    return ascending ? ra - rb : rb - ra;
+  });
+  return out;
+}
+
 /** Axis AABB in scene space (rotation-expanded). Optional pad for stroke / hit slack. */
 export function nodeSceneAabb(
-  document: any,
+  document: SceneDocument,
   nodeId: string,
   pad = 0
 ): { minX: number; minY: number; maxX: number; maxY: number } | null {
@@ -155,5 +191,149 @@ export function nodeSceneAabb(
     maxX: maxX + expand,
     maxY: maxY + expand,
   };
+}
+
+/** Prefer spatial candidates once the scene reaches this many root ids. */
+export const SCENE_SPATIAL_LARGE_THRESHOLD = 48;
+
+export type SceneSpatialSyncInput = {
+  document: SceneDocument;
+  /** Prefer the live ROOT/page children array (identity used for membership). */
+  childrenIds: readonly string[];
+  reloadToken: number | string;
+  patchedNodeIds?: readonly string[];
+  /** Extra AABB pad in scene units (stroke handled inside nodeSceneAabb). */
+  aabbPad?: number;
+};
+
+/**
+ * Owns spatial index + id rank for cull / hit / marquee.
+ * Full rebuild on reloadToken; membership only when children identity changes;
+ * geometry refresh via patchedNodeIds — never O(N) AABB rebuild on size drift.
+ */
+export class SceneSpatialRuntime {
+  readonly index: RcbSpatialIndex;
+  private reloadToken: number | string | null = null;
+  private childrenRef: readonly string[] | null = null;
+  private rank = new Map<string, number>();
+
+  constructor(cellSize = 256) {
+    this.index = new RcbSpatialIndex(cellSize);
+  }
+
+  get size() {
+    return this.index.size;
+  }
+
+  get idRank(): ReadonlyMap<string, number> {
+    return this.rank;
+  }
+
+  clear() {
+    this.index.clear();
+    this.reloadToken = null;
+    this.childrenRef = null;
+    this.rank = new Map();
+  }
+
+  sync(input: SceneSpatialSyncInput): RcbSpatialIndex {
+    const doc = input.document;
+    if (!doc) {
+      this.clear();
+      return this.index;
+    }
+    const childrenSrc = input.childrenIds;
+    const pad = input.aabbPad ?? 32;
+    const patched = input.patchedNodeIds || [];
+
+    const tokenChanged = this.reloadToken !== input.reloadToken;
+    const childrenChanged = this.childrenRef !== childrenSrc;
+    if (tokenChanged || childrenChanged || this.index.size === 0) {
+      this.rank = buildIdRankMap(childrenSrc);
+      this.childrenRef = childrenSrc;
+    }
+
+    if (tokenChanged || this.index.size === 0) {
+      this.index.clear();
+      for (const id of childrenSrc) {
+        const box = nodeSceneAabb(doc, id, pad);
+        if (!box) continue;
+        this.index.upsert({ id, ...box });
+      }
+      this.reloadToken = input.reloadToken;
+      return this.index;
+    }
+
+    if (childrenChanged) {
+      const idSet = new Set(childrenSrc);
+      for (const id of [...this.index.ids()]) {
+        if (!idSet.has(id)) this.index.remove(id);
+      }
+      for (const id of childrenSrc) {
+        if (this.index.has(id)) continue;
+        const box = nodeSceneAabb(doc, id, pad);
+        if (box) this.index.upsert({ id, ...box });
+      }
+    }
+
+    for (const raw of patched) {
+      const id = String(raw);
+      if (!doc.deltaSetLike?.[id]) {
+        this.index.remove(id);
+        continue;
+      }
+      const box = nodeSceneAabb(doc, id, pad);
+      if (!box) this.index.remove(id);
+      else this.index.upsert({ id, ...box });
+    }
+    return this.index;
+  }
+
+  /** Bottom→top ids intersecting rect (rank-sorted hits only). */
+  queryIdsInRect(
+    box: { left: number; top: number; width: number; height: number },
+    opts?: { ascending?: boolean }
+  ): string[] {
+    const hits = this.index.search(
+      box.left,
+      box.top,
+      box.left + box.width,
+      box.top + box.height
+    );
+    if (!hits.length) return [];
+    return sortIdsByRank(
+      hits.map((h) => h.id),
+      this.rank,
+      { ascending: opts?.ascending !== false }
+    );
+  }
+
+  /**
+   * Top→bottom hit-test order. Large warm scenes: spatial pad only (no full-list filter).
+   * Cold index falls back to reversing allIds; warm empty pad → [].
+   */
+  hitCandidateIds(opts: {
+    x: number;
+    y: number;
+    pad: number;
+    allIds: readonly string[];
+    largeThreshold?: number;
+  }): string[] {
+    const threshold = opts.largeThreshold ?? SCENE_SPATIAL_LARGE_THRESHOLD;
+    const { allIds, x, y, pad } = opts;
+    if (allIds.length < threshold) {
+      return [...allIds].reverse();
+    }
+    const nearby = this.index.searchPoint(x, y, pad);
+    if (nearby.length) {
+      return sortIdsByRank(
+        nearby.map((n) => n.id),
+        this.rank,
+        { ascending: false }
+      );
+    }
+    if (this.index.size === 0) return [...allIds].reverse();
+    return [];
+  }
 }
 

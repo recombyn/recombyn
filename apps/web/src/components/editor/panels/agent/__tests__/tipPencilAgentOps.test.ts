@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createShapeNode } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createShapeNode
+} from '@/components/rcb/scene/document/nodeFactories';
 import { findPencilBrush } from '@/components/rcb/tools/pencilBrushes';
 
 /** Inline agent create_shape pencil ops — do not read apps/api/tmp fixtures. */
@@ -83,7 +85,6 @@ describe('agent tip pencil ops → FE attrs', () => {
         path: String(a.path || ''),
         closed: false,
         brushStyle,
-        brushStampSrc: tip.stampSrc || undefined,
         brushHardness,
         pressureEnabled,
         pathPressure,
@@ -94,7 +95,7 @@ describe('agent tip pencil ops → FE attrs', () => {
       expect(node.attrs.pathPressure).toBeTruthy();
       expect(Number(node.attrs.brushHardness)).toBe(brushHardness);
       expect(node.attrs.pressureEnabled).toBe(true);
-      expect(String(node.attrs.brushStampSrc || '').length).toBeGreaterThan(0);
+      expect(node.attrs.brushStampSrc).toBeFalsy();
       expect(tip.kind).toBe('stamp');
       expect(Boolean(tip.stampSrc)).toBe(true);
     }

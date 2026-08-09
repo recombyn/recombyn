@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -131,10 +131,8 @@ class AgentTurnSchema(BaseModel):
     tool_ops: list[PaintToolOp] = Field(default_factory=list)
     ops: list[PaintToolOp] = Field(default_factory=list)
     need_tools: list[Any] = Field(default_factory=list)
-    need_knowledge: list[Any] = Field(default_factory=list)
     need_skills: list[Any] = Field(default_factory=list)
-    need_aesthetics: bool = False
-    use_user_refs: bool = False
+    need_subagents: list[Any] = Field(default_factory=list)
     choices: list[Any] = Field(default_factory=list)
     apply_choice: str = ""
     applyChoice: str = ""
@@ -144,10 +142,8 @@ class AgentTurnSchema(BaseModel):
     ask_ui: Any = None
     done: bool | None = None
     needTools: list[Any] = Field(default_factory=list)
-    needKnowledge: list[Any] = Field(default_factory=list)
     needSkills: list[Any] = Field(default_factory=list)
-    needAesthetics: bool | None = None
-    useUserRefs: bool | None = None
+    needSubagents: list[Any] = Field(default_factory=list)
     tools_needed: list[Any] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}
@@ -170,15 +166,130 @@ class DecideTurnSchema(BaseModel):
     intent: str = "chat"
     reply: str = ""
     need_tools: list[Any] = Field(default_factory=list)
-    need_knowledge: list[Any] = Field(default_factory=list)
     need_skills: list[Any] = Field(default_factory=list)
-    need_aesthetics: bool = False
-    use_user_refs: bool = False
+    need_subagents: list[Any] = Field(default_factory=list)
     choices: list[Any] = Field(default_factory=list)
     choice_ui: Any = None
     done: bool | None = None
 
     model_config = {"extra": "allow"}
+
+
+class VisionScoutTurnSchema(BaseModel):
+    """Forked vision_scout sub-agent — read refs/brief; never emits canvas ops."""
+
+    summary: str = Field(default="", description="One-line scout verdict")
+    subjects: list[str] = Field(default_factory=list, description="Main subjects / motifs")
+    palette: list[str] = Field(
+        default_factory=list,
+        description="Suggested colors (hex or short names)",
+    )
+    layout_notes: str = Field(default="", description="Composition / hierarchy notes")
+    style_keywords: list[str] = Field(default_factory=list)
+    lettering: str = Field(default="", description="Text / typography observations")
+    recommendations: list[str] = Field(
+        default_factory=list,
+        description="Concrete next steps for Design/Paint",
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class ResearchTurnSchema(BaseModel):
+    """Forked research sub-agent — brief/industry notes; never emits canvas ops."""
+
+    summary: str = Field(default="", description="One-line research takeaway")
+    audience: str = Field(default="", description="Primary audience / persona")
+    industry: str = Field(default="", description="Industry / category")
+    tone: list[str] = Field(default_factory=list, description="Tone / voice keywords")
+    competitors: list[str] = Field(
+        default_factory=list,
+        description="Relevant comps / reference brands (names only)",
+    )
+    messaging: list[str] = Field(
+        default_factory=list,
+        description="Key messages / copy angles for the design",
+    )
+    visual_directions: list[str] = Field(
+        default_factory=list,
+        description="Visual directions Design/Paint should consider",
+    )
+    risks: list[str] = Field(
+        default_factory=list,
+        description="Clichés / pitfalls to avoid",
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class ReviewIssueSchema(BaseModel):
+    """One Review Agent finding — actionable for Design/Paint retry."""
+
+    severity: Literal["blocker", "major", "minor"] = Field(
+        default="major",
+        description="blocker=must fix before settle; major=should fix; minor=nit",
+    )
+    area: str = Field(
+        default="layout",
+        description="layout|type|contrast|hierarchy|whitespace|content|ops",
+    )
+    issue: str = Field(default="", description="What is wrong (concrete, observable)")
+    fix_hint: str = Field(
+        default="",
+        description="How Design/Paint should fix it (ops-oriented, no tool_ops JSON)",
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class ReviewTurnSchema(BaseModel):
+    """Review Agent — quality gate only. Never emits canvas tool_ops."""
+
+    pass_: bool = Field(
+        default=False,
+        alias="pass",
+        description="True only when the canvas meets the user goal at ship quality",
+    )
+    summary: str = Field(
+        default="",
+        description="One-line verdict for logs / UI",
+    )
+    strengths: list[str] = Field(
+        default_factory=list,
+        description="What already looks good (concrete visual praise)",
+    )
+    weaknesses: list[str] = Field(
+        default_factory=list,
+        description="What looks weak vs a polished market design",
+    )
+    market_gap: str = Field(
+        default="",
+        description=(
+            "Gap vs market-quality / top-tier reference for this deliverable "
+            "(poster, landing, app UI, …) — what pros would still change"
+        ),
+    )
+    issues: list[ReviewIssueSchema] = Field(default_factory=list)
+    must_fix: bool = Field(
+        default=False,
+        description="True when Design must repaint (blocker/major present)",
+    )
+    fix_brief: str = Field(
+        default="",
+        description="Short brief injected into Paint LAST_ERROR on retry",
+    )
+
+    model_config = {"extra": "allow", "populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_pass(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        if "pass_" not in d and "pass" in d:
+            d["pass_"] = d.get("pass")
+        return d
 
 
 class PaintOpsSchema(BaseModel):
@@ -299,12 +410,10 @@ class AgentRunState:
     vision_used: bool = False
     # Deferred tools: op_keys whose full details were injected this run.
     tools_loaded: list[str] = field(default_factory=list)
-    # Deferred knowledge kinds injected this run.
-    knowledge_loaded: list[str] = field(default_factory=list)
     # Deferred skill keys injected this run.
     skills_loaded: list[str] = field(default_factory=list)
-    # Deferred aesthetics refs injected this run.
-    aesthetics_loaded: bool = False
+    # Forked subagents already spawned this run (auto-trigger dedupe).
+    subagents_loaded: list[str] = field(default_factory=list)
     # Published Admin flow identity (for 运行复盘).
     flow_id: str = ""
     flow_version: int = 0
@@ -369,10 +478,6 @@ class AgentRunState:
                 "hydrate",
                 "need_tools",
                 "tool_details",
-                "need_knowledge",
-                "knowledge_details",
-                "need_aesthetics",
-                "aesthetics_details",
                 "clarify",
             ) and tok <= 0:
                 continue
@@ -400,9 +505,8 @@ class AgentRunState:
             "plan": list(self.plan),
             "dual_picked": self.dual_picked,
             "tools_loaded": list(self.tools_loaded),
-            "knowledge_loaded": list(self.knowledge_loaded),
             "skills_loaded": list(self.skills_loaded),
-            "aesthetics_loaded": bool(self.aesthetics_loaded),
+            "subagents_loaded": list(self.subagents_loaded),
             "flow_id": self.flow_id or None,
             "flow_version": self.flow_version or None,
             "total_duration_ms": (
@@ -462,12 +566,9 @@ class AgentRuntime:
     max_rounds: int = _DEFAULT_MAX_ROUNDS
     pending_tool_details: str = ""
     pending_tool_keys: list[str] = field(default_factory=list)
-    pending_knowledge_details: str = ""
-    pending_knowledge_kinds: list[str] = field(default_factory=list)
     pending_skill_details: str = ""
     pending_skill_keys: list[str] = field(default_factory=list)
-    pending_aesthetics_details: str = ""
-    pending_aesthetic_images: list[str] = field(default_factory=list)
+    pending_subagent_details: str = ""
     turn: dict[str, Any] = field(default_factory=dict)
     step_ops: list[dict[str, Any]] = field(default_factory=list)
     op_errors: list[str] = field(default_factory=list)

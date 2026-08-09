@@ -19,6 +19,7 @@ import {
   LuTriangle,
   LuType,
 } from 'react-icons/lu';
+import { RiImageUploadLine, RiVideoUploadLine } from 'react-icons/ri';
 import { Dropdown, Tooltip, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
@@ -38,18 +39,14 @@ import {
   startVideoUploadPlaceholder,
   spawnImageGenerator,
   spawnVideoGenerator,
-  spawnLottie,
-  spawnAudio,
   finishImageProcess,
   failImageProcess,
-  patchDocumentNode,
 } from '@/store/modules/editor';
 import {
   fitImageSize,
   measureImageNaturalSize,
-  parseLottieAnimationData,
-  prepareVideoUploadPreview,
-} from '@/components/rcb/scene/document/sceneDocument';
+  prepareVideoUploadPreview
+} from '@/components/rcb/scene/document/nodeFactories';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import {
   rcbLayoutGeneratorPlate,
@@ -61,6 +58,8 @@ import {
   getDocumentGridSize,
 } from '@/components/rcb/selection/alignGuides';
 import { cn } from '@/utils/classnames';
+import { getHttpErrorMessage } from '@/service/client';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 const MENU_ICON_CLASS = 'h-4 w-4';
 const TOOL_ICON_CLASS = 'h-4 w-4 shrink-0';
@@ -72,7 +71,7 @@ const MENU_POPUP = 'min-w-[168px]';
  * ink to the document grid (then inset 0.5 for the empty-state center stroke).
  */
 function layoutGeneratorPlateInView(opts: {
-  document: any;
+  document: SceneDocument;
   camera: RcbCamera;
   stageEl: HTMLElement;
   natural: { width: number; height: number };
@@ -261,14 +260,20 @@ function SplitToolButton({
         if (disabled) return;
         onMenuOpenChange(open);
       }}
-      placement="top-start"
+      placement="top"
       offset={menuOffset}
       items={items}
       selectedKeys={selectedKeys}
       onClick={onMenuPick}
       popupClassName={MENU_POPUP}
       floatingClassName="z-50"
-      referenceClassName="inline-flex"
+      referenceClassName={cn(
+        'inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+        disabled && 'pointer-events-none opacity-40',
+        active
+          ? 'bg-[var(--ink)] text-[var(--on-brand)]'
+          : 'text-[var(--ink)] hover:bg-[var(--accent-soft)]'
+      )}
     >
       <button
         type="button"
@@ -279,13 +284,7 @@ function SplitToolButton({
           if (disabled) return;
           onPrimaryClick();
         }}
-        className={cn(
-          'inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-          disabled && 'pointer-events-none opacity-40',
-          active
-            ? 'bg-[var(--ink)] text-[var(--on-brand)]'
-            : 'text-[var(--ink)] hover:bg-[var(--accent-soft)]'
-        )}
+        className="inline-flex size-full items-center justify-center"
       >
         {children}
       </button>
@@ -318,7 +317,7 @@ function EditorToolStrip({
   const shapeKind = useSelector((state: any) => state.editor.shapeKind);
   const document = useSelector((state: any) => state.editor.document);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const toolsLocked = Boolean(selectOnly);
 
@@ -344,18 +343,16 @@ function EditorToolStrip({
       polygon: t('editor.tools.polygon'),
       star: t('editor.tools.star'),
       uploadImage: t('editor.tools.uploadImage'),
+      uploadVideo: t('editor.tools.uploadVideo', {
+        defaultValue: '视频上传',
+      }),
       uploadMedia: t('editor.tools.uploadMedia', {
         defaultValue: '上传文件',
       }),
       imageGenerator: t('editor.tools.imageGenerator'),
       videoGenerator: t('editor.tools.videoGenerator'),
-      lottieGenerator: t('editor.tools.lottieGenerator', { defaultValue: 'Lottie generator' }),
-      audioGenerator: t('editor.tools.audioGenerator', { defaultValue: '音频生成器' }),
-      lottie: t('editor.tools.lottie'),
-      audio: t('editor.tools.audio', { defaultValue: '音频' }),
       uploading: t('editor.tools.uploading'),
       uploadFail: t('editor.tools.uploadFail'),
-      lottieInvalid: t('editor.tools.lottieGenInvalidJson'),
     }),
     [t]
   );
@@ -394,6 +391,30 @@ function EditorToolStrip({
       { key: 'star', label: <MenuLabel iconKey="star" label={L.star} /> },
     ],
     [L.arrow, L.circle, L.line, L.polygon, L.rect, L.star]
+  );
+
+  const uploadItems: MenuItemType[] = useMemo(
+    () => [
+      {
+        key: 'image',
+        label: (
+          <MenuLabel
+            label={L.uploadImage}
+            icon={<RiImageUploadLine className={MENU_ICON_CLASS} />}
+          />
+        ),
+      },
+      {
+        key: 'video',
+        label: (
+          <MenuLabel
+            label={L.uploadVideo}
+            icon={<RiVideoUploadLine className={MENU_ICON_CLASS} />}
+          />
+        ),
+      },
+    ],
+    [L.uploadImage, L.uploadVideo]
   );
 
   const spawnImageGeneratorAtView = () => {
@@ -498,7 +519,7 @@ function EditorToolStrip({
       if (key === 'l' && e.shiftKey) dispatch(setShapeKind('arrow'));
       if (key === 'o' && !e.shiftKey) dispatch(setShapeKind('circle'));
       if (key === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        mediaInputRef.current?.click();
+        setOpenMenu('upload');
       }
       if (key === 'a' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
         spawnImageGeneratorAtView();
@@ -588,163 +609,68 @@ function EditorToolStrip({
     } catch (err: any) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({}));
-      const detail = err?.response?.data?.detail || err?.message || L.uploadFail;
-      message.error(typeof detail === 'string' ? detail : L.uploadFail);
+      message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };
 
-  const probeAudioDuration = (src: string): Promise<number | null> =>
-    new Promise((resolve) => {
-      const audio = window.document.createElement('audio');
-      audio.preload = 'metadata';
-      const done = (value: number | null) => {
-        audio.removeAttribute('src');
-        audio.load();
-        resolve(value);
-      };
-      audio.onloadedmetadata = () => {
-        const d = Number(audio.duration);
-        done(Number.isFinite(d) && d > 0 ? d : null);
-      };
-      audio.onerror = () => done(null);
-      audio.src = src;
-      window.setTimeout(() => done(null), 4000);
-    });
-
-  const onPickMedia = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const onPickVideo = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    const mime = (file.type || '').toLowerCase();
-    const name = file.name || '';
-
-    if (mime.startsWith('video/')) {
-      try {
-        const prepared = await prepareVideoUploadPreview(file);
-        const { width, height, x, y } = placeAtViewportCenter({
-          width: prepared.width,
-          height: prepared.height,
-        });
-        dispatch(
-          startVideoUploadPlaceholder({
-            src: prepared.preview,
-            poster: prepared.poster,
-            width,
-            height,
-            x,
-            y,
-            label: L.uploading,
-            name: prepared.name,
-            duration: prepared.duration,
-          })
-        );
-        const uploaded = await uploadImageFile(file);
-        dispatch(
-          finishImageProcess({
-            src: uploaded.url,
-            attrs: {
-              ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-              ...(prepared.poster ? { poster: prepared.poster } : {}),
-              ...(Number.isFinite(prepared.duration) && prepared.duration > 0
-                ? { duration: prepared.duration }
-                : {}),
-              assetKind: 'video',
-            },
-          })
-        );
-      } catch (err: any) {
-        dispatch(failImageProcess({}));
-        const detail = err?.response?.data?.detail || err?.message || L.uploadFail;
-        message.error(typeof detail === 'string' ? detail : L.uploadFail);
-      }
-      return;
+    try {
+      const prepared = await prepareVideoUploadPreview(file);
+      const { width, height, x, y } = placeAtViewportCenter({
+        width: prepared.width,
+        height: prepared.height,
+      });
+      dispatch(
+        startVideoUploadPlaceholder({
+          src: prepared.preview,
+          poster: prepared.poster,
+          width,
+          height,
+          x,
+          y,
+          label: L.uploading,
+          name: prepared.name,
+          duration: prepared.duration,
+        })
+      );
+      const uploaded = await uploadImageFile(file);
+      dispatch(
+        finishImageProcess({
+          src: uploaded.url,
+          attrs: {
+            ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
+            ...(prepared.poster ? { poster: prepared.poster } : {}),
+            ...(Number.isFinite(prepared.duration) && prepared.duration > 0
+              ? { duration: prepared.duration }
+              : {}),
+            assetKind: 'video',
+          },
+        })
+      );
+    } catch (err: any) {
+      dispatch(failImageProcess({}));
+      message.error(getHttpErrorMessage(err, L.uploadFail));
     }
-
-    if (mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(name)) {
-      try {
-        const preview = await readFileAsDataUrl(file);
-        const duration = (await probeAudioDuration(preview)) || undefined;
-        const { width, height, x, y } = placeAtViewportCenter({
-          width: 720,
-          height: 400,
-        });
-        dispatch(
-          spawnAudio({
-            src: preview,
-            width,
-            height,
-            x,
-            y,
-            name: name.replace(/\.[^.]+$/, '') || L.audio,
-            duration,
-          })
-        );
-        const spawnedId = String((store.getState() as any).editor?.selectedNodeId || '');
-        const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
-        try {
-          const uploaded = await uploadImageFile(file, { signal });
-          if (signal?.aborted) return;
-          const url = String(uploaded.url || '').trim();
-          if (!url || !spawnedId) return;
-          dispatch(
-            patchDocumentNode({
-              nodeId: spawnedId,
-              patch: {
-                attrs: {
-                  src: url,
-                  ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-                  ...(duration ? { duration } : {}),
-                },
-              },
-            })
-          );
-        } finally {
-          finishNodeUpload(spawnedId);
-        }
-      } catch (err: any) {
-        if (isUploadAbortError(err)) return;
-        const detail = err?.response?.data?.detail || err?.message || L.uploadFail;
-        message.error(typeof detail === 'string' ? detail : L.uploadFail);
-      }
-      return;
-    }
-
-    if (mime === 'application/json' || mime === 'text/json' || /\.json$/i.test(name)) {
-      try {
-        const text = await file.text();
-        const animationData = parseLottieAnimationData(text);
-        if (!animationData) throw new Error('invalid lottie');
-        const natW = Math.max(1, Math.round(Number(animationData.w) || 200));
-        const natH = Math.max(1, Math.round(Number(animationData.h) || 200));
-        const { width, height, x, y } = placeAtViewportCenter({
-          width: natW,
-          height: natH,
-        });
-        dispatch(
-          spawnLottie({
-            animationData,
-            width,
-            height,
-            x,
-            y,
-            name: name.replace(/\.json$/i, '') || L.lottie,
-          })
-        );
-      } catch {
-        message.error(L.lottieInvalid);
-      }
-      return;
-    }
-
-    // Image (or unknown → treat as image upload path).
-    const synthetic = {
-      target: { files: [file], value: '' },
-    } as unknown as React.ChangeEvent<HTMLInputElement>;
-    await onPickImage(synthetic);
   };
 
   const openImageUpload = () => {
-    mediaInputRef.current?.click();
+    imageInputRef.current?.click();
+  };
+
+  const openVideoUpload = () => {
+    videoInputRef.current?.click();
+  };
+
+  const pickUpload = (key: string) => {
+    setOpenMenu(null);
+    if (key === 'video') {
+      openVideoUpload();
+      return;
+    }
+    openImageUpload();
   };
 
   const pickSelect = (key: string) => {
@@ -879,17 +805,26 @@ function EditorToolStrip({
 
       <span className="mx-0.5 h-4 w-px shrink-0 bg-[var(--line)]" aria-hidden />
 
-      {/* 图片/视频上传 */}
-      <ToolBtn
+      {/* 图片/视频上传 — hover opens panel (同形状工具) */}
+      <SplitToolButton
         tip={L.uploadMedia}
         active={imageActive}
         disabled={toolsLocked}
-        onClick={openImageUpload}
+        menuOpen={openMenu === 'upload'}
+        onMenuOpenChange={(open) => {
+          setOpenMenu(open ? 'upload' : null);
+        }}
+        items={uploadItems}
+        selectedKeys={[]}
+        onMenuPick={pickUpload}
+        onPrimaryClick={() => {
+          /* Toolbar icon only opens the panel; upload runs from menu rows. */
+        }}
       >
         <ToolIcon>
           <LuImageUp className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
         </ToolIcon>
-      </ToolBtn>
+      </SplitToolButton>
 
       {/* 图像生成器 — places a generator node at viewport center.
           Video / Lottie / Audio generators: context menu 「生成器」 only. */}
@@ -911,11 +846,11 @@ function EditorToolStrip({
         onChange={onPickImage}
       />
       <input
-        ref={mediaInputRef}
+        ref={videoInputRef}
         type="file"
-        accept="image/*,video/*,audio/*,.json,application/json"
+        accept="video/*"
         className="hidden"
-        onChange={onPickMedia}
+        onChange={onPickVideo}
       />
       </FloatingToolbar>
     </div>

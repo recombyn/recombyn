@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { HiOutlinePencil } from 'react-icons/hi2';
-import { updateProfile } from '@/apis/auth';
+import { apiQuery } from '@/service/client';
 import { Button, message, ProgressBar } from '@/components/base';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { setUser, type AuthUser } from '@/store/modules/auth';
-import { selectBillingEnabled } from '@/store/modules/wallet';
+import { useBillingEnabled } from '@/service/wallet';
 import { formatTokens } from '@/utils/wallet';
 import { docsUrl } from '@/utils/docsUrl';
 import { isDesktopLocal } from '@/utils/apiBase';
@@ -74,7 +75,7 @@ function AccountProfileTab({
 }: Props) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const billingEnabled = useBillingEnabled();
   const hideBillingUi = isDesktopLocal() || !billingEnabled;
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState('');
@@ -87,6 +88,15 @@ function AccountProfileTab({
     setBio(user?.bio || '');
     setAvatar(user?.avatar || null);
   }, [user]);
+
+  const queryClient = useQueryClient();
+  const saveProfileMutation = useMutation(
+    apiQuery.authAuthPatchProfile.mutationOptions({
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({ queryKey: apiQuery.authAuthMe.key() });
+      },
+    })
+  );
 
   const providerLabel =
     user?.provider === 'google' ? t('account.loginGoogle') : t('account.loginEmail');
@@ -118,7 +128,13 @@ function AccountProfileTab({
     if (!user || saving) return;
     setSaving(true);
     try {
-      const res = await updateProfile({ name: checked.name, bio: checked.bio, avatar });
+      const res = (await saveProfileMutation.mutateAsync({
+        body: {
+          name: checked.name,
+          bio: checked.bio,
+          avatar,
+        },
+      })) as { user: AuthUser };
       dispatch(
         setUser({
           ...user,

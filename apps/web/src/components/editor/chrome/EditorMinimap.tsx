@@ -1,10 +1,13 @@
 import { useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import { rcbViewportSceneBounds, type RcbCamera } from '@/components/rcb';
-import { listSceneNodes } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  listSceneNodes
+} from '@/components/rcb/scene/document/sceneDocument';
 import { resolveFillColor, resolveStroke } from '@/components/rcb/scene/document/sceneEffects';
 import { parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -26,7 +29,7 @@ function unionBox(a: Box | null, b: Box): Box {
   };
 }
 
-function nodeSceneBox(doc: any, node: any): Box | null {
+function nodeSceneBox(doc: SceneDocument, node: SceneNodeInput): Box | null {
   if (!node) return null;
   const { left, top } = nodeLeftTop(doc, node);
   const w = Math.max(1, Number(node.width) || 0);
@@ -35,7 +38,7 @@ function nodeSceneBox(doc: any, node: any): Box | null {
   return { x: left, y: top, width: w, height: h };
 }
 
-function sceneContentBounds(doc: any, frames: ArtboardFrame[]): Box {
+function sceneContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Box {
   let box: Box | null = null;
   for (const f of frames) {
     box = unionBox(box, {
@@ -61,7 +64,7 @@ function sceneContentBounds(doc: any, frames: ArtboardFrame[]): Box {
   };
 }
 
-function minimapNodeColor(node: any): string {
+function minimapNodeColor(node: SceneNodeInput): string {
   const key = String(node?.key || '');
   if (key === 'image' || key === 'svg') return 'rgba(100,116,139,0.55)';
   if (key === 'text') {
@@ -78,7 +81,7 @@ function minimapNodeColor(node: any): string {
 }
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   frames: ArtboardFrame[];
   camera: RcbCamera;
   stageEl: HTMLElement | null;

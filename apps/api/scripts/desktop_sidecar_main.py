@@ -7,7 +7,7 @@ import sys
 
 
 def _bootstrap_root() -> None:
-    """Ensure frozen / source layouts resolve ``app`` and seed ``data/``."""
+    """Ensure frozen / source layouts resolve ``app`` and seed ``seeds/``."""
     if getattr(sys, "frozen", False):
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass and meipass not in sys.path:

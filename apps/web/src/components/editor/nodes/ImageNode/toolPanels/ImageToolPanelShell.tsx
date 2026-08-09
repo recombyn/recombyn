@@ -5,7 +5,7 @@ import { BiExit } from 'react-icons/bi';
 import { HiOutlineBolt } from 'react-icons/hi2';
 import Slider from '@/components/base/slider';
 import Tooltip from '@/components/base/tooltip';
-import { selectBillingEnabled } from '@/store/modules/wallet';
+import { useBillingEnabled } from '@/service/wallet';
 import { cn } from '@/utils/classnames';
 import './imageToolPanel.css';
 
@@ -129,7 +129,7 @@ function PanelConfirmCost({
   unit?: 'credits' | 'tokens';
 }) {
   const { t } = useTranslation();
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const billingEnabled = useBillingEnabled();
   const n = Number.isFinite(amount) ? Math.round(amount) : 0;
   // Billing off, or no-LLM / free tools — don't show a credit chip.
   if (!billingEnabled || n <= 0) return null;

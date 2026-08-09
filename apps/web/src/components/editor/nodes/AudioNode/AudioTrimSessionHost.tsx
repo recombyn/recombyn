@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Audio 截取 session — compact bar matching product mock:
  * [X] 截取  [00:00 - 00:01]  [生成]
@@ -16,7 +17,9 @@ import {
 import { SELECTION_TOOLBAR_BELOW_BOX_GAP_PX } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { cloneAudioNodeSibling } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  cloneAudioNodeSibling
+} from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   closeAudioToolPanel,
   setDocument,
@@ -62,7 +65,7 @@ function parseClock(text: string): number | null {
   return min * 60 + sec;
 }
 
-function AudioTrimSessionHost({ document }: { document: any }): ReactNode {
+function AudioTrimSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const { zoom } = useRcbCamera();

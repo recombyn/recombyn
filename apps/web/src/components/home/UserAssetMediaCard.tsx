@@ -24,16 +24,18 @@ import lottie, { type AnimationItem } from 'lottie-web';
 import Image from '@/components/base/image';
 import Tooltip from '@/components/base/tooltip';
 import { VideoFullscreenPreview } from '@/components/editor/nodes/VideoNode/VideoFullscreenPreviewButton';
-import type { UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
 import { FLOW_ITEM_CLASS, FLOW_SKELETON_COUNT } from '@/components/home/FlowScrollSection';
-import { parseLottieAnimationData } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  parseLottieAnimationData
+} from '@/components/rcb/scene/document/nodeFactories';
 import { cn } from '@/utils/classnames';
 import { toDisplayMediaUrl } from '@/utils/uploadImage';
 
 /** Varied aspects for flow skeletons (same rhythm as plaza). */
 const ASSET_SKELETON_RATIOS = ['3 / 4', '4 / 5', '1 / 1', '4 / 3', '5 / 6', '2 / 3', '5 / 4'] as const;
 
-// ─── pure helpers ───────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ pure helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function formatUserAssetRelativeTime(
   ms: number | null | undefined,
@@ -102,7 +104,7 @@ function markAssetCardDragging(el: HTMLElement | null) {
   const card = el?.closest('[data-asset-card]');
   if (!(card instanceof HTMLElement)) return;
   card.setAttribute('data-dragging', '');
-  void card.offsetWidth;
+  card.offsetWidth;
 }
 
 function clearAssetCardDragging(el: HTMLElement | null) {
@@ -131,7 +133,7 @@ function mountLottieOnHost(
   });
 }
 
-// ─── hooks ──────────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ hooks 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** Display URL as-is (bare storage keys → /api/v1/uploads/files/…). */
 function useDisplayMediaSrc(
@@ -155,7 +157,7 @@ function useEscapeToClose(open: boolean, onClose: () => void) {
   }, [open, onClose]);
 }
 
-// ─── thumbnails ─────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ thumbnails 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function PlaceholderThumb({ kind }: { kind: string }): ReactNode {
   if (kind === 'audio') return <LuAudioLines className="h-6 w-6" strokeWidth={1.75} />;
@@ -305,7 +307,7 @@ function UserAssetThumb({
   );
 }
 
-// ─── card chrome ────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ card chrome 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function AssetCardMetaOverlay({
   title,
@@ -512,7 +514,7 @@ function UserAssetCard({
 const MemoizedUserAssetCard = memo(UserAssetCard);
 const MemoizedUserAssetCardSkeleton = memo(UserAssetCardSkeleton);
 
-// ─── previews ───────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ previews 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function ImageAssetLightbox({
   asset,

@@ -46,11 +46,14 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   const isZoomInDisabled = scale >= maxScale;
   return (
     <div
+      role="toolbar"
+      aria-label="Image preview tools"
       className={
         className ??
         'fixed bottom-5 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-2'
       }
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
     >
       {showCounter && total > 1 && (
         <div className="rounded-xl bg-[var(--color-background-default-base)]/80 px-3 py-1 text-sm text-white">

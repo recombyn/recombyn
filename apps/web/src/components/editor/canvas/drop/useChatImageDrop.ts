@@ -1,6 +1,9 @@
 import { useEffect, type RefObject } from 'react';
 import { useDispatch } from 'react-redux';
-import { measureImageNaturalSize, parseLottieAnimationData } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  measureImageNaturalSize,
+  parseLottieAnimationData
+} from '@/components/rcb/scene/document/nodeFactories';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import { rcbCenterOnPoint, type RcbCamera } from '@/components/rcb';
 import {
@@ -20,6 +23,7 @@ import {
   type MediaAssetDragPayload,
 } from '@/utils/chatImageDrag';
 import { message } from '@/components/base';
+import { getHttpErrorMessage } from '@/service/client';
 import store from '@/store';
 import {
   failImageProcess,
@@ -236,8 +240,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
         try {
           await placeHostedAsset(asset, e.clientX, e.clientY);
         } catch (err: any) {
-          const detail = err?.response?.data?.detail || err?.message || '放置失败';
-          message.error(typeof detail === 'string' ? detail : '放置失败');
+          message.error(getHttpErrorMessage(err, '放置失败'));
         }
         return;
       }
@@ -251,8 +254,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
       } catch (err: any) {
         if (isUploadAbortError(err)) return;
         dispatch(failImageProcess({}));
-        const detail = err?.response?.data?.detail || err?.message || '图片上传失败';
-        message.error(typeof detail === 'string' ? detail : '图片上传失败');
+        message.error(getHttpErrorMessage(err, '图片上传失败'));
       }
     };
 

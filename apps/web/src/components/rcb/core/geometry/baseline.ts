@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Shape baseline geometry — single source of truth.
  * Paint (stroke/fill) and indicators all read from `getShapeBaseline`.
@@ -36,7 +37,7 @@ export type ShapeBaseline = {
 
 export type BaselineSizeOpts = { width?: number; height?: number };
 
-function resolveShapeType(node: any): string {
+function resolveShapeType(node: SceneNodeInput): string {
   const key = String(node?.key || '');
   if (key === 'ellipse') return 'circle';
   if (key === 'rect') return 'rect';
@@ -70,7 +71,7 @@ export function lineBaselinePath(width: number, height: number): string {
  * Pass live width/height while resizing so path tracks the preview.
  */
 export function getShapeBaseline(
-  node: any,
+  node: SceneNodeInput,
   opts?: BaselineSizeOpts
 ): ShapeBaseline | null {
   if (!node) return null;
@@ -191,7 +192,7 @@ export function getShapeBaseline(
 
 /** Baseline `d` only. */
 export function getShapeBaselineD(
-  node: any,
+  node: SceneNodeInput,
   opts?: BaselineSizeOpts
 ): string | null {
   return getShapeBaseline(node, opts)?.d ?? null;

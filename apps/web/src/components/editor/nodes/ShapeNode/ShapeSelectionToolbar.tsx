@@ -37,8 +37,8 @@ import {
   supportsCornerRadius,
   supportsFill,
   supportsShapeSides,
-  supportsStroke,
-} from '@/components/rcb/scene/document/sceneDocument';
+  supportsStroke
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   cornerRadiusToolbarDisplay,
   getLiveCornerRadiusPreview,
@@ -59,6 +59,7 @@ import {
 } from '@/components/rcb/scene/paint/outlineToPath';
 import { TbVectorBezier } from 'react-icons/tb';
 import { message } from '@/components/base';
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 function readAspectLocked(attrs: Record<string, unknown> | undefined): boolean {
   const raw = attrs?.lockAspect;
@@ -86,7 +87,7 @@ function ShapeSelectionToolbar({
   hideExport = false,
 }: {
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   box: SceneBox;
   /** When true, parent renders Export after blend (unified toolbar order). */
   hideExport?: boolean;

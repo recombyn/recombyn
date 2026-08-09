@@ -1,3 +1,4 @@
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * HTML audio plates over SVG hit-targets (same lattice as Video/Lottie overlays).
  * Title lives on selection chrome only — plate shows waveform + transport.
@@ -18,9 +19,11 @@ import { HiOutlinePlay, HiOutlinePause } from 'react-icons/hi2';
 import { useRcbCamera } from '@/components/rcb';
 import {
   isAudioNode,
-  isNodeHidden,
-  resolveThemeSurfaceFill,
-} from '@/components/rcb/scene/document/sceneDocument';
+  isNodeHidden
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  resolveThemeSurfaceFill
+} from '@/components/rcb/scene/document/nodeFactories';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
@@ -93,7 +96,7 @@ function readOptionalNumber(value: unknown): number | undefined {
   return n;
 }
 
-function readNodeAngle(node: any) {
+function readNodeAngle(node: SceneNodeInput) {
   const n = Number(node?.attrs?.angle);
   if (!Number.isFinite(n)) return 0;
   return n;
@@ -478,7 +481,7 @@ function AudioNodeOverlay({
   hidden,
   geometryOverrides = null,
 }: {
-  document: any;
+  document: SceneDocument;
   hidden?: boolean;
   geometryOverrides?: Record<string, AudioGeomOverride> | null;
 }): ReactNode {
@@ -525,7 +528,7 @@ function AudioPlateHost({
   geometryOverrides,
 }: {
   nodeId: string;
-  document: any;
+  document: SceneDocument;
   zoom: number;
   hidden?: boolean;
   geometryOverrides?: Record<string, AudioGeomOverride> | null;

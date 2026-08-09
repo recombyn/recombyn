@@ -3,8 +3,10 @@
  * Mirrors applyAgentToolOps + handleStreamToolOps multi path in runDesignAgent.ts.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { createEmptyDocument } from '@/components/rcb/scene/document/sceneDocument';
-import { executeDesignTool } from '../designTools';
+import {
+  createEmptyDocument
+} from '@/components/rcb/scene/document/sceneDocument';
+import { executeDesignTool, type DesignToolContext } from '../designTools';
 
 describe('multi-artboard create_frame apply', () => {
   it('creates two sibling frames and paints content into each after retarget', () => {
@@ -35,20 +37,13 @@ describe('multi-artboard create_frame apply', () => {
       }
     });
 
-    const getDocument = () => doc;
-    const toolCtx: {
-      dispatch: typeof dispatch;
-      getDocument: typeof getDocument;
-      skipHistory: true;
-      targetFrameId: string | null;
-      allowDestructive: true;
-    } = {
+    const toolCtx = {
       dispatch,
-      getDocument,
+      getDocument: () => doc,
       skipHistory: true,
-      targetFrameId: null,
+      targetFrameId: null as string | null,
       allowDestructive: true,
-    };
+    } as DesignToolContext;
 
     const ops = [
       {

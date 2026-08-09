@@ -16,9 +16,10 @@ import {
 } from '@/components/rcb/scene/document/sceneText';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { TEXT_SELECTION_PAD } from '@/components/rcb/scene/document/sceneEffects';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   nodeId: string;
   onCommit: (next: {
     attrs: Record<string, unknown>;

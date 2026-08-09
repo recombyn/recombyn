@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Local project drafts + editor session (persistenceKey → IndexedDB).
  * Document drafts may sync to cloud; session (camera / selection) stays local only.
@@ -120,7 +121,7 @@ export type ProjectDocumentPatch = {
   canvas?: Record<string, unknown>;
 };
 
-function pageChildrenOf(doc: any): string[] {
+function pageChildrenOf(doc: SceneDocument): string[] {
   const pages = doc?.pages;
   if (Array.isArray(pages) && pages[0] && Array.isArray(pages[0].children)) {
     return pages[0].children.map(String);
@@ -180,8 +181,8 @@ export function buildProjectDocumentPatch(
   if (Object.keys(upsertNodes).length) patch.upsertNodes = upsertNodes;
   if (removeNodeIds.length) patch.removeNodeIds = removeNodeIds;
 
-  const baseKids = pageChildrenOf(b);
-  const nextKids = pageChildrenOf(n);
+  const baseKids = pageChildrenOf(b as SceneDocument);
+  const nextKids = pageChildrenOf(n as SceneDocument);
   if (stableJson(baseKids) !== stableJson(nextKids)) {
     patch.pageChildren = nextKids;
   }
@@ -276,8 +277,10 @@ export async function putProjectDraft(input: {
 
     let baseDocument: unknown | null | undefined = input.baseDocument;
     if (input.keepBaseDocument && prev) {
-      // Freeze last ACKed doc when content diverges so PATCH can diff.
-      if (prev.syncedAt && prev.contentHash !== contentHash) {
+      // Freeze last ACKed (or last persisted) doc when content diverges so PATCH can diff.
+      // Do not require syncedAt — otherwise a pending draft with cloudRevision but no
+      // baseDocument forces a full PUT on every edit.
+      if (prev.contentHash !== contentHash) {
         baseDocument =
           prev.baseDocument !== undefined && prev.baseDocument !== null
             ? prev.baseDocument

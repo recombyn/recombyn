@@ -16,7 +16,10 @@ import {
   resolveShadow,
   resolveStroke,
 } from '@/components/rcb/scene/document/sceneEffects';
-import { isExportableSceneNode, isVideoNode } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isExportableSceneNode,
+  isVideoNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 
 function formatPx(n: number) {

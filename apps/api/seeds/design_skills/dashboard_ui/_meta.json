@@ -1,0 +1,52 @@
+{
+  "skill_key": "dashboard_ui",
+  "name": "dashboard_ui",
+  "displayName": "Dashboard / admin UI",
+  "description": "Admin dashboard and console layout: sidebar, top bar, KPI row, tables/cards — scannable density",
+  "when_to_use": "Dashboard / 后台 / 控制台 / admin / console / analytics board / KPI / 数据看板 — multi-panel product UI (not marketing landing, not poster)",
+  "category": "ui",
+  "scenes": "all",
+  "sort_weight": 83,
+  "version": "2.0.0",
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "update_node",
+    "move_nodes"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "dashboard",
+        "后台",
+        "控制台",
+        "admin",
+        "console",
+        "看板",
+        "KPI",
+        "analytics",
+        "管理端"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Do not invent metrics or chart data; do not turn a dashboard into a festive poster; do not use five competing primary buttons.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "后台 / Dashboard",
+      "description": "后台控制台：侧栏、顶栏、KPI、表/卡网格"
+    },
+    "en": {
+      "displayName": "Dashboard / admin UI",
+      "description": "Admin dashboard: sidebar, top bar, KPIs, tables/cards"
+    }
+  }
+}

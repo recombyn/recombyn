@@ -35,12 +35,13 @@ import AccountSettingsDialog, {
   type AccountSettingsTab,
 } from '@/components/layout/AccountSettingsDialog';
 import PlansDialog from '@/components/layout/PlansDialog';
-import { getMe, logout as logoutRemote } from '@/apis/auth';
-import { fetchWallet } from '@/apis/wallet';
+import { apiQuery, queryClient } from '@/service/client';
+import { logout as logoutRemote } from '@/service/auth';
+import { clearProjectsListCache } from '@/service/projects';
+import { clearWalletCache, useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
 import { logout, setSession, clearSessionCaches } from '@/store/modules/auth';
 import { clearProjectsLibrary } from '@/store/modules/editor';
-import { formatTokens, planLabelKey, type LedgerEntry, type PlanId } from '@/utils/wallet';
-import { clearWallet, syncFromServer } from '@/store/modules/wallet';
+import { formatTokens, planLabelKey, type PlanId } from '@/utils/wallet';
 import { getToken } from '@/utils/token';
 import { docsUrl, openExternalUrl } from '@/utils/docsUrl';
 import { SUPPORTED_LANGS } from '@/i18n';
@@ -286,14 +287,11 @@ function SideFlyout({ children }: { children: ReactNode }) {
 function UserAccountPanel({ open, onOpenChange, children }: Props) {
   const { t, i18n } = useTranslation();
   const user = useSelector((state: any) => state.auth.user);
-  const tokens = useSelector((state: any) => state.wallet?.tokens ?? 0);
-  const planId = useSelector((state: any) => state.wallet?.planId ?? 'free') as PlanId;
+  const { tokens, planId } = useWalletSnapshot();
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const desktopLocal = isDesktopLocal();
-  const billingEnabled = useSelector(
-    (state: any) => state.wallet?.billingEnabled === true
-  );
+  const billingEnabled = useBillingEnabled();
   /** Hide plans / redeem / balance when local desktop or WALLET_BILLING_ENABLED=false. */
   const hideBillingUi = desktopLocal || !billingEnabled;
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -328,21 +326,25 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
     if (!open) setFlyout(null);
   }, [open]);
 
-  /** One hydrate per account session — reopen avatar menu must not re-hit getMe/wallet. */
-  const accountHydratedForUserRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!user?.id) accountHydratedForUserRef.current = null;
-  }, [user?.id]);
-
   useEffect(() => {
     if (!open || !user || !getToken()) return;
-    if (accountHydratedForUserRef.current === user.id) return;
-    accountHydratedForUserRef.current = user.id;
     let cancelled = false;
     async function hydrateAccount() {
       try {
-        const meRes = await getMe();
+        const meRes = (await queryClient.ensureQueryData({
+          ...apiQuery.authAuthMe.queryOptions(),
+          staleTime: 30_000,
+        })) as {
+          user: {
+            id?: string;
+            email: string;
+            name: string;
+            avatar?: string | null;
+            provider: string;
+            bio?: string | null;
+            role?: string;
+          };
+        };
         if (cancelled || !getToken()) return;
         dispatch(
           setSession({
@@ -358,29 +360,19 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
             token: getToken() || undefined,
           })
         );
-        if (typeof meRes.tokens === 'number') {
-          dispatch(syncFromServer({ tokens: meRes.tokens, planId: (meRes as any).planId }));
-        }
       } catch {
         /* ignore */
       }
       try {
-        const walletRes = await fetchWallet();
-        if (cancelled || !getToken()) return;
-        dispatch(
-          syncFromServer({
-            tokens: walletRes.tokens,
-            planId: walletRes.planId,
-            planExpiresAt: walletRes.planExpiresAt ?? null,
-            planLocked: Boolean(walletRes.planLocked),
-            ledger: (walletRes.ledger || []) as LedgerEntry[],
-          })
-        );
+        await queryClient.ensureQueryData({
+          ...apiQuery.walletWalletMe.queryOptions(),
+          staleTime: 30_000,
+        });
       } catch {
         /* ignore */
       }
     }
-    void hydrateAccount();
+    hydrateAccount();
     return () => {
       cancelled = true;
     };
@@ -399,13 +391,14 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
   const themeOption =
     themeOptions.find((o) => o.mode === themeMode) || themeOptions[themeOptions.length - 1];
   const themeLabel = themeOption.label;
-  const planLabel = t(planLabelKey(planId));
+  const planLabel = t(planLabelKey(planId as PlanId));
 
   const doLogout = () => {
     dispatch(logout());
-    dispatch(clearWallet());
     dispatch(clearProjectsLibrary());
     clearSessionCaches();
+    clearProjectsListCache();
+    clearWalletCache();
     async function logoutRemoteSession() {
       try {
         await logoutRemote();
@@ -413,7 +406,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
         /* ignore */
       }
     }
-    void logoutRemoteSession();
+    logoutRemoteSession();
     message.success(t('home.loggedOut'));
     close();
     navigate('/home', { replace: true });
@@ -663,7 +656,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
                       label={t('about.title')}
                       onClick={() => {
                         close();
-                        void openExternalUrl(docsUrl('/legal/about'));
+                        openExternalUrl(docsUrl('/legal/about'));
                       }}
                     />
                   </>

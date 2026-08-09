@@ -778,6 +778,13 @@ const en = {
   editor: {
     save: 'Save',
     preview: 'Preview',
+    revisionConflictTitle: 'Newer version on cloud',
+    revisionConflictBody:
+      'This project was saved elsewhere with a newer revision. Load the cloud version, or overwrite cloud with your local edits.',
+    revisionConflictCollabBody:
+      'Cloud revision changed while collaborating. Load the cloud snapshot, or push your room’s document over it.',
+    revisionConflictAdopt: 'Load cloud',
+    revisionConflictOverwrite: 'Keep mine',
     undo: 'Undo',
     redo: 'Redo',
     zoomIn: 'Zoom in',
@@ -979,6 +986,7 @@ const en = {
       polygon: 'Polygon',
       star: 'Star',
       uploadImage: 'Upload image',
+      uploadVideo: 'Upload video',
       uploadMedia: 'Upload file',
       audio: 'Audio',
       imageGenerator: 'Image generator',
@@ -1543,8 +1551,6 @@ const en = {
     activityLookupDoneCount: 'Design parameters confirmed',
     lookupKindSkill: 'Skill pack',
     lookupKindRule: 'Design rules',
-    lookupKindKnowledge: 'Scene knowledge',
-    lookupKindAesthetics: 'Design-token analysis',
     lookupGate: 'Look up materials before painting',
     stageLookup: 'Confirm design parameters',
     stageScene: 'Canvas confirmed',
@@ -1564,6 +1570,7 @@ const en = {
     canvasProcessThinking: 'Understanding request…',
     canvasProcessExploring: 'Confirming design parameters…',
     canvasProcessEditing: 'Updating canvas…',
+    canvasProcessReviewing: 'Reviewing design…',
     replied: 'Replied',
     taskCompleteNamed: '{{name}} completed the task',
     proposeOpsPreview: 'Will apply {{count}} canvas ops',

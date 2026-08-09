@@ -290,7 +290,7 @@ def _paint_ops_user(rt: Any) -> str:
     focus_frame = _focus_frame_from_rt(rt)
     spatial_hint = _format_spatial_placement(spatial, focus_frame=focus_frame)
     lean = _is_lean_paint_turn(rt)
-    # Lean: tools + scene only — drop skill/knowledge/aesthetics essays for short adds.
+    # Lean: tools + scene only — drop long skill essays for short adds.
     if lean:
         pending = str(getattr(rt, "pending_tool_details", "") or "").strip()
     else:

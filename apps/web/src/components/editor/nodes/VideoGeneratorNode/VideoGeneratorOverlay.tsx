@@ -1,9 +1,12 @@
 import { useMemo, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
-import { isVideoGeneratorNode } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isVideoGeneratorNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import VideoGeneratorCard from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorCard';
 import { EMPTY_ID_LIST } from '@/store/modules/editor';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
  * World-layer Video Generator composers (same lattice as the control box).
@@ -14,7 +17,7 @@ function VideoGeneratorOverlay({
   hidden,
   readOnly,
 }: {
-  document: any;
+  document: SceneDocument;
   /** Hide while move / resize / rotate is in progress. */
   hidden?: boolean;
   readOnly?: boolean;

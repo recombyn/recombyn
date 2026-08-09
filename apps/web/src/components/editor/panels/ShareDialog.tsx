@@ -1,24 +1,15 @@
-import { useCallback, useEffect, useRef, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiChevronDown, HiOutlineInformationCircle } from 'react-icons/hi2';
-import {
-  createShareApi,
-  lookupUsersApi,
-  searchUsersApi,
-  updateShareDocumentApi,
-  updateShareMetaApi,
-  type DirectoryUser,
-  type ShareDto,
-  type SharePermission,
-} from '@/apis/shares';
+import type { DirectoryUser, ShareDto, SharePermission } from '@/models/shares';
 import { Dialog, Dropdown, Switch, message } from '@/components/base';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { PlazaPublishForm } from '@/components/templates/PlazaPublishDialog';
-import { submitToPlaza } from '@/apis/plaza';
-import { extractProjectCoversApi } from '@/apis/projects';
+import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
 import { coverDocumentHasContent } from '@/utils/plazaCover';
-import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
+import { normalizeProjectThumbnailUrls, collageOrSingleThumb } from '@/utils/projectThumb';
 import { cn } from '@/utils/classnames';
 import { isOwnedTemplate } from '@/utils/templatesStorage';
 import { getToken } from '@/utils/token';
@@ -138,6 +129,14 @@ function assertCanPublishToPlaza(opts: {
   return 'ok';
 }
 
+type SharePatchBody = {
+  permission?: SharePermission;
+  editorUserIds?: string[];
+  viewerUserIds?: string[];
+  linkEnabled?: boolean;
+  linkPublic?: boolean;
+};
+
 function ShareDialog({ open, onClose }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -175,12 +174,8 @@ function ShareDialog({ open, onClose }: Props) {
   const [linkAccess, setLinkAccess] = useState<LinkAccess>('view');
   const [editorIds, setEditorIds] = useState<string[]>([]);
   const [viewerIds, setViewerIds] = useState<string[]>([]);
-  const [collaborators, setCollaborators] = useState<
-    Array<DirectoryUser & { role: 'edit' | 'view' }>
-  >([]);
   const [inviteQuery, setInviteQuery] = useState('');
-  const [searchHits, setSearchHits] = useState<DirectoryUser[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [inviteSearchQ, setInviteSearchQ] = useState('');
   const [selectedInvite, setSelectedInvite] = useState<DirectoryUser | null>(null);
   const [inviting, setInviting] = useState(false);
   const searchTimer = useRef<number | null>(null);
@@ -199,22 +194,124 @@ function ShareDialog({ open, onClose }: Props) {
 
   const accessLabel = (access: LinkAccess) => t(accessLabelKey(access));
 
+  const collabIds = useMemo(
+    () => [...new Set([...editorIds, ...viewerIds])].filter(Boolean),
+    [editorIds, viewerIds]
+  );
+  const collabIdsKey = collabIds.join(',');
+
+  const collaboratorsLookup = useQuery({
+    ...apiQuery.usersUsersLookup.queryOptions({
+      input: { query: { ids: collabIdsKey } },
+      enabled: collabIds.length > 0,
+    }),
+    staleTime: 30_000,
+  });
+
+  const collaborators = useMemo(() => {
+    if (!collabIds.length) return [] as Array<DirectoryUser & { role: 'edit' | 'view' }>;
+    const items =
+      ((collaboratorsLookup.data as { items?: DirectoryUser[] } | undefined)?.items || []);
+    const editorSet = new Set(editorIds);
+    return items.map((u) => ({
+      ...u,
+      role: editorSet.has(u.id) ? ('edit' as const) : ('view' as const),
+    }));
+  }, [collabIds.length, collaboratorsLookup.data, editorIds]);
+
+  useEffect(() => {
+    const q = inviteQuery.trim();
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    if (q.length < 1) {
+      setInviteSearchQ('');
+      return;
+    }
+    searchTimer.current = window.setTimeout(() => {
+      setInviteSearchQ(q);
+    }, 280);
+    return () => {
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    };
+  }, [inviteQuery]);
+
+  const inviteSearch = useQuery({
+    ...apiQuery.usersUsersSearch.queryOptions({
+      input: { query: { q: inviteSearchQ, limit: 12 } },
+      enabled: inviteSearchQ.length >= 1,
+    }),
+    staleTime: 15_000,
+  });
+
+  const searchHits =
+    ((inviteSearch.data as { items?: DirectoryUser[] } | undefined)?.items || []);
+  const searching =
+    inviteQuery.trim().length >= 1 &&
+    (inviteSearchQ !== inviteQuery.trim() || inviteSearch.isFetching);
+
+  const patchShareMutation = useMutation({
+    mutationFn: async (opts: { shareId: string; body: SharePatchBody }) =>
+      (await apiClient.sharesSharesPatch({
+        params: { share_id: opts.shareId },
+        body: opts.body,
+      })) as { share: ShareDto },
+  });
+
+  const updateShareDocMutation = useMutation({
+    mutationFn: async (opts: { shareId: string; document: Record<string, unknown> }) => {
+      await apiClient.sharesSharesUpdateDocument({
+        params: { share_id: opts.shareId },
+        body: { document: opts.document },
+      });
+    },
+  });
+
+  const extractCoversMutation = useMutation({
+    mutationFn: async (opts: {
+      projectId: string;
+      document: Record<string, unknown> | undefined;
+    }) =>
+      (await apiClient.projectsExtractCovers({
+        params: { project_id: opts.projectId },
+        body: opts.document != null ? { document: opts.document } : undefined,
+      })) as {
+        project?: {
+          thumbnailUrl?: string | string[] | null;
+          updatedAt?: number;
+          thumbnailCustom?: boolean;
+        };
+      },
+  });
+
+  const plazaSubmitMutation = useMutation({
+    mutationFn: async (body: {
+      projectId: string;
+      title: string;
+      category: string;
+      document: Record<string, unknown>;
+      thumbnailUrl?: string;
+    }) => {
+      await apiClient.plazaPlazaSubmit({ body });
+    },
+  });
+
   /** Server builds ≤4 element cover tiles from the live document (Publish tab). */
   const refreshCoversFromApi = useCallback(() => {
     if (!currentId || !getToken() || !document) return;
     if (coversInflightRef.current) return;
     async function refreshCovers() {
       try {
-        const res = await extractProjectCoversApi(currentId, document);
+        const res = await extractCoversMutation.mutateAsync({
+          projectId: currentId!,
+          document: document != null ? (document as Record<string, unknown>) : undefined,
+        });
         const thumbs = normalizeProjectThumbnailUrls(
           res.project?.thumbnailUrl,
           res.project?.updatedAt
         );
-        if (!thumbs.length) return;
         dispatch(
           setTemplateThumbnail({
-            id: currentId,
-            thumbnail: thumbs.length === 1 ? thumbs[0] : thumbs,
+            id: currentId!,
+            thumbnail: collageOrSingleThumb(thumbs),
             custom: Boolean(res.project?.thumbnailCustom),
           })
         );
@@ -225,7 +322,7 @@ function ShareDialog({ open, onClose }: Props) {
       }
     }
     coversInflightRef.current = refreshCovers();
-  }, [currentId, dispatch, document]);
+  }, [currentId, dispatch, document, extractCoversMutation.mutateAsync]);
 
   useEffect(() => {
     if (!document) {
@@ -242,16 +339,18 @@ function ShareDialog({ open, onClose }: Props) {
     const gen = ++createGenRef.current;
     setBusy(true);
     if (!createShareInflightRef.current) {
-      createShareInflightRef.current = createShareApi({
-        document,
-        name: projectName,
-        permission: 'preview',
-        sourceProjectId: currentId || undefined,
-        editorUserIds: [],
-        viewerUserIds: [],
-        // Match default "Can view" / anyone-with-link UI.
-        linkPublic: true,
-      });
+      createShareInflightRef.current = apiClient.sharesSharesCreate({
+        body: {
+          document: document as Record<string, unknown>,
+          name: projectName,
+          permission: 'preview',
+          sourceProjectId: currentId || undefined,
+          editorUserIds: [],
+          viewerUserIds: [],
+          // Match default "Can view" / anyone-with-link UI.
+          linkPublic: true,
+        },
+      }) as Promise<{ share: ShareDto }>;
     }
     async function createShareRecord() {
       try {
@@ -270,14 +369,17 @@ function ShareDialog({ open, onClose }: Props) {
         if (enabled && access !== 'edit' && s.linkPublic === false) {
           async function persistShareLinkPublic() {
             try {
-              const patched = await updateShareMetaApi(s.id, { linkPublic: true });
+              const patched = await patchShareMutation.mutateAsync({
+                shareId: s.id,
+                body: { linkPublic: true },
+              });
               if (createGenRef.current !== gen) return;
               setRecord(patched.share);
             } catch {
               /* keep local UI; copy still works for owner */
             }
           }
-          void persistShareLinkPublic();
+          persistShareLinkPublic();
         }
       } catch {
         if (createGenRef.current !== gen) return;
@@ -289,77 +391,18 @@ function ShareDialog({ open, onClose }: Props) {
         if (createGenRef.current === gen) setBusy(false);
       }
     }
-    void createShareRecord();
+    createShareRecord();
     // No cleanup bump — StrictMode remount reuses the same in-flight create.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- first enter Share panel only
   }, []);
 
-  useEffect(() => {
-    const ids = [...new Set([...editorIds, ...viewerIds])];
-    if (!ids.length) {
-      setCollaborators([]);
-      return;
-    }
-    let cancelled = false;
-    async function loadCollaborators() {
-      try {
-        const res = await lookupUsersApi({ ids: ids.filter(Boolean).join(',') });
-        if (cancelled) return;
-        const editorSet = new Set(editorIds);
-        setCollaborators(
-          (res.items || []).map((u) => ({
-            ...u,
-            role: editorSet.has(u.id) ? ('edit' as const) : ('view' as const),
-          }))
-        );
-      } catch {
-        if (!cancelled) setCollaborators([]);
-      }
-    }
-    void loadCollaborators();
-    return () => {
-      cancelled = true;
-    };
-  }, [editorIds, viewerIds]);
-
-  // Invite search — driven by typing, not by dialog open.
-  useEffect(() => {
-    const q = inviteQuery.trim();
-    if (searchTimer.current) window.clearTimeout(searchTimer.current);
-    if (q.length < 1) {
-      setSearchHits([]);
-      setSearching(false);
-      return;
-    }
-    setSearching(true);
-    searchTimer.current = window.setTimeout(() => {
-      async function runUserSearch() {
-        try {
-          const res = await searchUsersApi({ q, limit: 12 });
-          setSearchHits(res.items || []);
-        } catch {
-          setSearchHits([]);
-        } finally {
-          setSearching(false);
-        }
-      }
-      void runUserSearch();
-    }, 280);
-    return () => {
-      if (searchTimer.current) window.clearTimeout(searchTimer.current);
-    };
-  }, [inviteQuery]);
-
-  const patchMeta = async (next: {
-    permission?: SharePermission;
-    editorUserIds?: string[];
-    viewerUserIds?: string[];
-    linkEnabled?: boolean;
-    linkPublic?: boolean;
-  }) => {
+  const patchMeta = async (next: SharePatchBody) => {
     if (!record?.id) return null;
     try {
-      const res = await updateShareMetaApi(record.id, next);
+      const res = await patchShareMutation.mutateAsync({
+        shareId: record.id,
+        body: next,
+      });
       setRecord(res.share);
       if (typeof next.linkEnabled === 'boolean') setLinkEnabled(res.share.linkEnabled !== false);
       if (next.permission) setLinkAccess(linkAccessFromPermission(res.share.permission));
@@ -374,7 +417,7 @@ function ShareDialog({ open, onClose }: Props) {
 
   const onToggleLink = (on: boolean) => {
     setLinkEnabled(on);
-    void patchMeta({
+    patchMeta({
       linkEnabled: on,
       linkPublic: on && (linkAccess === 'view' || linkAccess === 'download'),
     });
@@ -383,7 +426,7 @@ function ShareDialog({ open, onClose }: Props) {
   const onPickAccess = (access: LinkAccess) => {
     setLinkAccess(access);
     const permission = permissionFromLinkAccess(access);
-    void patchMeta({
+    patchMeta({
       permission,
       linkPublic: access === 'view' || access === 'download',
       editorUserIds: permission === 'edit' ? editorIds : [],
@@ -416,7 +459,6 @@ function ShareDialog({ open, onClose }: Props) {
     if (!saved) return;
     setInviteQuery('');
     setSelectedInvite(null);
-    setSearchHits([]);
     message.success(t('editor.shareInviteOk'));
   };
 
@@ -425,7 +467,7 @@ function ShareDialog({ open, onClose }: Props) {
     const nextViewers = viewerIds.filter((id) => id !== userId);
     setEditorIds(nextEditors);
     setViewerIds(nextViewers);
-    void patchMeta({
+    patchMeta({
       permission: nextEditors.length || linkAccess === 'edit' ? 'edit' : 'preview',
       editorUserIds: nextEditors,
       viewerUserIds: nextViewers,
@@ -442,14 +484,17 @@ function ShareDialog({ open, onClose }: Props) {
     });
     setEditorIds(payload.editorUserIds);
     setViewerIds(payload.viewerUserIds);
-    void patchMeta(payload);
+    patchMeta(payload);
   };
 
   const onCopyLink = async () => {
     if (!record || !linkEnabled) return;
     if (document) {
       try {
-        await updateShareDocumentApi(record.id, document);
+        await updateShareDocMutation.mutateAsync({
+          shareId: record.id,
+          document: document as Record<string, unknown>,
+        });
       } catch {
         /* still copy current link */
       }
@@ -489,16 +534,22 @@ function ShareDialog({ open, onClose }: Props) {
     const projectId = String(currentId || '').trim();
     setPublishing(true);
     try {
-      await submitToPlaza({
+      let plazaDocument: Record<string, unknown> = document as Record<string, unknown>;
+      try {
+        plazaDocument = JSON.parse(JSON.stringify(document)) as Record<string, unknown>;
+      } catch {
+        plazaDocument = document as Record<string, unknown>;
+      }
+      const thumb = String(coverUrls[0] || '').trim();
+      await plazaSubmitMutation.mutateAsync({
         projectId,
         title: projectName,
         category: 'website',
-        document,
-        thumbnailUrl: String(coverUrls[0] || '').trim() || null,
+        document: plazaDocument,
+        ...(thumb && !thumb.startsWith('data:') ? { thumbnailUrl: thumb } : {}),
       });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || err?.message;
-      message.error(typeof detail === 'string' ? detail : t('plaza.submitFailed'));
+    } catch (err: unknown) {
+      message.error(getHttpErrorMessage(err, t('plaza.submitFailed')));
       throw err;
     } finally {
       setPublishing(false);
@@ -614,7 +665,7 @@ function ShareDialog({ open, onClose }: Props) {
                 <button
                   type="button"
                   disabled={!url || busy}
-                  onClick={() => void onCopyLink()}
+                  onClick={() => onCopyLink()}
                   className="inline-flex h-9 w-[108px] shrink-0 items-center justify-center rounded-lg bg-[var(--ink)] px-3 text-[13px] font-medium text-[var(--on-brand)] disabled:cursor-not-allowed disabled:opacity-50 hover:opacity-90"
                 >
                   {t('editor.shareCopyLink')}
@@ -658,7 +709,6 @@ function ShareDialog({ open, onClose }: Props) {
                         onClick={() => {
                           setSelectedInvite(u);
                           setInviteQuery(u.email || u.name || u.id);
-                          setSearchHits([]);
                         }}
                       >
                         <UserAvatar name={u.name} email={u.email} avatar={u.avatar} size={28} />
@@ -683,7 +733,7 @@ function ShareDialog({ open, onClose }: Props) {
               <button
                 type="button"
                 disabled={inviteDisabled}
-                onClick={() => void onInvite()}
+                onClick={() => onInvite()}
                 className={cn(
                   'inline-flex h-9 w-[108px] shrink-0 items-center justify-center rounded-lg px-3 text-[13px] font-medium',
                   inviteDisabled

@@ -90,12 +90,6 @@ def _invalidate_bootstrap_flags() -> None:
     except Exception:
         pass
     try:
-        import app.services.design.prompts.knowledge_store as knowledge_mod
-
-        knowledge_mod._KNOWLEDGE_READY = False
-    except Exception:
-        pass
-    try:
         import app.services.design.prompts.skill_store as skill_mod
 
         if hasattr(skill_mod, "reset_skills_ready_for_tests"):

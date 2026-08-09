@@ -5,7 +5,7 @@ import json
 import time
 from typing import Any
 
-from app.core.config import resolve_data_file
+from app.core.config import resolve_seed_file
 from app.services.db import init_schema
 
 # Where a model may appear in Agent route slots / admin model routes.
@@ -18,7 +18,7 @@ REFERENCE_TYPES = ('text', 'vision', 'image', 'video', 'audio')
 def _load_catalog_seed() -> dict[str, Any]:
     """Load llm_models_seed.json (models + presets + tombstones)."""
     try:
-        parsed = json.loads(resolve_data_file("llm_models_seed.json").read_text(encoding="utf-8"))
+        parsed = json.loads(resolve_seed_file("llm_models_seed.json").read_text(encoding="utf-8"))
         return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
@@ -46,7 +46,7 @@ def _load_model_seed() -> list[dict[str, Any]]:
 
 
 # Official Ark / OpenRouter image size contracts + model rows:
-# apps/api/data/llm_models_seed.json
+# apps/api/seeds/llm_models_seed.json
 IMAGE_LIMIT_PRESETS: dict[str, dict[str, Any]] = _load_image_limit_presets()
 _SEED: list[dict[str, Any]] = _load_model_seed()
 

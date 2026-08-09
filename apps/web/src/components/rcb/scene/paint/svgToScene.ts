@@ -8,8 +8,13 @@ import {
   parseNodeTextStyle,
 } from '../document/sceneText';
 import { markdownToPlain } from '../document/sceneMarkdown';
-import { getActivePage, normalizeDocument, syncRootChildren } from '../document/sceneDocument';
+import {
+  getActivePage,
+  normalizeDocument,
+  syncRootChildren
+} from '../document/sceneDocument';
 import { isCustomPathShape, scalePathData } from '../document/pathScale';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function num(v: unknown, fallback = 0) {
   const n = Number(v);
@@ -17,7 +22,7 @@ function num(v: unknown, fallback = 0) {
 }
 
 /** Scene left/top → document node x/y (adds page origin). */
-export function sceneToDocumentCoords(document: any, left: number, top: number) {
+export function sceneToDocumentCoords(document: SceneDocument, left: number, top: number) {
   return {
     x: num(left, 0) + num(document?.x, 0),
     y: num(top, 0) + num(document?.y, 0),
@@ -86,7 +91,7 @@ function paintAttrs(prevAttrs: Record<string, any> = {}) {
   };
 }
 
-export function svgObjectsToScene(document: any, objects: SvgSceneObject[]) {
+export function svgObjectsToScene(document: SceneDocument, objects: SvgSceneObject[]) {
   const next = normalizeDocument(document);
   const rootChildren: string[] = [];
 
@@ -240,7 +245,7 @@ function inferTextResizeMode(
 
 /** Patch a single node's geometry from selection chrome — document. */
 export function patchNodeGeometry(
-  document: any,
+  document: SceneDocument,
   nodeId: string,
   geometry: { left: number; top: number; width: number; height: number },
   options?: PatchGeometryOptions
@@ -339,7 +344,7 @@ export function patchNodeGeometry(
 
 /** Move/resize multiple nodes. Each entry is scene-local left/top/size. */
 export function patchNodesGeometry(
-  document: any,
+  document: SceneDocument,
   patches: Array<{ nodeId: string; left: number; top: number; width: number; height: number }>,
   options?: PatchGeometryOptions
 ) {
