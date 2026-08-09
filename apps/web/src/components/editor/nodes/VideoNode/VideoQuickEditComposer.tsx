@@ -1,12 +1,15 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Floating quick-edit chat under a selected video (toolbar → 快速编辑).
  * Regenerates video in place via POST /chat/video.
  */
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
 import { HiArrowUp, HiOutlineChevronDown, HiOutlinePlus } from 'react-icons/hi2';
-import { generateVideo, listModels, type LlmModel } from '@/apis/chat';
+import { generateVideo, type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   RcbOverlayPortal,
@@ -31,9 +34,11 @@ import {
 } from '@/components/editor/panels/agent/llmModelMeta';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import {
-  captureVideoPosterFrame,
-  clearImageProcessAttrs,
-} from '@/components/rcb/scene/document/sceneDocument';
+  captureVideoPosterFrame
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
+  clearImageProcessAttrs
+} from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   closeImageToolPanel,
   patchDocumentNode,
@@ -76,7 +81,7 @@ function VideoQuickEditComposer({
   nodeId,
   box,
 }: {
-  document: any;
+  document: SceneDocument;
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
@@ -114,27 +119,36 @@ function VideoQuickEditComposer({
     return () => cancelAnimationFrame(id);
   }, [nodeId]);
 
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    async function loadModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const list = buildVideoModelList(res);
-        setModels(list);
-        if (list.length && !list.some((m) => m.id === modelId)) {
-          setModelId(list[0]!.id);
-        }
-      } catch {
-        if (!cancelled) setModels([]);
-      }
+    if (modelsCatalogQuery.isPending) return;
+    if (modelsCatalogQuery.isError) {
+      setModels([]);
+      return;
     }
-    void loadModels();
-    return () => {
-      cancelled = true;
-    };
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModels([]);
+      return;
+    }
+    const list = buildVideoModelList(res);
+    setModels(list);
+    if (list.length && !list.some((m) => m.id === modelId)) {
+      setModelId(list[0]!.id);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeId]);
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+    nodeId,
+  ]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -277,9 +291,7 @@ function VideoQuickEditComposer({
       if (ac.signal.aborted) return;
       const doc = (store.getState() as any).editor?.document;
       if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
-      const detail =
-        err?.response?.data?.detail || err?.message || t('editor.tools.videoGenFail');
-      message.error(typeof detail === 'string' ? detail : t('editor.tools.videoGenFail'));
+      message.error(getHttpErrorMessage(err, t('editor.tools.videoGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);

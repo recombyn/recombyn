@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode, memo } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -9,17 +11,8 @@ import {
 } from 'react-icons/hi2';
 import { Icon } from '@/components/base/icon';
 import {
-  fetchMyLikedIds,
-  likePlazaItem,
-  unlikePlazaItem,
-} from '@/apis/me';
-import {
-  fetchPlazaFeed,
-  fetchPlazaItem,
   plazaDisplayCoverUrls,
-  recordPlazaUse,
-  type PlazaCategoryFilter,
-} from '@/apis/plaza';
+} from '@/models/plaza';
 import {
   caseAuthorLabel,
   resolveCasePrompt,
@@ -35,40 +28,47 @@ import { FlowScrollSection } from '@/components/home/FlowScrollSection';
 import SegmentTabs from '@/components/home/SegmentTabs';
 import { Dropdown, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
+import { apiQuery } from '@/service/client';
 import { cn } from '@/utils/classnames';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { imageSrcToFile } from '@/utils/uploadImage';
-
-/** Dedupe StrictMode double-mount + remount within the same session. */
-let likedIdsCacheUserId: string | null = null;
-let likedIdsCache: string[] = [];
-let likedIdsInflight: Promise<string[]> | null = null;
-
-async function loadLikedIdsOnce(userId: string): Promise<string[]> {
-  if (likedIdsCacheUserId === userId) return likedIdsCache;
-  if (likedIdsInflight) return likedIdsInflight;
-  likedIdsInflight = (async () => {
-    try {
-      const likedRes = await fetchMyLikedIds();
-      likedIdsCache = likedRes.ids || [];
-      likedIdsCacheUserId = userId;
-      return likedIdsCache;
-    } finally {
-      likedIdsInflight = null;
-    }
-  })();
-  return likedIdsInflight;
-}
 
 type Props = {
   onOpenCase: (meta: OfficialCaseMeta) => void;
   disabled?: boolean;
 };
 
-type PlazaTab = PlazaCategoryFilter;
-
-const TABS: PlazaTab[] = ['all', 'poster', 'mobile', 'image', 'video'];
+const TABS = ['all', 'poster', 'mobile', 'image', 'video'] as const;
+type PlazaTab = (typeof TABS)[number];
 const PAGE_SIZE = 12;
+
+const plazaCategoryParser = parseAsStringLiteral(TABS)
+  .withDefault('all')
+  .withOptions({ history: 'replace', clearOnDefault: true });
+
+type PlazaFeedItem = {
+  id: string;
+  userId?: string;
+  title: string;
+  category: string;
+  authorName: string;
+  authorAvatar?: string | null;
+  coverDocument?: unknown | null;
+  thumbnailUrl?: string | string[] | null;
+  customCoverImageUrl?: string | null;
+  panelUrls?: Array<{ id: string; name?: string; url: string }> | null;
+  createdAt: number;
+  likeCount?: number;
+  useCount?: number;
+  updatedAt?: number;
+  document?: unknown | null;
+};
+
+type PlazaFeedPage = {
+  items?: PlazaFeedItem[];
+  hasMore?: boolean;
+  page?: number;
+};
 
 function formatStatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
@@ -100,7 +100,7 @@ async function copyImageToClipboard(url: string): Promise<boolean> {
   const src = String(url || '').trim();
   if (!src) return false;
   try {
-    // COS/plaza covers lack browser CORS — go through /api/v1/uploads/content.
+    // COS/plaza covers lack browser CORS 鈥?go through /api/v1/uploads/content.
     const file = await imageSrcToFile(src, 'inspiration.png');
     const type = file.type && file.type.startsWith('image/') ? file.type : 'image/png';
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
@@ -119,22 +119,7 @@ async function copyImageToClipboard(url: string): Promise<boolean> {
   }
 }
 
-function feedToMeta(item: {
-  id: string;
-  userId?: string;
-  title: string;
-  category: string;
-  authorName: string;
-  authorAvatar?: string | null;
-  coverDocument?: unknown | null;
-  thumbnailUrl?: string | string[] | null;
-  customCoverImageUrl?: string | null;
-  panelUrls?: Array<{ id: string; name?: string; url: string }> | null;
-  createdAt: number;
-  likeCount?: number;
-  useCount?: number;
-  updatedAt?: number;
-}): OfficialCaseMeta {
+function feedToMeta(item: PlazaFeedItem): OfficialCaseMeta {
   const urls = plazaDisplayCoverUrls(item);
   return {
     id: item.id,
@@ -165,6 +150,16 @@ function resolveNextLikeCount(
   const base = current;
   if (nowLiked) return wasLiked ? base : base + 1;
   return wasLiked ? Math.max(0, base - 1) : base;
+}
+
+function httpStatusFromError(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const anyErr = err as {
+    status?: number;
+    response?: { status?: number };
+    data?: { status?: number };
+  };
+  return anyErr.status ?? anyErr.response?.status ?? anyErr.data?.status;
 }
 
 function InspirationCaseCard({
@@ -220,12 +215,14 @@ function InspirationCaseCard({
         message.success(t('home.cases.promptCopied'));
         async function recordPlazaUseAfterPromptCopy() {
           try {
-            await recordPlazaUse(meta.id);
+            await apiQuery.plazaPlazaItemUse.call({
+              params: { submission_id: meta.id },
+            });
           } catch {
             /* ignore */
           }
         }
-        void recordPlazaUseAfterPromptCopy();
+        recordPlazaUseAfterPromptCopy();
       } else {
         message.error(t('home.cases.copyFailed'));
       }
@@ -242,12 +239,14 @@ function InspirationCaseCard({
         message.success(t('home.cases.imageCopied'));
         async function recordPlazaUseAfterImageCopy() {
           try {
-            await recordPlazaUse(meta.id);
+            await apiQuery.plazaPlazaItemUse.call({
+              params: { submission_id: meta.id },
+            });
           } catch {
             /* ignore */
           }
         }
-        void recordPlazaUseAfterImageCopy();
+        recordPlazaUseAfterImageCopy();
       } else {
         message.error(t('home.cases.copyFailed'));
       }
@@ -273,7 +272,7 @@ function InspirationCaseCard({
           version={Number(meta.updatedAt) || Number(meta.createdAt) || undefined}
           layout="flow"
         >
-          {/* Hover title — bottom scrim gradient (see plaza showcase covers). */}
+          {/* Hover title 鈥?bottom scrim gradient (see plaza showcase covers). */}
           <span
             className={cn(
               'pointer-events-none absolute inset-x-0 bottom-0 z-10',
@@ -289,7 +288,7 @@ function InspirationCaseCard({
         </PlazaCoverThumb>
       </button>
 
-      {/* Flow footer — avatar + author; like + use (prompt/image) menu. */}
+      {/* Flow footer 鈥?avatar + author; like + use (prompt/image) menu. */}
       <div className="mt-2 flex items-center gap-2">
         <button
           type="button"
@@ -321,7 +320,7 @@ function InspirationCaseCard({
             aria-pressed={liked}
             aria-label={liked ? t('home.cases.unlike') : t('home.cases.like')}
             disabled={likeBusy}
-            onClick={(e) => void onToggleLike(meta, e)}
+            onClick={(e) => onToggleLike(meta, e)}
             className={cn(
               'inline-flex items-center gap-0.5 transition hover:text-[var(--ink)] disabled:opacity-50',
               liked && 'text-[#e11d48]'
@@ -360,134 +359,115 @@ function InspirationCaseCard({
 function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const user = useSelector((s: any) => s.auth?.user);
   const userId = user?.id as string | undefined;
-  const [tab, setTab] = useState<PlazaTab>('all');
-  const [cases, setCases] = useState<OfficialCaseMeta[]>([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [docs, setDocs] = useState<Record<string, unknown>>({});
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [tab, setTab] = useQueryState('category', plazaCategoryParser);
   const [openingId, setOpeningId] = useState<string | null>(null);
-  const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set());
   const [likeBusyId, setLikeBusyId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const fetchGen = useRef(0);
 
-  useEffect(() => {
-    if (!userId) {
-      setLikedIds(new Set());
-      return;
-    }
-    let cancelled = false;
-    async function hydrateLikedIds() {
-      try {
-        const ids = await loadLikedIdsOnce(userId!);
-        if (!cancelled) setLikedIds(new Set(ids));
-      } catch {
-        if (!cancelled) setLikedIds(new Set());
-      }
-    }
-    void hydrateLikedIds();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-
-  const loadPage = useCallback(
-    async (nextTab: PlazaTab, nextPage: number, append: boolean) => {
-      const gen = ++fetchGen.current;
-      if (append) setLoadingMore(true);
-      else setLoading(true);
-      try {
-        const feedParams: {
-          page: number;
-          pageSize: number;
-          tab: 'latest';
-          category?: string;
-        } = {
-          page: nextPage,
-          pageSize: PAGE_SIZE,
-          tab: 'latest',
-        };
-        if (nextTab && nextTab !== 'all') feedParams.category = nextTab;
-        const feed = await fetchPlazaFeed(feedParams);
-        if (gen !== fetchGen.current) return;
-        const mapped = (feed.items || []).map(feedToMeta);
-        setCases((prev) => (append ? [...prev, ...mapped] : mapped));
-        setPage(nextPage);
-        setHasMore(Boolean(feed.hasMore));
-        if (!append) setDocs({});
-      } catch (err) {
-        if (gen !== fetchGen.current) return;
-        // Empty feed is success — only real HTTP errors toast. Network/proxy
-        // failures (API still starting) show EmptyState without alarm toast.
-        if (!append) {
-          setCases([]);
-          setHasMore(false);
-        }
-        const status = (err as { response?: { status?: number } })?.response?.status;
-        if (status) message.error(t('home.casesLoadFailed'));
-      } finally {
-        if (gen === fetchGen.current) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
-      }
-    },
-    [t]
+  const likedQuery = useQuery(
+    apiQuery.meMeLikedIds.queryOptions({
+      enabled: !!userId,
+    })
   );
 
-  // First enter Inspiration — one feed page (no per-item document calls).
-  useEffect(() => {
-    void loadPage(tab, 1, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount hydrate only; tabs load via click
-  }, []);
+  const feedQuery = useInfiniteQuery(
+    apiQuery.plazaPlazaFeed.infiniteOptions({
+      input: (page: number) => ({
+        query: {
+          page,
+          pageSize: PAGE_SIZE,
+          tab: 'latest',
+          ...(tab !== 'all' ? { category: tab } : {}),
+        },
+      }),
+      initialPageParam: 1,
+      getNextPageParam: (last: unknown) => {
+        const page = last as PlazaFeedPage;
+        return page?.hasMore ? (page.page || 0) + 1 : undefined;
+      },
+    })
+  );
 
-  const onLoadMore = useCallback(() => {
-    if (!hasMore || loading || loadingMore) return;
-    void loadPage(tab, page + 1, true);
-  }, [hasMore, loading, loadingMore, loadPage, page, tab]);
+  const previewQuery = useQuery(
+    apiQuery.plazaPlazaItem.queryOptions({
+      input: { params: { submission_id: previewId || '' } },
+      enabled: Boolean(previewId),
+    })
+  );
 
-  // Document JSON only when preview opens (not for list thumbnails).
   useEffect(() => {
-    if (!previewId) return;
-    if (docs[previewId] !== undefined) return;
-    let cancelled = false;
-    const meta = cases.find((c) => c.id === previewId);
-    if (!meta) return;
-    async function loadPreviewDoc() {
-      try {
-        const res = await fetchPlazaItem(meta.id);
-        if (cancelled) return;
-        const item = res.item;
-        setDocs((prev) =>
-          prev[previewId] !== undefined ? prev : { ...prev, [previewId]: item.document ?? null }
-        );
-        if (Array.isArray(item.panelUrls) && item.panelUrls.length) {
-          setCases((prev) =>
-            prev.map((c) =>
-              c.id === previewId ? { ...c, panelUrls: item.panelUrls ?? null } : c
-            )
-          );
-        }
-      } catch {
-        if (cancelled) return;
-        setDocs((prev) => (prev[previewId] !== undefined ? prev : { ...prev, [previewId]: null }));
-      }
-    }
-    void loadPreviewDoc();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewId]);
+    if (!feedQuery.isError) return;
+    const status = httpStatusFromError(feedQuery.error);
+    if (status) message.error(t('home.casesLoadFailed'));
+  }, [feedQuery.isError, feedQuery.error, t]);
+
+  const likedIds = useMemo(() => {
+    if (!userId) return new Set<string>();
+    const ids = (likedQuery.data as { ids?: string[] } | undefined)?.ids || [];
+    return new Set(ids);
+  }, [likedQuery.data, userId]);
+
+  const cases = useMemo(() => {
+    const pages = (feedQuery.data?.pages || []) as PlazaFeedPage[];
+    return pages.flatMap((p) => (p.items || []).map(feedToMeta));
+  }, [feedQuery.data]);
 
   const previewMeta = useMemo(
     () => (previewId ? cases.find((c) => c.id === previewId) || null : null),
     [cases, previewId]
   );
+
+  const previewItem = (previewQuery.data as { item?: PlazaFeedItem } | undefined)?.item;
+  const previewDocument =
+    previewItem && previewId && previewItem.id === previewId
+      ? (previewItem.document ?? null)
+      : null;
+  const previewPanelUrls =
+    previewItem && previewId && previewItem.id === previewId && Array.isArray(previewItem.panelUrls)
+      ? previewItem.panelUrls
+      : null;
+
+  const displayPreviewMeta = useMemo(() => {
+    if (!previewMeta) return null;
+    if (!previewPanelUrls?.length) return previewMeta;
+    return { ...previewMeta, panelUrls: previewPanelUrls };
+  }, [previewMeta, previewPanelUrls]);
+
+  const feedInfiniteKey = apiQuery.plazaPlazaFeed.infiniteKey({
+    input: (page: number) => ({
+      query: {
+        page,
+        pageSize: PAGE_SIZE,
+        tab: 'latest',
+        ...(tab !== 'all' ? { category: tab } : {}),
+      },
+    }),
+    initialPageParam: 1,
+  });
+
+  function patchFeedItem(
+    submissionId: string,
+    patch: (item: PlazaFeedItem) => PlazaFeedItem
+  ) {
+    queryClient.setQueryData(feedInfiniteKey, (old) => {
+      if (!old?.pages) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page) => {
+          const feedPage = page as PlazaFeedPage;
+          return {
+            ...feedPage,
+            items: (feedPage.items || []).map((item) =>
+              item.id === submissionId ? patch(item) : item
+            ),
+          };
+        }),
+      };
+    });
+  }
 
   const openPreview = (meta: OfficialCaseMeta) => {
     if (disabled) return;
@@ -500,19 +480,19 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
     try {
       async function trackRemixUse() {
         try {
-          const res = await recordPlazaUse(meta.id);
+          const res = (await apiQuery.plazaPlazaItemUse.call({
+            params: { submission_id: meta.id },
+          })) as { useCount?: number };
           const n = Number(res.useCount);
           if (!Number.isFinite(n)) return;
-          setCases((prev) =>
-            prev.map((c) => (c.id === meta.id ? { ...c, useCount: n } : c))
-          );
+          patchFeedItem(meta.id, (item) => ({ ...item, useCount: n }));
         } catch {
           /* ignore */
         }
       }
-      void trackRemixUse();
+      trackRemixUse();
       setPreviewId(null);
-      // Skill chip → chat; blank canvas (handled by HomePage). No document clone.
+      // Skill chip 鈫?chat; blank canvas (handled by HomePage). No document clone.
       onOpenCase(meta);
     } catch {
       message.error(t('home.casesOpenFailed'));
@@ -520,6 +500,47 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
       setOpeningId(null);
     }
   };
+
+  const toggleLikeMutation = useMutation({
+    mutationFn: async (meta: OfficialCaseMeta) => {
+      const wasLiked = likedIds.has(meta.id);
+      const input = { params: { submission_id: meta.id } };
+      const res = (await (wasLiked
+        ? apiQuery.meMeUnlike.call(input)
+        : apiQuery.meMeLike.call(input))) as {
+        liked?: boolean;
+        likeCount?: number;
+      };
+      return { meta, wasLiked, res };
+    },
+    onSuccess: ({ meta, wasLiked, res }) => {
+      const nowLiked = Boolean(res?.liked);
+      const serverCount = Number(res?.likeCount);
+      queryClient.setQueryData(apiQuery.meMeLikedIds.queryKey(), (old: unknown) => {
+        const prev = old as { ids?: string[] } | undefined;
+        const next = new Set(prev?.ids || []);
+        if (nowLiked) next.add(meta.id);
+        else next.delete(meta.id);
+        return { ...(prev && typeof prev === 'object' ? prev : {}), ids: [...next] };
+      });
+      patchFeedItem(meta.id, (item) => ({
+        ...item,
+        likeCount: resolveNextLikeCount(
+          Number(item.likeCount) || 0,
+          wasLiked,
+          nowLiked,
+          serverCount
+        ),
+      }));
+      message.success(nowLiked ? t('home.cases.likedToast') : t('home.cases.unlikedToast'));
+    },
+    onError: () => {
+      message.error(t('home.casesLoadFailed'));
+    },
+    onSettled: () => {
+      setLikeBusyId(null);
+    },
+  });
 
   const onToggleLike = async (meta: OfficialCaseMeta, e?: MouseEvent) => {
     e?.preventDefault();
@@ -530,48 +551,23 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
       return;
     }
     if (likeBusyId === meta.id) return;
-    const wasLiked = likedIds.has(meta.id);
     setLikeBusyId(meta.id);
-    try {
-      const res = await (wasLiked ? unlikePlazaItem(meta.id) : likePlazaItem(meta.id));
-      const nowLiked = Boolean(res?.liked);
-      const serverCount = Number(res?.likeCount);
-      setLikedIds((prev) => {
-        const next = new Set(prev);
-        if (nowLiked) next.add(meta.id);
-        else next.delete(meta.id);
-        return next;
-      });
-      setCases((prev) =>
-        prev.map((c) => {
-          if (c.id !== meta.id) return c;
-          return {
-            ...c,
-            likeCount: resolveNextLikeCount(
-              Number(c.likeCount) || 0,
-              wasLiked,
-              nowLiked,
-              serverCount
-            ),
-          };
-        })
-      );
-      message.success(nowLiked ? t('home.cases.likedToast') : t('home.cases.unlikedToast'));
-    } catch {
-      message.error(t('home.casesLoadFailed'));
-    } finally {
-      setLikeBusyId(null);
-    }
+    await toggleLikeMutation.mutateAsync(meta);
   };
 
   const onTabClick = (next: PlazaTab) => {
     if (next === tab) return;
-    setCases([]);
-    setHasMore(false);
-    setPage(1);
-    setTab(next);
-    void loadPage(next, 1, false);
+    void setTab(next);
   };
+
+  const onLoadMore = () => {
+    if (!feedQuery.hasNextPage || feedQuery.isPending || feedQuery.isFetchingNextPage) return;
+    feedQuery.fetchNextPage();
+  };
+
+  const loading = feedQuery.isPending;
+  const loadingMore = feedQuery.isFetchingNextPage;
+  const hasMore = Boolean(feedQuery.hasNextPage);
 
   return (
     <section className="w-full min-w-0">
@@ -595,34 +591,40 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
         isEmpty={cases.length === 0}
         empty={<EmptyState hint={t('home.cases.empty')} />}
       >
-        {cases.map((c) => (
-          <InspirationCaseCard
-            key={c.id}
-            meta={c}
-            liked={likedIds.has(c.id)}
-            likes={Math.max(0, Number(c.likeCount) || 0)}
-            title={resolveCaseTitle(c, t)}
-            author={caseAuthorLabel(c, t)}
-            disabled={disabled}
-            likeBusy={likeBusyId === c.id}
-            onOpenPreview={openPreview}
-            onToggleLike={onToggleLike}
-            t={t}
-          />
-        ))}
+        {cases.map((c) => {
+          const meta =
+            previewId === c.id && previewPanelUrls?.length
+              ? { ...c, panelUrls: previewPanelUrls }
+              : c;
+          return (
+            <InspirationCaseCard
+              key={c.id}
+              meta={meta}
+              liked={likedIds.has(c.id)}
+              likes={Math.max(0, Number(c.likeCount) || 0)}
+              title={resolveCaseTitle(c, t)}
+              author={caseAuthorLabel(c, t)}
+              disabled={disabled}
+              likeBusy={likeBusyId === c.id}
+              onOpenPreview={openPreview}
+              onToggleLike={onToggleLike}
+              t={t}
+            />
+          );
+        })}
       </FlowScrollSection>
 
       <InspirationCasePreview
-        open={!!previewMeta}
-        caseMeta={previewMeta}
-        projectDocument={previewMeta ? docs[previewMeta.id] ?? null : null}
+        open={!!displayPreviewMeta}
+        caseMeta={displayPreviewMeta}
+        projectDocument={displayPreviewMeta ? previewDocument : null}
         likedIds={likedIds}
-        likeBusy={!!previewMeta && likeBusyId === previewMeta.id}
+        likeBusy={!!displayPreviewMeta && likeBusyId === displayPreviewMeta.id}
         remixing={!!openingId}
         onClose={() => {
           setPreviewId(null);
         }}
-        onRemix={(meta) => void remix(meta)}
+        onRemix={(meta) => remix(meta)}
         onToggleLike={(meta) => onToggleLike(meta)}
       />
     </section>

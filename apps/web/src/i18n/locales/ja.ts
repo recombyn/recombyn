@@ -757,6 +757,13 @@ const ja = {
   editor: {
     save: '保存',
     preview: 'プレビュー',
+    revisionConflictTitle: 'クラウドに新しい版があります',
+    revisionConflictBody:
+      'このプロジェクトは別の場所で新しいリビジョンとして保存されています。クラウド版を読み込むか、ローカル編集でクラウドを上書きしてください。',
+    revisionConflictCollabBody:
+      '共同編集中にクラウドのリビジョンが変わりました。クラウドのスナップショットを読み込むか、現在のルーム文書をプッシュしてください。',
+    revisionConflictAdopt: 'クラウドを読み込む',
+    revisionConflictOverwrite: 'ローカルを残す',
     undo: '元に戻す',
     redo: 'やり直す',
     zoomIn: '拡大',
@@ -937,6 +944,7 @@ const ja = {
       polygon: '多角形',
       star: '星',
       uploadImage: '画像アップロード',
+      uploadVideo: '動画アップロード',
       uploadMedia: 'ファイルをアップロード',
       audio: '音声',
       imageGenerator: '画像ジェネレーター',
@@ -1401,8 +1409,6 @@ const ja = {
     activityLookupDoneCount: 'デザインパラメータを確認しました',
     lookupKindSkill: 'スキルパック',
     lookupKindRule: 'デザインルール',
-    lookupKindKnowledge: 'シーン知識',
-    lookupKindAesthetics: 'デザイントークン分析',
     lookupGate: '描画前に材料を検索',
     stageLookup: 'デザインパラメータを確認',
     stageScene: 'キャンバスを確認しました',
@@ -1420,6 +1426,7 @@ const ja = {
     canvasProcessThinking: '要望を理解中…',
     canvasProcessExploring: 'デザインパラメータを確認中…',
     canvasProcessEditing: 'キャンバスを更新中…',
+    canvasProcessReviewing: 'デザインをレビュー中…',
     replied: '返信済み',
     taskCompleteNamed: '{{name}} がタスクを完了しました',
     intentAnalyzed: '意図：{{summary}}',

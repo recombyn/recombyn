@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode, memo } from 'react';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { parseAsString, parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useDispatch, useSelector } from 'react-redux';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineBell,
@@ -15,9 +17,7 @@ import { LuUserRound } from 'react-icons/lu';
 import { Dropdown, Tooltip } from '@/components/base';
 import AppLogo from '@/components/base/AppLogo';
 import { Icon } from '@/components/base/icon';
-import type { PaginatedProjects } from '@/apis/projects';
 import HomeHero from '@/components/home/HomeHero';
-import { request } from '@/utils/request';
 import InspirationSection from '@/components/home/InspirationSection';
 import MePage from '@/components/home/MePage';
 import RecentProjectsSection from '@/components/home/RecentProjectsSection';
@@ -26,12 +26,14 @@ import type { HomeAgentSubmitPayload } from '@/components/home/HomeAgentComposer
 import type { OfficialCaseMeta } from '@/utils/officialCases';
 import TemplateGrid from '@/components/templates/TemplateGrid';
 import { flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
+import { clearProjectsLibrary } from '@/store/modules/editor';
+import { apiQuery } from '@/service/client';
 import {
-  appendRemoteProjects,
-  clearProjectsLibrary,
-  hydrateRemoteProjects,
-} from '@/store/modules/editor';
-import { isOwnedTemplate } from '@/utils/templatesStorage';
+  clearProjectsListCache,
+  type PaginatedProjects,
+  type ProjectSummaryDto,
+} from '@/service/projects';
+import { normalizeProjectThumbnailUrls, collageOrSingleThumb } from '@/utils/projectThumb';
 import { getToken } from '@/utils/token';
 import { docsUrl, openExternalUrl } from '@/utils/docsUrl';
 import { buildLoginUrl } from '@/utils/authReturnTo';
@@ -40,6 +42,73 @@ import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
 const PROJECT_PAGE_SIZE = 20;
+
+const HOME_NAV_KEYS = ['home', 'mine', 'account', 'skills'] as const;
+type HomeNavKey = (typeof HOME_NAV_KEYS)[number];
+
+function parseHomeNavParam(raw: string | null | undefined): HomeNavKey {
+  if (raw === 'mine' || raw === 'account' || raw === 'skills' || raw === 'home') return raw;
+  // Legacy location.state / typo — bounce to home.
+  return 'home';
+}
+
+function homeLoginReturnPath(nav: HomeNavKey): string {
+  if (nav === 'home') return '/home';
+  return `/home?nav=${nav}`;
+}
+
+const homeNavParser = parseAsStringLiteral(HOME_NAV_KEYS)
+  .withDefault('home')
+  .withOptions({ history: 'replace', clearOnDefault: true });
+
+const homeQueryParser = parseAsString
+  .withDefault('')
+  .withOptions({ history: 'replace', clearOnDefault: true, throttleMs: 200 });
+
+/** List card shape for Home recent / Mine grid — mapped from Query, not Redux. */
+type ProjectListItem = {
+  id: string;
+  name: string;
+  thumbnail: string | string[] | null;
+  thumbnailCustom?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  openedAt: number;
+  source: 'user';
+  remoteOnly: boolean;
+};
+
+function projectSummaryToListItem(row: ProjectSummaryDto): ProjectListItem {
+  const thumbs = normalizeProjectThumbnailUrls(row.thumbnailUrl, row.updatedAt);
+  return {
+    id: row.id,
+    name: row.name || 'Untitled',
+    thumbnail: collageOrSingleThumb(thumbs),
+    thumbnailCustom: Boolean(row.thumbnailCustom),
+    createdAt: row.createdAt || row.updatedAt || Date.now(),
+    updatedAt: row.updatedAt || row.createdAt || Date.now(),
+    openedAt: row.updatedAt || row.createdAt || Date.now(),
+    source: 'user',
+    remoteOnly: Boolean(row.hasDocument),
+  };
+}
+
+function mergeProjectPages(pages: unknown[] | undefined): {
+  items: ProjectListItem[];
+  total: number;
+} {
+  if (!pages?.length) return { items: [], total: 0 };
+  const items: ProjectListItem[] = [];
+  let total = 0;
+  for (const raw of pages) {
+    const page = raw as PaginatedProjects;
+    for (const row of page.projects || []) {
+      if (row?.id) items.push(projectSummaryToListItem(row));
+    }
+    if (Number.isFinite(Number(page.total))) total = Number(page.total);
+  }
+  return { items, total: total || items.length };
+}
 
 type Props = {
   nav: string;
@@ -67,14 +136,14 @@ const RAIL_HELP_WIKI =
 
 function handleRailHelpClick(key: string) {
   if (key === 'guide') {
-    void openExternalUrl(docsUrl('/guide/getting-started'));
+    openExternalUrl(docsUrl('/guide/getting-started'));
     return;
   }
   if (key === 'contact') {
-    void openExternalUrl('mailto:702680355@qq.com');
+    openExternalUrl('mailto:702680355@qq.com');
     return;
   }
-  void openExternalUrl(RAIL_HELP_WIKI);
+  openExternalUrl(RAIL_HELP_WIKI);
 }
 
 function RailGlyph({ children }: { children: ReactNode }) {
@@ -190,8 +259,21 @@ function RailHelpMenu() {
   );
 }
 
-/** Side rail click → HomeTemplateList force-refetch (same file; avoid prop drilling). */
+/** Side rail / top bar → force-refetch project list (same file; avoid prop drilling). */
 let openProjectsListHandler: (() => void) | null = null;
+let remountMeHandler: (() => void) | null = null;
+let remountSkillsHandler: (() => void) | null = null;
+
+/** Re-fetch Home / Projects list (no session cache). */
+export function refreshHomeProjectsList() {
+  openProjectsListHandler?.();
+}
+
+/** Remount Me / Skills so they refetch (no session cache). */
+export function refreshHomeNavPanel(id: 'account' | 'skills') {
+  if (id === 'account') remountMeHandler?.();
+  else remountSkillsHandler?.();
+}
 
 /** Side rail — logo, Add, nav icons; help (?) stays at the bottom. */
 function HomeSidebar({
@@ -213,12 +295,16 @@ function HomeSidebar({
 
   const goNav = (id: 'home' | 'mine' | 'account' | 'skills') => {
     if ((id === 'mine' || id === 'account' || id === 'skills') && !authed) {
-      navigate(buildLoginUrl('/home'));
+      navigate(buildLoginUrl(homeLoginReturnPath(id)));
       return;
     }
-    // Already on Projects — effect won't re-run; force list refresh on click.
-    if (id === 'mine' && nav === 'mine') {
+    // Already on a list panel — effect won't re-run; force refresh on click.
+    if ((id === 'home' || id === 'mine') && nav === id) {
       openProjectsListHandler?.();
+      return;
+    }
+    if ((id === 'account' || id === 'skills') && nav === id) {
+      refreshHomeNavPanel(id);
       return;
     }
     setNav(id);
@@ -339,171 +425,128 @@ function HomeTemplateList({
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const templates = useSelector((state: any) => state.editor.templates);
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
   // Token is in localStorage only — Redux has no auth.token field.
   const authed = Boolean(userId && getToken());
-  /** Logged-in: skeleton until first Projects API hydrate (avoid localStorage flash). */
-  const [projectsReady, setProjectsReady] = useState(() => !authed);
-  const [projectsPage, setProjectsPage] = useState(1);
-  const [projectsHasMore, setProjectsHasMore] = useState(false);
-  const [projectsTotal, setProjectsTotal] = useState(0);
-  const [projectsLoadingMore, setProjectsLoadingMore] = useState(false);
-  const projectsFetchGen = useRef(0);
-  /** Home「最近」：同一登录会话只自动 hydrate 一次；进 Projects 点侧栏会 force 再拉. */
-  const projectsHydratedForUserRef = useRef<string | null>(null);
+  const [meMountKey, setMeMountKey] = useState(0);
+  const [skillsMountKey, setSkillsMountKey] = useState(0);
 
   /** Guest must not stay on Projects / Me — bounce home + open login. */
   useEffect(() => {
-    if (nav === 'recent') {
-      setNav('home');
-      return;
-    }
     if (authed) return;
     if (nav !== 'mine' && nav !== 'account' && nav !== 'skills') return;
+    const returnTo = homeLoginReturnPath(nav);
     setNav('home');
-    navigate(buildLoginUrl('/home'));
+    navigate(buildLoginUrl(returnTo));
   }, [authed, nav, navigate, setNav]);
 
   const showAccount = nav === 'account' && Boolean(authed);
   const showMine = nav === 'mine' && Boolean(authed);
   const showSkills = nav === 'skills' && Boolean(authed);
   const showHome = !showAccount && !showMine && !showSkills;
+  const projectsListEnabled = Boolean(authed && (showHome || showMine));
 
-  const loadProjectsFirstPage = useCallback(
-    async (opts?: { force?: boolean }) => {
-      if (!authed) return;
-      const hydrateKey = userId || 'authed';
-      // Home「最近」同一会话只拉一次；进 Projects / 侧栏点击 force 再拉。
-      if (!opts?.force && projectsHydratedForUserRef.current === hydrateKey) return;
+  // List SoT: Query pages — do not mirror the full library into Redux.
+  const projectsQuery = useInfiniteQuery({
+    ...apiQuery.projectsListMyProjects.infiniteOptions({
+      input: (pageParam: number) => ({
+        query: { page: pageParam, pageSize: PROJECT_PAGE_SIZE },
+      }),
+      initialPageParam: 1,
+      getNextPageParam: (last: unknown) => {
+        const page = last as PaginatedProjects;
+        return page?.hasMore ? (page.page || 0) + 1 : undefined;
+      },
+    }),
+    enabled: projectsListEnabled,
+  });
+  const refetchProjects = projectsQuery.refetch;
+  const projectsHasMore = Boolean(projectsQuery.hasNextPage);
+  const projectsLoadingMore = projectsQuery.isFetchingNextPage;
 
-      const gen = ++projectsFetchGen.current;
-      const showSkeleton = !projectsHydratedForUserRef.current;
-      if (showSkeleton) setProjectsReady(false);
-      setProjectsLoadingMore(false);
-      try {
-        await flushCurrentProjectNow({ force: true });
-      } catch {
-        /* list anyway */
-      }
-      if (gen !== projectsFetchGen.current) return;
-      try {
-        const res = await request<PaginatedProjects>({
-          url: '/api/v1/projects',
-          method: 'get',
-          params: { page: 1, pageSize: PROJECT_PAGE_SIZE },
-        });
-        if (gen !== projectsFetchGen.current) return;
-        dispatch(hydrateRemoteProjects(res.projects || []));
-        setProjectsPage(1);
-        setProjectsHasMore(Boolean(res.hasMore));
-        setProjectsTotal(Number(res.total) || (res.projects || []).length);
-        projectsHydratedForUserRef.current = hydrateKey;
-      } catch {
-        if (gen === projectsFetchGen.current) {
-          dispatch(hydrateRemoteProjects([]));
-          setProjectsHasMore(false);
-          setProjectsTotal(0);
-        }
-      } finally {
-        if (gen === projectsFetchGen.current) setProjectsReady(true);
-      }
-    },
-    [authed, dispatch, userId]
-  );
+  const { items: projectListItems, total: projectsTotal } = useMemo(() => {
+    // Match Me published list: keep last data in Query cache, but never render it on error.
+    if (projectsQuery.isError) return { items: [] as ProjectListItem[], total: 0 };
+    return mergeProjectPages(projectsQuery.data?.pages as unknown[] | undefined);
+  }, [projectsQuery.data?.pages, projectsQuery.isError]);
+
+  const projectsReady =
+    !authed ||
+    projectsQuery.isError ||
+    Boolean(projectsQuery.data) ||
+    !projectsQuery.isPending;
+
+  const refreshProjectsList = useCallback(async () => {
+    if (!authed) return;
+    try {
+      await flushCurrentProjectNow({ force: true });
+    } catch {
+      /* list anyway */
+    }
+    await refetchProjects();
+  }, [authed, refetchProjects]);
 
   useEffect(() => {
     openProjectsListHandler = () => {
-      void loadProjectsFirstPage({ force: true });
+      refreshProjectsList();
     };
+    remountMeHandler = () => setMeMountKey((k) => k + 1);
+    remountSkillsHandler = () => setSkillsMountKey((k) => k + 1);
     return () => {
       if (openProjectsListHandler) openProjectsListHandler = null;
+      remountMeHandler = null;
+      remountSkillsHandler = null;
     };
-  }, [loadProjectsFirstPage]);
+  }, [refreshProjectsList]);
 
   useEffect(() => {
     if (!authed) {
-      // Logged out: wipe in-memory library (hydrate([]) can keep currentId rows).
-      projectsHydratedForUserRef.current = null;
       dispatch(clearProjectsLibrary());
-      setProjectsReady(true);
-      setProjectsPage(1);
-      setProjectsHasMore(false);
-      setProjectsTotal(0);
+      clearProjectsListCache();
       return;
     }
-    // Home recent strip — first enter only (Me / Skills never hit GET /projects).
-    if (!showHome) return;
-    void loadProjectsFirstPage();
-  }, [authed, dispatch, loadProjectsFirstPage, showHome]);
-
-  // View all / deep-link into Projects (sidebar click also calls openProjectsListHandler).
-  useEffect(() => {
-    if (!showMine || !authed) return;
-    void loadProjectsFirstPage({ force: true });
-  }, [authed, loadProjectsFirstPage, showMine]);
+    if (!showHome && !showMine) return;
+    refreshProjectsList();
+    // Intentionally keyed by tab visibility — re-enter Home/Projects always refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshProjectsList stable via refetch
+  }, [authed, dispatch, showHome, showMine]);
 
   const loadMoreProjects = useCallback(() => {
     if (!authed || !projectsHasMore || projectsLoadingMore || !projectsReady) return;
-    const nextPage = projectsPage + 1;
-    const gen = projectsFetchGen.current;
-    setProjectsLoadingMore(true);
-    async function loadNextPage() {
-      try {
-        const res = await request<PaginatedProjects>({
-          url: '/api/v1/projects',
-          method: 'get',
-          params: { page: nextPage, pageSize: PROJECT_PAGE_SIZE },
-        });
-        if (gen !== projectsFetchGen.current) return;
-        dispatch(appendRemoteProjects(res.projects || []));
-        setProjectsPage(nextPage);
-        setProjectsHasMore(Boolean(res.hasMore));
-        if (Number.isFinite(Number(res.total))) setProjectsTotal(Number(res.total));
-      } catch {
-        /* keep current page; user can scroll again */
-      } finally {
-        if (gen === projectsFetchGen.current) setProjectsLoadingMore(false);
-      }
-    }
-    loadNextPage();
+    projectsQuery.fetchNextPage();
   }, [
     authed,
-    dispatch,
     projectsHasMore,
     projectsLoadingMore,
-    projectsPage,
+    projectsQuery.fetchNextPage,
     projectsReady,
   ]);
 
-  const ownedProjects = useMemo(
-    () => (templates as any[]).filter((item) => isOwnedTemplate(item)),
-    [templates]
-  );
-
   const listForGrid = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = (templates as any[]).filter((item) => isOwnedTemplate(item));
-    if (!q) return list;
-    return list.filter((item) => (item.name || '').toLowerCase().includes(q));
-  }, [templates, query]);
+    if (!q) return projectListItems;
+    return projectListItems.filter((item) =>
+      (item.name || '').toLowerCase().includes(q)
+    );
+  }, [projectListItems, query]);
 
   const homeProjectsLoading = Boolean(authed) && !projectsReady;
   const mineTitle = t('home.mine');
   const mineSkeleton = Boolean(authed) && !projectsReady;
   const mineScrollLoad = !query.trim();
+  const importBonus = importing ? 1 : 0;
   const mineDisplayCount = mineScrollLoad
-    ? projectsTotal + (importing ? 1 : 0)
-    : listForGrid.length + (importing ? 1 : 0);
+    ? projectsTotal + importBonus
+    : listForGrid.length + importBonus;
 
   return (
     <>
-      {showAccount ? <MePage onOpenCase={onOpenCase} /> : null}
+      {showAccount ? <MePage key={meMountKey} onOpenCase={onOpenCase} /> : null}
 
       {showSkills ? (
         <main className="min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-transparent">
           <div className="relative mx-auto w-full min-w-0 max-w-[1700px] px-5 pb-10 pt-16 sm:px-8 sm:pt-20 md:px-24 lg:px-[100px] xl:px-[120px]">
-            <SkillsLibraryPanel />
+            <SkillsLibraryPanel key={skillsMountKey} />
           </div>
         </main>
       ) : null}
@@ -539,13 +582,13 @@ function HomeTemplateList({
             <HomeHero onSubmit={onAgentSubmit} />
             <div className="flex flex-col space-y-6 sm:space-y-12">
               <RecentProjectsSection
-                projects={authed ? ownedProjects : []}
+                projects={authed ? projectListItems : []}
                 loading={homeProjectsLoading}
                 disabled={importing}
                 onCreate={onCreate}
                 onViewAll={() => {
                   if (!authed) {
-                    navigate(buildLoginUrl('/home'));
+                    navigate(buildLoginUrl(homeLoginReturnPath('mine')));
                     return;
                   }
                   if (nav === 'mine') openProjectsListHandler?.();
@@ -564,20 +607,17 @@ function HomeTemplateList({
 }
 
 export function useHomeNav() {
-  const location = useLocation();
-  const initial =
-    typeof (location.state as { homeNav?: string } | null)?.homeNav === 'string'
-      ? String((location.state as { homeNav?: string }).homeNav)
-      : 'home';
-  const [nav, setNav] = useState(initial);
-  const [query, setQuery] = useState('');
+  const [nav, setNavState] = useQueryState('nav', homeNavParser);
+  const [query, setQuery] = useQueryState('q', homeQueryParser);
   const [importing, setImporting] = useState(false);
   const [importingName, setImportingName] = useState('');
 
-  useEffect(() => {
-    const next = (location.state as { homeNav?: string } | null)?.homeNav;
-    if (typeof next === 'string' && next) setNav(next);
-  }, [location.state]);
+  const setNav = useCallback(
+    (id: string) => {
+      void setNavState(parseHomeNavParam(id));
+    },
+    [setNavState]
+  );
 
   return { nav, setNav, query, setQuery, importing, setImporting, importingName, setImportingName };
 }

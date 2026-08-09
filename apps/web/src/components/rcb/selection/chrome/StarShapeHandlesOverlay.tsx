@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Star shape handles.
  * World-SVG knobs — same paint contract as SelectionChrome / CornerRadius.
@@ -144,7 +145,7 @@ function starSites(width: number, height: number, sides: number, innerRatio: num
 function commitUniformRadius(opts: {
   dispatch: (a: unknown) => void;
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   radius: number;
 }) {
   const w = Math.max(1, Number(opts.node.width) || 1);
@@ -210,7 +211,7 @@ function StarShapeHandlesOverlay({
   box: SceneBox;
   angle: number;
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   toScene: (clientX: number, clientY: number) => { x: number; y: number };
   stageEl: HTMLElement | null;
   interactive?: boolean;

@@ -750,6 +750,13 @@ const zhTW = {
   editor: {
     save: '儲存',
     preview: '預覽',
+    revisionConflictTitle: '雲端有更新版本',
+    revisionConflictBody:
+      '此專案在其他地方已儲存為更新修訂。載入雲端版本，或以本機編輯覆寫雲端。',
+    revisionConflictCollabBody:
+      '協作過程中雲端修訂已變化。載入雲端快照，或將目前房間文件推送到雲端。',
+    revisionConflictAdopt: '載入雲端',
+    revisionConflictOverwrite: '保留本機',
     undo: '復原',
     redo: '重做',
     zoomIn: '放大',
@@ -930,6 +937,7 @@ const zhTW = {
       polygon: '多邊形',
       star: '星形',
       uploadImage: '圖片上傳',
+      uploadVideo: '影片上傳',
       uploadMedia: '上傳檔案',
       audio: '音訊',
       imageGenerator: '圖像生成器',
@@ -1394,8 +1402,6 @@ const zhTW = {
     activityLookupDoneCount: '已確認設計參數',
     lookupKindSkill: '技能包',
     lookupKindRule: '設計規則',
-    lookupKindKnowledge: '場景知識',
-    lookupKindAesthetics: '美學令牌分析',
     lookupGate: '先檢索材料再上畫',
     stageLookup: '確認設計參數',
     stageScene: '已確認畫布',
@@ -1413,6 +1419,7 @@ const zhTW = {
     canvasProcessThinking: '正在理解需求…',
     canvasProcessExploring: '正在確認設計參數…',
     canvasProcessEditing: '正在更新畫布…',
+    canvasProcessReviewing: '正在評審設計…',
     replied: '已回覆',
     taskCompleteNamed: '{{name}} 已完成任務',
     intentAnalyzed: '意圖：{{summary}}',

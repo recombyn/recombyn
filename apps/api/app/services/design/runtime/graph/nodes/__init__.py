@@ -13,6 +13,7 @@ from app.services.design.runtime.graph.nodes.apply import (
     _node_action,
 )
 from app.services.design.runtime.graph.nodes.observe import _node_observe
+from app.services.design.runtime.graph.nodes.review import _node_review_agent
 from app.services.design.runtime.graph.nodes.settle import _node_settle
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "_node_propose",
     "_node_action",
     "_node_observe",
+    "_node_review_agent",
     "_node_settle",
 ]

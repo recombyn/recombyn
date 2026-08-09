@@ -123,6 +123,17 @@ const Image: React.FC<ImageProps> = ({
     onClick?.(e);
   }, [isPreviewEnabled, previewOnClick, isControlledPreview, previewConfig, onClick]);
 
+  const handleContainerKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!isPreviewEnabled || !previewOnClick) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleClick(e as unknown as React.MouseEvent<HTMLDivElement>);
+      }
+    },
+    [handleClick, isPreviewEnabled, previewOnClick]
+  );
+
   const handlePreviewClose = useCallback(() => {
     if (!isControlledPreview) {
       setPreviewOpen(false);
@@ -190,6 +201,9 @@ const Image: React.FC<ImageProps> = ({
         className={cn('inline-block', className)}
         style={{ width, height, ...style }}
         onClick={handleClick}
+        onKeyDown={handleContainerKeyDown}
+        role={isPreviewEnabled && previewOnClick ? 'button' : undefined}
+        tabIndex={isPreviewEnabled && previewOnClick ? 0 : undefined}
       >
         {!loaded && placeholder && (
           <div className='flex items-center justify-center w-full h-full'>{placeholder}</div>
@@ -214,7 +228,16 @@ const Image: React.FC<ImageProps> = ({
       {isPreviewEnabled
         ? createPortal(
           <Transition appear show={currentPreviewOpen} as={Fragment} afterLeave={handleAfterLeave}>
-            <div className='fixed inset-0 z-[2500]' onClick={handlePreviewClose}>
+            <div
+              className='fixed inset-0 z-[2500]'
+              role='dialog'
+              aria-modal='true'
+              aria-label={alt || 'Image preview'}
+              onClick={handlePreviewClose}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') handlePreviewClose();
+              }}
+            >
               <Button
                 onClick={handlePreviewClose}
                 type='dark'
@@ -250,7 +273,7 @@ const Image: React.FC<ImageProps> = ({
                     src={error ? fallback : imageSrc || src}
                     alt={alt}
                     className='object-contain block pointer-events-auto'
-                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     style={{
                       display: 'block',
                       maxWidth: '700px',

@@ -11,11 +11,14 @@ import logging
 
 from app.services.design.ops.tool_ops_contract import validation_failure_reason
 from app.services.design.prompts.rules_text import _as_text
+from app.services.design.runtime.agent_profile import (
+    resolve_contract_schema,
+    resolve_tool_host,
+)
 from app.services.design.runtime.graph.state import (
     AgentRunState,
     AgentRuntime,
     GraphState,
-    PaintOpsSchema,
 )
 from app.services.design.runtime.graph.support import (
     _bump,
@@ -41,7 +44,6 @@ from app.services.design.runtime.graph.support import (
     _resolve_paint_want,
     _stream_llm_text,
 )
-from app.services.design.runtime.host import validate_paint_ops
 
 _log = logging.getLogger(__name__)
 
@@ -122,7 +124,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
                 "skill_id": None,
                 "skill_key": "paint_ops",
                 "skill_name": "Paint",
-                "category": "agent",
+                "category": "design",
                 "model": st.family,
                 "model_reason": rt.last_reason,
                 "trace_id": st.trace_id
@@ -172,7 +174,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
 
             async def _paint_structured() -> dict[str, Any]:
                 return await ainvoke_structured(
-                    schema=PaintOpsSchema,
+                    schema=resolve_contract_schema("act"),
                     messages=[{"role": "user", "content": user_content}],
                     model=st.family,
                     system=system,
@@ -263,8 +265,8 @@ async def _node_paint_ops(state: GraphState) -> Command:
         step_ops: list[dict[str, Any]] = []
         op_errors: list[str] = []
         if ops_raw:
-            # 验票：合同 + placement（不改写意图）
-            step_ops, op_errors = validate_paint_ops(
+            # 验票：合同 + placement（不改写意图）— via Profile ToolHost
+            step_ops, op_errors = resolve_tool_host().validate_ops(
                 ops_raw,
                 scene_nodes=rt.scene_nodes,
                 scene_frames=rt.scene_frames,

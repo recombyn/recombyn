@@ -1,7 +1,6 @@
-import { useRef, useState, memo } from 'react';
+﻿import { useRef, useState, memo } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import { z } from 'zod';
 import {
   createImportJob,
   getImportJob,
@@ -10,8 +9,9 @@ import {
   importPdf,
   type ImportJobResult,
   type ImportSourceType,
-} from '@/apis/import';
-import { healthCheck } from '@/apis/health';
+} from '@/service/import';
+import { healthCheck } from '@/service/health';
+import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import { message } from '@/components/base';
 import ImportFileDialog, {
   IMPORT_ACCEPT,
@@ -22,6 +22,7 @@ import HomeTopBar from '@/components/layout/HomeTopBar';
 import { HomeSidebar, HomeTemplateList, useHomeNav } from '@/components/layout/HomeBody';
 import { store } from '@/store';
 import { importDocument } from '@/store/modules/editor';
+import { parseAndValidateSceneJson } from '@/components/rcb/sceneNode';
 import { useGoEditor } from '@/utils/goEditor';
 import {
   buildPlazaStyleSkillChip,
@@ -127,83 +128,6 @@ async function importViaJob(
   throw new Error('Import job timed out');
 }
 
-/**
- * Scene document validation for JSON import (Zod.safeParse).
- * Required: width, height, deltaSetLike.ROOT.children — extra fields allowed.
- */
-
-const RootNodeSchema = z
-  .object({
-    children: z.array(z.string(), { required_error: 'ROOT.children is required' }),
-  })
-  .catchall(z.unknown());
-
-const SceneNodeSchema = z
-  .object({
-    key: z.enum(['text', 'rect', 'shape', 'image'], {
-      errorMap: () => ({ message: 'Node key must be text | rect | shape | image' }),
-    }),
-    x: z.number({ required_error: 'Node x is required' }),
-    y: z.number({ required_error: 'Node y is required' }),
-    width: z.number({ required_error: 'Node width is required' }),
-    height: z.number({ required_error: 'Node height is required' }),
-  })
-  .catchall(z.unknown());
-
-const DeltaSetLikeSchema = z
-  .object({
-    ROOT: RootNodeSchema,
-  })
-  .catchall(z.union([SceneNodeSchema, z.record(z.unknown())]));
-
-const SceneDocumentSchema = z
-  .object({
-    width: z.number({ required_error: 'width is required' }),
-    height: z.number({ required_error: 'height is required' }),
-    deltaSetLike: DeltaSetLikeSchema,
-  })
-  .catchall(z.unknown());
-
-type SceneDocumentImport = z.infer<typeof SceneDocumentSchema>;
-
-type ValidateSceneResult =
-  | { valid: true; data: SceneDocumentImport }
-  | { valid: false; error: string };
-
-/** Validate parsed JSON as a scene document. */
-function validateSceneDocument(data: unknown): ValidateSceneResult {
-  try {
-    const result = SceneDocumentSchema.safeParse(data);
-    if (result.success) {
-      return { valid: true, data: result.data };
-    }
-    const errorMessages = result.error.issues.map((err) => {
-      const path = err.path.join('.');
-      return path ? `${path}: ${err.message}` : err.message;
-    });
-    return {
-      valid: false,
-      error: `Validation failed: ${errorMessages.join('; ')}`,
-    };
-  } catch (error) {
-    return {
-      valid: false,
-      error: error instanceof Error ? error.message : 'Unknown validation error',
-    };
-  }
-}
-
-/** Parse file text → JSON → schema check. */
-function parseAndValidateSceneJson(rawText: string): ValidateSceneResult {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    return { valid: false, error: 'Invalid JSON format' };
-  }
-  return validateSceneDocument(parsed);
-}
-
 function currentProjectId(): string | undefined {
   const id = (store.getState() as any)?.editor?.currentId;
   return typeof id === 'string' && id.trim() ? id : undefined;
@@ -288,7 +212,7 @@ function HomePage() {
   };
 
   const handleOpenCase = (meta: OfficialCaseMeta) => {
-    // Blank canvas + skill chip in chat — do not clone the case document or dump prompt text.
+    // Blank canvas + skill chip in chat 鈥?do not clone the case document or dump prompt text.
     goEditor({
       createNew: true,
       fromHomeAgent: true,
@@ -365,13 +289,16 @@ function HomePage() {
       showImportWarningsIfAny(t, warnings);
       message.success(t('home.importSuccess'));
       goEditor({ projectId: currentProjectId() });
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const code = err?.code;
+    } catch (err: unknown) {
+      const status = getHttpStatus(err);
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: unknown }).code || '')
+          : '';
       if (status === 502 || status === 504 || code === 'ERR_NETWORK' || code === 'ECONNABORTED') {
         message.error(t('home.importApiDown'));
       } else {
-        message.error(err?.response?.data?.detail || err?.message || t('home.importFailed'));
+        message.error(getHttpErrorMessage(err, t('home.importFailed')));
       }
     } finally {
       setImporting(false);
@@ -403,11 +330,11 @@ function HomePage() {
       />
       {/*
         Rail is position:absolute (does not take flow width). Reserve the same 64px on md+
-        so hero/composer center in the remaining column — otherwise left gap looks tighter
+        so hero/composer center in the remaining column 鈥?otherwise left gap looks tighter
         than the right by exactly the rail width.
       */}
       <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden md:pl-[64px]">
-        <HomeTopBar setNav={setNav} />
+        <HomeTopBar nav={nav} setNav={setNav} />
         <HomeTemplateList
           nav={nav}
           setNav={setNav}

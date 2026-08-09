@@ -23,7 +23,9 @@ import {
 import GradientHandlesOverlay from '@/components/editor/nodes/ShapeNode/GradientHandlesOverlay';
 import MeshHandlesOverlay from '@/components/editor/nodes/ShapeNode/MeshHandlesOverlay';
 import { parseStrokeStyle } from '@/components/rcb/scene/document/sceneStrokeStyle';
-import { supportsSideStroke } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  supportsSideStroke
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   DEFAULT_FILL_IMAGE_ADJUST,
   fillImageFieldsFromAttrs,
@@ -42,7 +44,10 @@ import {
   inflateBoxByTextSelectionPad,
   geometryPatchForStrokeVisibilityToggle,
 } from '@/components/rcb/scene/document/sceneEffects';
-import { supportsFill, supportsCornerRadius } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  supportsFill,
+  supportsCornerRadius
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   cornerVertexCount,
   isRadiusLinked,
@@ -51,6 +56,7 @@ import {
   serializeRadiusVertices,
   vertexRadiiFromAttrs,
 } from '@/components/rcb/scene/document/sceneRadii';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
 
@@ -59,7 +65,7 @@ function resolvePanelGradient(
   fillType: 'linear' | 'radial' | 'angular' | 'diffuse',
   fillColor: unknown
 ): FillGradient {
-  const g = parseFillGradient(fillGradient, fillType, fillColor);
+  const g = parseFillGradient(fillGradient, fillType, String(fillColor ?? ''));
   g.type = fillType;
   return g;
 }
@@ -100,7 +106,7 @@ function unionBoxes(boxes: SceneBox[]): SceneBox | null {
 }
 
 /** Geometry AABB (fill / path) — gradient & mesh handles stay on this. */
-function nodeGeomBox(document: any, node: any): SceneBox | null {
+function nodeGeomBox(document: SceneDocument, node: SceneNodeInput): SceneBox | null {
   if (!node) return null;
   const { left, top } = nodeLeftTop(document, node);
   return {
@@ -112,7 +118,7 @@ function nodeGeomBox(document: any, node: any): SceneBox | null {
 }
 
 /** Painted footprint including stroke outset — dock panels outside this. */
-function nodeVisualBox(document: any, node: any): SceneBox | null {
+function nodeVisualBox(document: SceneDocument, node: SceneNodeInput): SceneBox | null {
   const geom = nodeGeomBox(document, node);
   if (!geom) return null;
   return inflateBoxByVisualOutset(inflateBoxByTextSelectionPad(geom, node), node);
@@ -255,7 +261,7 @@ function readStrokeValue(attrs: Record<string, unknown> | undefined): StrokePane
  * Fill / stroke editor docked to the right of the selection.
  * Top selection toolbar is suppressed while this is open (see SvgCanvas suppressChrome).
  */
-function ShapeStylePanelHost({ document }: { document: any }): ReactNode {
+function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNode {
   const dispatch = useDispatch();
   const camera = useRcbCamera();
   const panel = useSelector(

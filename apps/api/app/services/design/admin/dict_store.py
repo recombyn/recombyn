@@ -17,7 +17,7 @@ TYPE_CATALOG = "__types__"
 
 _DICTS_READY = False
 _DICTS_LOCK = threading.RLock()
-# Bump when data/design_dicts_seed.json gains rows (also stored as seed.rev).
+# Bump when seeds/design_dicts_seed.json gains rows (also stored as seed.rev).
 _DICT_SEED_REV = 29
 _seeded_rev = 0
 # Label lookup cache (resolve_edge_condition is identity — no per-edge DB).
@@ -32,9 +32,9 @@ def _invalidate_edge_condition_label_cache() -> None:
 
 
 def _dicts_data_path():
-    from app.core.config import resolve_data_file
+    from app.core.config import resolve_seed_file
 
-    return resolve_data_file("design_dicts_seed.json")
+    return resolve_seed_file("design_dicts_seed.json")
 
 
 def _load_dicts_seed() -> dict:

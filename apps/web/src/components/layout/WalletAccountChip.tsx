@@ -6,6 +6,7 @@ import { HiOutlineBolt, HiOutlineUser } from 'react-icons/hi2';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import UserAccountPanel, { UserAvatar } from '@/components/layout/UserAccountPanel';
+import { useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
 import { formatTokens } from '@/utils/wallet';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { isDesktopLocal } from '@/utils/apiBase';
@@ -19,10 +20,8 @@ type Props = {
 function WalletAccountChip({ className }: Props) {
   const { t } = useTranslation();
   const user = useSelector((state: any) => state.auth.user);
-  const tokens = useSelector((state: any) => state.wallet?.tokens ?? 0);
-  const billingEnabled = useSelector(
-    (state: any) => state.wallet?.billingEnabled === true
-  );
+  const { tokens } = useWalletSnapshot();
+  const billingEnabled = useBillingEnabled();
   const navigate = useNavigate();
   const [accountOpen, setAccountOpen] = useState(false);
 

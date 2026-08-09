@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   addNodeToDocument,
   createBareDocument,
-  createImageGeneratorNode,
-  stackZIndex,
+  stackZIndex
 } from '../sceneDocument';
+import {
+  createImageGeneratorNode
+} from '../nodeFactories';
 import {
   findHtmlMediaMount,
   HTML_MEDIA_MOUNT_ATTR,

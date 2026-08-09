@@ -54,7 +54,7 @@ def _rt(**kwargs) -> AgentRuntime:
 def test_structure_critique_empty_artboard(monkeypatch):
     emitted: list[dict] = []
     monkeypatch.setattr(observe_mod, "_emit", lambda ev: emitted.append(ev))
-    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda: True)
+    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda *_a, **_k: True)
     rt = _rt(
         scene_nodes=[],
         scene_frames=[{"id": "f1", "is_empty": True}],
@@ -69,7 +69,7 @@ def test_structure_critique_empty_artboard(monkeypatch):
 def test_critique_pass_when_nodes_present(monkeypatch):
     emitted: list[dict] = []
     monkeypatch.setattr(observe_mod, "_emit", lambda ev: emitted.append(ev))
-    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda: True)
+    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda *_a, **_k: True)
     monkeypatch.setattr(observe_mod, "_spatial_grounding_issues", lambda _rt: [])
     rt = _rt(
         scene_nodes=[{"id": "n1", "w": 100, "h": 40}],
@@ -101,112 +101,26 @@ def test_spatial_cramped_heuristic():
 
 
 def test_critique_disabled(monkeypatch):
-    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda: False)
+    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda *_a, **_k: False)
     rt = _rt(scene_nodes=[], scene_frames=[{"id": "f1", "is_empty": True}])
     assert observe_mod._run_post_paint_critique(rt, rt.run, round_i=0) == []
 
 
-def test_aesthetic_critique_fail_open_unavailable(monkeypatch):
-    monkeypatch.setattr(observe_mod, "_aesthetics_critique_enabled", lambda: True)
-
-    def _score(**_k):
-        return {"status": "unavailable", "pass": True}
-
-    monkeypatch.setattr(
-        "app.services.design.aesthetics.scorer.score_design_image",
-        _score,
-    )
-    assert (
-        observe_mod._aesthetic_critique_issues(
-            preview_image="data:image/jpeg;base64,xxx",
-            scene_key="website",
-        )
-        == []
-    )
 
 
-def test_aesthetic_critique_thin_corpus_no_issues(monkeypatch):
-    monkeypatch.setattr(observe_mod, "_aesthetics_critique_enabled", lambda: True)
-
-    def _score(**_k):
-        return {"status": "thin_corpus", "pass": True, "reason": "thin"}
-
-    monkeypatch.setattr(
-        "app.services.design.aesthetics.scorer.score_design_image",
-        _score,
-    )
-    assert (
-        observe_mod._aesthetic_critique_issues(
-            preview_image="data:image/jpeg;base64,xxx",
-            scene_key="website",
-        )
-        == []
-    )
 
 
-def test_aesthetic_critique_collects_gaps(monkeypatch):
-    monkeypatch.setattr(observe_mod, "_aesthetics_critique_enabled", lambda: True)
-
-    def _score(**_k):
-        return {
-            "status": "scored",
-            "pass": False,
-            "score": 0.4,
-            "threshold": 0.72,
-            "gaps": [
-                {"kind": "layout", "detail": "sparse"},
-                {"kind": "color", "hint": "dull"},
-            ],
-        }
-
-    monkeypatch.setattr(
-        "app.services.design.aesthetics.scorer.score_design_image",
-        _score,
-    )
-    issues = observe_mod._aesthetic_critique_issues(
-        preview_image="data:image/jpeg;base64,xxx",
-        scene_key="website",
-    )
-    assert any("0.40" in x or "score" in x for x in issues)
-    assert any("layout" in x for x in issues)
-
-
-def test_critique_includes_aesthetics(monkeypatch):
-    emitted: list[dict] = []
-    monkeypatch.setattr(observe_mod, "_emit", lambda ev: emitted.append(ev))
-    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda: True)
-    monkeypatch.setattr(observe_mod, "_spatial_grounding_issues", lambda _rt: [])
-    monkeypatch.setattr(
-        observe_mod,
-        "_aesthetic_critique_issues",
-        lambda **_k: ["aesthetics score 0.40 < 0.72"],
-    )
-    rt = _rt(
-        scene_nodes=[{"id": "n1", "w": 100, "h": 40}],
-        scene_frames=[{"id": "f1", "is_empty": False}],
-    )
-    issues = observe_mod._run_post_paint_critique(
-        rt, rt.run, round_i=0, preview_image="data:image/jpeg;base64,x"
-    )
-    assert any("aesthetics" in x for x in issues)
-    done = [e for e in emitted if e.get("type") == "critique_done"][-1]
-    assert done.get("has_preview") is True
-    assert done.get("ok") is False
-
-
-def test_format_critique_reflect_note_aesthetics_and_placement():
+def test_format_critique_reflect_note_craft_and_placement():
     note = observe_mod._format_critique_reflect_note(
         [
-            "aesthetics score 0.40 < 0.72",
-            "aesthetics:layout: sparse",
+            "aesthetic: sparse rhythm",
             "layout may be cramped: 3 empty regions remain",
         ]
     )
     assert "CRITIQUE" in note
-    assert "Aesthetic gaps" in note
+    assert "Visual craft" in note
     assert "Placement" in note
     assert "empty_rects" in note
-    assert "0.40" in note
 
 
 def test_layout_craft_flags_clip_emoji_contrast():
@@ -288,9 +202,8 @@ def test_format_critique_reflect_note_long_canvas_and_type():
 def test_critique_includes_layout_craft(monkeypatch):
     emitted: list[dict] = []
     monkeypatch.setattr(observe_mod, "_emit", lambda ev: emitted.append(ev))
-    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda: True)
+    monkeypatch.setattr(observe_mod, "_critique_enabled", lambda *_a, **_k: True)
     monkeypatch.setattr(observe_mod, "_spatial_grounding_issues", lambda _rt: [])
-    monkeypatch.setattr(observe_mod, "_aesthetic_critique_issues", lambda **_k: [])
     monkeypatch.setattr(observe_mod, "_poster_hero_issues", lambda _rt: [])
     rt = _rt(
         scene_frames=[{"id": "f1", "w": 300, "h": 400, "is_empty": False}],
@@ -324,12 +237,12 @@ def test_retry_paint_from_critique_sets_reflect_note(monkeypatch):
             rt,
             rt.run,
             round_i=1,
-            issues=["aesthetics score 0.35 < 0.72", "artboard looks empty"],
+            issues=["aesthetic: sparse rhythm", "artboard looks empty"],
         )
 
     cmd = asyncio.run(_run())
     assert getattr(cmd, "goto", None) == "paint_ops"
     assert "CRITIQUE" in (rt.run.reflect_note or "")
-    assert "Aesthetic gaps" in (rt.run.reflect_note or "")
+    assert "Visual craft" in (rt.run.reflect_note or "")
     assert rt.flags.get("critique_failed") is True
     assert rt.run.reflect_left == 1

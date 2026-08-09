@@ -1,14 +1,14 @@
-/**
- * Image credit estimates — Ark and OpenRouter use separate formulas.
+﻿/**
+ * Image credit estimates 鈥?Ark and OpenRouter use separate formulas.
  *
- * Ark (doubao / Seedream): 元/张; Pro may switch high-pixel tier.
- * OpenRouter: flat 元/张, or output_image_token × Gemini fixed tokens
- *   (1K/2K → 1120, 4K → 2000). Never pixel÷256.
+ * Ark (doubao / Seedream): 鍏?寮? Pro may switch high-pixel tier.
+ * OpenRouter: flat 鍏?寮? or output_image_token 脳 Gemini fixed tokens
+ *   (1K/2K 鈫?1120, 4K 鈫?2000). Never pixel梅256.
  *
- * Credits: ceil(¥/张 × 200/29 × 1.2 × count)
+ * Credits: ceil(楼/寮?脳 200/29 脳 1.2 脳 count)
  */
 
-import type { LlmModel } from '@/apis/chat';
+import type { LlmModel } from '@/service/chat';
 
 const PLUS_LIST_CNY = 29;
 const PLUS_FACE_CREDITS = 200;
@@ -91,7 +91,7 @@ function openrouterOutputTokens(
   return GEMINI_OUTPUT_TOKENS[res] || GEMINI_OUTPUT_TOKENS['2K'];
 }
 
-/** 方舟：按张；Pro 可按总像素档切换。 */
+/** 鏂硅垷锛氭寜寮狅紱Pro 鍙寜鎬诲儚绱犳。鍒囨崲銆?*/
 export function resolveArkImageUnitCny(
   model?: LlmModel | null,
   resolution?: string | null
@@ -109,7 +109,7 @@ export function resolveArkImageUnitCny(
   return parsePriceAmount(model?.price == null ? null : String(model.price));
 }
 
-/** OpenRouter：flat 元/张，或 token × 固定档。 */
+/** OpenRouter锛歠lat 鍏?寮狅紝鎴?token 脳 鍥哄畾妗ｃ€?*/
 export function resolveOpenRouterImageUnitCny(
   model?: LlmModel | null,
   resolution?: string | null
@@ -160,14 +160,14 @@ export function estimateImageCredits(
   return Math.max(1, Math.ceil(price * n * (PLUS_FACE_CREDITS / PLUS_LIST_CNY) * DEFAULT_MARKUP));
 }
 
-/** Video gen credit estimate — same ¥→积分 conversion as image; fallback 8. */
+/** Video gen credit estimate 鈥?same 楼鈫掔Н鍒?conversion as image; fallback 8. */
 export function estimateVideoCredits(model?: LlmModel | null): number {
   const price = parsePriceAmount(model?.price);
   if (price == null || price <= 0) return 8;
   return Math.max(1, Math.ceil(price * (PLUS_FACE_CREDITS / PLUS_LIST_CNY) * DEFAULT_MARKUP));
 }
 
-/** TTS / speech catalog price (元/次) → wallet 积分. */
+/** TTS / speech catalog price (鍏?娆? 鈫?wallet 绉垎. */
 export function estimateAudioCredits(model?: LlmModel | null): number {
   const price = parsePriceAmount(model?.price);
   if (price == null || price <= 0) return FALLBACK_CREDITS;
@@ -175,9 +175,9 @@ export function estimateAudioCredits(model?: LlmModel | null): number {
 }
 
 /**
- * Lottie gen credit estimate — LLM structured JSON, billed like chat tokens.
- * Matches wallet `TOKENS_PER_CREDIT` (15k billed ≈ 1 积分). Catalog chat `price`
- * is 元/百万 tokens; scale vs mid-tier ¥2.
+ * Lottie gen credit estimate 鈥?LLM structured JSON, billed like chat tokens.
+ * Matches wallet `TOKENS_PER_CREDIT` (15k billed 鈮?1 绉垎). Catalog chat `price`
+ * is 鍏?鐧句竾 tokens; scale vs mid-tier 楼2.
  */
 const LOTTIE_TOKENS_PER_CREDIT = 15_000;
 const LOTTIE_FALLBACK_CREDITS = 2;
@@ -188,7 +188,7 @@ export function estimateLottieCredits(
   durationSec = 3
 ): number {
   const sec = Math.max(0.5, Math.min(30, Number(durationSec) || 3));
-  // Bodymovin JSON is token-heavy; longer clips → denser layer estimate.
+  // Bodymovin JSON is token-heavy; longer clips 鈫?denser layer estimate.
   const estTokens = Math.round(10_000 + sec * 3_000);
   const billed = Math.ceil(estTokens * DEFAULT_MARKUP);
   let credits = Math.max(1, Math.ceil(billed / LOTTIE_TOKENS_PER_CREDIT));

@@ -9,18 +9,16 @@
  * Those live under `@/utils/*` or `@/components/*` (feature-colocated).
  *
  * Prefer component/local state unless many distant trees must share the same
- * live value (auth session, wallet balance, editor document/selection).
+ * live value (auth session, editor document/selection). Wallet lives in Query.
  */
 import { configureStore } from '@reduxjs/toolkit';
 import authReducer from './modules/auth';
 import editorReducer from './modules/editor';
-import walletReducer from './modules/wallet';
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     editor: editorReducer,
-    wallet: walletReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

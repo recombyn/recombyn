@@ -1,6 +1,6 @@
-import { FloatingPortal } from '@floating-ui/react';
+﻿import { FloatingPortal } from '@floating-ui/react';
 import type { CSSProperties } from 'react';
-import type { UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';

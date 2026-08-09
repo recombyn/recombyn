@@ -3,11 +3,11 @@
   "name": "awesome_design_md",
   "displayName": "Awesome DesignMD",
   "description": "品牌视觉参数注入：把风格系统变成可执行的设计约束",
-  "when_to_use": "需要注入品牌色板/字体/间距/圆角等视觉参数，或切换整套风格语言时加载",
+  "when_to_use": "Inject or switch a brand visual system: palette, type, radius, spacing, surface rules. Use when the user gives a style name, brand kit, or asks for a coherent look across the board.",
   "category": "brand",
   "scenes": "all",
   "sort_weight": 36,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -15,7 +15,9 @@
     "create_image",
     "update_node"
   ],
-  "allowed_resources": ["knowledge", "aesthetics", "tools"],
+  "allowed_resources": [
+    "tools"
+  ],
   "triggers": [],
   "mutex_group": "",
   "prompt_negative": "不要同时混用两套互斥风格；不要在未确认品牌参数前随意发明第二套色板。",

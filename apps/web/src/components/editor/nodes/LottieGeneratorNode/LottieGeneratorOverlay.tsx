@@ -1,9 +1,12 @@
 import { useMemo, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
-import { isLottieGeneratorNode } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isLottieGeneratorNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import LottieGeneratorCard from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorCard';
 import { EMPTY_ID_LIST } from '@/store/modules/editor';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 export type LottieGenGeomOverride = {
   left: number;
@@ -24,7 +27,7 @@ function LottieGeneratorOverlay({
   readOnly,
   geometryOverrides = null,
 }: {
-  document: any;
+  document: SceneDocument;
   /** Hide while move / resize / rotate is in progress. */
   hidden?: boolean;
   readOnly?: boolean;

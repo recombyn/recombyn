@@ -134,9 +134,9 @@ def _meta_from_agent_skill_frontmatter(
     }
 
 def _skills_seed_path() -> Path:
-    from app.core.config import resolve_data_file
+    from app.core.config import resolve_seed_file
 
-    return resolve_data_file("design_skills_seed.json")
+    return resolve_seed_file("design_skills_seed.json")
 
 def _repo_root() -> Path:
     """``apps/api`` → repository root."""
@@ -149,20 +149,20 @@ def _agents_skills_dir() -> Path:
     return _repo_root() / ".agents" / "skills"
 
 def _file_skills_dir() -> Path:
-    """Primary design_skills dir under apps/api/data/."""
-    from app.core.config import resolve_data_dir
+    """Primary design_skills dir under apps/api/seeds/."""
+    from app.core.config import resolve_seed_dir
 
-    return resolve_data_dir("design_skills")
+    return resolve_seed_dir("design_skills")
 
 def _file_skills_dirs() -> list[Path]:
-    """``.agents/skills`` + ``apps/api/data/design_skills``."""
-    from app.core.config import api_data_dir
+    """``.agents/skills`` + ``apps/api/seeds/design_skills``."""
+    from app.core.config import api_seeds_dir
 
     dirs: list[Path] = []
     seen: set[str] = set()
     for root in (
         _agents_skills_dir(),
-        api_data_dir() / "design_skills",
+        api_seeds_dir() / "design_skills",
     ):
         try:
             resolved = root.resolve()

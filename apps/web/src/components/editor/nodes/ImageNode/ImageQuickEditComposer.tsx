@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, memo } from 'react';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import { HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
-import { generateImage, listModels, type LlmModel } from '@/apis/chat';
+import { generateImage, type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   RcbOverlayPortal,
@@ -37,8 +40,8 @@ import { cloudImageFallbackId } from '@/components/editor/panels/agent/llmModelM
 import {
   listImageVariantUrls,
   writeImageVariantsAttr,
-  canAttachNodeToChat,
-} from '@/components/rcb/scene/document/sceneDocument';
+  canAttachNodeToChat
+} from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   clearCanvasAttachPick,
   closeImageToolPanel,
@@ -48,7 +51,8 @@ import {
   pushEditorHistory,
   startCanvasAttachPick,
 } from '@/store/modules/editor';
-import { FREE_IMAGE_MODEL_ID, planAllowsModelPick, type PlanId } from '@/utils/wallet';
+import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
+import { useWalletSnapshot } from '@/service/wallet';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateImageCredits } from '@/utils/imageCredits';
@@ -82,7 +86,7 @@ function ratioSummaryLabel(aspectRatio: string, t: (k: string) => string) {
   if (raw === 'smart') return t('agent.ratioSmart');
   if (/^\d+x\d+$/i.test(raw)) {
     const [a, b] = raw.toLowerCase().split('x');
-    return `${a}×${b}`;
+    return `${a}脳${b}`;
   }
   return raw || '1:1';
 }
@@ -97,7 +101,7 @@ function ImageQuickEditComposer({
   nodeId,
   box,
 }: {
-  document: any;
+  document: SceneDocument;
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
@@ -127,7 +131,7 @@ function ImageQuickEditComposer({
   const [aspectRatio, setAspectRatio] = useState(DEFAULT_IMAGE_ASPECT_RATIO);
   const [imageCount, setImageCount] = useState(DEFAULT_IMAGE_COUNT);
 
-  const planId = useSelector((s: any) => (s.wallet?.planId as PlanId) || 'free');
+  const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
   const canvasAttachPick = useSelector(
     (s: any) => s.editor?.canvasAttachPick as null | { target: string }
@@ -172,28 +176,40 @@ function ImageQuickEditComposer({
     return () => cancelAnimationFrame(id);
   }, [nodeId]);
 
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    setModelsStatus('loading');
-    async function loadModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const imgs = buildImageGeneratorModelList(res);
-        setModels(imgs);
-        setModelsStatus('ready');
-        const nextId = nextQuickEditImageModelId(imgs, modelId, canPickModel);
-        if (nextId) setModelId(nextId);
-      } catch {
-        if (!cancelled) setModelsStatus('error');
-      }
+    if (modelsCatalogQuery.isPending) {
+      setModelsStatus('loading');
+      return;
     }
-    void loadModels();
-    return () => {
-      cancelled = true;
-    };
+    if (modelsCatalogQuery.isError) {
+      setModelsStatus('error');
+      return;
+    }
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModelsStatus('error');
+      return;
+    }
+    const imgs = buildImageGeneratorModelList(res);
+    setModels(imgs);
+    setModelsStatus('ready');
+    const nextId = nextQuickEditImageModelId(imgs, modelId, canPickModel);
+    if (nextId) setModelId(nextId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per open
-  }, [nodeId, canPickModel]);
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+    nodeId,
+    canPickModel,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -323,9 +339,7 @@ function ImageQuickEditComposer({
     } catch (err: any) {
       if (ac.signal.aborted) return;
       dispatch(finishImageProcess({ nodeId }));
-      const detail =
-        err?.response?.data?.detail || err?.message || t('editor.tools.imageGenFail');
-      message.error(typeof detail === 'string' ? detail : t('editor.tools.imageGenFail'));
+      message.error(getHttpErrorMessage(err, t('editor.tools.imageGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);

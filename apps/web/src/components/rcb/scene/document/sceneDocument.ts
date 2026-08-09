@@ -1,6 +1,6 @@
+import { produce } from 'immer';
 import { nanoid } from '@reduxjs/toolkit';
-import { buildMarkdownTextAttrs, measurePlainTextSize } from './sceneText';
-import { clampShapeSides, DEFAULT_SHAPE_SIDES, DEFAULT_STAR_INNER_RATIO } from './sceneShapes';
+import type { SceneDeltaSet, SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /** Default canvas size (approx A4 @ 96dpi); user can change freely */
 export const DEFAULT_CANVAS = { width: 794, height: 1123 };
@@ -32,7 +32,7 @@ export function parseStackKey(
   return null;
 }
 
-function listRootNodeIds(doc: any): string[] {
+function listRootNodeIds(doc: SceneDocument): string[] {
   const page = Array.isArray(doc?.pages) ? doc.pages[0] : null;
   const fromPage = page?.children;
   if (Array.isArray(fromPage)) return fromPage.filter(Boolean).map(String);
@@ -45,7 +45,7 @@ function listRootNodeIds(doc: any): string[] {
  * Empty → migrate legacy paint (frames under nodes).
  * Missing frames insert under content; missing nodes append on top.
  */
-export function reconcileStackOrder(doc: any): string[] {
+export function reconcileStackOrder(doc: SceneDocument): string[] {
   if (!doc || typeof doc !== 'object') return [];
   const frameIds = (Array.isArray(doc.frames) ? doc.frames : [])
     .map((f: any) => (f?.id != null ? String(f.id) : ''))
@@ -99,7 +99,7 @@ export function reconcileStackOrder(doc: any): string[] {
 }
 
 /** 1-based CSS z-index from unified stack (0 if missing). */
-export function stackZIndex(doc: any, kind: 'frame' | 'node', id: string): number {
+export function stackZIndex(doc: SceneDocument, kind: 'frame' | 'node', id: string): number {
   const order = Array.isArray(doc?.stackOrder) ? doc.stackOrder : [];
   const key = kind === 'frame' ? stackFrameKey(id) : stackNodeKey(id);
   const i = order.indexOf(key);
@@ -137,7 +137,7 @@ function reorderKeysInList(
   return working;
 }
 
-function emptyDeltaSet() {
+function emptyDeltaSet(): SceneDeltaSet {
   return {
     ROOT: {
       id: 'ROOT',
@@ -147,13 +147,13 @@ function emptyDeltaSet() {
       width: 0,
       height: 0,
       attrs: {},
-      children: [] as string[],
+      children: [],
     },
   };
 }
 
 /** Bare infinite world (no artboard frames). */
-export function createBareDocument() {
+export function createBareDocument(): SceneDocument {
   const page = createPage();
   return {
     x: 0,
@@ -162,8 +162,8 @@ export function createBareDocument() {
     height: DEFAULT_CANVAS.height,
     // Empty → editor follows theme `--canvas` (light/dark).
     backgroundColor: '',
-    frames: [] as any[],
-    activeFrameId: null as string | null,
+    frames: [],
+    activeFrameId: null,
     pages: [page],
     activePageId: page.id,
     deltaSetLike: emptyDeltaSet(),
@@ -174,7 +174,7 @@ export function createEmptyDocument(size?: {
   width?: number;
   height?: number;
   emptyWorld?: boolean;
-}) {
+}): SceneDocument {
   if (size?.emptyWorld) return createBareDocument();
 
   const width = Math.max(100, Math.round(size?.width || DEFAULT_CANVAS.width));
@@ -186,18 +186,83 @@ export function createEmptyDocument(size?: {
     width,
     height,
     backgroundColor: '',
-    frames: [] as any[],
-    activeFrameId: null as string | null,
+    frames: [],
+    activeFrameId: null,
     pages: [page],
     activePageId: page.id,
     deltaSetLike: emptyDeltaSet(),
   };
 }
 
+/** Merge a partial node patch (attrs shallow-merge; preserve shapeType). */
+export function mergeNodePatch(prev: any, patch: any) {
+  if (!prev) return prev;
+  const { attrs, ...rest } = patch || {};
+  const prevAttrs = prev.attrs || {};
+  let nextAttrs = prevAttrs;
+  if (attrs) {
+    nextAttrs = { ...prevAttrs, ...attrs };
+    if (
+      prevAttrs.shapeType != null &&
+      (nextAttrs.shapeType == null || nextAttrs.shapeType === '')
+    ) {
+      nextAttrs.shapeType = prevAttrs.shapeType;
+    }
+  }
+  return { ...prev, ...rest, attrs: nextAttrs } as SceneNode;
+}
+
+/**
+ * Patch deltaSetLike keys with Immer structural sharing (plain objects only).
+ * Never use a custom Proxy — Redux/Immer Object.keys traps reject it.
+ *
+ * Always return an extensible shallow shell: Immer autoFreeze seals `produce`
+ * results in DEV, but normalize/add/remove still assign or delete top-level keys.
+ */
+export function patchDeltaSetLike(
+  delta: any,
+  patches: Record<string, any>
+): Record<string, any> {
+  const keys = patches ? Object.keys(patches) : [];
+  if (!keys.length) {
+    if (!delta || typeof delta !== 'object') return {};
+    return Object.isExtensible(delta) ? delta : flattenDeltaSetLike(delta);
+  }
+  const produced = produce(delta && typeof delta === 'object' ? delta : {}, (draft: any) => {
+    for (const key of keys) {
+      draft[key] = patches[key];
+    }
+  });
+  return flattenDeltaSetLike(produced);
+}
+
+/** Shallow copy for normalize/save (delta is always a plain object now). */
+export function flattenDeltaSetLike(delta: any): Record<string, any> {
+  if (!delta || typeof delta !== 'object') return {};
+  return { ...delta };
+}
+
 /** Ensure older saved docs still work; keep a single logical page for editing */
-export function normalizeDocument(doc: any) {
-  if (!doc) return createEmptyDocument({ emptyWorld: true });
-  const next = JSON.parse(JSON.stringify(doc));
+export function normalizeDocument(doc: unknown): SceneDocument {
+  if (!doc || typeof doc !== 'object') return createEmptyDocument({ emptyWorld: true });
+  const src = doc as Record<string, any>;
+  // Shallow COW shell — share node objects; never JSON deep-clone the whole map.
+  const next: any = {
+    ...src,
+    deltaSetLike: flattenDeltaSetLike(src.deltaSetLike),
+    frames: Array.isArray(src.frames) ? src.frames.slice() : [],
+    pages: Array.isArray(src.pages)
+      ? src.pages.map((p: any) =>
+          p && typeof p === 'object'
+            ? {
+                ...p,
+                children: Array.isArray(p.children) ? [...p.children] : p.children,
+              }
+            : p
+        )
+      : src.pages,
+    stackOrder: Array.isArray(src.stackOrder) ? [...src.stackOrder] : src.stackOrder,
+  };
   next.width = Math.max(100, Math.round(Number(next.width) || DEFAULT_CANVAS.width));
   next.height = Math.max(100, Math.round(Number(next.height) || DEFAULT_CANVAS.height));
   // Keep empty / legacy light defaults; EditorPage maps them to theme `--canvas`.
@@ -237,7 +302,7 @@ export function normalizeDocument(doc: any) {
 }
 
 /** Shift imported JSON so content sits in canvas-local coords (document origin cleared). */
-export function alignImportedDocumentOrigin(doc: any) {
+export function alignImportedDocumentOrigin(doc: unknown) {
   const next = normalizeDocument(doc);
   const page = getActivePage(next);
   const ids = page?.children || [];
@@ -297,7 +362,7 @@ export function alignImportedDocumentOrigin(doc: any) {
  * Ensure content is paintable at document origin 0.
  * Non-zero `document.x/y` must always be baked away — not only when off-canvas.
  */
-export function ensureDocumentContentOnCanvas(doc: any) {
+export function ensureDocumentContentOnCanvas(doc: SceneDocument) {
   const next = normalizeDocument(doc);
   const ox = Number(next.x) || 0;
   const oy = Number(next.y) || 0;
@@ -335,32 +400,32 @@ export function ensureDocumentContentOnCanvas(doc: any) {
   return alignImportedDocumentOrigin(next);
 }
 
-export function syncRootChildren(doc: any) {
+export function syncRootChildren(doc: SceneDocument) {
   const page = doc.pages?.find((p: any) => p.id === doc.activePageId) || doc.pages?.[0];
   if (!doc.deltaSetLike?.ROOT || !page) return doc;
-  doc.deltaSetLike = {
-    ...doc.deltaSetLike,
+  const root = doc.deltaSetLike.ROOT;
+  doc.deltaSetLike = patchDeltaSetLike(doc.deltaSetLike, {
     ROOT: {
-      ...doc.deltaSetLike.ROOT,
+      ...root,
       children: [...(page.children || [])],
     },
-  };
+  });
   return doc;
 }
 
-export function getActivePage(doc: any) {
+export function getActivePage(doc: SceneDocument) {
   if (!doc?.pages?.length) return null;
   return doc.pages.find((p: any) => p.id === doc.activePageId) || doc.pages[0];
 }
 
-export function setDocumentSize(doc: any, width: number, height: number) {
+export function setDocumentSize(doc: SceneDocument, width: number, height: number) {
   const next = normalizeDocument(doc);
   next.width = Math.max(100, Math.round(width) || DEFAULT_CANVAS.width);
   next.height = Math.max(100, Math.round(height) || DEFAULT_CANVAS.height);
   return next;
 }
 
-export function setDocumentCanvasMeta(doc: any, patch: Record<string, any> = {}) {
+export function setDocumentCanvasMeta(doc: SceneDocument, patch: Record<string, any> = {}) {
   const next = normalizeDocument(doc);
   if (patch.backgroundColor != null) next.backgroundColor = patch.backgroundColor;
   if (patch.backgroundFillType != null) next.backgroundFillType = patch.backgroundFillType;
@@ -379,2096 +444,13 @@ export function setDocumentCanvasMeta(doc: any, patch: Record<string, any> = {})
   return next;
 }
 
-export function createTextNode({
-  x = 40,
-  y = 40,
-  text = '',
-  width,
-  height,
-  autoSize = true,
-  fontSize,
-}: {
-  x?: number;
-  y?: number;
-  text?: string;
-  width?: number;
-  height?: number;
-  /** true = hug content; false = fixed wrap width from L/R resize or drag-create. */
-  autoSize?: boolean;
-  /** Scene-px font size (T-tool passes zoom-fitted size so high zoom is not huge). */
-  fontSize?: number;
-} = {}) {
-  const id = nanoid(10);
-  const content = String(text ?? '');
-  const style =
-    fontSize != null && Number.isFinite(fontSize) && fontSize > 0
-      ? { fontSize: Math.max(1, Number(fontSize)) }
-      : {};
-  const measured = measurePlainTextSize(content || 'M', style);
-  // Empty autoSize = caret only (tiny width). Fixed-width keeps the dragged box.
-  const w = width ?? (content ? measured.width : autoSize ? 2 : 160);
-  const h = height ?? measured.height;
-  const attrs = buildMarkdownTextAttrs(content, style);
-  (attrs as any).autoSize = autoSize ? 'true' : 'false';
-  return {
-    id,
-    node: {
-      id,
-      key: 'text',
-      x,
-      y,
-      z: 0,
-      width: w,
-      height: h,
-      attrs,
-      children: [],
-    },
-  };
-}
-
-/** shapeType: rect | line | arrow | circle | triangle | star | polygon | path | pen | pencil */
-export function createShapeNode({
-  x = 40,
-  y = 40,
-  width = 120,
-  height = 120,
-  shapeType = 'rect',
-  fill = '#FFFFFF',
-  stroke = '#333333',
-  path = '',
-  closed = false,
-  borderWidth,
-  angle = 0,
-  brushStyle,
-  brushStampSrc,
-  brushHardness,
-  pressureEnabled,
-  pathPressure,
-  sides,
-  opacity = 1,
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  shapeType?: string;
-  fill?: string;
-  stroke?: string;
-  path?: string;
-  closed?: boolean;
-  borderWidth?: number;
-  angle?: number;
-  /** Pencil tip brush id (solid / pencil-hb / calligraphy / …). */
-  brushStyle?: string;
-  /** Embedded stamp tip for custom / portable stamp brushes. */
-  brushStampSrc?: string;
-  /** Tip edge hardness 0–100 (soft→hard); stamp paint default 80. */
-  brushHardness?: number;
-  /** When false, ignore pathPressure for width modulation. */
-  pressureEnabled?: boolean;
-  /** Comma-separated 0–1 pressures aligned with path points (pencil). */
-  pathPressure?: string;
-  /** Polygon side count / star point count (default 5). */
-  sides?: number;
-  /** 0–1 node opacity (brush-time opacity for pencil). */
-  opacity?: number;
-} = {}) {
-  const op = Math.min(1, Math.max(0, Number(opacity)));
-  const opacityVal = Number.isFinite(op) ? op : 1;
-  const id = nanoid(10);
-  const strokeW =
-    borderWidth ??
-    (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'line' || shapeType === 'arrow' ? 2 : 1);
-  // Stroke panel default — center on the path (inside/outside are explicit user picks).
-  const strokeAlignDefault = 'center';
-  // Quantize to 0.5px so odd center strokes can sit outer edges on integer grid
-  // (geom = visual ± sw/2). Full integers when sw is even / inside.
-  // Pencil/pen keep exact placement: path points are relative to the padded origin;
-  // half-pixel snapping the node would shift freehand ink off the stored centerline.
-  const rawX = Number(x) || 0;
-  const rawY = Number(y) || 0;
-  const rawW = Math.max(1, Number(width) || 1);
-  const rawH = Math.max(1, Number(height) || 1);
-  const keepExactOrigin = shapeType === 'pencil' || shapeType === 'pen';
-  const ix = keepExactOrigin ? rawX : Math.round(rawX * 2) / 2;
-  const iy = keepExactOrigin ? rawY : Math.round(rawY * 2) / 2;
-  const iw = keepExactOrigin ? rawW : Math.max(1, Math.round(rawW * 2) / 2);
-  const ih = keepExactOrigin ? rawH : Math.max(1, Math.round(rawH * 2) / 2);
-  if (shapeType === 'line' || shapeType === 'arrow') {
-    return {
-      id,
-      node: {
-        id,
-        key: 'shape',
-        x: ix,
-        y: iy,
-        z: 0,
-        width: Math.max(iw, 1),
-        height: Math.max(ih, 8),
-        attrs: {
-          shapeType,
-          'border-color': stroke,
-          'border-width': strokeW,
-          strokeAlign: strokeAlignDefault,
-          'stroke-align': strokeAlignDefault,
-          'stroke-enabled': 'true',
-          'stroke-visible': 'true',
-          // Must live on this early-return path — the general branch never runs
-          // for line/arrow (panel showed Butt while paint stayed Round).
-          strokeLinecap: 'butt',
-          'stroke-linecap': 'butt',
-          strokeLinejoin: 'miter',
-          'stroke-linejoin': 'miter',
-          'fill-color': 'transparent',
-          'fill-enabled': 'false',
-          opacity: opacityVal,
-          angle: Number(angle) || 0,
-        },
-        children: [],
-      },
-    };
-  }
-
-  return {
-    id,
-    node: {
-      id,
-      key: 'shape',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        shapeType,
-        'fill-color': fill,
-        'fill-type': 'solid',
-        'border-color': stroke,
-        'border-width': strokeW,
-        strokeAlign: strokeAlignDefault,
-        'stroke-align': strokeAlignDefault,
-        'stroke-enabled': 'true',
-        'stroke-visible': 'true',
-        'fill-enabled':
-          shapeType === 'pen' || shapeType === 'pencil' || fill === 'transparent'
-            ? 'false'
-            : 'true',
-        'fill-visible':
-          shapeType === 'pen' || shapeType === 'pencil' || fill === 'transparent'
-            ? 'false'
-            : 'true',
-        L: 'true',
-        R: 'true',
-        T: 'true',
-        B: 'true',
-        opacity: opacityVal,
-        angle: Number(angle) || 0,
-        radiusTL: 0,
-        radiusTR: 0,
-        radiusBR: 0,
-        radiusBL: 0,
-        radiusLinked: 'true',
-        ...(shapeType === 'polygon' || shapeType === 'star'
-          ? { sides: clampShapeSides(sides, DEFAULT_SHAPE_SIDES) }
-          : {}),
-        ...(shapeType === 'star' ? { starInnerRatio: DEFAULT_STAR_INNER_RATIO } : {}),
-        ...(path ? { path } : {}),
-        // Persist open/closed so stroke panel can show linecap for open pens.
-        ...((shapeType === 'pen' || shapeType === 'path' || path) && {
-          closed: closed ? 'true' : 'false',
-        }),
-        // Pen / line / arrow → butt+miter (stroke panel default). Pencil stays round.
-        ...(shapeType === 'pencil' && {
-          strokeLinecap: 'round',
-          'stroke-linecap': 'round',
-          strokeLinejoin: 'round',
-          'stroke-linejoin': 'round',
-        }),
-        ...((shapeType === 'pen' || shapeType === 'line' || shapeType === 'arrow') && {
-          strokeLinecap: 'butt',
-          'stroke-linecap': 'butt',
-          strokeLinejoin: 'miter',
-          'stroke-linejoin': 'miter',
-        }),
-        ...(brushStyle ? { brushStyle } : {}),
-        ...(brushStampSrc ? { brushStampSrc } : {}),
-        ...(shapeType === 'pencil' &&
-        brushHardness != null &&
-        Number.isFinite(Number(brushHardness))
-          ? {
-              brushHardness: Math.min(
-                100,
-                Math.max(0, Math.round(Number(brushHardness)))
-              ),
-            }
-          : {}),
-        ...(shapeType === 'pencil' && pressureEnabled != null
-          ? { pressureEnabled: pressureEnabled ? true : false }
-          : {}),
-        ...(shapeType === 'pencil' && pathPressure ? { pathPressure } : {}),
-      },
-      children: [],
-    },
-  };
-}
-
-/** Read natural pixel size of an image src (data URL / http). */
-export function measureImageNaturalSize(src: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    if (!src) {
-      reject(new Error('empty image src'));
-      return;
-    }
-    const img = new Image();
-    img.onload = () => {
-      resolve({
-        width: Math.max(1, img.naturalWidth || img.width || 1),
-        height: Math.max(1, img.naturalHeight || img.height || 1),
-      });
-    };
-    img.onerror = () => reject(new Error('image load failed'));
-    img.src = src;
-  });
-}
-
-/** Read video metadata (size + duration) from a blob/object/http URL. */
-export function measureVideoNaturalSize(
-  src: string
-): Promise<{ width: number; height: number; duration: number }> {
-  return new Promise((resolve, reject) => {
-    if (!src) {
-      reject(new Error('empty video src'));
-      return;
-    }
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.muted = true;
-    video.playsInline = true;
-    let settled = false;
-    const cleanup = () => {
-      video.removeAttribute('src');
-      video.load();
-    };
-    const finish = (width: number, height: number, duration: number) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve({ width, height, duration });
-    };
-    video.onloadedmetadata = () => {
-      const width = Math.max(1, video.videoWidth || 1);
-      const height = Math.max(1, video.videoHeight || 1);
-      const raw = Number(video.duration);
-      if (Number.isFinite(raw) && raw > 0 && raw < 60 * 60 * 12) {
-        finish(width, height, raw);
-        return;
-      }
-      // Fragmented MP4s often report Infinity — seek-clamp once at upload so we can store it.
-      const onSeeked = () => {
-        video.removeEventListener('seeked', onSeeked);
-        window.clearTimeout(timer);
-        const probed = Number(video.currentTime);
-        const duration =
-          Number.isFinite(probed) && probed > 0 && probed < 60 * 60 * 12 ? probed : 0;
-        try {
-          video.currentTime = 0;
-        } catch {
-          /* ignore */
-        }
-        finish(width, height, duration);
-      };
-      const timer = window.setTimeout(() => {
-        video.removeEventListener('seeked', onSeeked);
-        const probed = Number(video.currentTime);
-        const duration =
-          Number.isFinite(probed) && probed > 0 && probed < 60 * 60 * 12 ? probed : 0;
-        try {
-          video.currentTime = 0;
-        } catch {
-          /* ignore */
-        }
-        finish(width, height, duration);
-      }, 900);
-      video.addEventListener('seeked', onSeeked);
-      try {
-        video.currentTime = 1e10;
-      } catch {
-        window.clearTimeout(timer);
-        video.removeEventListener('seeked', onSeeked);
-        finish(width, height, 0);
-      }
-    };
-    video.onerror = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error('video load failed'));
-    };
-    video.src = src;
-  });
-}
-
-/** Capture a poster frame (JPEG data URL) from a video src. */
-export function captureVideoPosterFrame(
-  src: string,
-  atSeconds = 0.1
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!src) {
-      reject(new Error('empty video src'));
-      return;
-    }
-    const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true;
-    video.playsInline = true;
-    // data/blob are same-origin; forcing anonymous breaks some blob captures.
-    if (!src.startsWith('blob:') && !src.startsWith('data:')) {
-      video.crossOrigin = 'anonymous';
-    }
-    let settled = false;
-    const fail = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error('video poster capture failed'));
-    };
-    const succeed = (url: string) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(url);
-    };
-    const timer = window.setTimeout(fail, 8000);
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      video.onerror = null;
-      video.onloadeddata = null;
-      video.onseeked = null;
-      try {
-        video.removeAttribute('src');
-        video.load();
-      } catch {
-        /* ignore */
-      }
-    };
-    const draw = () => {
-      try {
-        const w = Math.max(1, video.videoWidth || 1);
-        const h = Math.max(1, video.videoHeight || 1);
-        if (w <= 1 || h <= 1) {
-          fail();
-          return;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          fail();
-          return;
-        }
-        ctx.drawImage(video, 0, 0, w, h);
-        succeed(canvas.toDataURL('image/jpeg', 0.85));
-      } catch {
-        fail();
-      }
-    };
-    video.onerror = fail;
-    video.onloadeddata = () => {
-      try {
-        const seekTo = Math.min(
-          Math.max(0, atSeconds),
-          Math.max(0, (video.duration || 1) - 0.05)
-        );
-        if (seekTo <= 0.01 || Math.abs((Number(video.currentTime) || 0) - seekTo) <= 0.04) {
-          draw();
-          return;
-        }
-        const seekTimer = window.setTimeout(draw, 700);
-        video.onseeked = () => {
-          window.clearTimeout(seekTimer);
-          draw();
-        };
-        video.currentTime = seekTo;
-      } catch {
-        fail();
-      }
-    };
-    video.src = src;
-  });
-}
-
-/** Shared prep for canvas video place (tool strip / paste): preview, poster, size, label. */
-export async function prepareVideoUploadPreview(file: File): Promise<{
-  preview: string;
-  poster: string;
-  width: number;
-  height: number;
-  duration: number;
-  name: string;
-}> {
-  const { readFileAsDataUrl } = await import('@/utils/uploadImage');
-  const preview = await readFileAsDataUrl(file);
-  const natural = await measureVideoNaturalSize(preview);
-  let poster = '';
-  try {
-    poster = await captureVideoPosterFrame(preview);
-  } catch {
-    /* optional */
-  }
-  return {
-    preview,
-    poster,
-    width: natural.width,
-    height: natural.height,
-    duration: natural.duration,
-    name: file.name?.replace(/\.[^.]+$/, '') || 'Video',
-  };
-}
-
-/** Fit natural size into a max box while keeping aspect ratio. */
-export function fitImageSize(
-  naturalWidth: number,
-  naturalHeight: number,
-  maxSide = 280
-): { width: number; height: number } {
-  const nw = Math.max(1, naturalWidth);
-  const nh = Math.max(1, naturalHeight);
-  const scale = Math.min(maxSide / nw, maxSide / nh, 1);
-  return {
-    width: Math.max(1, Math.round(nw * scale)),
-    height: Math.max(1, Math.round(nh * scale)),
-  };
-}
-
-export function createImageNode({
-  x = 40,
-  y = 40,
-  width = 200,
-  height = 200,
-  src = '',
-  name = 'Image',
-  /** Catalog SVG icons — selection shows annotate tools, not photo AI tools. */
-  assetKind,
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  src?: string;
-  name?: string;
-  assetKind?: 'icon' | 'image';
-} = {}) {
-  const id = nanoid(10);
-  const kind = assetKind || 'image';
-  return {
-    id,
-    node: {
-      id,
-      key: 'image',
-      x,
-      y,
-      z: 0,
-      width,
-      height,
-      attrs: {
-        src,
-        name: name || (kind === 'icon' ? 'Icon' : 'Image'),
-        assetKind: kind,
-        mode: 'FIT',
-        /** Default on — drag-resize keeps width:height (Shift temporarily unlocks). */
-        lockAspect: 'true',
-        radiusTL: 0,
-        radiusTR: 0,
-        radiusBR: 0,
-        radiusBL: 0,
-        radiusLinked: 'true',
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/** Canvas image-generator plate (empty image + generator overlay until promote). */
-function attrFlagTrue(value: unknown): boolean {
-  return value === true || value === 'true' || value === 1 || value === '1';
-}
-
-export function isImageGeneratorNode(node: any): boolean {
-  return Boolean(node) && node.key === 'image' && attrFlagTrue(node.attrs?.imageGenerator);
-}
-
-/** Canvas video-generator plate (empty video + generator overlay until promote). */
-export function isVideoGeneratorNode(node: any): boolean {
-  return Boolean(node) && node.key === 'video' && attrFlagTrue(node.attrs?.videoGenerator);
-}
-
-/** Canvas Lottie-generator plate (empty lottie + composer until promote). */
-export function isLottieGeneratorNode(node: any): boolean {
-  return Boolean(node) && node.key === 'lottie' && attrFlagTrue(node.attrs?.lottieGenerator);
-}
-
-/** Canvas audio-generator plate (empty audio + composer until promote). */
-export function isAudioGeneratorNode(node: any): boolean {
-  return Boolean(node) && node.key === 'audio' && attrFlagTrue(node.attrs?.audioGenerator);
-}
-
-/** Image / video / Lottie / audio generator plates — not real scene content (no hide / lock / export). */
-export function isGeneratorNode(node: any): boolean {
-  return (
-    isImageGeneratorNode(node) ||
-    isVideoGeneratorNode(node) ||
-    isLottieGeneratorNode(node) ||
-    isAudioGeneratorNode(node)
-  );
-}
-
-export function isVideoNode(node: any): boolean {
-  return Boolean(node) && node.key === 'video' && !isVideoGeneratorNode(node);
-}
-
-/** Finished audio plate (not a generator composer). */
-export function isAudioNode(node: any): boolean {
-  return Boolean(node) && node.key === 'audio' && !isAudioGeneratorNode(node);
-}
-
-/** Layer hidden — skipped in SVG render + hit-test. */
-export function isNodeHidden(node: any): boolean {
-  return Boolean(node) && attrFlagTrue(node.attrs?.hidden);
-}
-
-/**
- * Nodes that belong in export / cover / thumbnail output.
- * Skip editor-only chrome: image/video-generator plates and in-progress process shimmer.
- */
-export function isExportableSceneNode(node: any): boolean {
-  if (!node || isNodeHidden(node)) return false;
-  if (isGeneratorNode(node)) return false;
-  if (String(node?.attrs?.processStatus || '') === 'running') return false;
-  return true;
-}
-
-/**
- * Share / public preview: drop generator plates and process-shimmer so viewers
- * only see finished scene content (same filter as export / cover).
- */
-export function documentForSharePreview(doc: any): any {
-  if (!doc?.deltaSetLike?.ROOT) return doc;
-  const delta = doc.deltaSetLike;
-  const keepId = (id: string) => isExportableSceneNode(delta[id]);
-  const rootChildren = Array.isArray(delta.ROOT.children)
-    ? delta.ROOT.children.filter(keepId)
-    : [];
-  const pages = Array.isArray(doc.pages)
-    ? doc.pages.map((p: any) => ({
-        ...p,
-        children: Array.isArray(p.children) ? p.children.filter(keepId) : p.children,
-      }))
-    : doc.pages;
-  return {
-    ...doc,
-    pages,
-    deltaSetLike: {
-      ...delta,
-      ROOT: { ...delta.ROOT, children: rootChildren },
-    },
-  };
-}
-
-/** True while an image job (upload / remove-bg / …) shows the loading shimmer. */
-export function isImageProcessRunning(node: any): boolean {
-  return Boolean(node) && String(node?.attrs?.processStatus || '') === 'running';
-}
-
-/**
- * In-flight process placeholder (upload / import / AI tools like editElements).
- * Delete is permanent — scrubbed from history so Undo cannot revive it; clearing
- * pendingImageProcessId aborts applying the result (same as upload-in-flight).
- */
-export function isEphemeralUploadNode(node: any): boolean {
-  return isImageProcessRunning(node);
-}
-
-/**
- * Nodes that may be pinned into Chat (右键 / 快捷键 / composer).
- * Generator plates and process-shimmer nodes stay out.
- * `imagesOnly` — image-generator / quick-edit pick: reject video nodes.
- */
-export function canAttachNodeToChat(
-  node: any,
-  opts?: { imagesOnly?: boolean }
-): boolean {
-  if (!node) return false;
-  if (isGeneratorNode(node)) return false;
-  if (isImageProcessRunning(node)) return false;
-  if (opts?.imagesOnly && (node.key === 'video' || node.key === 'lottie' || node.key === 'audio')) {
-    return false;
-  }
-  return true;
-}
-
-/** Layer locked — still visible/selectable, but transforms are blocked. */
-export function isNodeLocked(node: any): boolean {
-  return Boolean(node) && attrFlagTrue(node.attrs?.locked);
-}
-
-/**
- * Spawn an Image Generator plate. Same `image` key so hit-test / select
- * keep working; `attrs.imageGenerator` flips on the HTML composer overlay.
- * After generate, call `promoteImageGeneratorToImage` to become a normal photo.
- * Export / cover / thumbnails skip these plates via `isExportableSceneNode`.
- */
-export function createImageGeneratorNode({
-  x = 40,
-  y = 40,
-  width = 360,
-  height = 360,
-  name = 'Image Generator',
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  name?: string;
-} = {}) {
-  const id = nanoid(10);
-  // Integer quantize — empty gen uses inset border so path === outer ink on the grid.
-  // (Half-pixel was only needed for center strokes.)
-  const iw = Math.max(1, Math.round(Number(width) || 360));
-  const ih = Math.max(1, Math.round(Number(height) || 360));
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  return {
-    id,
-    node: {
-      id,
-      key: 'image',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        src: '',
-        name: name || 'Image Generator',
-        assetKind: 'image',
-        imageGenerator: true,
-        // Durable gen settings — survive overlay remount / deselect.
-        imageGenAspect: '1:1',
-        imageGenResolution: '2K',
-        imageGenCount: 1,
-        mode: 'FIT',
-        radiusTL: 0,
-        radiusTR: 0,
-        radiusBR: 0,
-        radiusBL: 0,
-        radiusLinked: 'true',
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/** Parse durable multi-gen stack URLs from image node attrs. */
-export function parseImageVariants(attrs: any): string[] {
-  const raw = attrs?.imageVariants;
-  if (Array.isArray(raw)) {
-    return raw.map((u) => String(u || '').trim()).filter(Boolean);
-  }
-  if (typeof raw === 'string' && raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.map((u) => String(u || '').trim()).filter(Boolean);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return [];
-}
-
-/** All stack URLs for an image node (falls back to single `src`). */
-export function listImageVariantUrls(node: any): string[] {
-  if (!node || node.key !== 'image') return [];
-  const variants = parseImageVariants(node.attrs);
-  if (variants.length) return variants;
-  const src = String(node.attrs?.src || '').trim();
-  return src ? [src] : [];
-}
-
-export function writeImageVariantsAttr(attrs: Record<string, unknown>, urls: string[]) {
-  const cleaned = [...new Set(urls.map((u) => String(u || '').trim()).filter(Boolean))];
-  if (cleaned.length <= 1) {
-    delete attrs.imageVariants;
-  } else {
-    attrs.imageVariants = JSON.stringify(cleaned);
-  }
-}
-
-/**
- * Turn a generator plate into a normal image node (same id / selection).
- * Clears generator + process attrs and applies the result `src` + geometry.
- * When `variants` has 2+ URLs, stores them on `attrs.imageVariants` for stack UI.
- */
-export function promoteImageGeneratorToImage(
-  doc: any,
+export function addNodeToDocument(
+  doc: SceneDocument | null | undefined,
   nodeId: string,
-  {
-    src,
-    width,
-    height,
-    x,
-    y,
-    name,
-    variants,
-    genPrompt,
-  }: {
-    src: string;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-    name?: string;
-    /** All generated URLs (including `src`); persisted when length > 1. */
-    variants?: string[];
-    /** Original text prompt — used to prefill quick-edit Chat. */
-    genPrompt?: string;
-  }
+  node: SceneNodeInput | Record<string, unknown>
 ) {
-  if (!doc || !nodeId || !src) return doc;
   const next = normalizeDocument(doc);
-  const node = next.deltaSetLike?.[nodeId];
-  if (!node || node.key !== 'image') return doc;
-  const attrs = { ...(node.attrs || {}) };
-  delete attrs.imageGenerator;
-  delete attrs.imageGenAspect;
-  delete attrs.imageGenResolution;
-  delete attrs.imageGenCount;
-  delete attrs.imageGenModel;
-  delete attrs.processStatus;
-  delete attrs.processKind;
-  delete attrs.processLabel;
-  delete attrs.processSourceId;
-  delete attrs.processTargetWidth;
-  delete attrs.processTargetHeight;
-  delete attrs.processMeta;
-  attrs.src = src;
-  attrs.assetKind = 'image';
-  if (name) attrs.name = name;
-  const prompt = String(genPrompt || '').trim();
-  if (prompt) attrs.genPrompt = prompt;
-  else delete attrs.genPrompt;
-  const stack = Array.isArray(variants) ? variants : [];
-  const withMain = stack.includes(src) ? stack : [src, ...stack];
-  writeImageVariantsAttr(attrs, withMain);
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
-  return next;
-}
-
-/**
- * Spawn a Video Generator plate. Same `video` key so hit-test / select
- * keep working; `attrs.videoGenerator` flips on the HTML composer overlay.
- * After generate, call `promoteVideoGeneratorToVideo` to become a normal video.
- */
-export function createVideoGeneratorNode({
-  x = 40,
-  y = 40,
-  width = 640,
-  height = 360,
-  name = 'Video Generator',
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  name?: string;
-} = {}) {
-  const id = nanoid(10);
-  // Integer quantize — inset border means path === outer ink on the grid.
-  const iw = Math.max(1, Math.round(Number(width) || 640));
-  const ih = Math.max(1, Math.round(Number(height) || 360));
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  return {
-    id,
-    node: {
-      id,
-      key: 'video',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        src: '',
-        poster: '',
-        name: name || 'Video Generator',
-        assetKind: 'video',
-        videoGenerator: true,
-        videoGenAspect: '16:9',
-        videoGenResolution: '720p',
-        videoGenDuration: 5,
-        mode: 'FIT',
-        lockAspect: 'true',
-        radiusTL: 0,
-        radiusTR: 0,
-        radiusBR: 0,
-        radiusBL: 0,
-        radiusLinked: 'true',
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-export function createVideoNode({
-  x = 40,
-  y = 40,
-  width = 640,
-  height = 360,
-  src = '',
-  poster = '',
-  name = 'Video',
-  duration,
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  src?: string;
-  poster?: string;
-  name?: string;
-  /** Media length in seconds — set at upload so players need not seek-probe. */
-  duration?: number;
-} = {}) {
-  const id = nanoid(10);
-  const d = Number(duration);
-  // Integer quantize only — do NOT floor to 80×60. High-zoom viewport place
-  // yields small scene sizes; independent floors destroy the natural aspect
-  // and stretch the video (object-fit: fill / preserveAspectRatio none).
-  const iw = Math.max(1, Math.round(Number(width) || 640));
-  const ih = Math.max(1, Math.round(Number(height) || 360));
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  return {
-    id,
-    node: {
-      id,
-      key: 'video',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        src,
-        poster: poster || '',
-        name: name || 'Video',
-        assetKind: 'video',
-        mode: 'FIT',
-        lockAspect: 'true',
-        ...(Number.isFinite(d) && d > 0 ? { duration: d } : {}),
-        radiusTL: 0,
-        radiusTR: 0,
-        radiusBR: 0,
-        radiusBL: 0,
-        radiusLinked: 'true',
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/** Turn a video-generator plate into a normal video node (same id / selection). */
-export function promoteVideoGeneratorToVideo(
-  doc: any,
-  nodeId: string,
-  {
-    src,
-    poster,
-    width,
-    height,
-    x,
-    y,
-    name,
-    genPrompt,
-  }: {
-    src: string;
-    poster?: string;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-    name?: string;
-    genPrompt?: string;
-  }
-) {
-  if (!doc || !nodeId || !src) return doc;
-  const next = normalizeDocument(doc);
-  const node = next.deltaSetLike?.[nodeId];
-  if (!node || node.key !== 'video') return doc;
-  const attrs = { ...(node.attrs || {}) };
-  delete attrs.videoGenerator;
-  delete attrs.videoGenAspect;
-  delete attrs.videoGenResolution;
-  delete attrs.videoGenDuration;
-  delete attrs.videoGenModel;
-  delete attrs.processStatus;
-  delete attrs.processKind;
-  delete attrs.processLabel;
-  delete attrs.processSourceId;
-  delete attrs.processTargetWidth;
-  delete attrs.processTargetHeight;
-  delete attrs.processMeta;
-  attrs.src = src;
-  if (poster) attrs.poster = poster;
-  attrs.assetKind = 'video';
-  if (name) attrs.name = name;
-  const prompt = String(genPrompt || '').trim();
-  if (prompt) attrs.genPrompt = prompt;
-  else delete attrs.genPrompt;
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
-  return next;
-}
-
-/** Spawn video node with local preview while remote upload runs. */
-export function spawnVideoUploadPlaceholderNode(
-  doc: any,
-  {
-    src,
-    poster,
-    width,
-    height,
-    label = '上传中',
-    x,
-    y,
-    name,
-    duration,
-  }: {
-    src: string;
-    poster?: string;
-    width: number;
-    height: number;
-    label?: string;
-    x?: number;
-    y?: number;
-    name?: string;
-    duration?: number;
-  }
-) {
-  if (!doc || !src) return { document: doc, id: null as string | null };
-  const next = normalizeDocument(doc);
-  const { id, node } = createVideoNode({
-    x: x ?? 40,
-    y: y ?? 40,
-    width,
-    height,
-    src,
-    poster: poster || '',
-    name: name || 'Video',
-    duration,
-  });
-  node.attrs = {
-    ...(node.attrs || {}),
-    processStatus: 'running',
-    processKind: 'upload',
-    processLabel: label,
-  };
-  return { document: addNodeToDocument(next, id, node), id };
-}
-
-/**
- * Pull one stack URL out into a sibling image node (to the right).
- * Removes it from the source stack when successful.
- */
-export function detachImageVariantToNode(
-  doc: any,
-  nodeId: string,
-  url: string,
-  { gap = 16, name = 'Image' }: { gap?: number; name?: string } = {}
-) {
-  const src = String(url || '').trim();
-  if (!doc || !nodeId || !src) return { document: doc, id: null as string | null };
-  const next = normalizeDocument(doc);
-  const source = next.deltaSetLike?.[nodeId];
-  if (!source || source.key !== 'image') return { document: doc, id: null as string | null };
-  const stack = listImageVariantUrls(source);
-  if (!stack.includes(src)) return { document: doc, id: null as string | null };
-
-  const width = Math.max(1, Math.round(Number(source.width) || 200));
-  const height = Math.max(1, Math.round(Number(source.height) || 200));
-  const { id, node } = createImageNode({
-    x: (Number(source.x) || 0) + width + gap,
-    y: Number(source.y) || 0,
-    width,
-    height,
-    src,
-    name: name || String(source.attrs?.name || 'Image'),
-    assetKind: 'image',
-  });
-  let document = addNodeToDocument(next, id, node);
-
-  const remaining = stack.filter((u) => u !== src);
-  const mainSrc = String(source.attrs?.src || '').trim();
-  const attrs = { ...(document.deltaSetLike[nodeId].attrs || {}) };
-  if (mainSrc === src) {
-    attrs.src = remaining[0] || '';
-  }
-  writeImageVariantsAttr(attrs, remaining);
-  document.deltaSetLike[nodeId].attrs = attrs;
-  return { document, id };
-}
-
-/**
- * Native SVG node — markup stays SVG (not rasterized image, not converted to path).
- * User can later 轮廓化 if they want an editable path.
- */
-export function createSvgNode({
-  x = 40,
-  y = 40,
-  width = 48,
-  height = 48,
-  svg = '',
-  name = 'SVG',
-  fill,
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  svg?: string;
-  name?: string;
-  fill?: string;
-} = {}) {
-  const id = nanoid(10);
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  const iw = Math.max(1, Math.round(Number(width) || 1));
-  const ih = Math.max(1, Math.round(Number(height) || 1));
-  const markup = String(svg || '').trim();
-  return {
-    id,
-    node: {
-      id,
-      key: 'svg',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        svg: markup,
-        name: name || 'SVG',
-        ...(fill ? { 'fill-color': String(fill) } : {}),
-        opacity: 1,
-        angle: 0,
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/** Minimal looping pulse — FE smoke / tool-strip spawn until Agent emits JSON. */
-export const SAMPLE_LOTTIE_ANIMATION: Record<string, unknown> = {
-  v: '5.7.4',
-  fr: 60,
-  ip: 0,
-  op: 120,
-  w: 200,
-  h: 200,
-  nm: 'Sample',
-  ddd: 0,
-  assets: [],
-  layers: [
-    {
-      ddd: 0,
-      ind: 1,
-      ty: 4,
-      nm: 'Dot',
-      sr: 1,
-      ks: {
-        o: { a: 0, k: 100 },
-        r: { a: 0, k: 0 },
-        p: { a: 0, k: [100, 100, 0] },
-        a: { a: 0, k: [0, 0, 0] },
-        s: {
-          a: 1,
-          k: [
-            {
-              i: { x: [0.667], y: [1] },
-              o: { x: [0.333], y: [0] },
-              t: 0,
-              s: [55, 55, 100],
-            },
-            {
-              i: { x: [0.667], y: [1] },
-              o: { x: [0.333], y: [0] },
-              t: 60,
-              s: [100, 100, 100],
-            },
-            { t: 120, s: [55, 55, 100] },
-          ],
-        },
-      },
-      ao: 0,
-      shapes: [
-        {
-          ty: 'el',
-          p: { a: 0, k: [0, 0] },
-          s: { a: 0, k: [88, 88] },
-          nm: 'Ellipse',
-          hd: false,
-        },
-        {
-          ty: 'fl',
-          c: { a: 0, k: [0.2, 0.45, 1, 1] },
-          o: { a: 0, k: 100 },
-          r: 1,
-          bm: 0,
-          nm: 'Fill',
-          hd: false,
-        },
-        {
-          ty: 'tr',
-          p: { a: 0, k: [0, 0] },
-          a: { a: 0, k: [0, 0] },
-          s: { a: 0, k: [100, 100] },
-          r: { a: 0, k: 0 },
-          o: { a: 0, k: 100 },
-          sk: { a: 0, k: 0 },
-          sa: { a: 0, k: 0 },
-          nm: 'Transform',
-        },
-      ],
-      ip: 0,
-      op: 120,
-      st: 0,
-      bm: 0,
-    },
-  ],
-};
-
-/**
- * On-plate Lottie generator result (FE) — pulse ellipse sized/timed to the plate.
- * Backend Lottie gen can replace this with a real model response later.
- */
-export function buildGeneratedLottieAnimation(opts: {
-  width: number;
-  height: number;
-  durationSec?: number;
-  name?: string;
-  /** 0–1 RGB fill; defaults to brand blue. */
-  fillRgb?: [number, number, number];
-}): Record<string, unknown> {
-  const w = Math.max(32, Math.round(Number(opts.width) || 200));
-  const h = Math.max(32, Math.round(Number(opts.height) || 200));
-  const fr = 30;
-  const sec = Math.max(0.5, Number(opts.durationSec) || 3);
-  const op = Math.max(2, Math.round(sec * fr));
-  const mid = Math.max(1, Math.round(op / 2));
-  const cx = w / 2;
-  const cy = h / 2;
-  const diam = Math.max(24, Math.min(w, h) * 0.44);
-  const rgb = opts.fillRgb || [0.2, 0.45, 1];
-  const nm = String(opts.name || 'Lottie').trim().slice(0, 80) || 'Lottie';
-  return {
-    v: '5.7.4',
-    fr,
-    ip: 0,
-    op,
-    w,
-    h,
-    nm,
-    ddd: 0,
-    assets: [],
-    layers: [
-      {
-        ddd: 0,
-        ind: 1,
-        ty: 4,
-        nm: 'Pulse',
-        sr: 1,
-        ks: {
-          o: { a: 0, k: 100 },
-          r: { a: 0, k: 0 },
-          p: { a: 0, k: [cx, cy, 0] },
-          a: { a: 0, k: [0, 0, 0] },
-          s: {
-            a: 1,
-            k: [
-              {
-                i: { x: [0.667], y: [1] },
-                o: { x: [0.333], y: [0] },
-                t: 0,
-                s: [55, 55, 100],
-              },
-              {
-                i: { x: [0.667], y: [1] },
-                o: { x: [0.333], y: [0] },
-                t: mid,
-                s: [100, 100, 100],
-              },
-              { t: op, s: [55, 55, 100] },
-            ],
-          },
-        },
-        ao: 0,
-        shapes: [
-          {
-            ty: 'el',
-            p: { a: 0, k: [0, 0] },
-            s: { a: 0, k: [diam, diam] },
-            nm: 'Ellipse',
-            hd: false,
-          },
-          {
-            ty: 'fl',
-            c: { a: 0, k: [...rgb, 1] },
-            o: { a: 0, k: 100 },
-            r: 1,
-            bm: 0,
-            nm: 'Fill',
-            hd: false,
-          },
-          {
-            ty: 'tr',
-            p: { a: 0, k: [0, 0] },
-            a: { a: 0, k: [0, 0] },
-            s: { a: 0, k: [100, 100] },
-            r: { a: 0, k: 0 },
-            o: { a: 0, k: 100 },
-            sk: { a: 0, k: 0 },
-            sa: { a: 0, k: 0 },
-            nm: 'Transform',
-          },
-        ],
-        ip: 0,
-        op,
-        st: 0,
-        bm: 0,
-      },
-    ],
-  };
-}
-
-
-/**
- * Lift drawable items out of nested `gr` groups.
- * LLM / Bodymovin groups often paint blank in lottie-web (empty `<g>`).
- */
-function flattenLottieShapes(shapes: unknown): Record<string, unknown>[] {
-  if (!Array.isArray(shapes)) return [];
-  const out: Record<string, unknown>[] = [];
-  for (const sh of shapes) {
-    if (!sh || typeof sh !== 'object' || Array.isArray(sh)) continue;
-    const item = sh as Record<string, unknown>;
-    const ty = String(item.ty || '');
-    if (ty === 'gr') {
-      out.push(...flattenLottieShapes(item.it));
-      continue;
-    }
-    if (ty === 'tr') continue;
-    out.push(item);
-  }
-  return out;
-}
-
-function flattenLottieGroups(anim: Record<string, unknown>): Record<string, unknown> {
-  const layers = anim.layers;
-  if (!Array.isArray(layers)) return anim;
-  let changed = false;
-  const nextLayers = layers.map((layer) => {
-    if (!layer || typeof layer !== 'object' || Array.isArray(layer)) return layer;
-    const L = layer as Record<string, unknown>;
-    if (Number(L.ty) !== 4) return layer;
-    const shapes = L.shapes;
-    const flat = flattenLottieShapes(shapes);
-    if (flat === shapes || (Array.isArray(shapes) && flat.length === shapes.length && flat.every((s, i) => s === shapes[i]))) {
-      return layer;
-    }
-    changed = true;
-    return { ...L, shapes: flat };
-  });
-  if (!changed) return anim;
-  return { ...anim, layers: nextLayers };
-}
-
-/** Parse Agent / attrs Lottie payload (object or JSON string). */
-export function parseLottieAnimationData(raw: unknown): Record<string, unknown> | null {
-  let obj: unknown = raw;
-  if (typeof raw === 'string') {
-    const s = raw.trim();
-    if (!s) return null;
-    try {
-      obj = JSON.parse(s);
-    } catch {
-      return null;
-    }
-  }
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-  const o = obj as Record<string, unknown>;
-  if (!Array.isArray(o.layers)) return null;
-  return flattenLottieGroups(o);
-}
-
-export function serializeLottieAnimationData(data: unknown): string | null {
-  const parsed = parseLottieAnimationData(data);
-  if (!parsed) return null;
-  try {
-    return JSON.stringify(parsed);
-  } catch {
-    return null;
-  }
-}
-
-/** Finished Lottie plate (not a generator composer). */
-export function isLottieNode(node: any): boolean {
-  return Boolean(node) && node.key === 'lottie' && !isLottieGeneratorNode(node);
-}
-
-/**
- * Spawn an Audio Generator plate. Same `audio` key so hit-test / select
- * keep working; `attrs.audioGenerator` flips on the HTML composer overlay.
- * After upload/generate, call `promoteAudioGeneratorToAudio`.
- */
-export function createAudioGeneratorNode({
-  x = 40,
-  y = 40,
-  width = 360,
-  height = 200,
-  name = 'Audio Generator',
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  name?: string;
-} = {}) {
-  const id = nanoid(10);
-  const iw = Math.max(1, Math.round(Number(width) || 360));
-  const ih = Math.max(1, Math.round(Number(height) || 200));
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  return {
-    id,
-    node: {
-      id,
-      key: 'audio',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        src: '',
-        name: name || 'Audio Generator',
-        assetKind: 'audio',
-        audioGenerator: true,
-        mode: 'FIT',
-        lockAspect: 'true',
-        radiusTL: 8,
-        radiusTR: 8,
-        radiusBR: 8,
-        radiusBL: 8,
-        radiusLinked: 'true',
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/** Theme surface fill — maps legacy baked `#FFFFFF` / empty to `var(--surface)`. */
-export function resolveThemeSurfaceFill(raw: unknown): string {
-  const s = String(raw ?? '').trim();
-  if (!s) return 'var(--surface)';
-  if (s.toLowerCase() === 'white') return 'var(--surface)';
-  if (/^#fff(fff)?$/i.test(s)) return 'var(--surface)';
-  return s;
-}
-
-/**
- * Clone an audio node to the right (trim / speed confirm).
- * Returns null when source is missing.
- */
-export function cloneAudioNodeSibling(
-  doc: any,
-  sourceNode: any,
-  {
-    attrsPatch,
-    defaultName,
-    gap = 16,
-  }: {
-    attrsPatch: Record<string, unknown>;
-    defaultName?: string;
-    gap?: number;
-  }
-): { document: any; id: string } | null {
-  if (!doc || !sourceNode || sourceNode.key !== 'audio') return null;
-  const w = Math.max(1, Math.round(Number(sourceNode.width) || 360));
-  const h = Math.max(1, Math.round(Number(sourceNode.height) || 200));
-  const id = nanoid(10);
-  const clone = JSON.parse(JSON.stringify(sourceNode));
-  clone.id = id;
-  clone.x = Math.round((Number(sourceNode.x) || 0) + w + gap);
-  clone.y = Math.round(Number(sourceNode.y) || 0);
-  clone.width = w;
-  clone.height = h;
-  const attrs = { ...(clone.attrs || {}), ...attrsPatch };
-  const name = String(attrs.name || '').trim();
-  if (!name && defaultName) attrs.name = defaultName;
-  delete attrs.processStatus;
-  delete attrs.processKind;
-  delete attrs.processLabel;
-  delete attrs.processSourceId;
-  clone.attrs = attrs;
-  return { document: addNodeToDocument(doc, id, clone), id };
-}
-
-export function createAudioNode({
-  x = 40,
-  y = 40,
-  width = 360,
-  height = 200,
-  src = '',
-  name = 'Audio',
-  duration,
-  uploadKey,
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  src?: string;
-  name?: string;
-  /** Media length in seconds — set at upload so players need not seek-probe. */
-  duration?: number;
-  uploadKey?: string;
-} = {}) {
-  const id = nanoid(10);
-  const d = Number(duration);
-  const key = String(uploadKey || '').trim();
-  const iw = Math.max(1, Math.round(Number(width) || 360));
-  // Waveform + transport need room; shorter plates crush the rail and look “detached”.
-  const ih = Math.max(140, Math.round(Number(height) || 200));
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  return {
-    id,
-    node: {
-      id,
-      key: 'audio',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        src,
-        name: name || 'Audio',
-        assetKind: 'audio',
-        mode: 'FIT',
-        lockAspect: 'true',
-        audioSpeed: 1,
-        'fill-color': 'var(--surface)',
-        ...(Number.isFinite(d) && d > 0 ? { duration: d } : {}),
-        ...(key ? { uploadKey: key } : {}),
-        radiusTL: 8,
-        radiusTR: 8,
-        radiusBR: 8,
-        radiusBL: 8,
-        radiusLinked: 'true',
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/** Turn an audio-generator plate into a normal audio node (same id / selection). */
-export function promoteAudioGeneratorToAudio(
-  doc: any,
-  nodeId: string,
-  {
-    src,
-    width,
-    height,
-    x,
-    y,
-    name,
-    genPrompt,
-    duration,
-    uploadKey,
-  }: {
-    src: string;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-    name?: string;
-    genPrompt?: string;
-    duration?: number;
-    uploadKey?: string;
-  }
-) {
-  if (!doc || !nodeId || !src) return doc;
-  const next = normalizeDocument(doc);
-  const node = next.deltaSetLike?.[nodeId];
-  if (!node || node.key !== 'audio') return doc;
-  const attrs = { ...(node.attrs || {}) };
-  delete attrs.audioGenerator;
-  delete attrs.processStatus;
-  delete attrs.processKind;
-  delete attrs.processLabel;
-  delete attrs.processSourceId;
-  delete attrs.processTargetWidth;
-  delete attrs.processTargetHeight;
-  delete attrs.processMeta;
-  attrs.src = src;
-  attrs.assetKind = 'audio';
-  if (attrs.audioSpeed == null) attrs.audioSpeed = 1;
-  attrs['fill-color'] = resolveThemeSurfaceFill(attrs['fill-color'] || attrs.fill);
-  if (name) attrs.name = name;
-  const key = String(uploadKey || '').trim();
-  if (key) attrs.uploadKey = key;
-  const d = Number(duration);
-  if (Number.isFinite(d) && d > 0) attrs.duration = d;
-  const prompt = String(genPrompt || '').trim();
-  if (prompt) attrs.genPrompt = prompt;
-  else delete attrs.genPrompt;
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
-  return next;
-}
-
-/**
- * Spawn a Lottie Generator plate. Same `lottie` key so hit-test / select
- * keep working; `attrs.lottieGenerator` flips on the HTML composer overlay.
- * After generate, call `promoteLottieGeneratorToLottie` to become a normal Lottie.
- */
-export function createLottieGeneratorNode({
-  x = 40,
-  y = 40,
-  width = 200,
-  height = 200,
-  name = 'Lottie Generator',
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  name?: string;
-} = {}) {
-  const id = nanoid(10);
-  const iw = Math.max(1, Math.round(Number(width) || 200));
-  const ih = Math.max(1, Math.round(Number(height) || 200));
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  return {
-    id,
-    node: {
-      id,
-      key: 'lottie',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        animationData: '',
-        name: name || 'Lottie Generator',
-        assetKind: 'lottie',
-        lottieGenerator: true,
-        lottieGenAspect: '1:1',
-        lottieGenDuration: 3,
-        lottieGenModel: 'auto',
-        mode: 'FIT',
-        lockAspect: 'true',
-        'fill-color': '#FFFFFF',
-        radiusTL: 0,
-        radiusTR: 0,
-        radiusBR: 0,
-        radiusBL: 0,
-        radiusLinked: 'true',
-        opacity: 1,
-        angle: 0,
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/**
- * Lottie animation plate — `attrs.animationData` is JSON string (Bodymovin).
- * HTML overlay plays via lottie-web; SVG is hit-target / export underlay.
- */
-export function createLottieNode({
-  x = 40,
-  y = 40,
-  width,
-  height,
-  animationData,
-  name = 'Lottie',
-}: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  animationData?: unknown;
-  name?: string;
-} = {}) {
-  const id = nanoid(10);
-  const parsed =
-    parseLottieAnimationData(animationData) ||
-    (animationData == null ? SAMPLE_LOTTIE_ANIMATION : null);
-  const json = serializeLottieAnimationData(parsed);
-  if (!json) {
-    throw new Error('createLottieNode: invalid animationData');
-  }
-  const natW = Math.max(1, Math.round(Number(parsed?.w) || 200));
-  const natH = Math.max(1, Math.round(Number(parsed?.h) || 200));
-  const iw = Math.max(1, Math.round(Number(width) || natW));
-  const ih = Math.max(1, Math.round(Number(height) || natH));
-  const ix = Math.round(Number(x) || 0);
-  const iy = Math.round(Number(y) || 0);
-  return {
-    id,
-    node: {
-      id,
-      key: 'lottie',
-      x: ix,
-      y: iy,
-      z: 0,
-      width: iw,
-      height: ih,
-      attrs: {
-        animationData: json,
-        name: name || 'Lottie',
-        assetKind: 'lottie',
-        mode: 'FIT',
-        lockAspect: 'true',
-        // Default surface plate so finished Lottie isn’t floating on the canvas.
-        'fill-color': 'var(--surface)',
-        radiusTL: 8,
-        radiusTR: 8,
-        radiusBR: 8,
-        radiusBL: 8,
-        radiusLinked: 'true',
-        opacity: 1,
-        angle: 0,
-      } as Record<string, unknown>,
-      children: [],
-    },
-  };
-}
-
-/** Turn a Lottie-generator plate into a normal Lottie node (same id / selection). */
-export function promoteLottieGeneratorToLottie(
-  doc: any,
-  nodeId: string,
-  {
-    animationData,
-    width,
-    height,
-    x,
-    y,
-    name,
-    genPrompt,
-  }: {
-    animationData: unknown;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-    name?: string;
-    genPrompt?: string;
-  }
-) {
-  if (!doc || !nodeId) return doc;
-  const json = serializeLottieAnimationData(animationData);
-  if (!json) return doc;
-  const next = normalizeDocument(doc);
-  const node = next.deltaSetLike?.[nodeId];
-  if (!node || node.key !== 'lottie') return doc;
-  const attrs = { ...(node.attrs || {}) };
-  delete attrs.lottieGenerator;
-  delete attrs.processStatus;
-  delete attrs.processKind;
-  delete attrs.processLabel;
-  delete attrs.processSourceId;
-  delete attrs.processTargetWidth;
-  delete attrs.processTargetHeight;
-  delete attrs.processMeta;
-  attrs.animationData = json;
-  attrs.assetKind = 'lottie';
-  // Default readable plate under ink (never leave transparent).
-  if (!String(attrs['fill-color'] || attrs.fill || '').trim() || attrs['fill-color'] === 'transparent') {
-    attrs['fill-color'] = 'var(--surface)';
-  }
-  if (attrs.radiusTL == null) attrs.radiusTL = 8;
-  if (attrs.radiusTR == null) attrs.radiusTR = 8;
-  if (attrs.radiusBR == null) attrs.radiusBR = 8;
-  if (attrs.radiusBL == null) attrs.radiusBL = 8;
-  if (name) attrs.name = name;
-  const prompt = String(genPrompt || '').trim();
-  if (prompt) attrs.genPrompt = prompt;
-  else delete attrs.genPrompt;
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
-  return next;
-}
-
-function looksLikeSvgSrc(src: string) {
-  const s = String(src || '').trim();
-  if (!s) return false;
-  if (s.startsWith('data:image/svg+xml')) return true;
-  const path = s.split('?')[0].toLowerCase();
-  return path.endsWith('.svg');
-}
-
-/** True for icon-library assets that still use an SVG source. */
-export function isIconImageNode(node: any): boolean {
-  if (!node || node.key !== 'image') return false;
-  const kind = String(node.attrs?.assetKind || '');
-  const src = String(node.attrs?.src || '');
-  // Explicit photo (incl. after replace) → never annotate-as-icon.
-  if (kind === 'image') return false;
-  if (kind === 'icon') return looksLikeSvgSrc(src);
-  // Untagged legacy catalog inserts were SVG data URLs without assetKind.
-  return looksLikeSvgSrc(src);
-}
-
-/** 1×1 transparent GIF — keeps image nodes selectable while src is blank. */
-export const TRANSPARENT_PIXEL =
-  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-
-export type ImageProcessKind =
-  | 'upscale'
-  | 'removeBg'
-  | 'eraser'
-  | 'editText'
-  | 'editElements'
-  | 'multiAngle'
-  | 'moveObject'
-  | 'expand'
-  | 'adjust'
-  | 'crop'
-  | 'vector'
-  | 'flipRotate'
-  | 'import'
-  | 'upload'
-  | 'generate';
-
-/**
- * Blank loading plate for PDF/DOCX import — selectable / transformable while parsing.
- */
-export function spawnImportPlaceholderNode(
-  doc: any,
-  opts: {
-    label?: string;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-  } = {}
-) {
-  if (!doc) return { document: doc, id: null as string | null };
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const active =
-    frames.find((f: any) => f.id === doc.activeFrameId) || frames[0] || null;
-  const width = Math.max(120, Math.round(opts.width ?? 420));
-  const height = Math.max(160, Math.round(opts.height ?? 594));
-  const x =
-    opts.x != null
-      ? opts.x
-      : active
-        ? Math.round(Number(active.x) + Number(active.width) + 24)
-        : 40;
-  const y = opts.y != null ? opts.y : active ? Math.round(Number(active.y) || 0) : 40;
-  const { id, node } = createImageNode({
-    x,
-    y,
-    width,
-    height,
-    src: TRANSPARENT_PIXEL,
-  });
-  node.attrs = {
-    ...node.attrs,
-    processStatus: 'running',
-    processKind: 'import',
-    processLabel: opts.label || '解析中',
-  };
-  return { document: addNodeToDocument(doc, id, node), id };
-}
-
-/**
- * Prefer explicit coords; else center in the active frame; else center on the doc.
- * Keeps upload placeholders visible instead of parking off to the right.
- */
-function centerInFrameOrDocument(opts: {
-  explicit: number | undefined | null;
-  size: number;
-  frameOrigin: number;
-  frameSpan: number;
-  hasFrame: boolean;
-  documentSpan: number;
-}): number {
-  if (opts.explicit != null) return opts.explicit;
-  if (opts.hasFrame) {
-    return Math.round(opts.frameOrigin + (opts.frameSpan - opts.size) / 2);
-  }
-  return Math.round((opts.documentSpan - opts.size) / 2);
-}
-
-/**
- * Image upload placeholder — shows local base64 preview at natural aspect while COS upload runs.
- */
-export function spawnImageUploadPlaceholderNode(
-  doc: any,
-  opts: {
-    src: string;
-    width: number;
-    height: number;
-    label?: string;
-    x?: number;
-    y?: number;
-    name?: string;
-  }
-) {
-  if (!doc || !opts?.src) return { document: doc, id: null as string | null };
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const active =
-    frames.find((f: any) => f.id === doc.activeFrameId) || frames[0] || null;
-  const width = Math.max(1, Math.round(opts.width) || 1);
-  const height = Math.max(1, Math.round(opts.height) || 1);
-  const x = centerInFrameOrDocument({
-    explicit: opts.x,
-    size: width,
-    hasFrame: Boolean(active),
-    frameOrigin: Number(active?.x) || 0,
-    frameSpan: Number(active?.width) || 0,
-    documentSpan: Number(doc.width) || 800,
-  });
-  const y = centerInFrameOrDocument({
-    explicit: opts.y,
-    size: height,
-    hasFrame: Boolean(active),
-    frameOrigin: Number(active?.y) || 0,
-    frameSpan: Number(active?.height) || 0,
-    documentSpan: Number(doc.height) || 600,
-  });
-  const { id, node } = createImageNode({
-    x,
-    y,
-    width,
-    height,
-    src: opts.src,
-    name: opts.name || 'Image',
-  });
-  node.attrs = {
-    ...node.attrs,
-    processStatus: 'running',
-    processKind: 'upload',
-    processLabel: opts.label || '上传中',
-  };
-  return { document: addNodeToDocument(doc, id, node), id };
-}
-
-/** Clone image to the right as a loading process node — original stays untouched. */
-export function spawnImageProcessNode(
-  doc: any,
-  sourceId: string,
-  opts: {
-    kind: ImageProcessKind;
-    label: string;
-    targetWidth?: number;
-    targetHeight?: number;
-    gap?: number;
-    /** Extra JSON for watchers (e.g. multi-angle params). */
-    meta?: Record<string, unknown> | null;
-  }
-) {
-  if (!doc || !sourceId) return { document: doc, id: null as string | null };
-  const src = doc.deltaSetLike?.[sourceId];
-  if (!src || src.key !== 'image') return { document: doc, id: null as string | null };
-
-  const id = nanoid(10);
-  const gap = opts.gap ?? 16;
-  // Upscale raises bitmap resolution only — keep on-canvas node size.
-  // Expand may grow the plate; other kinds stay source-sized.
-  const resizeNode = opts.kind === 'expand';
-  const width = Math.max(
-    1,
-    Math.round(resizeNode ? (opts.targetWidth ?? src.width ?? 100) : (src.width ?? 100))
-  );
-  const height = Math.max(
-    1,
-    Math.round(resizeNode ? (opts.targetHeight ?? src.height ?? 100) : (src.height ?? 100))
-  );
-  const node = JSON.parse(JSON.stringify(src));
-  node.id = id;
-  node.x = (Number(src.x) || 0) + (Number(src.width) || width) + gap;
-  node.y = Number(src.y) || 0;
-  node.width = width;
-  node.height = height;
-  node.attrs = {
-    ...(node.attrs || {}),
-    processStatus: 'running',
-    processKind: opts.kind,
-    processLabel: opts.label,
-    processSourceId: sourceId,
-    ...(opts.targetWidth != null ? { processTargetWidth: Math.round(opts.targetWidth) } : {}),
-    ...(opts.targetHeight != null ? { processTargetHeight: Math.round(opts.targetHeight) } : {}),
-    ...(opts.meta ? { processMeta: JSON.stringify(opts.meta) } : {}),
-  };
-  return { document: addNodeToDocument(doc, id, node), id };
-}
-
-/** Clear processing overlay attrs after a job finishes. */
-export function clearImageProcessAttrs(doc: any, nodeId: string) {
-  if (!doc || !nodeId) return doc;
-  const next = normalizeDocument(doc);
-  const node = next.deltaSetLike?.[nodeId];
-  if (!node?.attrs) return doc;
-  // Must replace attrs — updateNodeInDocument merges and would keep processStatus.
-  const attrs = { ...node.attrs };
-  delete attrs.processStatus;
-  delete attrs.processKind;
-  delete attrs.processLabel;
-  delete attrs.processSourceId;
-  delete attrs.processTargetWidth;
-  delete attrs.processTargetHeight;
-  delete attrs.processMeta;
-  node.attrs = attrs;
-  return next;
-}
-
-export type DecomposeLayer = {
-  type: 'image' | 'text' | string;
-  src?: string;
-  text?: string;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  name?: string;
-  fontSize?: number;
-  fontFamily?: string;
-  fontWeight?: string | number;
-  fill?: string;
-  lineHeight?: number;
-};
-
-/**
- * Replace a process placeholder with split layers (editText / editElements).
- * Layer coords are in source-image pixels; scaled into the placeholder's box.
- * Result layers share one groupId so the stack still moves as one picture.
- */
-export function applyImageDecomposeLayers(
-  doc: any,
-  placeholderId: string,
-  layers: DecomposeLayer[],
-  opts?: { sourceWidth?: number; sourceHeight?: number }
-) {
-  if (!doc || !placeholderId || !Array.isArray(layers) || !layers.length) {
-    return { document: doc, ids: [] as string[] };
-  }
-  let next = normalizeDocument(doc);
-  const placeholder = next.deltaSetLike?.[placeholderId];
-  if (!placeholder) return { document: doc, ids: [] as string[] };
-
-  const originX = Number(placeholder.x) || 0;
-  const originY = Number(placeholder.y) || 0;
-  const boxW = Math.max(1, Number(placeholder.width) || 1);
-  const boxH = Math.max(1, Number(placeholder.height) || 1);
-  const srcW = Math.max(1, Number(opts?.sourceWidth) || boxW);
-  const srcH = Math.max(1, Number(opts?.sourceHeight) || boxH);
-  const sx = boxW / srcW;
-  const sy = boxH / srcH;
-
-  // Drop the loading clone first.
-  next = removeNodesFromDocument(next, [placeholderId]);
-
-  const ids: string[] = [];
-  for (const layer of layers) {
-    const lx = originX + (Number(layer.x) || 0) * sx;
-    const ly = originY + (Number(layer.y) || 0) * sy;
-    const lw = Math.max(4, (Number(layer.width) || srcW) * sx);
-    const lh = Math.max(4, (Number(layer.height) || srcH) * sy);
-    const kind = String(layer.type || '');
-
-    if (kind === 'text' && String(layer.text || '').trim()) {
-      // layer.fontSize is source-image pixels → scale with sy; lh is already canvas-scaled.
-      const srcFont = Number(layer.fontSize) || 0;
-      const fontSize = Math.max(
-        8,
-        Math.round((srcFont > 0 ? srcFont * sy : lh * 0.78) * 10) / 10
-      );
-      const { id, node } = createTextNode({
-        x: Math.round(lx),
-        y: Math.round(ly),
-        text: String(layer.text),
-        width: Math.round(lw),
-        height: Math.round(lh),
-        autoSize: false,
-      });
-      const style = {
-        fontSize,
-        fontFamily: String(layer.fontFamily || 'Alibaba PuHuiTi'),
-        fontWeight: String(layer.fontWeight || 'normal') === 'bold' ? 'bold' : 'normal',
-        fill: String(layer.fill || '#333333'),
-        lineHeight: Number(layer.lineHeight) || 1.25,
-      } as const;
-      node.attrs = {
-        ...buildMarkdownTextAttrs(String(layer.text), style),
-        autoSize: 'false',
-        name: String(layer.name || '文字'),
-      } as Record<string, unknown>;
-      next = addNodeToDocument(next, id, node);
-      ids.push(id);
-      continue;
-    }
-
-    if (kind === 'image' && layer.src) {
-      const { id, node } = createImageNode({
-        x: Math.round(lx),
-        y: Math.round(ly),
-        width: Math.round(lw),
-        height: Math.round(lh),
-        src: String(layer.src),
-        name: String(layer.name || '图层'),
-      });
-      next = addNodeToDocument(next, id, node);
-      ids.push(id);
-    }
-  }
-
-  // Keep the stack selectable / movable as one composition.
-  if (ids.length >= 2) {
-    next = groupNodesInDocument(next, ids);
-  }
-
-  return { document: next, ids };
-}
-
-
-export function addNodeToDocument(doc, nodeId, node) {
-  const next = normalizeDocument(doc);
-  next.deltaSetLike[nodeId] = node;
+  next.deltaSetLike[nodeId] = node as SceneNode;
   const page = getActivePage(next);
   if (page && !page.children.includes(nodeId)) {
     page.children.push(nodeId);
@@ -2483,8 +465,8 @@ export function addNodeToDocument(doc, nodeId, node) {
 
 /** Merge an imported Scene (PDF/image job) into the current canvas with remapped ids. */
 export function mergeImportedIntoDocument(
-  base: any,
-  incoming: any,
+  base: SceneDocument | null | undefined,
+  incoming: SceneDocument | null | undefined,
   opts?: { offsetX?: number; offsetY?: number }
 ) {
   if (!base) return alignImportedDocumentOrigin(incoming);
@@ -2530,13 +512,16 @@ export function mergeImportedIntoDocument(
   return next;
 }
 
-export function removeNodesFromDocument(doc, nodeIds: string[]) {
+export function removeNodesFromDocument(
+  doc: SceneDocument | null | undefined,
+  nodeIds: string[]
+) {
   const ids = Array.isArray(nodeIds) ? nodeIds.filter(Boolean) : [];
   if (!ids.length) return doc;
   let next = normalizeDocument(doc);
   ids.forEach((nodeId) => {
     delete next.deltaSetLike[nodeId];
-    next.pages.forEach((page: any) => {
+    (next.pages || []).forEach((page) => {
       page.children = page.children.filter((id: string) => id !== nodeId);
     });
   });
@@ -2545,47 +530,47 @@ export function removeNodesFromDocument(doc, nodeIds: string[]) {
   return next;
 }
 
-export function updateNodeInDocument(doc, nodeId, patch) {
+export function updateNodeInDocument(
+  doc: SceneDocument | null | undefined,
+  nodeId: string,
+  patch: Record<string, any>
+) {
   const prev = doc?.deltaSetLike?.[nodeId];
   if (!prev || !doc) return doc;
-  // Structural COW: new doc shell + new node; share untouched nodes and path strings.
-  // Never Object.assign(patch) wholesale — that would replace `attrs` and drop shapeType etc.
-  const { attrs, ...rest } = patch || {};
-  const prevAttrs = prev.attrs || {};
-  let nextAttrs = prevAttrs;
-  if (attrs) {
-    nextAttrs = { ...prevAttrs, ...attrs };
-    // Hard-preserve geometry identity if a partial patch tries to clear it.
-    if (
-      prevAttrs.shapeType != null &&
-      (nextAttrs.shapeType == null || nextAttrs.shapeType === '')
-    ) {
-      nextAttrs.shapeType = prevAttrs.shapeType;
-    }
-  }
-  const nextNode = { ...prev, ...rest, attrs: nextAttrs };
-  return {
-    ...doc,
-    deltaSetLike: {
-      ...doc.deltaSetLike,
-      [nodeId]: nextNode,
-    },
-  };
+  return produce(doc, (draft: any) => {
+    draft.deltaSetLike[nodeId] = mergeNodePatch(draft.deltaSetLike[nodeId], patch);
+  });
 }
 
-export function listSceneNodes(doc) {
+/** Batch node patches in one Immer produce (align / distribute / multi-drag). */
+export function updateNodesInDocument(
+  doc: SceneDocument | null | undefined,
+  patches: Array<{ nodeId: string; patch: Record<string, any> }>
+) {
+  if (!doc || !Array.isArray(patches) || !patches.length) return doc;
+  return produce(doc, (draft: any) => {
+    for (const item of patches) {
+      const nodeId = item?.nodeId ? String(item.nodeId) : '';
+      const patch = item?.patch;
+      if (!nodeId || !patch || !draft.deltaSetLike?.[nodeId]) continue;
+      draft.deltaSetLike[nodeId] = mergeNodePatch(draft.deltaSetLike[nodeId], patch);
+    }
+  });
+}
+
+export function listSceneNodes(doc: SceneDocument | null | undefined) {
   if (!doc) return [];
   // Read-only: never mutate Redux/Immer state here
   const page = getActivePage(doc);
   const ids = page?.children || doc.deltaSetLike?.ROOT?.children || [];
   return ids
     .map((id: string) => ({ id, node: doc.deltaSetLike?.[id] }))
-    .filter((item: any) => item.node);
+    .filter((item): item is { id: string; node: SceneNode } => Boolean(item.node));
 }
 
 /** Reorder selected nodes in z-order (ROOT / page children + unified stack). */
 export function reorderNodesInDocument(
-  doc: any,
+  doc: SceneDocument,
   nodeIds: string[],
   action: 'front' | 'back' | 'forward' | 'backward'
 ) {
@@ -2608,7 +593,7 @@ export function reorderNodesInDocument(
 
 /** Reorder frames and/or nodes in the unified stack (and sync node page children). */
 export function reorderStackInDocument(
-  doc: any,
+  doc: SceneDocument,
   entries: Array<{ kind: 'frame' | 'node'; id: string }>,
   action: 'front' | 'back' | 'forward' | 'backward'
 ) {
@@ -2637,433 +622,3 @@ export function reorderStackInDocument(
   reconcileStackOrder(next);
   return next;
 }
-
-/**
- * Per-side stroke (T/R/B/L) is only rendered for rect-like closed paths
- * (`createRectLike` in sceneToSvg).
- */
-export function supportsSideStroke(node: any) {
-  if (!node) return false;
-  if (node.key === 'rect') return true;
-  if (node.key === 'shape') {
-    const t = String(node.attrs?.shapeType || 'rect');
-    return t === 'rect' || t === 'roundRect' || t === '';
-  }
-  return false;
-}
-
-/** Nodes that expose corner-radius toolbar + on-canvas handles. */
-export function supportsCornerRadius(node: any) {
-  if (!node) return false;
-  // Circles / ellipses have no corners — AABB R-dots sit in the square's empty
-  // corners (outside the disk). Use path/geo edit instead.
-  if (node.key === 'ellipse') return false;
-  if (node.key === 'rect' || node.key === 'image') return true;
-  // Freehand / outlined / boolean `path` — radius is baked into `d` (or edited via
-  // path anchors). Do not show the rect-style R dots on the AABB.
-  if (node.key === 'path') return false;
-  if (node.key === 'shape') {
-    const t = String(node.attrs?.shapeType || 'rect');
-    if (t === 'circle' || t === 'ellipse') return false;
-    if (t === 'rect' || t === 'roundRect' || t === 'triangle' || t === 'polygon' || t === 'star') {
-      return true;
-    }
-    if (t === 'path' || t === 'pen') return false;
-  }
-  return false;
-}
-
-function isClosedPathAttrs(attrs: Record<string, unknown> | null | undefined) {
-  if (!attrs) return false;
-  if (attrs.closed === false || attrs.closed === 'false') return false;
-  if (attrs.closed === true || attrs.closed === 'true') return true;
-  const d = String(attrs.path || attrs.d || '').trim();
-  return /z\s*$/i.test(d);
-}
-
-/** Regular polygon / star: adjustable side (or point) count. */
-export function supportsShapeSides(node: any) {
-  if (!node || node.key !== 'shape') return false;
-  const t = String(node.attrs?.shapeType || '');
-  return t === 'polygon' || t === 'star';
-}
-
-/**
- * Whether preset aspect ratios (1:1 / 16:9 …) are meaningful.
- * Freehand paths, lines, and arrows only have a loose bounding box — skip presets.
- */
-export function supportsAspectPresets(node: any) {
-  if (!node) return false;
-  if (
-    node.key === 'image' ||
-    node.key === 'video' ||
-    node.key === 'lottie' ||
-    node.key === 'audio' ||
-    node.key === 'frame' ||
-    node.key === 'svg'
-  )
-    return true;
-  if (node.key === 'rect' || node.key === 'ellipse') return true;
-  if (node.key !== 'shape' && node.key !== 'path') return false;
-  const t = String(node.attrs?.shapeType || (node.key === 'path' ? 'path' : 'rect'));
-  // Open strokes have no box aspect; closed path (e.g. boolean result) does.
-  if (['line', 'arrow', 'pen', 'pencil'].includes(t)) return false;
-  if (t === 'path') return String(node.attrs?.closed) !== 'false';
-  return true;
-}
-
-/**
- * Whether the node can have a fill / background color.
- * Open stroke paths (line, arrow, pencil, unclosed pen/path) are stroke-only.
- */
-export function supportsFill(node: any) {
-  if (!node) return false;
-  if (
-    node.key === 'rect' ||
-    node.key === 'ellipse' ||
-    node.key === 'image' ||
-    node.key === 'video' ||
-    node.key === 'lottie' ||
-    node.key === 'audio' ||
-    node.key === 'svg'
-  )
-    return true;
-  if (node.key === 'path') {
-    const d = String(node.attrs?.path || node.attrs?.d || '');
-    if (node.attrs?.closed === false || node.attrs?.closed === 'false') return false;
-    return (
-      node.attrs?.closed === true ||
-      node.attrs?.closed === 'true' ||
-      /\sZ\s*$/i.test(d.trim())
-    );
-  }
-  if (node.key !== 'shape') return false;
-  const t = String(node.attrs?.shapeType || 'rect');
-  if (t === 'line' || t === 'arrow' || t === 'pencil') return false;
-  if (t === 'pen' || t === 'path') {
-    const d = String(node.attrs?.path || node.attrs?.d || '');
-    if (node.attrs?.closed === false || node.attrs?.closed === 'false') return false;
-    return (
-      node.attrs?.closed === true ||
-      node.attrs?.closed === 'true' ||
-      /\sZ\s*$/i.test(d.trim())
-    );
-  }
-  return true;
-}
-
-/**
- * Shape stroke panel (描边). Images / text / frames use other chrome — not this control.
- */
-export function supportsStroke(node: any) {
-  if (!node) return false;
-  if (
-    node.key === 'image' ||
-    node.key === 'video' ||
-    node.key === 'lottie' ||
-    node.key === 'audio' ||
-    node.key === 'text' ||
-    node.key === 'frame' ||
-    node.key === 'svg'
-  )
-    return false;
-  if (node.key === 'rect' || node.key === 'ellipse' || node.key === 'path') return true;
-  return node.key === 'shape';
-}
-
-/**
- * Closed shapes eligible for union / subtract / intersect / exclude.
- * Excludes open strokes and non-shape nodes (image, text, …).
- */
-export function supportsBooleanOp(node: any) {
-  if (!node || node.key !== 'shape') return false;
-  const t = String(node.attrs?.shapeType || 'rect');
-  return !['line', 'arrow', 'pen', 'pencil'].includes(t);
-}
-
-/** Logical multi-object group id stored on each member (`attrs.groupId`). */
-export function readNodeGroupId(node: any): string | null {
-  const id = String(node?.attrs?.groupId || '').trim();
-  return id || null;
-}
-
-/** All node ids that share the same groupId. */
-export function listGroupMemberIds(doc: any, groupId: string): string[] {
-  if (!doc || !groupId) return [];
-  return listSceneNodes(doc)
-    .filter(({ node }) => readNodeGroupId(node) === groupId)
-    .map(({ id }) => id);
-}
-
-/**
- * Expand a selection so that picking any member selects the whole group.
- * Used on click / marquee select (not when empty).
- */
-export function expandSelectionWithGroups(doc: any, nodeIds: string[]): string[] {
-  if (!doc || !nodeIds?.length) return nodeIds || [];
-  const out = new Set<string>();
-  for (const id of nodeIds) {
-    const gid = readNodeGroupId(doc.deltaSetLike?.[id]);
-    if (!gid) {
-      out.add(id);
-      continue;
-    }
-    listGroupMemberIds(doc, gid).forEach((mid) => out.add(mid));
-  }
-  return [...out];
-}
-
-/**
- * If every selected id shares one groupId and the selection is exactly that group,
- * return the groupId; otherwise null.
- */
-export function selectionSharedGroupId(doc: any, nodeIds: string[]): string | null {
-  if (!doc || !nodeIds || nodeIds.length < 2) return null;
-  const first = readNodeGroupId(doc.deltaSetLike?.[nodeIds[0]]);
-  if (!first) return null;
-  if (!nodeIds.every((id) => readNodeGroupId(doc.deltaSetLike?.[id]) === first)) return null;
-  const members = listGroupMemberIds(doc, first);
-  if (members.length !== nodeIds.length) return null;
-  const set = new Set(nodeIds);
-  if (!members.every((id) => set.has(id))) return null;
-  return first;
-}
-
-/** Assign a shared groupId to the given nodes. */
-export function groupNodesInDocument(doc: any, nodeIds: string[]) {
-  const ids = [...new Set((nodeIds || []).filter(Boolean))];
-  if (ids.length < 2) return doc;
-  const next = normalizeDocument(doc);
-  const groupId = nanoid(8);
-  ids.forEach((id) => {
-    const node = next.deltaSetLike?.[id];
-    if (!node) return;
-    node.attrs = { ...(node.attrs || {}), groupId };
-  });
-  return next;
-}
-
-/** Clear groupId from the given nodes (and leftover siblings in that group). */
-export function ungroupNodesInDocument(doc: any, nodeIds: string[]) {
-  const ids = [...new Set((nodeIds || []).filter(Boolean))];
-  if (!ids.length) return doc;
-  const next = normalizeDocument(doc);
-  const groupIds = new Set<string>();
-  ids.forEach((id) => {
-    const gid = readNodeGroupId(next.deltaSetLike?.[id]);
-    if (gid) groupIds.add(gid);
-  });
-  if (!groupIds.size) return doc;
-  listSceneNodes(next).forEach(({ id, node }) => {
-    const gid = readNodeGroupId(node);
-    if (!gid || !groupIds.has(gid)) return;
-    const attrs = { ...(node.attrs || {}) };
-    delete attrs.groupId;
-    node.attrs = attrs;
-    next.deltaSetLike[id] = node;
-  });
-  return next;
-}
-
-/** Scene nodes whose center lies inside any of the given artboards. */
-export function nodeIdsInsideFrames(doc: any, frameIds: string[]): string[] {
-  if (!doc || !frameIds?.length) return [];
-  const wanted = new Set(frameIds.filter(Boolean).map(String));
-  if (!wanted.size) return [];
-  const frames = (Array.isArray(doc.frames) ? doc.frames : []).filter(
-    (f: any) => f?.id && wanted.has(String(f.id))
-  );
-  if (!frames.length) return [];
-  const out: string[] = [];
-  for (const { id, node } of listSceneNodes(doc)) {
-    if (!node) continue;
-    const left = Number(node.x) || 0;
-    const top = Number(node.y) || 0;
-    const w = Math.max(1, Number(node.width) || 1);
-    const h = Math.max(1, Number(node.height) || 1);
-    const cx = left + w / 2;
-    const cy = top + h / 2;
-    const inside = frames.some((f: any) => {
-      const fx = Number(f.x) || 0;
-      const fy = Number(f.y) || 0;
-      const fw = Math.max(1, Number(f.width) || 1);
-      const fh = Math.max(1, Number(f.height) || 1);
-      return cx >= fx && cx <= fx + fw && cy >= fy && cy <= fy + fh;
-    });
-    if (inside) out.push(id);
-  }
-  return out;
-}
-
-/**
- * Nodes to operate on for a canvas selection: explicit node ids plus content
- * inside selected artboards (same expansion delete / copy already use).
- */
-export function resolveSelectionNodeIds(
-  doc: any,
-  nodeIds: string[],
-  frameIds: string[] = []
-): string[] {
-  const inside = nodeIdsInsideFrames(doc, frameIds);
-  return [...new Set([...(nodeIds || []).filter(Boolean), ...inside])];
-}
-
-export type SceneClipboardPayload = {
-  nodes: Array<{ id: string; node: any }>;
-  /** Artboards included in the same copy/cut/duplicate batch. */
-  frames?: Array<{ id: string; frame: any }>;
-};
-
-/** Axis-aligned bounds of clipboard nodes + frames (document coords). */
-export function clipboardNodesBounds(clipboard: SceneClipboardPayload | null | undefined) {
-  if (!clipboard) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let any = false;
-  (clipboard.nodes || []).forEach(({ node }) => {
-    const x = Number(node.x) || 0;
-    const y = Number(node.y) || 0;
-    const w = Math.max(0, Number(node.width) || 0);
-    const h = Math.max(0, Number(node.height) || 0);
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + w);
-    maxY = Math.max(maxY, y + h);
-    any = true;
-  });
-  (clipboard.frames || []).forEach(({ frame }) => {
-    const x = Number(frame.x) || 0;
-    const y = Number(frame.y) || 0;
-    const w = Math.max(0, Number(frame.width) || 0);
-    const h = Math.max(0, Number(frame.height) || 0);
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + w);
-    maxY = Math.max(maxY, y + h);
-    any = true;
-  });
-  if (!any || !Number.isFinite(minX)) return null;
-  return {
-    left: minX,
-    top: minY,
-    width: Math.max(0, maxX - minX),
-    height: Math.max(0, maxY - minY),
-  };
-}
-
-/** Deep-clone selected nodes for copy / cut (preserves page z-order). */
-export function snapshotNodesForClipboard(
-  doc: any,
-  nodeIds: string[]
-): SceneClipboardPayload | null {
-  if (!doc) return null;
-  const wanted = new Set((nodeIds || []).filter(Boolean));
-  if (!wanted.size) return null;
-  const page = getActivePage(doc);
-  const ordered = (page?.children || []).filter((id: string) => wanted.has(id));
-  const ids = ordered.length ? ordered : [...wanted];
-  const nodes: SceneClipboardPayload['nodes'] = [];
-  ids.forEach((id) => {
-    const raw = doc.deltaSetLike?.[id];
-    if (!raw) return;
-    nodes.push({ id, node: JSON.parse(JSON.stringify(raw)) });
-  });
-  return nodes.length ? { nodes } : null;
-}
-
-/** Deep-clone selected artboards for copy / cut / duplicate. */
-export function snapshotFramesForClipboard(
-  doc: any,
-  frameIds: string[]
-): NonNullable<SceneClipboardPayload['frames']> {
-  const wanted = new Set((frameIds || []).filter(Boolean).map(String));
-  if (!wanted.size || !doc) return [];
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const out: NonNullable<SceneClipboardPayload['frames']> = [];
-  frames.forEach((f: any) => {
-    if (!f?.id || !wanted.has(String(f.id))) return;
-    out.push({ id: String(f.id), frame: JSON.parse(JSON.stringify(f)) });
-  });
-  return out;
-}
-
-/**
- * Paste clipboard nodes + artboards with new ids.
- * - Default: nudge by offset (keyboard paste).
- * - `anchor`: place union top-left at that scene point (context-menu paste).
- */
-export function pasteClipboardIntoDocument(
-  doc: any,
-  clipboard: SceneClipboardPayload | null | undefined,
-  opts?: { offsetX?: number; offsetY?: number; anchor?: { x: number; y: number } }
-): { document: any; ids: string[]; frameIds: string[] } {
-  const hasNodes = Boolean(clipboard?.nodes?.length);
-  const hasFrames = Boolean(clipboard?.frames?.length);
-  if (!doc || (!hasNodes && !hasFrames)) {
-    return { document: doc, ids: [], frameIds: [] };
-  }
-  let next = normalizeDocument(doc);
-  const idMap = new Map<string, string>();
-  const groupMap = new Map<string, string>();
-  const frameIdMap = new Map<string, string>();
-  (clipboard!.nodes || []).forEach(({ id }) => idMap.set(id, nanoid(10)));
-  (clipboard!.frames || []).forEach(({ id }) => frameIdMap.set(id, nanoid(10)));
-
-  let ox = opts?.offsetX ?? 24;
-  let oy = opts?.offsetY ?? 24;
-  if (opts?.anchor) {
-    const bounds = clipboardNodesBounds(clipboard);
-    if (bounds) {
-      ox = opts.anchor.x - bounds.left;
-      oy = opts.anchor.y - bounds.top;
-    }
-  }
-
-  const newIds: string[] = [];
-  (clipboard!.nodes || []).forEach(({ id, node: raw }) => {
-    const node = JSON.parse(JSON.stringify(raw));
-    const newId = idMap.get(id)!;
-    node.id = newId;
-    node.x = (Number(node.x) || 0) + ox;
-    node.y = (Number(node.y) || 0) + oy;
-    const gid = String(node.attrs?.groupId || '').trim();
-    if (gid) {
-      if (!groupMap.has(gid)) groupMap.set(gid, nanoid(8));
-      node.attrs = { ...(node.attrs || {}), groupId: groupMap.get(gid) };
-    }
-    next = addNodeToDocument(next, newId, node);
-    newIds.push(newId);
-  });
-
-  const newFrameIds: string[] = [];
-  if (clipboard!.frames?.length) {
-    const frames = Array.isArray(next.frames) ? [...next.frames] : [];
-    const order = Array.isArray(next.stackOrder) ? [...next.stackOrder] : [];
-    clipboard!.frames.forEach(({ id, frame: raw }) => {
-      const frame = JSON.parse(JSON.stringify(raw));
-      const newId = frameIdMap.get(id)!;
-      frame.id = newId;
-      frame.x = (Number(frame.x) || 0) + ox;
-      frame.y = (Number(frame.y) || 0) + oy;
-      // Drop transient chrome that should not clone with the artboard.
-      delete frame.processStatus;
-      delete frame.processLabel;
-      delete frame.processKind;
-      frames.push(frame);
-      newFrameIds.push(newId);
-      order.push(stackFrameKey(newId));
-    });
-    next = {
-      ...next,
-      frames,
-      stackOrder: order,
-      activeFrameId: newFrameIds[0] || next.activeFrameId || null,
-    };
-  }
-
-  reconcileStackOrder(next);
-  return { document: next, ids: newIds, frameIds: newFrameIds };
-}
-

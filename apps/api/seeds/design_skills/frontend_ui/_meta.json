@@ -1,0 +1,53 @@
+{
+  "skill_key": "frontend_ui",
+  "name": "frontend_ui",
+  "displayName": "Frontend UI direction",
+  "description": "Anthropic-style frontend craft for canvas: direction, tokens, anti-AI defaults, signature, UI copy — via tool_ops",
+  "when_to_use": "Product UI / dashboard chrome / settings / app shell / SaaS screen that must look intentional — not a festive poster; use when visual direction and anti-generic UI matter",
+  "category": "ui",
+  "scenes": "all",
+  "sort_weight": 84,
+  "version": "2.0.0",
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "create_image",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "UI",
+        "界面",
+        "后台",
+        "设置页",
+        "SaaS",
+        "dashboard",
+        "settings",
+        "admin",
+        "产品页",
+        "控制台"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Do not ship purple-on-white / Inter-default / cream-terracotta clichés unless the brief asks; do not invent brand logos; do not decorate product UI with festive poster chrome.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "前端 UI 方向",
+      "description": "画布产品 UI：定方向、token、反 AI 默认脸、签名元素与文案"
+    },
+    "en": {
+      "displayName": "Frontend UI direction",
+      "description": "Canvas product UI: direction, tokens, anti-AI defaults, signature, copy"
+    }
+  }
+}

@@ -11,12 +11,13 @@ import { useSelector } from 'react-redux';
 import { useRcbCamera } from '@/components/rcb';
 import {
   isNodeHidden,
-  isVideoNode,
-} from '@/components/rcb/scene/document/sceneDocument';
+  isVideoNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
 import VideoHoverPlayback from './VideoHoverPlayback';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 export type VideoGeomOverride = {
   left: number;
@@ -32,7 +33,7 @@ function readOptionalNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function readNodeAngle(node: any) {
+function readNodeAngle(node: SceneNodeInput) {
   const n = Number(node?.attrs?.angle);
   return Number.isFinite(n) ? n : 0;
 }
@@ -62,7 +63,7 @@ function VideoNodeOverlay({
   hidden,
   geometryOverrides = null,
 }: {
-  document: any;
+  document: SceneDocument;
   hidden?: boolean;
   /** Live drag/resize/rotate boxes — same scene space as selection chrome. */
   geometryOverrides?: Record<string, VideoGeomOverride> | null;
@@ -117,7 +118,7 @@ function VideoPlateHost({
   imageToolPanel,
 }: {
   nodeId: string;
-  document: any;
+  document: SceneDocument;
   zoom: number;
   hidden?: boolean;
   geometryOverrides?: Record<string, VideoGeomOverride> | null;

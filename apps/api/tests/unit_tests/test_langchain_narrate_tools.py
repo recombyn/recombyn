@@ -48,6 +48,7 @@ def test_assemble_chat_and_ask():
 def test_design_thought_tools_include_meta():
     names = {getattr(t, "name", None) for t in design_thought_langchain_tools()}
     assert "ask_user" in names
-    assert "request_knowledge" in names
+    assert "request_tool_schemas" in names
+    assert "request_knowledge" not in names
     assert "finish" in names
     assert "generate_image" not in names

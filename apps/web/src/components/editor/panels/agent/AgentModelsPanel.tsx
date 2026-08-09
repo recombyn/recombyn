@@ -3,23 +3,27 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiChevronLeft, HiChevronRight, HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
 import {
   invalidateChatModelsCache,
   listModels,
+  type ChatModelsResponse,
   type LlmModel,
   type ByokPlatform,
-} from '@/apis/chat';
+} from '@/service/chat';
 import { modelAllowsRouteSlot, modelIsImageGenerator } from '@/components/editor/panels/agent/llmModelMeta';
-import { fetchDesignCatalog } from '@/apis/design';
+import { fetchDesignCatalog, type DesignCatalog } from '@/service/design';
+import { apiQuery } from '@/service/client';
 import { Dropdown, SegmentedControl, Select, Tooltip } from '@/components/base';
 import AccountSettingsDialog from '@/components/layout/AccountSettingsDialog';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
+import { getToken } from '@/utils/token';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
-import { planAllowsCustomModels, type PlanId } from '@/utils/wallet';
+import { useWalletSnapshot } from '@/service/wallet';
+import { planAllowsCustomModels } from '@/utils/wallet';
 import {
   createCustomLlmProviderId,
   createPlatformModelId,
@@ -458,7 +462,7 @@ function AddPlatformModelFields(props: {
         /* ignore read errors */
       }
     }
-    void applyUploadedIcon();
+    applyUploadedIcon();
   };
 
   return (
@@ -755,25 +759,35 @@ function AgentRoutePrefsEditor({
 
   useEffect(() => {
     setRoutePrefs(loadAgentRoutePrefs());
-    // Account Agent tab loads catalog once on the parent — skip duplicate design fetch there.
+  }, []);
+
+  // Account Agent tab loads catalog once on the parent — skip duplicate design fetch there.
+  const designCatalogQuery = useQuery({
+    ...apiQuery.designDesignCatalog.queryOptions(),
+    staleTime: 60_000,
+    enabled: !catalogFromParent,
+  });
+
+  const modelsQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+    enabled: !catalogFromParent,
+  });
+
+  const byokListQuery = useQuery({
+    ...apiQuery.meMeByokList.queryOptions(),
+    staleTime: 30_000,
+    enabled: !catalogFromParent && desktopLocal && Boolean(getToken()),
+  });
+
+  useEffect(() => {
     if (catalogFromParent) return;
-    let cancelled = false;
-    async function loadDesignCatalog() {
-      try {
-        const cat = await fetchDesignCatalog();
-        if (cancelled) return;
-        const rules = cat.global_rules || {};
-        cachedPresetRules = rules;
-        setRoutePrefs(loadAgentRoutePrefs(rules));
-      } catch {
-        /* ignore */
-      }
-    }
-    void loadDesignCatalog();
-    return () => {
-      cancelled = true;
-    };
-  }, [catalogFromParent]);
+    const cat = designCatalogQuery.data as DesignCatalog | undefined;
+    if (!cat) return;
+    const rules = cat.global_rules || {};
+    cachedPresetRules = rules;
+    setRoutePrefs(loadAgentRoutePrefs(rules));
+  }, [catalogFromParent, designCatalogQuery.data]);
 
   useEffect(() => {
     if (catalogFromParent) {
@@ -787,31 +801,23 @@ function AgentRoutePrefsEditor({
       setRoutePrefs(loadAgentRoutePrefs(cachedPresetRules));
       return;
     }
-    let cancelled = false;
-    async function loadRouteModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const orOk = res?.openrouterAvailable !== false;
-        cachedOpenrouterAvailable = orOk;
-        setOpenrouterAvailable(orOk);
-        const { text, image } = routeCatalogFromListModels(res);
-        setTextModels(text);
-        setImageModels(image);
-        setRoutePrefs(loadAgentRoutePrefs(cachedPresetRules));
-      } catch {
-        /* ignore */
-      }
+    if (!modelsQuery.isFetched) return;
+    const res = modelsQuery.data as ChatModelsResponse | undefined;
+    if (res) {
+      const orOk = res.openrouterAvailable !== false;
+      cachedOpenrouterAvailable = orOk;
+      setOpenrouterAvailable(orOk);
+      const { text, image } = routeCatalogFromListModels(res);
+      setTextModels(text);
+      setImageModels(image);
+      setRoutePrefs(loadAgentRoutePrefs(cachedPresetRules));
     }
-    void loadRouteModels();
-    return () => {
-      cancelled = true;
-    };
-  }, [catalogFromParent, sharedCatalog]);
+  }, [catalogFromParent, sharedCatalog, modelsQuery.data, modelsQuery.isFetched]);
 
   // Standalone popover on local desktop: refresh BYOK lanes (Account tab parent hydrates).
   useEffect(() => {
     if (!desktopLocal || catalogFromParent) return;
+    if (getToken() && !byokListQuery.isFetched) return;
     let cancelled = false;
     async function refreshByokRouteModels() {
       await hydrateCustomLlmProviders();
@@ -820,11 +826,11 @@ function AgentRoutePrefsEditor({
       setTextModels(text);
       setImageModels(image);
     }
-    void refreshByokRouteModels();
+    refreshByokRouteModels();
     return () => {
       cancelled = true;
     };
-  }, [desktopLocal, catalogFromParent]);
+  }, [desktopLocal, catalogFromParent, byokListQuery.isFetched, byokListQuery.dataUpdatedAt]);
 
   const commit = (next: AgentRoutePrefs) => {
     setRoutePrefs(next);
@@ -1336,7 +1342,7 @@ function AgentModelsPanel({
   onRequestUpgrade,
 }: Props): ReactNode {
   const { t } = useTranslation();
-  const planId = useSelector((state: any) => (state.wallet?.planId as PlanId) || 'free');
+  const { planId } = useWalletSnapshot();
   // Local desktop: BYOK is always allowed (no cloud membership).
   const canCustom = isDesktopLocal() || planAllowsCustomModels(planId);
   const [providers, setProviders] = useState<CustomLlmProvider[]>([]);
@@ -1353,7 +1359,7 @@ function AgentModelsPanel({
   const [modelKind, setModelKind] = useState<CustomModelKind>('text');
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Optional extra model id while adding a platform key (also reused for「添加模型」on saved rows).
+  // Optional extra model id while adding a platform key (also reused for銆屾坊鍔犳ā鍨嬨€峯n saved rows).
   const [addModelForId, setAddModelForId] = useState('');
   const [addModelName, setAddModelName] = useState('');
   const [addModelApiId, setAddModelApiId] = useState('');
@@ -1374,50 +1380,81 @@ function AgentModelsPanel({
     else setSettingsOpen(true);
   };
 
+  const modelsQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+  const designCatalogQuery = useQuery({
+    ...apiQuery.designDesignCatalog.queryOptions(),
+    staleTime: 60_000,
+  });
+  const byokAuthed = Boolean(getToken());
+  const byokListQuery = useQuery({
+    ...apiQuery.meMeByokList.queryOptions(),
+    staleTime: 30_000,
+    enabled: byokAuthed,
+  });
+
+  const persistProviderMutation = useMutation({
+    mutationFn: (provider: CustomLlmProvider) => persistCustomLlmProvider(provider),
+  });
+  const removeProviderMutation = useMutation({
+    mutationFn: (id: string) => removeCustomLlmProvider(id),
+  });
+
   useEffect(() => {
+    if (byokAuthed && !byokListQuery.isFetched) return;
     let cancelled = false;
-    async function loadAgentTabData() {
-      // One parallel round: BYOK list + models (platforms + route catalog).
-      const [list, res] = await Promise.all([
-        hydrateCustomLlmProviders().catch(() => [] as CustomLlmProvider[]),
-        listModels().catch(() => null),
-      ]);
+    async function hydrateProviders() {
+      // Hits warm Query cache from byokListQuery when logged in.
+      let list: CustomLlmProvider[] = [];
+      try {
+        list = await hydrateCustomLlmProviders();
+      } catch {
+        list = [];
+      }
       if (cancelled) return;
       setProviders(list);
-      if (res) {
-        const plat = res.byokPlatforms?.length
-          ? res.byokPlatforms
-          : (res.byokPresets as ByokPlatform[] | undefined) ?? [];
-        setPlatforms(
-          plat.map((p) => ({
-            ...p,
-            rowId: p.rowId || `platform:${p.id}`,
-            kinds: p.kinds?.length ? p.kinds : ['text'],
-          }))
-        );
-        const orOk = res.openrouterAvailable !== false;
-        warmOpenrouterAvailability(orOk);
-        const { text, image } = routeCatalogFromListModels(res);
-        setSharedCatalog({ text, image, openrouterAvailable: orOk });
-      } else if (isDesktopLocal()) {
-        const { text, image } = splitByokRouteModels(customProvidersAsModels(list));
-        setSharedCatalog({ text, image, openrouterAvailable: cachedOpenrouterAvailable });
-      } else {
-        setSharedCatalog({ text: [], image: [], openrouterAvailable: null });
-      }
-      try {
-        const cat = await fetchDesignCatalog();
-        if (cancelled) return;
-        cachedPresetRules = cat.global_rules || {};
-      } catch {
-        /* route presets keep fallbacks */
-      }
     }
-    void loadAgentTabData();
+    hydrateProviders();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [byokAuthed, byokListQuery.isFetched, byokListQuery.dataUpdatedAt]);
+
+  useEffect(() => {
+    if (!modelsQuery.isFetched) return;
+    const res = modelsQuery.data as ChatModelsResponse | undefined;
+    if (res) {
+      const plat = res.byokPlatforms?.length
+        ? res.byokPlatforms
+        : (res.byokPresets as ByokPlatform[] | undefined) ?? [];
+      setPlatforms(
+        plat.map((p) => ({
+          ...p,
+          rowId: p.rowId || `platform:${p.id}`,
+          kinds: p.kinds?.length ? p.kinds : ['text'],
+        }))
+      );
+      const orOk = res.openrouterAvailable !== false;
+      warmOpenrouterAvailability(orOk);
+      const { text, image } = routeCatalogFromListModels(res);
+      setSharedCatalog({ text, image, openrouterAvailable: orOk });
+      return;
+    }
+    if (isDesktopLocal()) {
+      const { text, image } = splitByokRouteModels(customProvidersAsModels(providers));
+      setSharedCatalog({ text, image, openrouterAvailable: cachedOpenrouterAvailable });
+      return;
+    }
+    setSharedCatalog({ text: [], image: [], openrouterAvailable: null });
+  }, [modelsQuery.data, modelsQuery.isFetched, providers]);
+
+  useEffect(() => {
+    const cat = designCatalogQuery.data as DesignCatalog | undefined;
+    if (!cat) return;
+    cachedPresetRules = cat.global_rules || {};
+  }, [designCatalogQuery.data]);
 
   const persistProviders = (next: CustomLlmProvider[]) => {
     setProviders(next);
@@ -1498,7 +1535,7 @@ function AgentModelsPanel({
       setError(t('agent.providerBaseUrlInvalid'));
       return;
     }
-    // Aggregators: one key unlocks the catalog (apiModel sentinel). Model IDs only via「添加模型」or manual.
+    // Aggregators: one key unlocks the catalog (apiModel sentinel). Model IDs only via銆屾坊鍔犳ā鍨嬨€峯r manual.
     const mid = isPlatform ? '*' : apiModel.trim();
     if (!mid) {
       setError(t('agent.providerApiModelRequired', { defaultValue: '请填写模型 ID（如 gpt-4o）' }));
@@ -1543,7 +1580,7 @@ function AgentModelsPanel({
     }
     async function saveProvider() {
       try {
-        const saved = await persistCustomLlmProvider(draft);
+        const saved = await persistProviderMutation.mutateAsync(draft);
         let next = [saved, ...providers.filter((p) => p.id !== saved.id)];
         if (extraMid && selectedPlatform) {
           const child: CustomLlmProvider = {
@@ -1559,7 +1596,7 @@ function AgentModelsPanel({
             createdAt: Date.now(),
           };
           try {
-            const savedChild = await persistCustomLlmProvider(child);
+            const savedChild = await persistProviderMutation.mutateAsync(child);
             next = [savedChild, ...next.filter((p) => p.id !== savedChild.id)];
           } catch {
             setError(t('agent.providerPlatformModelFailed'));
@@ -1573,7 +1610,7 @@ function AgentModelsPanel({
         setError(t('agent.providerSaveFailed', { defaultValue: 'Failed to save provider' }));
       }
     }
-    void saveProvider();
+    saveProvider();
   };
 
   const onRemove = (id: string) => {
@@ -1586,11 +1623,13 @@ function AgentModelsPanel({
       for (const child of childModelsOf(id)) removeIds.add(child.id);
     }
     async function removeProviders() {
-      await Promise.all([...removeIds].map((rid) => removeCustomLlmProvider(rid)));
+      await Promise.all(
+        [...removeIds].map((rid) => removeProviderMutation.mutateAsync(rid))
+      );
       persistProviders(providers.filter((p) => !removeIds.has(p.id)));
       if (addModelForId === id) closeAddModel();
     }
-    void removeProviders();
+    removeProviders();
   };
 
   const openAddModel = (platformRowId: string) => {
@@ -1663,14 +1702,14 @@ function AgentModelsPanel({
     };
     async function savePlatformModel() {
       try {
-        const saved = await persistCustomLlmProvider(draft);
+        const saved = await persistProviderMutation.mutateAsync(draft);
         persistProviders([saved, ...providers.filter((p) => p.id !== saved.id)]);
         closeAddModel();
       } catch {
         setAddModelError(t('agent.providerPlatformModelFailed'));
       }
     }
-    void savePlatformModel();
+    savePlatformModel();
   };
 
   const platformRows = providers.filter(

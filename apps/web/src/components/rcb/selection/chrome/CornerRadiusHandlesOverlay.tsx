@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Shape handles — corner radius.
  * Pointer engine stays in SelectionFeature; this paints world-SVG knobs only.
@@ -209,6 +210,74 @@ function localPointToScene(
   };
 }
 
+function maxRForPathSite(site: SharpCornerSite, boxMaxR: number): number {
+  return Math.min(boxMaxR, site.maxR > 0 ? site.maxR : boxMaxR);
+}
+
+function radiusAlongBoxCorner(
+  corner: (typeof RADIUS_CORNERS)[number],
+  local: { x: number; y: number },
+  w: number,
+  h: number,
+  boxMaxR: number
+): number {
+  const cornerLx = corner.cx * w;
+  const cornerLy = corner.cy * h;
+  const len = Math.hypot(corner.ix, corner.iy) || 1;
+  // Bisector projection; seat at (R,R) ⇒ along = R√2, so R = along/√2.
+  const along =
+    (local.x - cornerLx) * (corner.ix / len) + (local.y - cornerLy) * (corner.iy / len);
+  return Math.max(0, Math.min(boxMaxR, along / Math.SQRT2));
+}
+
+function radiusAlongPathSite(
+  site: SharpCornerSite,
+  local: { x: number; y: number },
+  boxMaxR: number
+): number {
+  const along = (local.x - site.x) * site.ix + (local.y - site.y) * site.iy;
+  return Math.max(0, Math.min(maxRForPathSite(site, boxMaxR), along));
+}
+
+function previewRadiiOnHost(opts: {
+  nodeId: string;
+  node: SceneNodeInput;
+  linked: boolean;
+  w: number;
+  h: number;
+  radii: CornerRadii;
+  vertices?: number[];
+}) {
+  const { nodeId, node, linked, w, h, radii, vertices } = opts;
+  const hostEl = liveNodeEl(nodeId);
+  if (!hostEl) return;
+  const map = getSharedNodeEls() || new Map<string, any>([[nodeId, hostEl]]);
+  if (!map.has(nodeId)) map.set(nodeId, hostEl);
+  const shapeType = String(
+    node?.attrs?.shapeType || (node?.key === 'path' ? 'path' : node?.key) || 'rect'
+  );
+  const attrs = {
+    ...(node?.attrs || {}),
+    radiusTL: radii.tl,
+    radiusTR: radii.tr,
+    radiusBR: radii.br,
+    radiusBL: radii.bl,
+    radiusLinked: linked ? 'true' : 'false',
+    ...(vertices ? { radiusVertices: serializeRadiusVertices(vertices) } : {}),
+  };
+  if (
+    previewSvgNodeCornerRadii(map, nodeId, {
+      width: w,
+      height: h,
+      shapeType,
+      radii,
+      attrs,
+    })
+  ) {
+    notifyShapeHostGeometry(nodeId);
+  }
+}
+
 /**
  * Seat inset from the corner: tracks R. When R is below the park distance,
  * keep a screen-constant inset so the radius hit clears the resize hit under any zoom.
@@ -221,8 +290,29 @@ export function radiusSeatInset(r: number, halfSide: number, parkScene: number):
 }
 
 /**
+ * Path R-dot seat distance along the fill bisector.
+ * Use screen-constant `parkScene` as-is — do NOT amplify by 1/min(|ix|,|iy|)
+ * (sharp hole cusps otherwise park into a concentric larger star / pentagon).
+ * `maxR` caps travel at this corner's geometric fillet limit.
+ */
+export function pathRadiusSeatAlong(
+  r: number,
+  parkScene: number,
+  maxR?: number
+): number {
+  const rNum = Math.max(0, Number(r) || 0);
+  const park = Math.max(0, Number(parkScene) || 0);
+  const cap =
+    maxR != null && Number.isFinite(maxR) && maxR >= 0
+      ? Math.min(rNum, maxR)
+      : rNum;
+  return Math.max(park, cap);
+}
+
+/**
  * Path seats travel along the inward bisector. Axis AABB clearance needs the
  * same park on both axes as box-mode `(inset, inset)` — so along ≥ park / min(|ix|,|iy|).
+ * Prefer {@link pathRadiusSeatAlong} for seating path R-dots (no amplification).
  */
 export function radiusParkAlongBisector(
   parkScene: number,
@@ -235,6 +325,30 @@ export function radiusParkAlongBisector(
   const m = Math.min(ax, ay);
   if (!(m > 1e-9)) return park;
   return park / m;
+}
+
+function pathVerticesAfterDrag(
+  start: number[],
+  sharpIndex: number,
+  rounded: number,
+  solo: boolean
+): number[] {
+  if (solo) return start.map((v, i) => (i === sharpIndex ? rounded : v));
+  return start.map(() => rounded);
+}
+
+function boxRadiiAfterDrag(
+  start: CornerRadii,
+  corner: CornerKey,
+  rounded: number,
+  solo: boolean
+): CornerRadii {
+  if (solo) return { ...start, [corner]: rounded };
+  return { tl: rounded, tr: rounded, br: rounded, bl: rounded };
+}
+
+function uniformCornerRadii(v: number): CornerRadii {
+  return { tl: v, tr: v, br: v, bl: v };
 }
 
 /** Path sharp-corner radii list — stored vertices, or uniform fallback from box radii. */
@@ -252,7 +366,7 @@ function resolvePathVertexRadii(
 function patchNodeCornerRadii(opts: {
   dispatch: (a: unknown) => void;
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   radii: CornerRadii;
   linked: boolean;
   /** When set, written as radiusVertices (sharp-corner list for paths). */
@@ -344,22 +458,13 @@ function CornerRadiusHandlesOverlay({
   box: SceneBox;
   angle: number;
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   toScene: (clientX: number, clientY: number) => { x: number; y: number };
   /** Kept for call-site parity with other shape overlays (unused — seats always show). */
   stageEl: HTMLElement | null;
   /** False while moving/resizing so dots follow chrome without stealing pointers. */
   interactive?: boolean;
 }) {
-  const shapeType = String(
-    node?.attrs?.shapeType || (node?.key === 'ellipse' ? 'ellipse' : node?.key) || 'rect'
-  );
-  // Circle / ellipse: no corners — AABB park seats sit in the empty square corners
-  // (outside the disk). Rect-style R dots stay off.
-  if (shapeType === 'circle' || shapeType === 'ellipse' || node?.key === 'ellipse') {
-    return null;
-  }
-
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const camera = useRcbCamera();
@@ -368,12 +473,20 @@ function CornerRadiusHandlesOverlay({
   const [dragValue, setDragValue] = useState<number | null>(null);
   const dragRef = useRef<RadiusHandleDrag | null>(null);
 
+  const shapeType = String(
+    node?.attrs?.shapeType || (node?.key === 'ellipse' ? 'ellipse' : node?.key) || 'rect'
+  );
+  // Circle / ellipse: no corners — AABB park seats sit in the empty square corners
+  // (outside the disk). Rect-style R dots stay off.
+  const skipRadiusHandles =
+    shapeType === 'circle' || shapeType === 'ellipse' || node?.key === 'ellipse';
+
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
-  const maxR = Math.min(w, h) / 2;
+  const boxMaxR = Math.min(w, h) / 2;
   const baseRadii = clampCornerRadii(radiiFromAttrs(node?.attrs), w, h);
   const linked = isRadiusLinked(node?.attrs);
-  const pathSites = sharpCornerSitesForNode(node);
+  const pathSites = skipRadiusHandles ? null : sharpCornerSitesForNode(node);
   const usePath = Boolean(pathSites && pathSites.length > 0);
   const pathVertexCount = usePath ? pathSites!.length : 0;
   const pathVertices = usePath
@@ -388,7 +501,9 @@ function CornerRadiusHandlesOverlay({
   const k = 1 / z;
   const parkScene = radiusParkSceneForBox(w, h, z, RADIUS_PARK_PX);
   const radiusInteractive =
-    interactive && radiusHandlesFitOnScreen(w, h, z, RADIUS_PARK_PX);
+    !skipRadiusHandles &&
+    interactive &&
+    radiusHandlesFitOnScreen(w, h, z, RADIUS_PARK_PX);
   // `box` prop is path geom (caller deflates visual chrome). Host-mirrored
   // local space is also geom — path sites need no chrome pad.
   const halfSide = Math.min(w, h) / 2;
@@ -410,7 +525,7 @@ function CornerRadiusHandlesOverlay({
   };
 
   const pathHandleLocalPos = (site: SharpCornerSite, r: number) => {
-    const along = radiusParkAlongBisector(radiusHandleInset(r), site.ix, site.iy);
+    const along = pathRadiusSeatAlong(r, parkScene, site.maxR > 0 ? site.maxR : undefined);
     return {
       lx: site.x + site.ix * along,
       ly: site.y + site.iy * along,
@@ -422,75 +537,42 @@ function CornerRadiusHandlesOverlay({
     return localPointToScene(lx, ly, box, angle);
   };
 
-  const radiusAlongBoxCorner = (
-    corner: (typeof RADIUS_CORNERS)[number],
-    local: { x: number; y: number }
-  ) => {
-    const cornerLx = corner.cx * w;
-    const cornerLy = corner.cy * h;
-    const len = Math.hypot(corner.ix, corner.iy) || 1;
-    // Bisector projection; seat at (R,R) ⇒ along = R√2, so R = along/√2.
-    const along =
-      (local.x - cornerLx) * (corner.ix / len) + (local.y - cornerLy) * (corner.iy / len);
-    return Math.max(0, Math.min(maxR, along / Math.SQRT2));
+  const dragSessionEndRef = useRef<(() => void) | null>(null);
+
+  const endDragSession = () => {
+    dragSessionEndRef.current?.();
+    dragSessionEndRef.current = null;
   };
 
-  const radiusAlongPathSite = (site: SharpCornerSite, local: { x: number; y: number }) => {
-    const along = (local.x - site.x) * site.ix + (local.y - site.y) * site.iy;
-    // Inverse of radiusParkAlongBisector: axis park ↔ R (same as box inset).
-    const m = Math.min(Math.abs(site.ix), Math.abs(site.iy));
-    const axis = m > 1e-9 ? along * m : along;
-    return Math.max(0, Math.min(maxR, axis));
-  };
+  // Only unmount cleanup — listeners attach on pointerdown, not while idle-selected.
+  useEffect(
+    () => () => {
+      dragSessionEndRef.current?.();
+      dragSessionEndRef.current = null;
+    },
+    []
+  );
 
-  const previewRadiiOnHost = (radii: CornerRadii, vertices?: number[]) => {
-    const hostEl = liveNodeEl(nodeId);
-    if (!hostEl) return;
-    const map = getSharedNodeEls() || new Map<string, any>([[nodeId, hostEl]]);
-    if (!map.has(nodeId)) map.set(nodeId, hostEl);
-    const shapeType = String(
-      node?.attrs?.shapeType || (node?.key === 'path' ? 'path' : node?.key) || 'rect'
-    );
-    const attrs = {
-      ...(node?.attrs || {}),
-      radiusTL: radii.tl,
-      radiusTR: radii.tr,
-      radiusBR: radii.br,
-      radiusBL: radii.bl,
-      radiusLinked: linked ? 'true' : 'false',
-      ...(vertices ? { radiusVertices: serializeRadiusVertices(vertices) } : {}),
+  const beginDragSession = () => {
+    if (dragSessionEndRef.current) return;
+
+    const preview = (radii: CornerRadii, vertices?: number[]) => {
+      previewRadiiOnHost({ nodeId, node, linked, w, h, radii, vertices });
     };
-    if (
-      previewSvgNodeCornerRadii(map, nodeId, {
-        width: w,
-        height: h,
-        shapeType,
-        radii,
-        attrs,
-      })
-    ) {
-      notifyShapeHostGeometry(nodeId);
-    }
-  };
 
-  useEffect(() => {
-    if (!radiusInteractive) return undefined;
+    const restoreDrag = (d: RadiusHandleDrag) => {
+      if (d.mode === 'path') {
+        preview(uniformCornerRadii(d.startVertices[0] ?? 0), d.startVertices);
+        return;
+      }
+      preview(d.startRadii);
+    };
 
-    const commitPathRadii = (
-      vertices: number[],
-      linkedNext: boolean,
-      skipHistory: boolean
-    ) => {
-      const u = vertices[0] ?? 0;
-      patchNodeCornerRadii({
-        dispatch,
-        nodeId,
-        node,
-        radii: { tl: u, tr: u, br: u, bl: u },
-        linked: linkedNext,
-        vertices,
-        skipHistory,
-      });
+    const finishUi = () => {
+      dragRef.current = null;
+      setActiveKey(null);
+      setDragValue(null);
+      setLiveCornerRadiusPreview(null);
     };
 
     const onMove = (e: PointerEvent) => {
@@ -504,120 +586,141 @@ function CornerRadiusHandlesOverlay({
       const sc = toScene(e.clientX, e.clientY);
       const local = scenePointToLocal(sc.x, sc.y, box, angle);
       if (d.mode === 'path') {
-        const rounded = Math.round(radiusAlongPathSite(d.site, local));
-        const next = d.solo
-          ? d.startVertices.map((v, i) => (i === d.sharpIndex ? rounded : v))
-          : d.startVertices.map(() => rounded);
+        const rounded = Math.round(radiusAlongPathSite(d.site, local, boxMaxR));
+        const next = pathVerticesAfterDrag(d.startVertices, d.sharpIndex, rounded, d.solo);
         setDragValue(rounded);
-        // DOM preview only — Redux remount mid-drag leaves ghost shadows.
-        // Publish live display so the toolbar R label tracks the drag.
-        const u = next[0] ?? rounded;
-        const previewRadii: CornerRadii = d.solo
-          ? { tl: u, tr: u, br: u, bl: u }
-          : { tl: rounded, tr: rounded, br: rounded, bl: rounded };
+        const previewRadii = uniformCornerRadii(rounded);
         setLiveCornerRadiusPreview({
           nodeId,
           display: cornerRadiusDisplayFromRadii(previewRadii, !d.solo && d.linked),
         });
-        previewRadiiOnHost(previewRadii, next);
+        preview(previewRadii, next);
         return;
       }
       const corner = RADIUS_CORNERS.find((c) => c.key === d.corner);
       if (!corner) return;
-      const rounded = Math.round(radiusAlongBoxCorner(corner, local));
-      const next: CornerRadii = d.solo
-        ? { ...d.startRadii, [d.corner]: rounded }
-        : { tl: rounded, tr: rounded, br: rounded, bl: rounded };
+      const rounded = Math.round(radiusAlongBoxCorner(corner, local, w, h, boxMaxR));
+      const next = boxRadiiAfterDrag(d.startRadii, d.corner, rounded, d.solo);
       setDragValue(rounded);
       setLiveCornerRadiusPreview({
         nodeId,
         display: cornerRadiusDisplayFromRadii(next, !d.solo && d.linked),
       });
-      previewRadiiOnHost(next);
+      preview(next);
     };
+
     const onUp = (e: PointerEvent) => {
       const d = dragRef.current;
-      if (!d) return;
+      if (!d) {
+        endDragSession();
+        return;
+      }
       const softClick = !d.moved;
-      dragRef.current = null;
-      setActiveKey(null);
-      setDragValue(null);
-      setLiveCornerRadiusPreview(null);
+      finishUi();
+      endDragSession();
       if (softClick) {
-        // Restore any mid-frame preview (none on soft click) and bail.
-        if (d.mode === 'path') {
-          previewRadiiOnHost(
-            {
-              tl: d.startVertices[0] ?? 0,
-              tr: d.startVertices[0] ?? 0,
-              br: d.startVertices[0] ?? 0,
-              bl: d.startVertices[0] ?? 0,
-            },
-            d.startVertices
-          );
-        } else {
-          previewRadiiOnHost(d.startRadii);
-        }
+        restoreDrag(d);
         return;
       }
       const sc = toScene(e.clientX, e.clientY);
       const local = scenePointToLocal(sc.x, sc.y, box, angle);
       if (d.mode === 'path') {
-        const rounded = Math.round(radiusAlongPathSite(d.site, local));
-        const next = d.solo
-          ? d.startVertices.map((v, i) => (i === d.sharpIndex ? rounded : v))
-          : d.startVertices.map(() => rounded);
-        commitPathRadii(next, !d.solo && d.linked, false);
+        const rounded = Math.round(radiusAlongPathSite(d.site, local, boxMaxR));
+        const next = pathVerticesAfterDrag(d.startVertices, d.sharpIndex, rounded, d.solo);
+        const u = next[0] ?? 0;
+        patchNodeCornerRadii({
+          dispatch,
+          nodeId,
+          node,
+          radii: uniformCornerRadii(u),
+          linked: !d.solo && d.linked,
+          vertices: next,
+          skipHistory: false,
+        });
         return;
       }
       const corner = RADIUS_CORNERS.find((c) => c.key === d.corner);
       if (!corner) return;
-      const rounded = Math.round(radiusAlongBoxCorner(corner, local));
-      const next: CornerRadii = d.solo
-        ? { ...d.startRadii, [d.corner]: rounded }
-        : { tl: rounded, tr: rounded, br: rounded, bl: rounded };
+      const rounded = Math.round(radiusAlongBoxCorner(corner, local, w, h, boxMaxR));
       patchNodeCornerRadii({
         dispatch,
         nodeId,
         node,
-        radii: next,
+        radii: boxRadiiAfterDrag(d.startRadii, d.corner, rounded, d.solo),
         linked: !d.solo && d.linked,
         skipHistory: false,
       });
     };
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || !dragRef.current) return;
       const d = dragRef.current;
-      dragRef.current = null;
-      setActiveKey(null);
-      setDragValue(null);
-      setLiveCornerRadiusPreview(null);
-      if (d.mode === 'path') {
-        previewRadiiOnHost(
-          {
-            tl: d.startVertices[0] ?? 0,
-            tr: d.startVertices[0] ?? 0,
-            br: d.startVertices[0] ?? 0,
-            bl: d.startVertices[0] ?? 0,
-          },
-          d.startVertices
-        );
-        return;
-      }
-      previewRadiiOnHost(d.startRadii);
+      finishUi();
+      endDragSession();
+      restoreDrag(d);
     };
+
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
     window.addEventListener('keydown', onKey);
-    return () => {
+    dragSessionEndRef.current = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
       window.removeEventListener('keydown', onKey);
       setLiveCornerRadiusPreview(null);
     };
-  }, [dispatch, node, nodeId, box, angle, w, h, maxR, toScene, radiusInteractive, linked]);
+  };
+
+  const startPathDrag = (
+    e: ReactPointerEvent<SVGElement>,
+    site: SharpCornerSite
+  ) => {
+    if (e.button !== 0 || !radiusInteractive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const solo = e.altKey || !linked;
+    dragRef.current = {
+      mode: 'path',
+      sharpIndex: site.sharpIndex,
+      startVertices: [...pathVertices],
+      linked,
+      solo,
+      site,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+    setActiveKey(String(site.sharpIndex));
+    setDragValue(Math.round(pathVertices[site.sharpIndex] ?? 0));
+    beginDragSession();
+  };
+
+  const startBoxDrag = (
+    e: ReactPointerEvent<SVGElement>,
+    corner: (typeof RADIUS_CORNERS)[number]
+  ) => {
+    if (e.button !== 0 || !radiusInteractive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const solo = e.altKey || !linked;
+    dragRef.current = {
+      mode: 'box',
+      corner: corner.key,
+      startRadii: { ...baseRadii },
+      linked,
+      solo,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+    setActiveKey(corner.key);
+    setDragValue(Math.round(baseRadii[corner.key]));
+    beginDragSession();
+  };
+
+  if (skipRadiusHandles) return null;
 
   // Always show while selected — seats track R (park only when R≈0).
   let badgeVal = Math.round(baseRadii.tl);
@@ -635,13 +738,14 @@ function CornerRadiusHandlesOverlay({
   let livePathVertices = pathVertices;
   if (dragValue != null && drag) {
     if (drag.mode === 'box') {
-      liveBoxRadii = drag.solo
-        ? { ...baseRadii, [drag.corner]: dragValue }
-        : { tl: dragValue, tr: dragValue, br: dragValue, bl: dragValue };
+      liveBoxRadii = boxRadiiAfterDrag(baseRadii, drag.corner, dragValue, drag.solo);
     } else {
-      livePathVertices = drag.solo
-        ? pathVertices.map((v, i) => (i === drag.sharpIndex ? dragValue : v))
-        : pathVertices.map(() => dragValue);
+      livePathVertices = pathVerticesAfterDrag(
+        pathVertices,
+        drag.sharpIndex,
+        dragValue,
+        drag.solo
+      );
     }
   }
 
@@ -667,25 +771,7 @@ function CornerRadiusHandlesOverlay({
             key: String(site.sharpIndex),
             lx,
             ly,
-            onDown: (e: ReactPointerEvent<SVGElement>) => {
-              if (e.button !== 0) return;
-              e.preventDefault();
-              e.stopPropagation();
-              const solo = e.altKey || !linked;
-              dragRef.current = {
-                mode: 'path',
-                sharpIndex: site.sharpIndex,
-                startVertices: [...pathVertices],
-                linked,
-                solo,
-                site,
-                startX: e.clientX,
-                startY: e.clientY,
-                moved: false,
-              };
-              setActiveKey(String(site.sharpIndex));
-              setDragValue(Math.round(pathVertices[site.sharpIndex] ?? 0));
-            },
+            onDown: (e: ReactPointerEvent<SVGElement>) => startPathDrag(e, site),
           };
         })
       : RADIUS_CORNERS.map((corner) => {
@@ -695,24 +781,7 @@ function CornerRadiusHandlesOverlay({
             key: corner.key,
             lx,
             ly,
-            onDown: (e: ReactPointerEvent<SVGElement>) => {
-              if (e.button !== 0) return;
-              e.preventDefault();
-              e.stopPropagation();
-              const solo = e.altKey || !linked;
-              dragRef.current = {
-                mode: 'box',
-                corner: corner.key,
-                startRadii: { ...baseRadii },
-                linked,
-                solo,
-                startX: e.clientX,
-                startY: e.clientY,
-                moved: false,
-              };
-              setActiveKey(corner.key);
-              setDragValue(Math.round(baseRadii[corner.key]));
-            },
+            onDown: (e: ReactPointerEvent<SVGElement>) => startBoxDrag(e, corner),
           };
         });
 

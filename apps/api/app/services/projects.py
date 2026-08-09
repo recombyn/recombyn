@@ -187,6 +187,43 @@ def _thumbnail_urls_out(raw: str | None) -> list[str]:
     return out
 
 
+def _reconcile_stale_auto_covers(
+    session: Any,
+    user_id: str,
+    row: Any,
+) -> tuple[str | None, bool]:
+    """If auto covers exist but the document has no cover tiles, clear them.
+
+    Fixes rows written before PATCH rebuilt covers from the live document.
+    """
+    thumb_key = getattr(row, "thumbnail_key", None)
+    custom = _row_thumb_custom(row)
+    if custom or not (thumb_key or "").strip():
+        return thumb_key, custom
+    doc = _decode_document_row(row)
+    if not isinstance(doc, dict):
+        return thumb_key, custom
+    if _cov_pick_nodes(doc):
+        return thumb_key, custom
+    _delete_thumb_entries(thumb_key)
+    now = time.time()
+    from app import crud
+
+    crud.update_project_covers(
+        session=session,
+        user_id=user_id,
+        project_id=str(row.id),
+        thumbnail_key=None,
+        thumbnail_custom=False,
+        updated_at=now,
+    )
+    print(
+        f"[projects.thumb] reconcile cleared project={row.id} (doc has no cover tiles)",
+        flush=True,
+    )
+    return None, False
+
+
 def _normalize_incoming_urls(urls: list[str] | None) -> list[str]:
     out: list[str] = []
     for item in urls or []:
@@ -536,7 +573,8 @@ def _next_thumbnail(
     """Resolve next thumbnail_key (+ JSON array) and custom flag.
 
     Priority: custom client urls/data → keep custom lock → server auto from
-    document elements → legacy client urls/data → keep existing.
+    document elements (or clear when document has no tiles) → legacy client
+    urls/data → keep existing (only when document was not provided).
     """
     # User-uploaded / explicit custom cover.
     if mark_custom is True:
@@ -567,10 +605,17 @@ def _next_thumbnail(
         return existing_key, True
 
     # Server: ≤4 tiles from latest document elements (image URL + shape rasters).
+    # When ``document`` is provided, always rebuild (or clear) — never keep a stale cover.
     if document is not None and mark_custom is not True:
         auto = _build_auto_cover_key(user_id, project_id, document, existing_key)
         if auto:
             return auto, False
+        _delete_thumb_entries(existing_key)
+        print(
+            f"[projects.thumb] cleared project={project_id} (no cover tiles)",
+            flush=True,
+        )
+        return None, False
 
     # Legacy client thumbs (optional).
     hosted = _normalize_incoming_urls(thumbnail_urls)
@@ -762,7 +807,7 @@ def patch_project(
             if name is not None and str(name).strip()
             else str(existing.name or "Untitled")
         )
-        # Incremental patch: keep existing covers; Publish / full upsert rebuilds.
+        # Rebuild covers from merged document on every PATCH (same as full upsert).
         thumb_key, thumb_custom = _next_thumbnail(
             user_id,
             pid,
@@ -772,6 +817,7 @@ def patch_project(
             mark_custom=thumbnail_custom,
             thumbnail_data_urls=thumbnail_data_urls,
             thumbnail_urls=thumbnail_urls,
+            document=merged,
         )
         old_key = existing.document_key
         created_at = float(existing.created_at)
@@ -850,19 +896,21 @@ def list_projects(
             offset=offset,
             limit=page_size_n,
         )
-    projects = [
-        {
-            "id": r.id,
-            "name": r.name,
-            "thumbnailUrl": _thumbnail_urls_out(r.thumbnail_key),
-            "thumbnailCustom": _row_thumb_custom(r),
-            "revision": int(r.revision or 1),
-            "updatedAt": int(float(r.updated_at) * 1000),
-            "createdAt": int(float(r.created_at) * 1000),
-            "hasDocument": bool(r.document_key or r.document_json),
-        }
-        for r in rows
-    ]
+        projects: list[dict[str, Any]] = []
+        for r in rows:
+            thumb_key, thumb_custom = _reconcile_stale_auto_covers(session, user_id, r)
+            projects.append(
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "thumbnailUrl": _thumbnail_urls_out(thumb_key),
+                    "thumbnailCustom": bool(thumb_custom),
+                    "revision": int(r.revision or 1),
+                    "updatedAt": int(float(r.updated_at) * 1000),
+                    "createdAt": int(float(r.created_at) * 1000),
+                    "hasDocument": bool(r.document_key or r.document_json),
+                }
+            )
     return {
         "projects": projects,
         "page": page_n,
@@ -883,19 +931,20 @@ def get_project(user_id: str, project_id: str) -> dict[str, Any] | None:
         row = crud.get_project_for_user(
             session=session, user_id=user_id, project_id=project_id
         )
-    if not row:
-        return None
-    document = _decode_document_row(row)
-    return {
-        "id": row.id,
-        "name": row.name,
-        "thumbnailUrl": _thumbnail_urls_out(row.thumbnail_key),
-        "thumbnailCustom": _row_thumb_custom(row),
-        "document": document,
-        "revision": int(row.revision or 1),
-        "updatedAt": int(float(row.updated_at) * 1000),
-        "createdAt": int(float(row.created_at) * 1000),
-    }
+        if not row:
+            return None
+        thumb_key, thumb_custom = _reconcile_stale_auto_covers(session, user_id, row)
+        document = _decode_document_row(row)
+        return {
+            "id": row.id,
+            "name": row.name,
+            "thumbnailUrl": _thumbnail_urls_out(thumb_key),
+            "thumbnailCustom": bool(thumb_custom),
+            "document": document,
+            "revision": int(row.revision or 1),
+            "updatedAt": int(float(row.updated_at) * 1000),
+            "createdAt": int(float(row.created_at) * 1000),
+        }
 
 
 def upsert_project(
@@ -1087,9 +1136,11 @@ def extract_project_covers(
                 existing.thumbnail_key,
                 existing_custom=False,
                 mark_custom=False,
-                document=doc,
+                document=doc if isinstance(doc, dict) else {},
             )
-            if next_key and next_key != (existing.thumbnail_key or "").strip():
+            prev = (existing.thumbnail_key or "").strip()
+            nxt = (next_key or "").strip()
+            if nxt != prev or bool(next_custom) != bool(custom):
                 thumb_key = next_key
                 custom = bool(next_custom)
                 crud.update_project_covers(
@@ -1158,6 +1209,14 @@ def _url(key: str | None) -> str | None:
         return None
     # Absolute http(s) — image-node collage tiles / CDN.
     if text.startswith("http://") or text.startswith("https://"):
+        try:
+            from urllib.parse import unquote, urlparse
+
+            path = unquote(urlparse(text).path or "").lstrip("/")
+            if path.startswith("projects/") and "/thumb" in path:
+                return f"/api/v1/uploads/files/{path}"
+        except Exception:
+            pass
         return text
     # JSON array stored by mistake in a single-key call site.
     if text.startswith("["):
@@ -1171,9 +1230,11 @@ def _url(key: str | None) -> str | None:
         return text
     if not text:
         return None
+    # Prefer same-origin public cover route. Tencent COS often denies anonymous GET
+    # even when PutObject used ACL=public-read (bucket policy / ACL disabled).
+    if text.startswith("projects/") and "/thumb" in text:
+        return f"/api/v1/uploads/files/{text}"
     storage = get_storage()
-    # Local disk: browser loads via public project-thumb route (or auth for other keys).
     if not storage.enabled_remote():
         return f"/api/v1/uploads/files/{text}"
-    # COS/S3: return public object URL so list cards use bare <img src>.
     return storage.url_for(text)

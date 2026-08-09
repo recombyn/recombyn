@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Polygon shape handles.
  * World-SVG knobs — same paint contract as SelectionChrome / CornerRadius.
@@ -151,7 +152,7 @@ function uniformRadii(r: number): CornerRadii {
 function commitUniformRadius(opts: {
   dispatch: (a: unknown) => void;
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   radius: number;
   skipHistory?: boolean;
 }) {
@@ -227,7 +228,7 @@ function PolygonShapeHandlesOverlay({
   box: SceneBox;
   angle: number;
   nodeId: string;
-  node: any;
+  node: SceneNodeInput;
   toScene: (clientX: number, clientY: number) => { x: number; y: number };
   stageEl: HTMLElement | null;
   interactive?: boolean;

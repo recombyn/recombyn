@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -12,8 +14,9 @@ import {
   useInteractions,
 } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
-import { selectBillingEnabled } from '@/store/modules/wallet';
-import { generateImage, listModels, type LlmModel } from '@/apis/chat';
+import { useBillingEnabled } from '@/service/wallet';
+import { generateImage, type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   rcbScreenPxToScene,
@@ -43,7 +46,7 @@ import {
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';
-import type { UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
 import ImageAspectRatioPicker, {
   DEFAULT_IMAGE_COUNT,
   DEFAULT_IMAGE_QUALITY,
@@ -59,12 +62,17 @@ import { modelIsImageGenerator, buildByokAwareModelList, cloudImageFallbackId } 
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import {
   canAttachNodeToChat,
-  captureVideoPosterFrame,
-  clearImageProcessAttrs,
+  canvasAttachPickPayload,
+  clearImageProcessAttrs
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
+  captureVideoPosterFrame
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
   expandSelectionWithGroups,
   listGroupMemberIds,
-  readNodeGroupId,
-} from '@/components/rcb/scene/document/sceneDocument';
+  readNodeGroupId
+} from '@/components/rcb/scene/document/sceneGroups';
 import {
   clearCanvasAttachPick,
   consumePendingCanvasAttach,
@@ -83,7 +91,7 @@ import store from '@/store';
 
 type Props = {
   nodeId: string;
-  /** Scene plate box — composer anchors under it; promote keeps document geometry. */
+  /** Scene plate box 鈥?composer anchors under it; promote keeps document geometry. */
   sceneBox: { x: number; y: number; width: number; height: number };
   /** Composer only shows while the generator node is selected. */
   showComposer?: boolean;
@@ -116,7 +124,7 @@ function ratioSummaryLabel(aspectRatio: string, t: (k: string) => string) {
   if (raw === 'smart') return t('agent.ratioSmart');
   if (/^\d+x\d+$/i.test(raw)) {
     const [a, b] = raw.toLowerCase().split('x');
-    return `${a}×${b}`;
+    return `${a}脳${b}`;
   }
   return raw || '1:1';
 }
@@ -158,7 +166,7 @@ function plateSizeForAspect(
 }
 
 /**
- * Image Generator card — preview plate + chat-style composer (settings / model / send).
+ * Image Generator card 鈥?preview plate + chat-style composer (settings / model / send).
  * On success, promotes this node into a normal image node.
  */
 function readGenAttrString(attrs: Record<string, unknown> | null | undefined, key: string) {
@@ -174,7 +182,7 @@ function readGenAttrCount(attrs: Record<string, unknown> | null | undefined) {
 }
 
 /** If ids all share one groupId, return full group member ids (for one composite attach). */
-function resolveSharedGroupAttachIds(doc: any, ids: string[]): string[] | null {
+function resolveSharedGroupAttachIds(doc: SceneDocument, ids: string[]): string[] | null {
   if (!doc || !ids || ids.length < 2) return null;
   const first = readNodeGroupId(doc?.deltaSetLike?.[ids[0]]);
   if (!first) return null;
@@ -183,9 +191,9 @@ function resolveSharedGroupAttachIds(doc: any, ids: string[]): string[] | null {
   return members.length >= 2 ? members : ids;
 }
 
-/** 编组 → inline「组N」chip (not an attachment image strip). */
+/** 缂栫粍 鈫?inline銆岀粍N銆峜hip (not an attachment image strip). */
 async function attachGroupAsComposerChip(opts: {
-  doc: any;
+  doc: SceneDocument;
   groupIds: string[];
   frameId: string | null;
   existing: ComposerContext[];
@@ -211,7 +219,7 @@ async function attachGroupAsComposerChip(opts: {
 }
 
 export async function applyCanvasPickToImageComposer(opts: {
-  document: any;
+  document: SceneDocument;
   payload: string | string[];
   existing: ComposerContext[];
   setContexts: (
@@ -248,7 +256,7 @@ export async function applyCanvasPickToImageComposer(opts: {
   }
 
   const pushAttachment = (att: ComposerContext) => {
-    // Functional update — peel loops must accumulate, not overwrite from stale `existing`.
+    // Functional update 鈥?peel loops must accumulate, not overwrite from stale `existing`.
     setContexts((prev: ComposerContext[]) => {
       const base = Array.isArray(prev) ? prev : existing;
       const atts = base.filter((c) => c.kind === 'attachment');
@@ -260,7 +268,7 @@ export async function applyCanvasPickToImageComposer(opts: {
     });
   };
 
-  // 编组 → one「组」chip in the input (not peeled / not attachment strip).
+  // 缂栫粍 鈫?one銆岀粍銆峜hip in the input (not peeled / not attachment strip).
   const groupIds = resolveSharedGroupAttachIds(doc, ids);
   if (groupIds) {
     await attachGroupAsComposerChip({
@@ -273,7 +281,7 @@ export async function applyCanvasPickToImageComposer(opts: {
     return;
   }
 
-  // Ad-hoc multi — peel videos/images out; only rasterize leftover shapes together.
+  // Ad-hoc multi 鈥?peel videos/images out; only rasterize leftover shapes together.
   if (ids.length > 1) {
     const videos: string[] = [];
     const images: string[] = [];
@@ -372,7 +380,7 @@ export async function applyCanvasPickToImageComposer(opts: {
     return;
   }
 
-  // Video generator (imagesOnly=false): canvas video → attachment strip + @ list
+  // Video generator (imagesOnly=false): canvas video 鈫?attachment strip + @ list
   // (same as file upload), not an inline input chip.
   if (!imagesOnly && node?.key === 'video' && src) {
     const labeled = buildComposerContext(doc, [id], null, existing);
@@ -381,7 +389,7 @@ export async function applyCanvasPickToImageComposer(opts: {
       try {
         thumb = await captureVideoPosterFrame(src);
       } catch {
-        /* thumb optional — chip can fall back to label */
+        /* thumb optional 鈥?chip can fall back to label */
       }
     }
     pushAttachment({
@@ -403,7 +411,7 @@ export async function applyCanvasPickToImageComposer(opts: {
 /** Attach currently selected canvas nodes/frames into the image composer (excl. host). */
 function attachSelectionToImageComposer(opts: {
   hostNodeId: string;
-  document: any;
+  document: SceneDocument;
   selectedNodeIds: string[];
   selectedFrameIds: string[];
   existing: ComposerContext[];
@@ -430,9 +438,8 @@ function attachSelectionToImageComposer(opts: {
   );
   const frameId = (selectedFrameIds || []).find(Boolean) || null;
   if (!attachable.length && !frameId) return false;
-  const payload =
-    attachable.length > 1 ? attachable : attachable.length === 1 ? attachable[0]! : `frame:${frameId}`;
-  void applyCanvasPickToImageComposer({
+  const payload = canvasAttachPickPayload(attachable, frameId);
+  applyCanvasPickToImageComposer({
     document: doc,
     payload,
     existing,
@@ -516,7 +523,7 @@ function ImageGeneratorCard({
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    void applyCanvasPickToImageComposer({
+    applyCanvasPickToImageComposer({
       document: editorDocument || (store.getState() as any).editor?.document,
       payload,
       existing: contextsRef.current,
@@ -558,28 +565,43 @@ function ImageGeneratorCard({
     return () => cancelAnimationFrame(id);
   }, [showComposer, nodeId, disabled]);
 
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    setModelsStatus('loading');
-    async function loadModels() {
-      try {
-        const res = await listModels();
-        if (cancelled) return;
-        const unique = buildImageGeneratorModelList(res);
-        setModels(unique);
-        setModelsStatus('ready');
-        const nextId = nextImageModelId(unique, modelId);
-        if (nextId) setModelId(nextId);
-      } catch {
-        if (!cancelled) setModelsStatus('error');
-      }
+    if (modelsCatalogQuery.isPending) {
+      setModelsStatus('loading');
+      return;
     }
-    void loadModels();
+    if (modelsCatalogQuery.isError) {
+      setModelsStatus('error');
+      return;
+    }
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModelsStatus('error');
+      return;
+    }
+    const unique = buildImageGeneratorModelList(res);
+    setModels(unique);
+    setModelsStatus('ready');
+    const nextId = nextImageModelId(unique, modelId);
+    if (nextId) setModelId(nextId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+  ]);
+
+  useEffect(() => {
     return () => {
-      cancelled = true;
       abortRef.current?.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const attachments = useMemo(
@@ -592,7 +614,7 @@ function ImageGeneratorCard({
     [contexts]
   );
   const selectedModel = models.find((m) => m.id === modelId);
-  const billingEnabled = useSelector(selectBillingEnabled);
+  const billingEnabled = useBillingEnabled();
   const creditCost = estimateImageCredits(selectedModel, imageCount, resolution);
   const settingsSummary = `${resolution} · ${ratioSummaryLabel(aspectRatio, t)} · ${t('agent.genCountN', { count: imageCount })}`;
 
@@ -710,7 +732,7 @@ function ImageGeneratorCard({
       getBoundingClientRect: () =>
         inputRef.current?.getAtMentionAnchorRect?.() ?? new DOMRect(),
     });
-    void mentionFloating.update();
+    mentionFloating.update();
   }, [mentionOpen, mentionQuery, prompt, mentionFloating.refs, mentionFloating.update]);
 
   const onGenerate = async () => {
@@ -728,7 +750,7 @@ function ImageGeneratorCard({
             processStatus: 'running',
             processKind: 'generate',
             processLabel: t('editor.tools.imageGenerating'),
-            // Durable on the node — quick-edit reads attrs.genPrompt after promote.
+            // Durable on the node 鈥?quick-edit reads attrs.genPrompt after promote.
             genPrompt: text,
           },
         },
@@ -748,7 +770,7 @@ function ImageGeneratorCard({
         .map((c) => String(c.dataUrl || c.thumbUrl || '').trim())
         .filter((u) => Boolean(u) && !u.startsWith('data:video/'));
       if (refImages.length) body.images = refImages;
-      // Parallel per-slot gens (provider `n` is unreliable) — same pattern as AgentDock.
+      // Parallel per-slot gens (provider `n` is unreliable) 鈥?same pattern as AgentDock.
       const count = Math.max(1, Math.min(4, Math.round(imageCount) || 1));
       const pickUrl = (res: Awaited<ReturnType<typeof generateImage>>) => {
         const fromImages =
@@ -774,7 +796,7 @@ function ImageGeneratorCard({
       const src = urls[0] || '';
       if (!src) throw new Error(t('editor.tools.imageGenEmpty'));
 
-      // Promote in place — keep the generator plate's document x/y/size so the
+      // Promote in place 鈥?keep the generator plate's document x/y/size so the
       // result appears exactly where the plate was (sceneBox is origin-relative).
       dispatch(
         finishImageGenerator({
@@ -791,9 +813,7 @@ function ImageGeneratorCard({
       if (doc) {
         dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
       }
-      const detail =
-        err?.response?.data?.detail || err?.message || t('editor.tools.imageGenFail');
-      message.error(typeof detail === 'string' ? detail : t('editor.tools.imageGenFail'));
+      message.error(getHttpErrorMessage(err, t('editor.tools.imageGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);
@@ -976,12 +996,12 @@ function ImageGeneratorCard({
                 setPrompt(next);
                 maybeOpenMentionFromAt(next);
               }}
-              onSubmit={() => void onGenerate()}
+              onSubmit={() => onGenerate()}
               disabled={disabled || sending}
               placeholder={t('editor.tools.imageGenPlaceholder')}
               className="min-h-full w-full text-[13px]"
               onPasteImages={(files) => {
-                void attachRefFiles(files);
+                attachRefFiles(files);
               }}
             />
           </div>
@@ -1104,7 +1124,7 @@ function ImageGeneratorCard({
                 <button
                   type="button"
                   disabled={disabled || sending || !prompt.trim()}
-                  onClick={() => void onGenerate()}
+                  onClick={() => onGenerate()}
                   className={cn(
                     'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition',
                     'bg-[var(--ink)] text-[var(--on-brand)] disabled:opacity-40',

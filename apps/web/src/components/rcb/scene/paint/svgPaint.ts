@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Fill / shadow paint onto native SVG elements.
  */
@@ -148,6 +149,6 @@ export function applySvgShadow(el: SVGElement, shadow: ShadowSpec) {
   });
 }
 
-export function applyNodeShadow(_svg: SVGSVGElement, el: SVGElement, node: any) {
+export function applyNodeShadow(_svg: SVGSVGElement, el: SVGElement, node: SceneNodeInput) {
   applySvgShadow(el, resolveShadow(node));
 }

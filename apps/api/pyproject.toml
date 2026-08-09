@@ -38,6 +38,7 @@ dependencies = [
   "langfuse>=3.0.0",
   "cryptography>=42.0.0",
   "geoip2>=4.8.0",
+  "PyYAML>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -58,8 +59,8 @@ vision = [
   "rembg[cpu]>=2.0.50",
 ]
 storage = ["boto3>=1.35.0"]
-# OpenCLIP aesthetics RAG (quality samples → MySQL BLOB vectors)
-aesthetics = [
+# OpenCLIP for agent-memory layout/color towers
+clip = [
   "numpy>=1.26.0",
   "torch>=2.2.0",
   "open-clip-torch>=2.24.0",

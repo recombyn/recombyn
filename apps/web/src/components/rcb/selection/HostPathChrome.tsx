@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Path indicator + path handles.
  * Mirrors the shape-host CSS box + viewBox so chrome shares the ink lattice.
@@ -10,7 +11,8 @@ import {
   hostChromeBodyTransform,
   mirrorHostSurface,
 } from '@/components/rcb/scene/paint/sceneToSvg';
-import { rememberNodePath2D } from '@/components/rcb/scene/document/sceneShapes';
+import { HEAVY_PATH_D_CHARS, rememberNodePath2D } from '@/components/rcb/scene/document/sceneShapes';
+import { geometryIndicatorPathD } from '@/components/rcb/scene/paint/outlineToPath';
 import {
   getShapeHost,
   getSharedNodeEls,
@@ -57,7 +59,7 @@ function liveShapeGeomBox(nodeId: string): SceneBox | null {
 }
 
 /** Shape / image / video / lottie / path on SVG host (not text / frame). */
-function nodeUsesPathChrome(node: any): boolean {
+function nodeUsesPathChrome(node: SceneNodeInput): boolean {
   if (!node) return false;
   const key = String(node.key || '');
   if (key === 'text' || key === 'frame') return false;
@@ -352,10 +354,42 @@ function pathLocalEndpoints(
 }
 
 /** Line / arrow only — shaft endpoint knobs. Pen / pencil / path use AABB control box. */
-function nodeUsesOpenStrokeEndpoints(node: any): boolean {
+function nodeUsesOpenStrokeEndpoints(node: SceneNodeInput): boolean {
   if (!node) return false;
   const t = String(node.attrs?.shapeType || '');
-  return t === 'line' || t === 'arrow';}
+  return t === 'line' || t === 'arrow';
+}
+
+/** Freehand / boolean / stroke paths that must show real path ink as object outline. */
+export function isVectorStrokeNode(node: SceneNodeInput, shapeType?: string): boolean {
+  const t = shapeType ?? String(node?.attrs?.shapeType || '');
+  return (
+    t === 'pencil' ||
+    t === 'pen' ||
+    t === 'path' ||
+    t === 'line' ||
+    t === 'arrow' ||
+    String(node?.key || '') === 'path' ||
+    nodeUsesOpenStrokeEndpoints(node)
+  );
+}
+
+/**
+ * Object-outline path `d` in local geom space (HostPathChrome silhouette).
+ * Vector strokes always use painted path; heavy geo falls back to AABB stand-in.
+ */
+export function resolveOutlinePathD(node: SceneNodeInput, gw: number, gh: number): string {
+  const rawPath = String(node?.attrs?.path || node?.attrs?.d || '');
+  const shapeType = String(node?.attrs?.shapeType || '');
+  if (isVectorStrokeNode(node, shapeType)) {
+    if (rawPath.trim().length >= 2) return rawPath;
+    return geometryIndicatorPathD(node, { width: gw, height: gh });
+  }
+  if (rawPath.length >= HEAVY_PATH_D_CHARS) {
+    return `M 0 0 H ${gw} V ${gh} H 0 Z`;
+  }
+  return geometryIndicatorPathD(node, { width: gw, height: gh });
+}
 
 type BoxResizeKnob = ['n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', number, number];
 

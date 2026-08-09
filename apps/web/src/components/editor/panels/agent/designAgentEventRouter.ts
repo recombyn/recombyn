@@ -1,6 +1,6 @@
 import type { Store } from '@reduxjs/toolkit';
 import { message } from '@/components/base';
-import type { DesignScene } from '@/apis/design';
+import type { DesignScene } from '@/service/design';
 import {
   applyActivityEventToSteps,
   applyAnalysisDeltaToSteps,
@@ -98,14 +98,43 @@ function patchChatDoneAssistant(
   });
 }
 
-function isProgressChatLine(text: string): boolean {
-  const s = String(text || '').trim();
-  if (!s) return false;
-  if (/[…⋯]$/.test(s) || /\.\.\.$/.test(s)) return true;
-  if (/^(正在|创建中|生成中|处理中|working|creating|generating|painting)/i.test(s)) {
-    return true;
+/** True when analysis/thinking already landed in structured `steps` (not final bubble). */
+export function hasStructuredProcess(steps: ChatUiMessage['steps']): boolean {
+  return (steps || []).some((s) => {
+    if (s.kind !== 'thought' && s.kind !== 'explored') return false;
+    return Boolean((s.summary || s.body || '').trim());
+  });
+}
+
+/**
+ * Final assistant bubble after design `done`.
+ * Progress lives in `steps` / analysis_delta / activity / phase — never guess from Chinese/English prefixes.
+ * `summary` is the structured finish text from the done event; `content` is chat token stream only.
+ */
+export function pickDesignDoneContent(opts: {
+  t: TFn;
+  summary?: string;
+  streamedContent: string;
+  steps: ChatUiMessage['steps'];
+  painted: boolean;
+  designStarted: boolean;
+  hasProposedOps: boolean;
+}): string {
+  const summary = (opts.summary || '').trim();
+  const streamed = opts.streamedContent.trim();
+
+  if (opts.hasProposedOps) return summary || streamed;
+
+  if (opts.painted) {
+    if (summary) return summary;
+    return hasStructuredProcess(opts.steps)
+      ? opts.t('agent.canvasReadyHint')
+      : opts.t('agent.canvasUpdated');
   }
-  return false;
+
+  if (opts.designStarted) return summary || opts.t('agent.designEmptyResult');
+
+  return streamed || summary || opts.t('agent.stopped');
 }
 
 function patchDesignDoneAssistant(
@@ -123,27 +152,15 @@ function patchDesignDoneAssistant(
     choiceUi?: ChatUiMessage['choiceUi'];
   }
 ): ChatUiMessage {
-  let result = '';
-  if (opts.proposedOps?.length) {
-    result = (opts.summary || '').trim() || (m.content || '').trim();
-  } else if (opts.painted) {
-    const rawProcess = (m.thinking || m.intent || '').trim();
-    const hasIntentAnalysis =
-      Boolean(rawProcess) && !/<svg\b|<\/svg>/i.test(rawProcess);
-    const fromSummary = opts.summary?.trim() || '';
-    const summaryIsShortDone =
-      fromSummary.length > 0 &&
-      fromSummary.length <= 48 &&
-      !isProgressChatLine(fromSummary);
-    if (summaryIsShortDone) result = fromSummary;
-    else if (hasIntentAnalysis) result = opts.t('agent.canvasReadyHint');
-    else result = opts.t('agent.canvasUpdated');
-  } else if (opts.designStarted) {
-    result = opts.t('agent.designEmptyResult');
-  } else {
-    const kept = m.content?.trim() || '';
-    result = kept && !isProgressChatLine(kept) ? kept : opts.t('agent.stopped');
-  }
+  const result = pickDesignDoneContent({
+    t: opts.t,
+    summary: opts.summary,
+    streamedContent: m.content || '',
+    steps: m.steps,
+    painted: opts.painted,
+    designStarted: opts.designStarted,
+    hasProposedOps: Boolean(opts.proposedOps?.length),
+  });
   return opts.finish(m, {
     content: result,
     thinking: undefined,
@@ -162,35 +179,40 @@ function patchDesignDoneAssistant(
   });
 }
 
+/** Map structured design error `code` → i18n. Message text is ignored. */
+const DESIGN_ERROR_I18N: Record<string, string> = {
+  free_daily_exhausted: 'agent.freeDailyExhausted',
+  insufficient_credits: 'agent.insufficientCredits',
+  prompt_required: 'agent.requestFailed',
+  invalid_run_mode: 'agent.requestFailed',
+  invalid_canvas_size: 'agent.requestFailed',
+  paint_ops_failed: 'agent.designExecFailed',
+  validate_failed: 'agent.designExecFailed',
+  vision_unavailable: 'agent.designExecFailed',
+  blocked: 'agent.requestFailed',
+  timeout: 'agent.requestFailed',
+  cancelled: 'agent.stopped',
+  task_not_found: 'agent.requestFailed',
+  auth_forbidden: 'agent.requestFailed',
+  forbidden: 'agent.requestFailed',
+  resume_token_mismatch: 'agent.requestFailed',
+  checkpoint_empty: 'agent.requestFailed',
+  checkpoint_corrupt: 'agent.requestFailed',
+  checkpoint_unavailable: 'agent.requestFailed',
+  lease_held: 'agent.requestFailed',
+  not_resumable: 'agent.requestFailed',
+  internal_error: 'agent.designExecFailed',
+  missing_tool_ops: 'agent.designOpsMissing',
+  design_failed: 'agent.requestFailed',
+};
+
 export function humanizeDesignError(
   t: (key: string, opts?: Record<string, unknown>) => string,
-  raw: string | undefined | null
+  code?: string | null
 ): string {
-  const msg = String(raw || '').trim();
-  if (!msg) return t('agent.requestFailed');
-  if (
-    /name\s+['`]_?\w+['`]\s+is not defined/i.test(msg) ||
-    /^NameError:/i.test(msg) ||
-    /_is_(analysis|summary)_skill/i.test(msg)
-  ) {
-    return t('agent.designExecFailed');
-  }
-  const low = msg.toLowerCase();
-  if (low === 'free_daily_exhausted') return t('agent.freeDailyExhausted');
-  if (low === 'insufficient_credits') return t('agent.insufficientCredits');
-  if (low.includes('missing_tool_ops')) return t('agent.designOpsMissing');
-  if (
-    low.startsWith('skill_failed:') ||
-    low.startsWith('tool_ops_invalid') ||
-    low.startsWith('validate_failed') ||
-    low.startsWith('final_validate')
-  ) {
-    return t('agent.designExecFailed');
-  }
-  if (/^[a-z][a-z0-9_]+:/i.test(msg) && !/\s/.test(msg.slice(0, 40))) {
-    return t('agent.designExecFailed');
-  }
-  return msg;
+  const codeKey = String(code || '').trim().toLowerCase();
+  const i18nKey = codeKey ? DESIGN_ERROR_I18N[codeKey] : undefined;
+  return t(i18nKey || 'agent.requestFailed');
 }
 
 export function assistantDurationMs(
@@ -277,8 +299,7 @@ export function createDesignAgentEventRouter(opts: {
   };
 
   const handleUiAnalysisDelta = (ev: Extract<AgentStepEvent, { type: 'analysis_delta' }>) => {
-    let piece = String(ev.text).replace(/^\s*(?:用户)?意图分析\s*[:：]\s*/i, '');
-    piece = piece.replace(/^\s*intent\s*analysis\s*[:：]\s*/i, '');
+    const piece = String(ev.text || '');
     if (!piece.trim()) return;
     opts.setMessages((prev) =>
       prev.map((m) => {
@@ -388,7 +409,7 @@ export function createDesignAgentEventRouter(opts: {
   };
 
   const handleUiError = (ev: Extract<AgentStepEvent, { type: 'error' }>) => {
-    const friendly = humanizeDesignError(opts.t, ev.message);
+    const friendly = humanizeDesignError(opts.t, ev.code);
     message.error(friendly);
     opts.setMessages((prev) =>
       prev.map((m) =>

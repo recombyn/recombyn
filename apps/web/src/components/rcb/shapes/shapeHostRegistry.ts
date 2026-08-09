@@ -1,5 +1,6 @@
 import { replaceSvgNode, dedupeSceneNode } from '@/components/rcb/scene/paint/sceneToSvg';
 import { invalidateNodePath2D } from '@/components/rcb/scene/document/sceneShapes';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** Paint element for one scene node (SVG under the camera layer). */
 export type SceneHostEl = SVGElement;
@@ -134,22 +135,53 @@ export function getSceneShapesMount() {
   return sceneShapesMount;
 }
 
-const SHARED_MOUNT_LAYER_SEL =
-  ':scope > g[data-rcb-shape-layer], :scope > g[data-rcb-frame-layer]';
-
 /** SVG paint order must follow data-z (stackOrder). New layers append at mount end. */
 export function syncSharedMountPaintOrder(mount?: SVGGElement | null) {
   const root = mount ?? sceneShapesMount;
   if (!root) return;
-  const siblings = [...root.querySelectorAll(SHARED_MOUNT_LAYER_SEL)];
+  const siblings: Element[] = [];
+  for (let i = 0; i < root.children.length; i += 1) {
+    const child = root.children[i];
+    if (
+      child instanceof Element &&
+      (child.hasAttribute('data-rcb-shape-layer') || child.hasAttribute('data-rcb-frame-layer'))
+    ) {
+      siblings.push(child);
+    }
+  }
   if (siblings.length < 2) return;
+
+  const zOf = (el: Element): number | null => {
+    if (!el.hasAttribute('data-z')) return null;
+    return Number(el.getAttribute('data-z')) || 0;
+  };
+  const frameBias = (el: Element) => (el.hasAttribute('data-rcb-frame-layer') ? -1 : 1);
+
+  let ordered = true;
+  for (let i = 1; i < siblings.length; i += 1) {
+    const za = zOf(siblings[i - 1]);
+    const zb = zOf(siblings[i]);
+    let cmp = 0;
+    if (za == null || zb == null) {
+      const fa = frameBias(siblings[i - 1]);
+      const fb = frameBias(siblings[i]);
+      if (fa !== fb) cmp = fa - fb;
+      else if (za == null && zb == null) cmp = 0;
+      else if (za == null) cmp = fa;
+      else cmp = -fb;
+    } else {
+      cmp = za - zb;
+    }
+    if (cmp > 0) {
+      ordered = false;
+      break;
+    }
+  }
+  if (ordered) return;
+
   siblings.sort((a, b) => {
-    const aHas = a.hasAttribute('data-z');
-    const bHas = b.hasAttribute('data-z');
-    const za = aHas ? Number(a.getAttribute('data-z')) || 0 : null;
-    const zb = bHas ? Number(b.getAttribute('data-z')) || 0 : null;
-    // Missing data-z used to sort as 0, which put frame plates (z≥1) above all
-    // shapes and looked like "artboard covers content" while clicks still worked.
+    const za = zOf(a);
+    const zb = zOf(b);
     if (za == null || zb == null) {
       const aFrame = a.hasAttribute('data-rcb-frame-layer');
       const bFrame = b.hasAttribute('data-rcb-frame-layer');
@@ -204,7 +236,7 @@ function recoverShapeHost(nodeId: string): ShapeHostHandle | null {
  * Rebuild one node's paint. Prefers per-shape SVG host; falls back to mono board.
  */
 export async function replaceShapePaint(
-  document: any,
+  document: SceneDocument,
   nodeEls: Map<string, SceneHostEl>,
   nodeId: string,
   mono?: { root: SVGSVGElement; layer: SVGElement } | null

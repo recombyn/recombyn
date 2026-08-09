@@ -3,12 +3,15 @@
  * Up to 4 tiles: per-artboard or per-element snapshots — never raw node src.
  */
 
-import { inlineSvgImages, renderExport } from '@/components/rcb/scene/paint/exportImage';
+import { inlineSvgImages, rasterizeSvgString, renderExport } from '@/components/rcb/scene/paint/exportImage';
 import { createSvgBoard, loadSceneOntoSvg } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
-  isExportableSceneNode,
-  listSceneNodes,
+  isExportableSceneNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  listSceneNodes
 } from '@/components/rcb/scene/document/sceneDocument';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   coverDocumentHasContent,
   extractFrameDocument,
@@ -34,29 +37,13 @@ export type ThumbRasterOptions = {
   maxEdge?: number;
 };
 
-function paperBackground(document: any): string {
+function paperBackground(document: SceneDocument): string {
   const frame = Array.isArray(document?.frames) ? document.frames[0] : null;
   const fromFrame = String(frame?.backgroundColor || '').trim();
   if (fromFrame && fromFrame !== 'none' && fromFrame !== 'transparent') return fromFrame;
   const fromDoc = String(document?.backgroundColor || '').trim();
   if (fromDoc && fromDoc !== 'none' && fromDoc !== 'transparent') return fromDoc;
   return '#ffffff';
-}
-
-function canvasToDataUrl(canvas: HTMLCanvasElement, format: 'webp' | 'png' | 'jpeg'): string {
-  if (format === 'png') {
-    return canvas.toDataURL('image/png');
-  }
-  if (format === 'jpeg') {
-    return canvas.toDataURL('image/jpeg', WEBP_QUALITY);
-  }
-  try {
-    const webp = canvas.toDataURL('image/webp', WEBP_QUALITY);
-    if (webp.startsWith('data:image/webp')) return webp;
-  } catch {
-    /* Safari / rare encoders */
-  }
-  return canvas.toDataURL('image/jpeg', WEBP_QUALITY);
 }
 
 /** Build a full-board WebP for project list / publish preview (contain, not cropped). */
@@ -129,7 +116,10 @@ export function pickCoverElementIds(document: unknown): string[] {
 
   type Ranked = { id: string; typeRank: number; area: number; z: number };
   const ranked: Ranked[] = [];
-  const nodes = listSceneNodes(document) as Array<{ id: string; node: Record<string, unknown> }>;
+  const nodes = listSceneNodes(document as SceneDocument) as Array<{
+    id: string;
+    node: Record<string, unknown>;
+  }>;
 
   nodes.forEach(({ id, node }, z) => {
     if (!id || !node || typeof node !== 'object') return;
@@ -370,7 +360,7 @@ export async function renderDocumentThumbnail(
   const scale = Math.min(1, maxEdge / Math.max(docW, docH));
   const outW = Math.max(32, Math.round(docW * scale));
   const outH = Math.max(32, Math.round(docH * scale));
-  const bg = paperBackground(document);
+  const bg = paperBackground(document as SceneDocument);
 
   const host = window.document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
@@ -385,7 +375,7 @@ export async function renderDocumentThumbnail(
       height: docH,
       backgroundColor: bg,
       backgroundFillType: 'solid',
-    };
+    } as unknown as SceneDocument;
     const { root, layer } = createSvgBoard(host, docW, docH);
     await loadSceneOntoSvg(root, layer, previewDoc, 0, undefined, {
       omitNonExportable: true,
@@ -393,27 +383,10 @@ export async function renderDocumentThumbnail(
 
     const xml = new XMLSerializer().serializeToString(root);
     const inlined = await inlineSvgImages(xml, previewDoc, { failClosed: false });
-    const blob = new Blob([inlined], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error('thumb_raster_failed'));
-        el.src = url;
-      });
-      const canvas = window.document.createElement('canvas');
-      canvas.width = outW;
-      canvas.height = outH;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, outW, outH);
-      ctx.drawImage(img, 0, 0, outW, outH);
-      return canvasToDataUrl(canvas, format);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    const mime =
+      format === 'png' ? 'image/png' : format === 'jpeg' ? 'image/jpeg' : 'image/webp';
+    const quality = format === 'png' ? undefined : WEBP_QUALITY;
+    return await rasterizeSvgString(inlined, outW, outH, mime, quality, false, bg);
   } catch {
     return null;
   } finally {

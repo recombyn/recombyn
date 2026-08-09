@@ -1,7 +1,9 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useMemo, useRef, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineMusicalNote, HiOutlinePlay } from 'react-icons/hi2';
-import { listAssets, type AssetKind, type UserAsset } from '@/apis/assets';
+import type { AssetKind, UserAsset } from '@/models/assets';
+import { apiQuery } from '@/service/client';
 import { cn } from '@/utils/classnames';
 
 export type MentionAttachItem = {
@@ -146,6 +148,44 @@ function MentionRowThumb({
   );
 }
 
+function assetKindHint(
+  kind: 'image' | 'video' | 'audio',
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  if (kind === 'video') return t('me.assetKindVideo', { defaultValue: '视频' });
+  if (kind === 'audio') return t('me.assetKindAudio', { defaultValue: '音频' });
+  return t('me.assetKindImage', { defaultValue: '图片' });
+}
+
+function mentionEmptyKey(opts: {
+  variant: 'attach' | 'skill';
+  itemsEmpty: boolean;
+  mergedEmpty: boolean;
+}): string {
+  if (opts.variant === 'skill') {
+    return opts.itemsEmpty ? 'agent.mentionSkillEmpty' : 'agent.mentionSkillNoMatch';
+  }
+  return opts.mergedEmpty ? 'agent.mentionAttachEmpty' : 'agent.mentionAttachNoMatch';
+}
+
+function libraryAssetToMentionItem(
+  a: UserAsset,
+  assetsGroup: string,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): MentionAttachItem {
+  const kind = a.kind as 'image' | 'video' | 'audio';
+  const url = String(a.url || '').trim();
+  const item: MentionAttachItem = {
+    id: `${MENTION_ASSET_ID_PREFIX}${a.id}`,
+    label: assetMentionLabel(a, t),
+    mediaKind: kind,
+    hint: assetKindHint(kind, t),
+    group: assetsGroup,
+  };
+  if ((kind === 'image' || kind === 'video') && url) item.thumbUrl = url;
+  return item;
+}
+
 /**
  * Composer mention picker — `@` attachments (+ library assets) or `/` skills.
  */
@@ -160,36 +200,33 @@ function MentionAttachPanel({
   assetKinds,
 }: Props): ReactNode {
   const { t } = useTranslation();
-  const [libraryAssets, setLibraryAssets] = useState<UserAsset[]>([]);
-  const [assetsLoading, setAssetsLoading] = useState(false);
+  const kindFilter: AssetKind | null =
+    assetKinds?.length === 1 ? assetKinds[0]! : null;
+
+  const assetsQuery = useQuery({
+    ...apiQuery.assetsListMyAssets.queryOptions({
+      input: {
+        query: {
+          page: 1,
+          pageSize: 48,
+          ...(kindFilter ? { kind: kindFilter } : {}),
+        },
+      },
+      enabled: variant === 'attach' && includeAssets,
+    }),
+    staleTime: 30_000,
+  });
+
+  const libraryAssets = useMemo(() => {
+    const rows = ((assetsQuery.data as { items?: UserAsset[] } | undefined)?.items || []).filter(
+      (a) => isAllowedAsset(a, assetKinds)
+    );
+    return rows;
+  }, [assetsQuery.data, assetKinds]);
+
+  const assetsLoading = assetsQuery.isPending && includeAssets && variant === 'attach';
   const assetsRef = useRef<UserAsset[]>([]);
   assetsRef.current = libraryAssets;
-  const kindsKey = (assetKinds || []).join(',');
-
-  useEffect(() => {
-    if (variant !== 'attach' || !includeAssets) return;
-    let cancelled = false;
-    setAssetsLoading(true);
-    const kindFilter: AssetKind | null =
-      assetKinds?.length === 1 ? assetKinds[0]! : null;
-    async function loadLibraryAssets() {
-      try {
-        const res = await listAssets({ page: 1, pageSize: 48, kind: kindFilter });
-        if (cancelled) return;
-        setLibraryAssets((res.items || []).filter((a) => isAllowedAsset(a, assetKinds)));
-      } catch {
-        if (!cancelled) setLibraryAssets([]);
-      } finally {
-        if (!cancelled) setAssetsLoading(false);
-      }
-    }
-    void loadLibraryAssets();
-    return () => {
-      cancelled = true;
-    };
-    // kindsKey captures assetKinds membership without array identity churn.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variant, includeAssets, kindsKey]);
 
   const attachGroup = t('agent.mentionGroupAttachments', { defaultValue: '附件' });
   const assetsGroup = t('agent.mentionGroupAssets', { defaultValue: '资产' });
@@ -199,37 +236,18 @@ function MentionAttachPanel({
     group: it.group || attachGroup,
   }));
 
-  const assetItems: MentionAttachItem[] =
-    variant === 'attach' && includeAssets
-      ? libraryAssets.map((a) => {
-          const kind = a.kind as 'image' | 'video' | 'audio';
-          const url = String(a.url || '').trim();
-          return {
-            id: `${MENTION_ASSET_ID_PREFIX}${a.id}`,
-            label: assetMentionLabel(a, t),
-            mediaKind: kind,
-            hint:
-              kind === 'video'
-                ? t('me.assetKindVideo', { defaultValue: '视频' })
-                : kind === 'audio'
-                  ? t('me.assetKindAudio', { defaultValue: '音频' })
-                  : t('me.assetKindImage', { defaultValue: '图片' }),
-            group: assetsGroup,
-            ...((kind === 'image' || kind === 'video') && url ? { thumbUrl: url } : {}),
-          };
-        })
-      : [];
+  const showLibraryAssets = variant === 'attach' && includeAssets;
+  const assetItems: MentionAttachItem[] = showLibraryAssets
+    ? libraryAssets.map((a) => libraryAssetToMentionItem(a, assetsGroup, t))
+    : [];
 
   const merged = [...attachItems, ...assetItems];
   const filtered = filterMentionItems(merged, query);
-  const emptyKey =
-    variant === 'skill'
-      ? items.length === 0
-        ? 'agent.mentionSkillEmpty'
-        : 'agent.mentionSkillNoMatch'
-      : merged.length === 0
-        ? 'agent.mentionAttachEmpty'
-        : 'agent.mentionAttachNoMatch';
+  const emptyKey = mentionEmptyKey({
+    variant,
+    itemsEmpty: items.length === 0,
+    mergedEmpty: merged.length === 0,
+  });
 
   const handlePick = (id: string) => {
     if (id.startsWith(MENTION_ASSET_ID_PREFIX) && onPickLibraryAsset) {
@@ -243,6 +261,11 @@ function MentionAttachPanel({
     onPick(id);
   };
 
+  const showLoading =
+    assetsLoading && variant === 'attach' && includeAssets && !filtered.length;
+  const showEmpty = !showLoading && !filtered.length;
+  const showList = !showLoading && !showEmpty;
+
   let lastGroup = '';
 
   return (
@@ -253,48 +276,51 @@ function MentionAttachPanel({
       )}
     >
       <div className="max-h-[min(320px,calc(100vh-160px))] overflow-y-auto p-1">
-        {assetsLoading && variant === 'attach' && includeAssets && !filtered.length ? (
+        {showLoading ? (
           <div className="px-2 py-4 text-center text-[12px] text-[var(--muted)]">
             {t('common.loading', { defaultValue: '加载中…' })}
           </div>
-        ) : !filtered.length ? (
+        ) : null}
+        {showEmpty ? (
           <div className="px-2 py-4 text-center text-[12px] text-[var(--muted)]">
             {t(emptyKey)}
           </div>
-        ) : (
-          filtered.map((it) => {
-            const showGroup = Boolean(it.group && it.group !== lastGroup);
-            if (it.group) lastGroup = it.group;
-            return (
-              <div key={it.id}>
-                {showGroup ? (
-                  <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted)]">
-                    {it.group}
-                  </div>
-                ) : null}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-[var(--canvas)]"
-                  onClick={() => handlePick(it.id)}
-                >
-                  {variant === 'skill' && !it.thumbUrl ? null : (
-                    <MentionRowThumb mediaKind={it.mediaKind} thumbUrl={it.thumbUrl} />
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12px] font-medium text-[var(--ink)]">
-                      {it.label}
-                    </span>
-                    {it.hint ? (
-                      <span className="block truncate text-[10px] text-[var(--muted)]">
-                        {it.hint}
-                      </span>
+        ) : null}
+        {showList
+          ? filtered.map((it) => {
+              const showGroup = Boolean(it.group && it.group !== lastGroup);
+              if (it.group) lastGroup = it.group;
+              const showThumb = variant !== 'skill' || Boolean(it.thumbUrl);
+              return (
+                <div key={it.id}>
+                  {showGroup ? (
+                    <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                      {it.group}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-[var(--canvas)]"
+                    onClick={() => handlePick(it.id)}
+                  >
+                    {showThumb ? (
+                      <MentionRowThumb mediaKind={it.mediaKind} thumbUrl={it.thumbUrl} />
                     ) : null}
-                  </span>
-                </button>
-              </div>
-            );
-          })
-        )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-[var(--ink)]">
+                        {it.label}
+                      </span>
+                      {it.hint ? (
+                        <span className="block truncate text-[10px] text-[var(--muted)]">
+                          {it.hint}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                </div>
+              );
+            })
+          : null}
       </div>
     </div>
   );

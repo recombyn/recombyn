@@ -1,118 +1,141 @@
-import axios, { type AxiosRequestConfig, type AxiosInstance } from 'axios';
+/**
+ * Thin ky client for multipart / non-oRPC leftovers.
+ * Prefer `apiClient` / `apiQuery` for JSON endpoints.
+ */
+
+import ky, { HTTPError, type Options } from 'ky';
 import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken, setToken } from '@/utils/token';
 
-export interface CustomAxiosRequestConfig extends AxiosRequestConfig {
-  needGlobalLoading?: boolean;
+export type RequestConfig = {
+  url: string;
+  method?: string;
+  data?: unknown;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  timeout?: number;
   /** Skip in-flight GET dedupe (rare; default dedupes identical GETs). */
   skipInflightDedupe?: boolean;
+};
+
+function detailToText(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (!Array.isArray(detail)) return '';
+  return detail
+    .map((d) => {
+      if (typeof d === 'string') return d;
+      if (d && typeof d === 'object' && 'msg' in d) {
+        return String((d as { msg?: unknown }).msg || '');
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join(' ');
 }
 
-/**
- * Shared axios client.
- * Call sites pass full `/api/v1/...` paths.
- * Browser / local-desktop-dev: relative (Vite proxy / nginx).
- * Desktop prod local / desktop cloud: absolute base from `getApiBaseUrl()`.
- */
-const http: AxiosInstance = axios.create({
-  timeout: 180000,
-  baseURL: getApiBaseUrl() || undefined,
-});
-
-http.interceptors.request.use(
-  (config) => {
-    const token = getToken();
-    if (token) {
-      config.headers.set('Authorization', `Bearer ${token}`);
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-http.interceptors.response.use(
-  (response) => response.data,
-  (error) => {
-    // Stale / missing session — drop token so clients stop hammering auth errors.
-    // Backend historically returned 403 for bad tokens; treat that as logout too.
-    const status = error?.response?.status;
-    const detail = error?.response?.data?.detail;
-    const detailText =
-      typeof detail === 'string'
-        ? detail
-        : Array.isArray(detail)
-          ? detail.map((d) => (typeof d === 'string' ? d : d?.msg)).join(' ')
-          : '';
-    const authDead =
-      status === 401 ||
-      (status === 403 &&
-        /could not validate credentials|not authenticated/i.test(detailText));
-    if (authDead) {
-      setToken(null);
-      try {
-        window.dispatchEvent(new CustomEvent('recombine:auth-unauthorized'));
-      } catch {
-        /* ignore */
-      }
-    }
-    return Promise.reject(error);
+async function clearSessionOnAuthDead(res: Response): Promise<void> {
+  if (res.status !== 401 && res.status !== 403) return;
+  let detailText = '';
+  try {
+    const data = (await res.clone().json()) as { detail?: unknown };
+    detailText = detailToText(data?.detail);
+  } catch {
+    /* ignore */
   }
-);
+  const authDead =
+    res.status === 401 ||
+    (res.status === 403 &&
+      /could not validate credentials|not authenticated/i.test(detailText));
+  if (!authDead) return;
+  setToken(null);
+  try {
+    window.dispatchEvent(new CustomEvent('recombine:auth-unauthorized'));
+  } catch {
+    /* ignore */
+  }
+}
 
-/**
- * Collapse identical GETs:
- * - in-flight share one network call
- * - brief success cache covers StrictMode remount (effect → cleanup → effect)
- */
+function resolveUrl(path: string): string {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  if (!base) return path;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 const inflightGets = new Map<string, Promise<unknown>>();
 const recentGets = new Map<string, { expires: number; value: unknown }>();
 const RECENT_GET_TTL_MS = 1200;
 
-function stableSerialize(value: unknown): string {
-  if (value == null) return '';
-  if (typeof value !== 'object') return String(value);
-  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
-  const obj = value as Record<string, unknown>;
-  return `{${Object.keys(obj)
-    .sort()
-    .map((k) => `${k}:${stableSerialize(obj[k])}`)
-    .join(',')}}`;
-}
-
-function getInflightKey(config: CustomAxiosRequestConfig): string | null {
+function getInflightKey(config: RequestConfig): string | null {
   if (config.skipInflightDedupe) return null;
   const method = (config.method || 'get').toLowerCase();
   if (method !== 'get') return null;
-  const url = config.url || '';
-  const params = stableSerialize(config.params);
-  // Different sessions must not share a response.
   const auth = getToken() || '';
-  return `${method}|${url}|${params}|${auth}`;
+  return `${method}|${config.url}|${auth}`;
 }
 
-/** Typed request: interceptor already unwraps `response.data`. */
-function request<T = unknown>(config: CustomAxiosRequestConfig): Promise<T> {
+async function executeRequest<T>(config: RequestConfig, key: string | null): Promise<T> {
+  const method = (config.method || 'get').toUpperCase();
+  const token = getToken();
+  const headers: Record<string, string> = { ...(config.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const isForm = typeof FormData !== 'undefined' && config.data instanceof FormData;
+  const options: Options = {
+    method,
+    headers,
+    signal: config.signal,
+    timeout: config.timeout ?? 180_000,
+    hooks: {
+      afterResponse: [
+        async ({ response }) => {
+          await clearSessionOnAuthDead(response);
+        },
+      ],
+    },
+  };
+  if (config.data != null && method !== 'GET' && method !== 'HEAD') {
+    if (isForm) options.body = config.data as FormData;
+    else options.json = config.data as Options['json'];
+  }
+
+  try {
+    const data = await ky(resolveUrl(config.url), options).json<T>();
+    if (key) {
+      recentGets.set(key, { expires: Date.now() + RECENT_GET_TTL_MS, value: data });
+    }
+    return data;
+  } catch (err) {
+    if (err instanceof HTTPError) {
+      await clearSessionOnAuthDead(err.response);
+    }
+    throw err;
+  }
+}
+
+/** Typed JSON/multipart request — unwraps response body like the old axios helper. */
+export async function request<T = unknown>(config: RequestConfig): Promise<T> {
   const key = getInflightKey(config);
   if (key) {
     const cached = recentGets.get(key);
     if (cached && cached.expires > Date.now()) {
-      return Promise.resolve(cached.value as T);
+      return cached.value as T;
     }
     const existing = inflightGets.get(key);
     if (existing) return existing as Promise<T>;
-    const pending = (async () => {
-      try {
-        const data = await http.request<any, T>(config);
-        recentGets.set(key, { expires: Date.now() + RECENT_GET_TTL_MS, value: data });
-        return data;
-      } finally {
-        if (inflightGets.get(key) === pending) inflightGets.delete(key);
-      }
-    })();
-    inflightGets.set(key, pending);
-    return pending;
   }
-  return http.request<any, T>(config);
+
+  let pending: Promise<T>;
+  async function run(): Promise<T> {
+    try {
+      return await executeRequest<T>(config, key);
+    } finally {
+      if (key && inflightGets.get(key) === pending) inflightGets.delete(key);
+    }
+  }
+  pending = run();
+  if (key) inflightGets.set(key, pending);
+  return pending;
 }
 
-export { request, http };
+export { HTTPError };

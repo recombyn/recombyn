@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * E2E stress: generate (with attachment refs) → promote → quick-edit echoes genPrompt.
  * Mirrors Image/Video/Audio/Lottie generator + placeMediaAsset → QuickEdit read path.
@@ -17,7 +18,9 @@ import reducer, {
   spawnLottieGenerator,
   spawnVideoGenerator,
 } from '@/store/modules/editor';
-import { createEmptyDocument } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createEmptyDocument
+} from '@/components/rcb/scene/document/sceneDocument';
 
 const SAMPLE_LOTTIE = {
   v: '5.7.4',
@@ -33,7 +36,7 @@ const SAMPLE_LOTTIE = {
 };
 
 /** Same read QuickEdit composers use: node.attrs.genPrompt. */
-function readQuickEditEcho(state: { document: any }, nodeId: string): string {
+function readQuickEditEcho(state: { document: SceneDocument }, nodeId: string): string {
   const node = state.document?.deltaSetLike?.[nodeId];
   return String(node?.attrs?.genPrompt || '').trim();
 }

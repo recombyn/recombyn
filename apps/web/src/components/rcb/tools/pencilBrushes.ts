@@ -1,9 +1,10 @@
 /**
  * Pencil brushes — tip stamps along the path (PNG tips in /brushes/tips).
- * Outline / freehand pack entries use the freehand stroke helper as fallback.
+ * Vector (freehand) ink is a path-centered ribbon (pressure + taper).
+ * Outline keeps sharp corners so the selection baseline stays inside the ink.
  */
 
-import getStroke, { type StrokeOptions } from 'perfect-freehand';
+import type { StrokeOptions } from 'perfect-freehand';
 
 export type PencilBrushId = string;
 
@@ -103,17 +104,15 @@ function vectorBrush(
 }
 
 /**
- * Illustrator-style Blob Brushes: filled SVG outlines (no tip texture).
+ * Filled SVG outlines (no tip texture).
  * Stay sharp at any zoom — not raster tip stamps.
  */
 export const VECTOR_INK_BRUSHES: PencilBrushDef[] = [
-  // Balanced pressure ink (default vector).
+  // Balanced pressure ink (default vector) — width from hardware pressure only.
   vectorBrush('vector-ink', '矢量墨线', {
     thinning: 0.4,
     smoothing: 0.5,
     streamline: 0.4,
-    startTaper: 12,
-    endTaper: 18,
   }),
   // Near-constant width — like a marker / pen stroke.
   vectorBrush('vector-even', '矢量匀线', {
@@ -121,17 +120,13 @@ export const VECTOR_INK_BRUSHES: PencilBrushDef[] = [
     thinning: 0.05,
     smoothing: 0.55,
     streamline: 0.45,
-    startTaper: 0,
-    endTaper: 0,
   }),
-  // Strong pressure + taper — calligraphy feel.
+  // Strong pressure range — calligraphy feel.
   vectorBrush('vector-calligraphy', '矢量书法', {
     sizeFactor: 1.15,
     thinning: 0.72,
     smoothing: 0.42,
     streamline: 0.35,
-    startTaper: 28,
-    endTaper: 42,
   }),
 ];
 
@@ -163,6 +158,9 @@ export const TIP_STAMP_BRUSHES: PencilBrushDef[] = [
 /** Builtin wheel — vector brushes first, then tip stamps. */
 export const PENCIL_BRUSHES: PencilBrushDef[] = [...VECTOR_INK_BRUSHES, ...TIP_STAMP_BRUSHES];
 
+/** Tool / store default — first wheel entry (矢量墨线). */
+export const DEFAULT_PENCIL_BRUSH_ID: PencilBrushId = VECTOR_INK_BRUSHES[0].id;
+
 /** Open portable pack (JSON + tip data-URLs). Not Photoshop .abr. */
 export const BRUSH_PACK_FORMAT = 'recombyn-brushpack' as const;
 export const BRUSH_PACK_VERSION = 1 as const;
@@ -189,9 +187,6 @@ export type BrushPackV1 = {
   }>;
 };
 
-/** Official brushes from design library (admin brush wheel). */
-let officialBrushes: PencilBrushDef[] | null = null;
-
 /** Runtime custom brushes (hydrated from localStorage). */
 let customBrushes: PencilBrushDef[] = [];
 
@@ -203,14 +198,6 @@ export function setCustomPencilBrushes(list: PencilBrushDef[]) {
   customBrushes = Array.isArray(list)
     ? list.filter((b) => b?.id && (b.kind !== 'stamp' || Boolean(b.stampSrc)))
     : [];
-}
-
-export function setOfficialPencilBrushes(list: PencilBrushDef[] | null) {
-  if (!list?.length) {
-    officialBrushes = null;
-    return;
-  }
-  officialBrushes = list.filter((b) => b?.id);
 }
 
 /** Legacy ids → nearest builtin tip / vector. */
@@ -235,24 +222,16 @@ const LEGACY_FREEHAND_ALIAS: Record<string, string> = {
 };
 
 export function listPencilBrushes(): PencilBrushDef[] {
-  const base = officialBrushes?.length ? officialBrushes : PENCIL_BRUSHES;
-  // Official API list may omit vector brushes — keep the full vector set up front.
-  const missingVectors = VECTOR_INK_BRUSHES.filter((v) => !base.some((b) => b.id === v.id));
-  return [...missingVectors, ...base, ...customBrushes];
+  return [...PENCIL_BRUSHES, ...customBrushes];
 }
 
 export function findPencilBrush(id: string | undefined | null): PencilBrushDef {
   // Prefer solid tip as fallback (not vector-ink) so unknown ids stay textured.
-  const fallback =
-    (officialBrushes && officialBrushes[0]) || TIP_STAMP_BRUSHES[0] || PENCIL_BRUSHES[0];
+  const fallback = TIP_STAMP_BRUSHES[0] || PENCIL_BRUSHES[0];
   if (!id || LEGACY_STAMP_IDS.has(id)) return fallback;
   const resolved = LEGACY_FREEHAND_ALIAS[id] || id;
   const custom = customBrushes.find((b) => b.id === id || b.id === resolved);
   if (custom) return custom;
-  const vector = VECTOR_INK_BRUSHES.find((b) => b.id === resolved);
-  if (vector) return vector;
-  const official = officialBrushes?.find((b) => b.id === resolved || b.id === id);
-  if (official) return official;
   return PENCIL_BRUSHES.find((b) => b.id === resolved) || fallback;
 }
 
@@ -289,8 +268,10 @@ export function stampSpacing(
  * SVG tip commits stay under this; live canvas preview uses STAMP_MAX_DABS_LIVE.
  */
 export const STAMP_MAX_DABS = 4000;
-/** Live canvas preview budget — keep high so ink tracks the tip on long strokes. */
-export const STAMP_MAX_DABS_LIVE = 3000;
+/** Live canvas preview dab cap — coarsen spacing before hitting this (see spacingScale). */
+export const STAMP_MAX_DABS_LIVE = 2400;
+/** Max new tip draws per animation frame so fast strokes don't stall the main thread. */
+export const STAMP_LIVE_BLIT_BUDGET = 140;
 
 export function polylineLength(points: Pt[]): number {
   let len = 0;
@@ -611,14 +592,21 @@ function stampEndpointTaperMul(
 }
 
 /**
- * Prepare points: pressure smooth + gap fill only.
- * Do not Bezier/lag-resample here — that thins stamps into dots.
+ * Prepare points: gap fill only.
+ * Do not EMA-smooth pressure here — that reshapes earlier dabs every frame
+ * (live jitter) and makes commit differ from the preview centerline.
  */
 function prepareStampPoints(
   points: Pt[],
   pressureOn: boolean
 ): Pt[] {
-  let pts = pressureOn ? normalizeStampPressures(points) : points.map((p) => ({ x: p.x, y: p.y }));
+  const pts = pressureOn
+    ? points.map((p) =>
+        pointHasPressure(p)
+          ? { x: p.x, y: p.y, pressure: p.pressure }
+          : { x: p.x, y: p.y }
+      )
+    : points.map((p) => ({ x: p.x, y: p.y }));
   return interpolateStrokeGaps(pts, STROKE_GAP_INTERP);
 }
 
@@ -727,6 +715,9 @@ export function emptyStampLiveWalk(): StampLiveWalk {
 /**
  * Extend live stamp dabs from new pointer samples.
  * Assumes `points` are already gap-filled (capture path); skips endpoint taper.
+ *
+ * `spacingScale` / `minStep` sparsify live previews so the tip can keep up when
+ * drawing fast; commit still uses buildStampDabs at full density.
  */
 export function extendStampLiveWalk(
   walk: StampLiveWalk,
@@ -737,11 +728,16 @@ export function extendStampLiveWalk(
     hardness?: number;
     pressureEnabled?: boolean;
     maxDabs?: number;
+    /** ≥1 — larger = fewer live dabs (preview only). */
+    spacingScale?: number;
+    minStep?: number;
   } = {}
 ): StampLiveWalk {
   const pressureOn = opts.pressureEnabled !== false;
   const hardness = opts.hardness ?? 80;
   const maxDabs = opts.maxDabs ?? STAMP_MAX_DABS_LIVE;
+  const spacingScale = Math.max(1, Number(opts.spacingScale) || 1);
+  const minStep = Math.max(0.25, Number(opts.minStep) || 0.25);
   const spacingFrac = stampSpacingFrac(brush, hardness);
 
   // Points replaced/shrunk (streamline on commit shouldn't hit this mid-draw).
@@ -762,7 +758,8 @@ export function extendStampLiveWalk(
 
   for (let i = Math.max(1, walkedPts); i < points.length; i += 1) {
     if (dabs.length >= maxDabs) {
-      return { dabs, carry, walkedPts: points.length };
+      // Do not mark remaining points walked — caller remeshes with coarser spacing.
+      return { dabs, carry, walkedPts };
     }
     const prev = points[i - 1];
     const curr = points[i];
@@ -776,13 +773,15 @@ export function extendStampLiveWalk(
 
     const sizeA = stampDabSize(brush, strokeWidth, prev.pressure, pressureOn);
     const sizeB = stampDabSize(brush, strokeWidth, curr.pressure, pressureOn);
-    const step = Math.max(0.25, Math.min(sizeA, sizeB) * spacingFrac);
+    const step = Math.max(minStep, Math.min(sizeA, sizeB) * spacingFrac * spacingScale);
 
     let consumed = 0;
+    let segDone = false;
     while (dabs.length < maxDabs) {
       const need = step - carry;
       if (consumed + need > segLen + 1e-9) {
         carry += segLen - consumed;
+        segDone = true;
         break;
       }
       consumed += need;
@@ -796,6 +795,10 @@ export function extendStampLiveWalk(
       };
       dabs.push(materializeDab(sample, brush, strokeWidth, pressureOn, spacingFrac, 1));
     }
+    if (!segDone) {
+      // Hit dab cap mid-segment — keep walkedPts at i so remesh covers the rest.
+      return { dabs, carry: 0, walkedPts: i };
+    }
     walkedPts = i + 1;
   }
 
@@ -808,14 +811,20 @@ export function paintStampDabs(
   dabs: StampDab[],
   tip: CanvasImageSource,
   strokeOpacity = 1,
-  fromIndex = 0
+  fromIndex = 0,
+  toIndex?: number,
+  quality: 'low' | 'medium' | 'high' = 'high'
 ) {
   ctx.imageSmoothingEnabled = true;
   if ('imageSmoothingQuality' in ctx) {
-    (ctx as CanvasRenderingContext2D).imageSmoothingQuality = 'high';
+    (ctx as CanvasRenderingContext2D).imageSmoothingQuality = quality;
   }
   const start = Math.max(0, Math.min(dabs.length, fromIndex | 0));
-  for (let i = start; i < dabs.length; i += 1) {
+  const end =
+    toIndex == null
+      ? dabs.length
+      : Math.max(start, Math.min(dabs.length, toIndex | 0));
+  for (let i = start; i < end; i += 1) {
     const dab = dabs[i];
     const size = Math.max(1, dab.size);
     const alpha = strokeOpacity * Math.max(0.08, Math.min(1, dab.opacity));
@@ -871,6 +880,16 @@ export type PencilStrokeDrawOpts = {
    * Stamp: tip edge + dab spacing. Freehand: soft → more pressure width + taper; hard → flatter.
    */
   hardness?: number;
+  /**
+   * When false, skip RDP simplify (live preview — simplify reshapes the tail every
+   * frame and reads as jitter). Commit should leave this unset / true.
+   */
+  simplify?: boolean;
+  /**
+   * `quad` (default): midpoint Q silhouette for paint.
+   * `linear`: M/L/Z polygon — for 轮廓化 path-edit (Q midpoints resist sparsify).
+   */
+  pathStyle?: 'quad' | 'linear';
 };
 
 function clampStrokeHardness(hardness?: number | null): number {
@@ -913,6 +932,7 @@ function extendPolylineEnds(points: Pt[], pad: number): Pt[] {
   out[0] = {
     x: a0.x - ((a1.x - a0.x) / d0) * pad,
     y: a0.y - ((a1.y - a0.y) / d0) * pad,
+    ...(a0.pressure != null ? { pressure: a0.pressure } : {}),
   };
   const b0 = out[out.length - 2];
   const b1 = out[out.length - 1];
@@ -920,8 +940,139 @@ function extendPolylineEnds(points: Pt[], pad: number): Pt[] {
   out[out.length - 1] = {
     x: b1.x + ((b1.x - b0.x) / d1) * pad,
     y: b1.y + ((b1.y - b0.y) / d1) * pad,
+    ...(b1.pressure != null ? { pressure: b1.pressure } : {}),
   };
   return out;
+}
+
+/** Left-hand unit normal of directed segment a→b. */
+function segmentLeftNormal(ax: number, ay: number, bx: number, by: number): [number, number] {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  return [-dy / len, dx / len];
+}
+
+/** Half-widths along the polyline from real pointer pressure only (no geometric fake taper). */
+function ribbonRadiiAlongPath(
+  pts: Pt[],
+  size: number,
+  thinning: number,
+  pressureOn: boolean
+): number[] {
+  const thin = Math.max(0, Math.min(0.92, thinning));
+  // thinning 0.4 → min 60% size; thinning 0.72 → ~28% (calligraphy).
+  const minScale = Math.max(0.08, 1 - thin);
+  const anyPressure = pressureOn && pts.some(pointHasPressure);
+  const radii: number[] = [];
+  for (let i = 0; i < pts.length; i += 1) {
+    let diam = size;
+    if (anyPressure) {
+      const raw = pointHasPressure(pts[i])
+        ? Math.min(1, Math.max(0, pts[i].pressure as number))
+        : 0.5;
+      // Same curve LUT as stamp tips — hardware pressure → width.
+      const p = evaluatePressureCurve(raw);
+      diam = size * (minScale + (1 - minScale) * p);
+    }
+    radii.push(Math.max(0.35, diam / 2));
+  }
+  return radii;
+}
+
+/** Semicircle from `from` → `to` around `center`, passing through `via` side. */
+function roundCapPoints(
+  center: Pt,
+  from: [number, number],
+  to: [number, number],
+  via: [number, number],
+  steps = 5
+): number[][] {
+  const a0 = Math.atan2(from[1] - center.y, from[0] - center.x);
+  const a1 = Math.atan2(to[1] - center.y, to[0] - center.x);
+  const aVia = Math.atan2(via[1] - center.y, via[0] - center.x);
+  const r = Math.hypot(from[0] - center.x, from[1] - center.y) || 1;
+  function sweep(fromA: number, toA: number): number {
+    let d = toA - fromA;
+    while (d <= -Math.PI) d += Math.PI * 2;
+    while (d > Math.PI) d -= Math.PI * 2;
+    return d;
+  }
+  // Choose direction so the arc passes near `via`.
+  let delta = sweep(a0, a1);
+  const midDirect = a0 + delta / 2;
+  let midErr = Math.abs(sweep(midDirect, aVia));
+  const deltaAlt = delta > 0 ? delta - Math.PI * 2 : delta + Math.PI * 2;
+  const midAlt = a0 + deltaAlt / 2;
+  if (Math.abs(sweep(midAlt, aVia)) < midErr) delta = deltaAlt;
+  const out: number[][] = [];
+  for (let i = 1; i < steps; i += 1) {
+    const t = i / steps;
+    const a = a0 + delta * t;
+    out.push([center.x + Math.cos(a) * r, center.y + Math.sin(a) * r]);
+  }
+  return out;
+}
+
+/**
+ * Filled outline centered on the polyline (round caps, bisector joins).
+ * Keeps every input vertex inside the silhouette.
+ */
+function centeredRibbonOutline(pts: Pt[], radii: number[]): number[][] {
+  const n = pts.length;
+  if (n < 2) return [];
+  const left: Array<[number, number]> = [];
+  const right: Array<[number, number]> = [];
+
+  for (let i = 0; i < n; i += 1) {
+    const r = radii[i] ?? radii[radii.length - 1] ?? 1;
+    const p = pts[i];
+    let nx: number;
+    let ny: number;
+    if (i === 0) {
+      [nx, ny] = segmentLeftNormal(p.x, p.y, pts[1].x, pts[1].y);
+    } else if (i === n - 1) {
+      [nx, ny] = segmentLeftNormal(pts[i - 1].x, pts[i - 1].y, p.x, p.y);
+    } else {
+      const [n0x, n0y] = segmentLeftNormal(pts[i - 1].x, pts[i - 1].y, p.x, p.y);
+      const [n1x, n1y] = segmentLeftNormal(p.x, p.y, pts[i + 1].x, pts[i + 1].y);
+      let ax = n0x + n1x;
+      let ay = n0y + n1y;
+      const al = Math.hypot(ax, ay);
+      if (al < 1e-6) {
+        nx = n0x;
+        ny = n0y;
+      } else {
+        // Unit bisector × r (no miter inflate) — path stays inside joins.
+        nx = ax / al;
+        ny = ay / al;
+      }
+    }
+    left.push([p.x + nx * r, p.y + ny * r]);
+    right.push([p.x - nx * r, p.y - ny * r]);
+  }
+
+  const p0 = pts[0];
+  const p1 = pts[1];
+  const t0x = p1.x - p0.x;
+  const t0y = p1.y - p0.y;
+  const t0l = Math.hypot(t0x, t0y) || 1;
+  const startVia: [number, number] = [p0.x - (t0x / t0l) * radii[0], p0.y - (t0y / t0l) * radii[0]];
+
+  const pNm1 = pts[n - 2];
+  const pN = pts[n - 1];
+  const t1x = pN.x - pNm1.x;
+  const t1y = pN.y - pNm1.y;
+  const t1l = Math.hypot(t1x, t1y) || 1;
+  const endVia: [number, number] = [
+    pN.x + (t1x / t1l) * radii[n - 1],
+    pN.y + (t1y / t1l) * radii[n - 1],
+  ];
+
+  const startCap = roundCapPoints(p0, right[0], left[0], startVia);
+  const endCap = roundCapPoints(pN, left[n - 1], right[n - 1], endVia);
+
+  return startCap.concat(left).concat(endCap).concat(right.reverse());
 }
 
 export function outlinePathFromPoints(
@@ -932,12 +1083,16 @@ export function outlinePathFromPoints(
 ): string {
   if (points.length < 2) return '';
   const brush = findPencilBrush(brushId);
-  // Stamp brushes still get a freehand fallback for bbox / simple preview.
   const size = brushSize(brush, strokeWidth);
   let pts: Pt[] = points.map((p, i) => {
     const pr = strokeOpts?.pressures?.[i];
     return pr != null && Number.isFinite(pr) ? { ...p, pressure: pr } : { ...p };
   });
+  // Drop colinear noise before ribbon (commit). Live preview skips this —
+  // RDP reshaping the tail every sample reads as jitter.
+  if (strokeOpts?.simplify !== false) {
+    pts = simplifyPencilCenterline(pts, pencilSimplifyEpsilon(size));
+  }
   const options: Omit<StrokeOptions, 'size'> = applyFreehandHardness(
     {
       ...(brush.kind === 'stamp' ? FREEHAND_DEFAULTS : brush.options),
@@ -946,38 +1101,25 @@ export function outlinePathFromPoints(
   );
   const hard01 = clampStrokeHardness(strokeOpts?.hardness) / 100;
   const cap = strokeOpts?.linecap;
-  if (cap === 'butt') {
-    options.start = { ...(options.start as object), taper: 0, cap: false };
-    options.end = { ...(options.end as object), taper: 0, cap: false };
-  } else if (cap === 'square') {
-    options.start = { ...(options.start as object), taper: 0, cap: true };
-    options.end = { ...(options.end as object), taper: 0, cap: true };
+  if (cap === 'square') {
     pts = extendPolylineEnds(pts, size * 0.45);
-  } else if (cap === 'round') {
-    options.start = { ...(options.start as object), cap: true };
-    options.end = { ...(options.end as object), cap: true };
   }
   const pressureOn = strokeOpts?.pressureEnabled !== false;
   if (!pressureOn) {
-    pts = pts.map((p) => ({ x: p.x, y: p.y, pressure: 0.5 }));
+    pts = pts.map((p) => ({ x: p.x, y: p.y }));
   }
-  const hasRealPressure =
-    pressureOn &&
-    (pts.some(pointHasPressure) ||
-      Boolean(strokeOpts?.pressures?.some((p) => typeof p === 'number' && Number.isFinite(p))));
-  const input = toStrokeInput(
-    pts,
-    { ...brush, simulatePressure: false, options }
-  );
-  // Soft → full pressure thinning; hard → nearly constant width.
-  const thinning = hasRealPressure ? Math.max(0.08, 1 - hard01 * 0.88) : 0;
-  const outline = getStroke(input, {
-    size,
-    ...options,
-    thinning,
-    simulatePressure: false,
-    last: true,
-  });
+  const hasRealPressure = pressureOn && pts.some(pointHasPressure);
+  // Soft brush → stronger pressure dynamic range; hard → flatter.
+  const baseThin = Number(options.thinning ?? 0.4);
+  const thinning = hasRealPressure
+    ? Math.max(0.12, baseThin * (1.15 - hard01 * 0.55))
+    : 0;
+  const radii = ribbonRadiiAlongPath(pts, size, thinning, hasRealPressure);
+  const outline = centeredRibbonOutline(pts, radii);
+  if (strokeOpts?.pathStyle === 'linear') {
+    if (outline.length < 3) return '';
+    return `M ${outline.map(([x, y]) => `${x} ${y}`).join(' L ')} Z`;
+  }
   return getSvgPathFromStroke(outline);
 }
 
@@ -1038,7 +1180,7 @@ export function splitPolylineByDash(points: Pt[], dasharray: string): Pt[][] {
 
 /**
  * Build freehand outline path(s); dashed styles return multiple closed outlines joined.
- * Silhouette stays centered on the input polyline (no extra translate / pad bake-in).
+ * Silhouette is a path-centered ribbon (selection baseline stays inside the ink).
  */
 export function pencilInkPathFromPoints(
   points: Pt[],
@@ -1187,6 +1329,54 @@ export function samplePolyline(points: Pt[], spacing: number): Pt[] {
     out[out.length - 1] = lastPt;
   }
   return out;
+}
+
+/**
+ * Ramer–Douglas–Peucker on pencil centerlines (MIT-safe in-repo impl).
+ * Keeps endpoints and per-point pressure on retained vertices.
+ */
+export function simplifyPencilCenterline(points: Pt[], epsilon: number): Pt[] {
+  if (points.length <= 2) return points.map((p) => ({ ...p }));
+  const eps = Number(epsilon);
+  if (!(eps > 0)) return points.map((p) => ({ ...p }));
+
+  function distToSeg(p: Pt, a: Pt, b: Pt): number {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-12) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+
+  function rdp(pts: Pt[]): Pt[] {
+    if (pts.length <= 2) return pts;
+    let maxDist = 0;
+    let maxIdx = 0;
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    for (let i = 1; i < pts.length - 1; i += 1) {
+      const d = distToSeg(pts[i], first, last);
+      if (d > maxDist) {
+        maxDist = d;
+        maxIdx = i;
+      }
+    }
+    if (maxDist <= eps) return [first, last];
+    const left = rdp(pts.slice(0, maxIdx + 1));
+    const right = rdp(pts.slice(maxIdx));
+    return left.slice(0, -1).concat(right);
+  }
+
+  return rdp(points.map((p) => ({ ...p })));
+}
+
+/** Scene-space epsilon for freehand bake / commit (~4.5% of tip size, min 0.25). */
+export function pencilSimplifyEpsilon(strokeSize: number): number {
+  const s = Number(strokeSize);
+  if (!(s > 0)) return 0.35;
+  return Math.max(0.25, s * 0.045);
 }
 
 /**

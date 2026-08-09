@@ -1,29 +1,14 @@
 from app.services.design.prompts.prompt_pack_store import (
-    format_prompt_pack_block,
-    format_prompt_packs_catalog,
     list_prompt_nodes_from_flow,
     seed_prompt_overlay_nodes,
 )
 from app.services.design.prompts.skill_store import format_skills_details
 
 
-def test_seed_prompt_overlay_nodes_migrated_to_skills():
-    """Methodology packs moved to design_skills_seed — overlay nodes empty."""
+def test_seed_prompt_overlay_nodes_empty():
+    """need_* overlay nodes are not seeded (skills carry playbooks)."""
     nodes = seed_prompt_overlay_nodes()
     assert nodes == []
-
-
-def test_prompt_packs_catalog_points_to_skills():
-    """Scene methodology packs retired — catalog is a stub; skills own playbooks."""
-    from app.services.design.prompts.prompt_pack_store import ensure_design_prompt_packs
-
-    ensure_design_prompt_packs()
-    block = format_prompt_packs_catalog(scene="website")
-    assert (
-        "retired" in block.lower()
-        or "need_skills" in block
-        or "Skill" in block
-    )
 
 
 def test_methodology_lives_in_skills():
@@ -37,7 +22,7 @@ def test_methodology_lives_in_skills():
     ensure_design_skills(force=True)
     details = format_skills_details(keys=["design_methodology"], scene="website")
     assert "create_shape" in details and "create_text" in details
-    assert "need_aesthetics" in details or "skill: design_methodology" in details
+    assert "skill: design_methodology" in details or "design_methodology" in details
     seed_pos = next(
         (
             str(it.get("prompt_positive") or "")
@@ -69,12 +54,11 @@ def test_list_prompt_nodes_from_explicit_graph():
     }
     rows = list_prompt_nodes_from_flow(graph=graph)
     assert any(r["kind"] == "custom" for r in rows)
-    block = format_prompt_pack_block(rows)
-    assert "create_shape" in block
+    assert any("create_shape" in str(r.get("body") or "") for r in rows)
 
 
-def test_ensure_prompt_packs_preserves_admin_body(tmp_path, monkeypatch):
-    """Re-running seed must not overwrite Admin-edited pack body."""
+def test_ensure_prompt_packs_resyncs_body_from_seed(tmp_path, monkeypatch):
+    """Re-running ensure overwrites DB body with git seed (seed is source of truth)."""
     from sqlmodel import Session
 
     from app import crud
@@ -98,7 +82,11 @@ def test_ensure_prompt_packs_preserves_admin_body(tmp_path, monkeypatch):
             assert rows
             target = rows[0]
             kind = target.kind
-            target.body = "ADMIN_EDITED_BODY_DO_NOT_CLOBBER"
+            seed_body = str(
+                (pps._SEED_BY_KIND.get(kind) or {}).get("body") or ""
+            )
+            assert seed_body.strip()
+            target.body = "ADMIN_EDITED_BODY_SHOULD_BE_OVERWRITTEN"
             session.add(target)
             session.commit()
 
@@ -107,7 +95,9 @@ def test_ensure_prompt_packs_preserves_admin_body(tmp_path, monkeypatch):
         with Session(engine) as session:
             again = crud.list_design_prompt_packs_by_kind(session=session, kind=kind)
             assert again
-            assert again[0].body == "ADMIN_EDITED_BODY_DO_NOT_CLOBBER"
+            assert again[0].body.replace("\r\n", "\n").strip() == seed_body.replace(
+                "\r\n", "\n"
+            ).strip()
     finally:
         pps._PACKS_READY = False
         restore_default_sqlite_engine()

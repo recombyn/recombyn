@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { rcbDefaultPlaceFontSize } from '../layout';
-import { createTextNode } from '../../scene/document/sceneDocument';
+import {
+  createTextNode
+} from '../../scene/document/nodeFactories';
 import { parseNodeTextStyle } from '../../scene/document/sceneText';
 import { snapCoordToGrid } from '../../selection/alignGuides';
 

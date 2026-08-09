@@ -1,1 +1,0 @@
-Canvas tools are ready.

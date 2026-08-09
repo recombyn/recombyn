@@ -15,7 +15,6 @@ from app.core import db as core_db
 from . import constants as _c
 from .constants import (
     NS_CORE,
-    RETIRED_NEED_PROMPT_KINDS,
     SOURCE_ADMIN,
     SOURCE_FILE,
     SOURCE_SEED,
@@ -66,7 +65,7 @@ def _allowed_resources_json(item: dict[str, Any], *, source: str) -> str | None:
             return json.dumps(["tools"], ensure_ascii=False)
         if source in (SOURCE_SEED, SOURCE_FILE):
             return json.dumps(
-                ["knowledge", "aesthetics", "tools"], ensure_ascii=False
+                ["tools"], ensure_ascii=False
             )
         return None
     return json.dumps(parsed, ensure_ascii=False)
@@ -172,7 +171,7 @@ def _upsert_owned_skill(
         session.add(row)
     else:
         default_allowed = allowed_json or json.dumps(
-            ["knowledge", "aesthetics", "tools"]
+            ["tools"]
             if source != SOURCE_ADMIN
             else ["tools"],
             ensure_ascii=False,
@@ -286,7 +285,7 @@ def ensure_design_skills(*, force: bool = False) -> None:
                 seeded.setdefault("namespace", NS_CORE)
                 seeded.setdefault(
                     "allowed_resources",
-                    ["knowledge", "aesthetics", "tools"],
+                    ["tools"],
                 )
                 _upsert_owned_skill(
                     session,
@@ -304,13 +303,6 @@ def ensure_design_skills(*, force: bool = False) -> None:
                     skip_sources=_PROTECTED_FROM_FILE,
                 )
             _bump_unchanged_seed_skill_bodies(session, now=now)
-            # Retired need_* packs (design_spec/vision/aesthetics) → Skills; delete leftovers.
-            try:
-                crud.delete_design_prompt_packs_by_kinds(
-                    session=session, kinds=list(RETIRED_NEED_PROMPT_KINDS)
-                )
-            except Exception:
-                pass
             session.commit()
         invalidate_skill_key_cache()
         _c._DISK_SIGNATURE = _skills_disk_signature()
@@ -327,23 +319,34 @@ _SEED_SKILL_BODY_MARKERS: dict[str, tuple[str, ...]] = {
         "brush_ops",
         "motion_lottie",
         "Clear / wipe board",
+        "Surgical changes",
+        "Decision",
     ),
     "design_methodology": (
         "Prefer **1–3** tightly matched",
         "motion_lottie",
         "brush_ops",
         "MUST `create_frame`",
-        "Exception only if the user explicitly refuses",
+        "Exception only if the user refuses",
+        "Direction (commit once)",
+        "Self-check (before done)",
+        "poster_craft",
+        "resume_layout",
+        "ecommerce_surface",
+        "landing_page",
     ),
     "vision_extract": (
         "Finished poster/design",
         "letteringText",
         "~≥90%",
+        "Transfer mode",
+        "style-only",
     ),
     "image_gen": (
         "Available fonts",
         "Poster / festive / illustrated hero",
-        "Typography gate (~90% similarity)",
+        "Typography gate (~90%)",
+        "genPrompt recipe",
     ),
 }
 
@@ -351,7 +354,7 @@ def _norm_skill_body(text: str) -> str:
     return str(text or "").replace("\r\n", "\n").strip()
 
 def _bump_unchanged_seed_skill_bodies(session: Any, *, now: float) -> None:
-    """Sync SOURCE_SEED skill bodies when seed version is newer or markers are missing."""
+    """Sync SOURCE_SEED skill bodies/meta from git seed (seed wins)."""
     seed_by_key = {
         str(it.get("skill_key") or "").strip(): it
         for it in _SEED
@@ -375,30 +378,37 @@ def _bump_unchanged_seed_skill_bodies(session: Any, *, now: float) -> None:
             seed_ver, cur_ver = 0, 0
         cur = _norm_skill_body(str(_row_get(row, "prompt_positive") or ""))
         new_norm = _norm_skill_body(new_pos)
+        want_when = str(
+            seed_item.get("when_to_use") or seed_item.get("whenToUse") or ""
+        ).strip()
+        cur_when = str(_row_get(row, "when_to_use") or "").strip()
+        want_name = str(seed_item.get("name") or key).strip() or key
+        cur_name = str(_row_get(row, "name") or "").strip()
+        preferred_json = _preferred_json(seed_item)
+        cur_prefs = str(_row_get(row, "preferred_tools") or "").strip()
         markers = tuple(
             m for m in (_SEED_SKILL_BODY_MARKERS.get(key) or ()) if m in new_norm
         )
         missing_marker = bool(markers) and any(m not in cur for m in markers)
-        version_bump = seed_ver > cur_ver
-        stale = version_bump or missing_marker
-        preferred_json = _preferred_json(seed_item)
-        cur_prefs = str(_row_get(row, "preferred_tools") or "").strip()
-        prefs_changed = bool(preferred_json) and preferred_json != cur_prefs
-        body_changed = cur != new_norm
-        if not body_changed and not (stale and prefs_changed):
-            continue
-        if body_changed and not stale:
-            continue
-        if body_changed:
+        changed = False
+        if cur != new_norm or missing_marker:
             row.prompt_positive = new_pos
             if new_neg:
                 row.prompt_negative = new_neg
-        if stale and prefs_changed:
+            changed = True
+        if want_when and cur_when != want_when:
+            row.when_to_use = want_when
+            changed = True
+        if want_name and cur_name != want_name:
+            row.name = want_name
+            changed = True
+        if preferred_json and preferred_json != cur_prefs:
             row.preferred_tools = preferred_json
-        if stale:
+            changed = True
+        if changed or seed_ver > cur_ver:
             row.version = max(cur_ver, seed_ver)
-        row.updated_at = now
-        session.add(row)
+            row.updated_at = now
+            session.add(row)
 
 def stop_skills_hot_reload() -> None:
     _c._HOT_RELOAD_STOP.set()

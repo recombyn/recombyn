@@ -1,17 +1,17 @@
-/**
+﻿/**
  * Upload helpers shared across editor / home (FormData, preview, COS key resolve).
- * HTTP endpoints live in `@/apis/upload`.
+ * HTTP endpoints live in `@/service/upload`.
  */
 
 import {
   deleteUploadedFile as deleteUploadedFileApi,
   uploadFiles,
   type UploadedFileItem,
-} from '@/apis/upload';
+} from '@/service/upload';
 import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
-/** In-flight canvas placeholder uploads — delete node → abort. */
+/** In-flight canvas placeholder uploads 鈥?delete node 鈫?abort. */
 const nodeUploadAborts = new Map<string, AbortController>();
 
 /** Start (or replace) an abortable upload tied to a canvas node id. */
@@ -87,7 +87,7 @@ export async function deleteUploadedFile(key: string | null | undefined): Promis
 
 /**
  * Agent composer attach: upload to server, keep a local preview for thumbnails
- * (local `/api/v1/uploads/files/…` URLs need auth and cannot be used in `<img src>`).
+ * (local `/api/v1/uploads/files/鈥 URLs need auth and cannot be used in `<img src>`).
  */
 export async function uploadComposerAttachment(
   file: File,
@@ -132,7 +132,7 @@ export function readFileAsDataUrl(file: File): Promise<string> {
 /**
  * Wait until a remote/local URL is fully loaded + decoded before swapping off a
  * local data:/blob: preview (avoids blank flash right after upload succeeds).
- * Returns false if load failed or aborted — caller should keep the local preview.
+ * Returns false if load failed or aborted 鈥?caller should keep the local preview.
  */
 export function waitForImageReady(
   src: string,
@@ -140,7 +140,7 @@ export function waitForImageReady(
 ): Promise<boolean> {
   const url = String(src || '').trim();
   if (!url) return Promise.resolve(false);
-  // Already local — nothing to wait for.
+  // Already local 鈥?nothing to wait for.
   if (url.startsWith('data:') || url.startsWith('blob:')) return Promise.resolve(true);
 
   return new Promise((resolve) => {
@@ -166,7 +166,7 @@ export function waitForImageReady(
           try {
             await img.decode!();
           } catch {
-            /* decode optional — still treat as loaded */
+            /* decode optional 鈥?still treat as loaded */
           }
           finish(true);
         }
@@ -192,7 +192,7 @@ export function isOurStoredImageUrl(src: string): boolean {
   }
 }
 
-/** Display whatever URL the API/item already gave — no rewrite. */
+/** Display whatever URL the API/item already gave 鈥?no rewrite. */
 export function toDisplayMediaUrl(src: string, _uploadKey?: string | null): string {
   return String(src || '').trim();
 }
