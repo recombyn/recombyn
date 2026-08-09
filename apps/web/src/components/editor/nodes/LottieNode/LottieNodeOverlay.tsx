@@ -1,3 +1,4 @@
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Lottie ink portals into the node’s SVG foreignObject mount so paint order
  * follows shared `stackOrder` / `data-z` (same as images & generators).
@@ -17,10 +18,12 @@ import lottie, { type AnimationItem } from 'lottie-web';
 import { useRcbCamera } from '@/components/rcb';
 import {
   isLottieNode,
-  isNodeHidden,
+  isNodeHidden
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
   parseLottieAnimationData,
-  resolveThemeSurfaceFill,
-} from '@/components/rcb/scene/document/sceneDocument';
+  resolveThemeSurfaceFill
+} from '@/components/rcb/scene/document/nodeFactories';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
@@ -48,7 +51,7 @@ export function getLottieHost(nodeId: string): LottieHostApi | null {
   return lottieHosts.get(nodeId) || null;
 }
 
-function readNodeAngle(node: any) {
+function readNodeAngle(node: SceneNodeInput) {
   const n = Number(node?.attrs?.angle);
   return Number.isFinite(n) ? n : 0;
 }
@@ -206,7 +209,7 @@ function LottieNodeOverlay({
   hidden,
   geometryOverrides = null,
 }: {
-  document: any;
+  document: SceneDocument;
   hidden?: boolean;
   geometryOverrides?: Record<string, LottieGeomOverride> | null;
 }): ReactNode {
@@ -250,7 +253,7 @@ function LottiePlateHost({
   geometryOverrides,
 }: {
   nodeId: string;
-  document: any;
+  document: SceneDocument;
   hidden?: boolean;
   geometryOverrides?: Record<string, LottieGeomOverride> | null;
 }) {

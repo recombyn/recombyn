@@ -1,12 +1,15 @@
 import {
-  canAttachNodeToChat,
+  canAttachNodeToChat
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
   expandSelectionWithGroups,
-  readNodeGroupId,
-} from '@/components/rcb/scene/document/sceneDocument';
+  readNodeGroupId
+} from '@/components/rcb/scene/document/sceneGroups';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** Near-full-bleed rect covering an artboard — treat click as frame select. */
-export function frameForFullBleedPlate(doc: any, nodeId: string): { id: string } | null {
+export function frameForFullBleedPlate(doc: SceneDocument, nodeId: string): { id: string } | null {
   const node = doc?.deltaSetLike?.[nodeId];
   if (!node || node.key !== 'shape') return null;
   const shapeType = String(node.attrs?.shapeType || 'rect');
@@ -36,7 +39,7 @@ export function frameForFullBleedPlate(doc: any, nodeId: string): { id: string }
 
 /** Drop generator plates + process-shimmer (+ videos when images-only) from attach targets. */
 export function filterChatAttachNodeIds(
-  doc: any,
+  doc: SceneDocument,
   ids: string[],
   opts?: { imagesOnly?: boolean }
 ): string[] {
@@ -62,7 +65,7 @@ export type AttachPickOpts = { imagesOnly?: boolean };
 
 /** Resolve a pick click into an attach payload, or null if empty / only blocked nodes. */
 export function resolveAttachPickPayload(
-  doc: any,
+  doc: SceneDocument,
   nodeIds: string[],
   frameId?: string | null,
   opts?: AttachPickOpts

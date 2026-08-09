@@ -33,6 +33,7 @@ import AdjustToolPanel, {
   type AdjustValues,
 } from './AdjustToolPanel';
 import ReplaceTextToolPanel from './ReplaceTextToolPanel';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /** Local erase → right-side cutout node (source image untouched), same pattern as 抠图. */
 async function confirmEraserAsNewNode(opts: {
@@ -103,8 +104,8 @@ function panelStyleRight(
 }
 
 function nodeBox(
-  document: any,
-  node: any
+  document: SceneDocument,
+  node: SceneNodeInput
 ): { left: number; top: number; width: number; height: number } | null {
   if (!node) return null;
   const { left, top } = nodeLeftTop(document, node);
@@ -117,7 +118,7 @@ function nodeBox(
 }
 
 /** Host for image tool panels positioned relative to the source image. */
-function ImageToolPanelHost({ document }: { document: any }): ReactNode {
+function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNode {
   const dispatch = useDispatch();
   const store = useStore();
   const { t } = useTranslation();

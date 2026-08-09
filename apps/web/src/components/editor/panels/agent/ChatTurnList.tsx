@@ -40,7 +40,7 @@ export type ChatUiMessage = {
   /** Intent analysis — shown inside the foldable gray process, not as final reply. */
   intent?: string;
   streaming?: boolean;
-  /** Cursor-like tool execution steps. */
+  /** Tool execution steps shown in the turn. */
   steps?: Array<{
     id: string;
     name: string;
@@ -163,13 +163,9 @@ function formatPreloadExploredLabel(
   const isPreload =
     stage === 'skill_preload' ||
     preloadTag === 'skills' ||
-    preloadTag === 'tools' ||
-    preloadTag === 'knowledge' ||
-    preloadTag === 'aesthetics';
+    preloadTag === 'tools';
   if (!isPreload) return null;
   if (preloadTag === 'tools') return t('agent.lookupKindRule');
-  if (preloadTag === 'knowledge') return t('agent.lookupKindKnowledge');
-  if (preloadTag === 'aesthetics') return t('agent.lookupKindAesthetics');
   return t('agent.lookupKindSkill');
 }
 
@@ -291,11 +287,7 @@ function exploreItemKindKey(id: string): string {
   if (id === 'lookup-rule' || id.startsWith('lookup-rule')) {
     return 'agent.lookupKindRule';
   }
-  if (id === 'lookup-knowledge' || id.startsWith('lookup-knowledge')) {
-    return 'agent.lookupKindKnowledge';
-  }
-  if (id === 'lookup-aesthetics' || id.startsWith('lookup-aesthetics')) {
-    return 'agent.lookupKindAesthetics';
+  if (id === 'lookup' || id.startsWith('lookup')) {
   }
   if (id === 'lookup-gate') return 'agent.lookupGate';
   if (id === 'stage-lookup' || id.startsWith('stage-lookup')) {
@@ -1125,7 +1117,7 @@ function ChatResultImageCard({
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          void download();
+          download();
         }}
       >
         <HiOutlineArrowDownTray className="h-3.5 w-3.5" strokeWidth={1.75} />

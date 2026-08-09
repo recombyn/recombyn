@@ -69,6 +69,46 @@ def test_rule_matches_min_prompt_chars():
     )
 
 
+def test_rule_matches_prompt_includes_any():
+    rule = {
+        "intent_in": ["create"],
+        "prompt_includes_any": ["海报", "poster"],
+    }
+    assert _rule_matches(
+        rule,
+        empty_canvas=True,
+        has_images=False,
+        intent="create",
+        prompt="帮我做一张海报",
+    )
+    assert not _rule_matches(
+        rule,
+        empty_canvas=True,
+        has_images=False,
+        intent="create",
+        prompt="画一个登录页",
+    )
+
+
+def test_resolve_triggered_poster_keyword():
+    keys = resolve_triggered_skill_keys(
+        scene="website",
+        empty_canvas=True,
+        has_images=False,
+        intent="create",
+        prompt="做一张活动海报",
+    )
+    assert "poster_craft" in keys
+    keys2 = resolve_triggered_skill_keys(
+        scene="website",
+        empty_canvas=True,
+        has_images=False,
+        intent="create",
+        prompt="随便画点什么",
+    )
+    assert "poster_craft" not in keys2
+
+
 def test_resolve_triggered_empty_canvas_create():
     keys = resolve_triggered_skill_keys(
         scene="website",
@@ -219,15 +259,11 @@ def test_validate_against_schema_required():
 
 def test_custom_skill_acl_platform_open():
     assert skill_resource_allowlist(["design_methodology"], scene="website") is None
-    k, a, errs = filter_need_resources_by_skill_acl(
+    assert filter_need_resources_by_skill_acl(
         skill_keys=["design_methodology"],
         scene="website",
-        need_knowledge=["ui"],
-        need_aesthetics=True,
-    )
-    assert k == ["ui"]
-    assert a is True
-    assert errs == []
+    ) == []
+
 
 
 def test_hot_reload_signature_stable():
@@ -235,13 +271,9 @@ def test_hot_reload_signature_stable():
     assert reload_skills_if_disk_changed() is False
 
 
-def test_seed_sync_preserves_custom_body_when_markers_present():
-    """Seed upsert is cold-start only; marker bump only replaces stale bodies."""
+def test_seed_sync_overwrites_core_body_from_seed():
+    """Core SOURCE_SEED skills follow git seed on ensure (seed wins)."""
     from app.services.db import connect
-    from app.services.design.prompts.skill_store.ensure import _SEED_SKILL_BODY_MARKERS
-
-    markers = _SEED_SKILL_BODY_MARKERS.get("design_methodology") or ()
-    assert markers, "expected design_methodology seed markers"
 
     with connect() as conn:
         row = conn.execute(
@@ -251,11 +283,10 @@ def test_seed_sync_preserves_custom_body_when_markers_present():
         assert row is not None
         before = str(row["prompt_positive"] or "")
         assert str(row["source"] or "") == SOURCE_SEED
-        # Keep required markers so the body is treated as non-stale customization.
-        custom = "OPS_CUSTOM_BODY\n" + "\n".join(markers)
+        assert "poster_craft" in before
         conn.execute(
             "UPDATE design_skill SET prompt_positive = ? WHERE skill_key = ?",
-            (custom, "design_methodology"),
+            ("OPS_CUSTOM_BODY_SHOULD_BE_OVERWRITTEN", "design_methodology"),
         )
         conn.commit()
 
@@ -268,12 +299,10 @@ def test_seed_sync_preserves_custom_body_when_markers_present():
             ("design_methodology",),
         ).fetchone()
         assert str(row["source"] or "") == SOURCE_SEED
-        assert str(row["prompt_positive"] or "") == custom
-        conn.execute(
-            "UPDATE design_skill SET prompt_positive = ? WHERE skill_key = ?",
-            (before, "design_methodology"),
-        )
-        conn.commit()
+        got = str(row["prompt_positive"] or "")
+        assert got != "OPS_CUSTOM_BODY_SHOULD_BE_OVERWRITTEN"
+        assert "poster_craft" in got
+        assert "Direction (commit once)" in got
 
 
 def test_agent_skills_frontmatter_split_and_meta():

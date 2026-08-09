@@ -1,6 +1,5 @@
 import {
   memo,
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,69 +7,24 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiOutlinePlus, HiOutlineQuestionMarkCircle } from 'react-icons/hi2';
 import { Button, Dialog, message, Switch, Tooltip } from '@/components/base';
 import {
-  deleteDesignUserSkill,
-  fetchDesignSkills,
   importDesignSkillZip,
-  setDesignSkillEnabled,
   type DesignSkillCard,
   type DesignSkillImportExisting,
-} from '@/apis/design';
+} from '@/service/design';
+import { apiClient, apiQuery } from '@/service/client';
 import { cn } from '@/utils/classnames';
 
 /** Skills toolbox — same scale as Me / projects: 2 → 3 → 4 → 5 (2xl). */
 const DEFAULT_SKILL_GRID =
   'grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5';
 
-/**
- * Session cache — HomeBody unmounts this panel when leaving Skills, so without a
- * cache every sidebar click remounts and re-hits manage. Same idea as projects hydrate.
- */
-type SkillsSessionCache = {
-  userId: string | null;
-  mine: DesignSkillCard[];
-  official: DesignSkillCard[];
-};
-
-let skillsSessionCache: SkillsSessionCache | null = null;
-let skillsSessionInflight: Promise<SkillsSessionCache> | null = null;
-
-async function loadSkillsManageOnce(userId: string | null): Promise<SkillsSessionCache> {
-  if (skillsSessionCache && skillsSessionCache.userId === userId) {
-    return skillsSessionCache;
-  }
-  if (skillsSessionInflight) return skillsSessionInflight;
-  skillsSessionInflight = (async () => {
-    try {
-      const res = await fetchDesignSkills({ manage: true });
-      const items = res.items || [];
-      const next: SkillsSessionCache = {
-        userId,
-        mine: items.filter((x) => x.mine),
-        official: items.filter((x) => !x.mine),
-      };
-      skillsSessionCache = next;
-      return next;
-    } finally {
-      skillsSessionInflight = null;
-    }
-  })();
-  return skillsSessionInflight;
-}
-
-function rememberSkillsSession(
-  userId: string | null,
-  mine: DesignSkillCard[],
-  official: DesignSkillCard[]
-) {
-  skillsSessionCache = { userId, mine, official };
-}
-
-/** Loading placeholders only — not real totals (API count unknown until fetch). */
+/** Loading placeholders only 鈥?not real totals (API count unknown until fetch). */
 const SKILL_SKELETON_MINE = 1;
 /** ~one row on the 2xl 5-col grid. */
 const SKILL_SKELETON_OFFICIAL = 5;
@@ -78,7 +32,9 @@ const SKILL_SKELETON_OFFICIAL = 5;
 const SKILL_CARD_SHELL =
   'w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3.5 py-3 text-left shadow-[0_2px_10px_rgba(15,23,42,0.06)]';
 
-/** Dashed upload tile — first cell in Mine grid (icon only, like New project). */
+const SKILLS_PICKER_INPUT = { query: { manage: true as const } };
+
+/** Dashed upload tile 鈥?first cell in Mine grid (icon only, like New project). */
 function UploadSkillCard({
   label,
   disabled = false,
@@ -293,118 +249,82 @@ function SkillGroup({
   );
 }
 
-function upsertMineCard(rows: DesignSkillCard[], card: DesignSkillCard): DesignSkillCard[] {
-  const next = rows.filter((r) => r.id !== card.id);
-  return [{ ...card, mine: true }, ...next];
+function patchSkillsPickerItems(
+  old: unknown,
+  mapItems: (items: DesignSkillCard[]) => DesignSkillCard[]
+): unknown {
+  const prev = old as { items?: DesignSkillCard[] } | undefined;
+  return {
+    ...(prev && typeof prev === 'object' ? prev : {}),
+    items: mapItems(Array.isArray(prev?.items) ? prev.items : []),
+  };
 }
 
 /**
  * Home Skills library — zip pack upload + list mine / official.
- * Mine and official load separately; upload/delete only refresh mine.
+ * Mine and official load from one manage list; upload invalidates that query.
  */
 function SkillsLibraryPanel(): ReactNode {
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
   const userId = useSelector((s: any) => (s.auth?.user?.id as string | undefined) || null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<File | null>(null);
-  const cached =
-    skillsSessionCache && skillsSessionCache.userId === userId ? skillsSessionCache : null;
-  const [mine, setMine] = useState<DesignSkillCard[]>(() => cached?.mine || []);
-  const [official, setOfficial] = useState<DesignSkillCard[]>(() => cached?.official || []);
-  const [loadingMine, setLoadingMine] = useState(() => !cached);
-  const [loadingOfficial, setLoadingOfficial] = useState(() => !cached);
   const [scanning, setScanning] = useState(false);
   const [overwrite, setOverwrite] = useState<DesignSkillImportExisting | null>(null);
   const [preview, setPreview] = useState<DesignSkillCard | null>(null);
 
-  const loadMine = useCallback(async () => {
-    setLoadingMine(true);
-    try {
-      const res = await fetchDesignSkills({ mine: true });
-      const nextMine = res.items || [];
-      setMine(nextMine);
-      rememberSkillsSession(userId, nextMine, official);
-    } catch {
-      message.error(t('agent.requestFailed'));
-    } finally {
-      setLoadingMine(false);
-    }
-  }, [t, userId, official]);
+  const skillsQuery = useQuery(
+    apiQuery.designDesignSkillsPicker.queryOptions({
+      input: SKILLS_PICKER_INPUT,
+    })
+  );
 
-  /** First enter Skills — one manage fetch; reopen uses session cache (like Home projects). */
   useEffect(() => {
-    let cancelled = false;
-    async function hydrateSkills() {
-      if (skillsSessionCache && skillsSessionCache.userId === userId) {
-        setMine(skillsSessionCache.mine);
-        setOfficial(skillsSessionCache.official);
-        setLoadingMine(false);
-        setLoadingOfficial(false);
+    if (!skillsQuery.isError) return;
+    message.error(t('agent.requestFailed'));
+  }, [skillsQuery.isError, t, userId]);
+
+  const items =
+    ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items || []) as DesignSkillCard[];
+  const mine = items.filter((x) => x.mine);
+  const official = items.filter((x) => !x.mine);
+  const loading = skillsQuery.isPending;
+
+  const skillsPickerQueryKey = apiQuery.designDesignSkillsPicker.queryKey({
+    input: SKILLS_PICKER_INPUT,
+  });
+
+  async function invalidateSkillsPicker() {
+    await queryClient.invalidateQueries({
+      queryKey: apiQuery.designDesignSkillsPicker.key(),
+    });
+  }
+
+  async function runImport(file: File, forceOverwrite: boolean) {
+    setScanning(true);
+    try {
+      const res = await importDesignSkillZip(file, { overwrite: forceOverwrite });
+      if (res.status === 'exists' && res.existing) {
+        pendingFileRef.current = file;
+        setOverwrite(res.existing);
         return;
       }
-      setLoadingMine(true);
-      setLoadingOfficial(true);
-      try {
-        const data = await loadSkillsManageOnce(userId);
-        if (cancelled) return;
-        setMine(data.mine);
-        setOfficial(data.official);
-      } catch {
-        if (!cancelled) message.error(t('agent.requestFailed'));
-      } finally {
-        if (!cancelled) {
-          setLoadingMine(false);
-          setLoadingOfficial(false);
-        }
+      if (res.status === 'rejected') {
+        const err = res.scan?.errors?.[0] || t('agent.requestFailed');
+        message.error(t('agent.skillsImportRejected', { reason: err }));
+        return;
       }
+      pendingFileRef.current = null;
+      setOverwrite(null);
+      await invalidateSkillsPicker();
+      message.success(t('agent.skillsImportOk'));
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
+    } finally {
+      setScanning(false);
     }
-    void hydrateSkills();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, t]);
-
-  // Keep session cache in sync after toggles / import / delete (so reopen stays fresh).
-  useEffect(() => {
-    if (loadingMine || loadingOfficial) return;
-    rememberSkillsSession(userId, mine, official);
-  }, [userId, mine, official, loadingMine, loadingOfficial]);
-
-  const patchMineFromImport = useCallback((card: DesignSkillCard | null | undefined) => {
-    if (!card?.id) {
-      void loadMine();
-      return;
-    }
-    setMine((rows) => upsertMineCard(rows, card));
-  }, [loadMine]);
-
-  const runImport = useCallback(
-    async (file: File, forceOverwrite: boolean) => {
-      setScanning(true);
-      try {
-        const res = await importDesignSkillZip(file, { overwrite: forceOverwrite });
-        if (res.status === 'exists' && res.existing) {
-          pendingFileRef.current = file;
-          setOverwrite(res.existing);
-          return;
-        }
-        if (res.status === 'rejected') {
-          const err = res.scan?.errors?.[0] || t('agent.requestFailed');
-          message.error(t('agent.skillsImportRejected', { reason: err }));
-          return;
-        }
-        pendingFileRef.current = null;
-        setOverwrite(null);
-        patchMineFromImport(res.item);
-        message.success(t('agent.skillsImportOk'));
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
-      } finally {
-        setScanning(false);
-      }
-    },
-    [patchMineFromImport, t]
-  );
+  }
 
   const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -415,7 +335,7 @@ function SkillsLibraryPanel(): ReactNode {
       message.warning(t('agent.skillsZipOnly'));
       return;
     }
-    void runImport(file, false);
+    runImport(file, false);
   };
 
   const onConfirmOverwrite = () => {
@@ -425,41 +345,53 @@ function SkillsLibraryPanel(): ReactNode {
       return;
     }
     setOverwrite(null);
-    void runImport(file, true);
+    runImport(file, true);
   };
 
-  const onDelete = async (id: number) => {
-    const prev = mine;
-    setMine((rows) => rows.filter((r) => r.id !== id));
-    try {
-      await deleteDesignUserSkill(id);
-    } catch (err) {
-      setMine(prev);
-      message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
-    }
-  };
+  const deleteSkillMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiClient.designDesignSkillsDelete({ params: { skill_id: id } });
+      return id;
+    },
+  });
 
-  const onToggleMine = async (id: number, enabled: boolean) => {
-    const prev = mine;
-    setMine((rows) => rows.map((r) => (r.id === id ? { ...r, enabled } : r)));
-    try {
-      await setDesignSkillEnabled(id, enabled);
-    } catch (err) {
-      setMine(prev);
-      message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
-    }
-  };
+  const toggleSkillMutation = useMutation({
+    mutationFn: async (opts: { id: number; enabled: boolean }) => {
+      await apiClient.designDesignSkillsSetEnabled({
+        params: { skill_id: opts.id },
+        body: { enabled: opts.enabled },
+      });
+      return opts;
+    },
+  });
 
-  const onToggleOfficial = async (id: number, enabled: boolean) => {
-    const prev = official;
-    setOfficial((rows) => rows.map((r) => (r.id === id ? { ...r, enabled } : r)));
+  async function onDelete(id: number) {
+    const prev = queryClient.getQueryData(skillsPickerQueryKey);
+    queryClient.setQueryData(skillsPickerQueryKey, (old: unknown) =>
+      patchSkillsPickerItems(old, (rows) => rows.filter((r) => r.id !== id))
+    );
     try {
-      await setDesignSkillEnabled(id, enabled);
+      await deleteSkillMutation.mutateAsync(id);
     } catch (err) {
-      setOfficial(prev);
+      queryClient.setQueryData(skillsPickerQueryKey, prev);
       message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
     }
-  };
+  }
+
+  async function onToggle(id: number, enabled: boolean) {
+    const prev = queryClient.getQueryData(skillsPickerQueryKey);
+    queryClient.setQueryData(skillsPickerQueryKey, (old: unknown) =>
+      patchSkillsPickerItems(old, (rows) =>
+        rows.map((r) => (r.id === id ? { ...r, enabled } : r))
+      )
+    );
+    try {
+      await toggleSkillMutation.mutateAsync({ id, enabled });
+    } catch (err) {
+      queryClient.setQueryData(skillsPickerQueryKey, prev);
+      message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
+    }
+  }
 
   const uploadTile = (
     <UploadSkillCard
@@ -499,7 +431,7 @@ function SkillsLibraryPanel(): ReactNode {
       </header>
 
       <div className="space-y-6">
-        {loadingMine ? (
+        {loading ? (
           <SkillGroupSkeleton
             title={t('agent.skillsMine')}
             count={SKILL_SKELETON_MINE}
@@ -513,13 +445,13 @@ function SkillsLibraryPanel(): ReactNode {
             emptyText={t('agent.skillsEmptyMine')}
             deleteLabel={t('agent.skillsDelete')}
             enableLabel={t('agent.skillsEnable')}
-            onDelete={(id) => void onDelete(id)}
-            onToggle={(id, enabled) => void onToggleMine(id, enabled)}
+            onDelete={(id) => onDelete(id)}
+            onToggle={(id, enabled) => onToggle(id, enabled)}
             onPreview={setPreview}
             leading={uploadTile}
           />
         )}
-        {loadingOfficial ? (
+        {loading ? (
           <SkillGroupSkeleton
             title={t('agent.skillsOfficial')}
             count={SKILL_SKELETON_OFFICIAL}
@@ -533,7 +465,7 @@ function SkillsLibraryPanel(): ReactNode {
             deleteLabel={t('agent.skillsDelete')}
             enableLabel={t('agent.skillsEnable')}
             onDelete={() => undefined}
-            onToggle={(id, enabled) => void onToggleOfficial(id, enabled)}
+            onToggle={(id, enabled) => onToggle(id, enabled)}
             onPreview={setPreview}
           />
         )}

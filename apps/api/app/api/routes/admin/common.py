@@ -75,34 +75,7 @@ from app.services.design.admin.dict_store import (
     upsert_dict_type,
 )
 
-from app.services.design.prompts.knowledge_store import (
-    list_knowledge,
-    soft_delete_knowledge,
-    upsert_knowledge,
-)
 
-from app.services.design.prompts.prompt_pack_store import (
-    list_prompt_packs,
-    soft_delete_prompt_pack,
-    upsert_prompt_pack,
-)
-
-from app.services.design.admin.quality_sample_store import (
-    get_quality_sample,
-    hard_delete_quality_sample,
-    list_quality_samples,
-    mark_embed_pending,
-    set_grade,
-    soft_delete_quality_sample,
-    upsert_quality_sample,
-)
-
-from app.services.design.readpath.library_store import (
-    hard_delete_library_item,
-    list_library_items,
-    soft_delete_library_item,
-    upsert_library_item,
-)
 
 from app.services.design.prompts.content_pack import resync_design_content
 
@@ -285,29 +258,6 @@ class DesignDictTypeIn(BaseModel):
     sortOrder: int = 0
     enabled: bool = True
 
-class DesignKnowledgeIn(BaseModel):
-    id: int | None = None
-    kind: str = Field(..., min_length=1, max_length=32)
-    title: str = Field(..., min_length=1, max_length=128)
-    body: str = Field(..., min_length=1)
-    whenToUse: str = ""
-    scenes: str = Field(default="all", max_length=128)
-    skillCategories: str = Field(default="all", max_length=128)
-    sortOrder: int = 0
-    enabled: bool = True
-
-class DesignPromptPackIn(BaseModel):
-    id: int | None = None
-    kind: str = Field(..., min_length=1, max_length=128)
-    type: str | None = Field(default=None, max_length=32)
-    title: str = Field(..., min_length=1, max_length=128)
-    body: str = Field(..., min_length=1)
-    whenToUse: str = ""
-    scenes: str = Field(default="all", max_length=128)
-    usedBy: list[str] | None = None
-    sortOrder: int = 0
-    enabled: bool = True
-
 class DesignSkillIn(BaseModel):
     id: int | None = None
     skillKey: str | None = Field(default=None, max_length=64)
@@ -337,114 +287,10 @@ class DesignSkillIn(BaseModel):
     outputFormat: str = "json"
     allowUserModelOverride: bool = False
 
-class QualitySampleIn(BaseModel):
-    id: int | None = None
-    name: str = Field(default="", max_length=128)
-    scene: str = Field(default="website", max_length=32)
-    grade: str = Field(default="good", max_length=16)
-    tags: str = Field(default="", max_length=512)
-    comment: str = Field(default="")
-    imageUrl: str = Field(..., min_length=1, max_length=5_000_000)
-    originPath: str | None = Field(default=None, max_length=512)
-    enabled: bool = True
-    meta: dict[str, Any] | None = None
-    # Default true: runtime extracts DESIGN_TOKENS into meta on save; Admin meta wins.
-    extractTokens: bool = True
 
-class SuggestSampleMetaIn(BaseModel):
-    imageUrl: str = Field(..., min_length=1, max_length=5_000_000)
-    model: str | None = Field(default=None, max_length=128)
-    scene: str | None = Field(default=None, max_length=32)
-    grade: str | None = Field(default=None, max_length=16)
 
-class ExtractSampleTokensIn(BaseModel):
-    imageUrl: str = Field(..., min_length=1, max_length=5_000_000)
-    name: str = Field(default="", max_length=128)
-    grade: str = Field(default="good", max_length=16)
-    tags: str = Field(default="", max_length=512)
-    comment: str = Field(default="")
-    canvasW: int = Field(default=0, ge=0, le=8192)
-    canvasH: int = Field(default=0, ge=0, le=8192)
 
-async def admin_suggest_sample_meta(
-    _admin: AdminUser,
-    body: SuggestSampleMetaIn,
-) -> dict[str, Any]:
-    """Vision LLM: design screenshot → comment + tags (+ optional name)."""
-    from app.services.design.aesthetics.suggest_meta import suggest_sample_meta
 
-    try:
-        return await suggest_sample_meta(
-            image_url=body.imageUrl,
-            model=body.model,
-            scene=body.scene,
-            grade=body.grade,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)[:800]) from e
-
-class QualitySampleFromTaskIn(BaseModel):
-    taskId: str = Field(..., min_length=1, max_length=64)
-    grade: str = Field(default="good", max_length=16)
-    comment: str = Field(default="", max_length=2000)
-    name: str = Field(default="", max_length=128)
-    tags: str = Field(default="", max_length=512)
-    scene: str | None = Field(default=None, max_length=32)
-
-class AestheticsThresholdIn(BaseModel):
-    threshold: float = Field(..., ge=0.4, le=0.95)
-
-class AestheticsCalibrateIn(BaseModel):
-    scene: str | None = Field(default=None, max_length=32)
-    apply: bool = False
-
-class LibraryItemIn(BaseModel):
-    id: int | None = None
-    name: str = Field(..., min_length=1, max_length=128)
-    kind: str = Field(default="style", max_length=32)
-    scene: str = Field(default="all", max_length=64)
-    coverUrl: str = Field(default="", max_length=5_000_000)
-    tags: str = Field(default="", max_length=255)
-    description: str = Field(default="")
-    enabled: bool = True
-    sortOrder: int = 0
-    meta: dict[str, Any] | None = None
-
-class LayoutFromImageIn(BaseModel):
-    imageUrl: str | None = Field(default=None, description="Primary reference (compat)")
-    imageUrls: list[str] | None = Field(default=None, description="Ordered refs")
-    brief: str | None = Field(default=None, max_length=2000)
-    model: str | None = None
-    aspectRatio: str | None = "3:4"
-    quality: str | None = "hd"
-    resolution: str | None = "2K"
-
-async def admin_layout_from_image(
-    _admin: AdminUser,
-    body: LayoutFromImageIn,
-) -> dict[str, Any]:
-    """AI: reference image (optional) -> grayscale layout / wireframe for library cover."""
-    from app.services.llm.image_tools import generate_layout_wireframe
-
-    urls = [u.strip() for u in (body.imageUrls or []) if isinstance(u, str) and u.strip()]
-    if (body.imageUrl or "").strip() and (body.imageUrl or "").strip() not in urls:
-        urls.insert(0, (body.imageUrl or "").strip())
-    if not urls and not (body.brief or "").strip():
-        raise HTTPException(status_code=400, detail="imageUrls/imageUrl or brief required")
-    try:
-        result = await generate_layout_wireframe(
-            image_urls=urls or None,
-            brief=body.brief,
-            model=body.model,
-            aspect_ratio=body.aspectRatio,
-            quality=body.quality,
-            resolution=body.resolution,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)[:800]) from e
-    return result
 
 class AdminFontFaceIn(BaseModel):
     family: str | None = None

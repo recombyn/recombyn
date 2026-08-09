@@ -7,7 +7,7 @@ import {
 } from '../alignGuides';
 import { inflateBoxByVisualOutset } from '../../scene/document/sceneEffects';
 
-/** Same settle order as computeMovedUnion (smart → grid lattice pin). */
+/** Same settle order as computeMovedUnion (smart → grid; lattice skips smart axes). */
 function productionMoveSettle(opts: {
   box: { left: number; top: number; width: number; height: number };
   targets: Array<{ left: number; top: number; width: number; height: number }>;
@@ -17,14 +17,26 @@ function productionMoveSettle(opts: {
   const gridSize = opts.gridSize ?? 1;
   const threshold = smartSnapThreshold(opts.zoom);
   let next = { ...opts.box };
+  let smartX = false;
+  let smartY = false;
   if (threshold > 0 && opts.targets.length) {
-    next = snapMoveToSmartGuides({
+    const smart = snapMoveToSmartGuides({
       box: next,
       targets: opts.targets,
       threshold,
-    }).box;
+    });
+    next = smart.box;
+    smartX = smart.snappedX;
+    smartY = smart.snappedY;
   }
-  if (gridSize > 0) next = snapBoxToGrid(next, gridSize);
+  if (gridSize > 0) {
+    const pinned = snapBoxToGrid(next, gridSize);
+    next = {
+      ...next,
+      left: smartX ? next.left : pinned.left,
+      top: smartY ? next.top : pinned.top,
+    };
+  }
   return { box: next, threshold };
 }
 
@@ -32,8 +44,8 @@ function assertBoxOnGrid(
   box: { left: number; top: number; width: number; height: number },
   gridSize: number
 ) {
-  expect(box.left).toBe(snapCoordToGrid(box.left, gridSize));
-  expect(box.top).toBe(snapCoordToGrid(box.top, gridSize));
+  expect(box.left).toBeCloseTo(snapCoordToGrid(box.left, gridSize), 9);
+  expect(box.top).toBeCloseTo(snapCoordToGrid(box.top, gridSize), 9);
 }
 
 describe('move snap grid integrity (magnets + lattice pin)', () => {
@@ -110,10 +122,10 @@ describe('move snap grid integrity (magnets + lattice pin)', () => {
       const sdy = vis1.top - vis0.top;
       path = { ...path, left: path.left + sdx, top: path.top + sdy };
       const ink = inflateBoxByVisualOutset(path, node);
-      expect(ink.left).toBe(snapCoordToGrid(ink.left, 1));
-      expect(ink.top).toBe(snapCoordToGrid(ink.top, 1));
-      expect(ink.left + ink.width).toBe(snapCoordToGrid(ink.left + ink.width, 1));
-      expect(ink.top + ink.height).toBe(snapCoordToGrid(ink.top + ink.height, 1));
+      expect(ink.left).toBeCloseTo(snapCoordToGrid(ink.left, 1), 9);
+      expect(ink.top).toBeCloseTo(snapCoordToGrid(ink.top, 1), 9);
+      expect(ink.left + ink.width).toBeCloseTo(snapCoordToGrid(ink.left + ink.width, 1), 9);
+      expect(ink.top + ink.height).toBeCloseTo(snapCoordToGrid(ink.top + ink.height, 1), 9);
     }
   });
 

@@ -6,7 +6,8 @@
   "license": "SEE LICENSE IN LICENSE",
   "workspaces": [
     "apps/web",
-    "apps/collab"
+    "apps/collab",
+    "packages/contracts"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
@@ -18,7 +19,9 @@
     "build:desktop:cloud": "node scripts/dev-desktop.mjs build cloud",
     "build:desktop:sidecar": "node scripts/dev-desktop.mjs sidecar",
     "dev:api": "node scripts/dev-api.mjs",
+    "gen:contracts": "npm run gen --workspace=@resume-scene/contracts",
     "build": "npm run build --workspace=apps/web",
+    "lint:web": "npm run lint --workspace=apps/web",
     "test": "npm run test:web && npm run test:api",
     "test:web": "npm run test --workspace=apps/web",
     "test:web:watch": "npm run test:watch --workspace=apps/web",

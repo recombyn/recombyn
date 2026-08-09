@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Audio 变速 session — floating bar under the node (same shell as trim / video trim).
  * Confirm clones a sibling to the right with `audioSpeed` — source stays untouched.
@@ -16,7 +17,9 @@ import { SELECTION_TOOLBAR_BELOW_BOX_GAP_PX } from '@/components/rcb/selection/c
 import { Slider, message } from '@/components/base';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { cloneAudioNodeSibling } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  cloneAudioNodeSibling
+} from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   closeAudioToolPanel,
   setDocument,
@@ -36,7 +39,7 @@ function clampSpeed(value: unknown): number {
   return Math.max(MIN_SPEED, Math.min(MAX_SPEED, Math.round(n * 100) / 100));
 }
 
-function AudioSpeedSessionHost({ document }: { document: any }): ReactNode {
+function AudioSpeedSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const { zoom } = useRcbCamera();

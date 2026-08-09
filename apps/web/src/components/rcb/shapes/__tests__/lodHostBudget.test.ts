@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { pickFullAndProxyIds } from '../RcbShapesLayer';
 import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-function makeDoc(nodes: Record<string, any>) {
+function makeDoc(nodes: Record<string, any>): SceneDocument {
   const children = Object.keys(nodes);
   return {
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 1,
     deltaSetLike: {
-      ROOT: { children },
+      ROOT: { id: 'ROOT', key: 'entry', x: 0, y: 0, width: 0, height: 0, attrs: {}, children },
       ...nodes,
     },
-  };
+  } as SceneDocument;
 }
 
 function rect(id: string, w = 40, h = 40) {
@@ -70,6 +75,25 @@ describe('pickFullAndProxyIds', () => {
     expect(fullIds.length).toBeLessThanOrEqual(40);
     expect(proxyIds.length).toBeGreaterThan(0);
     expect(fullIds.length + proxyIds.length).toBe(120);
+  });
+
+  it('caps proxy paint so dense zoom-out stays bounded', () => {
+    const nodes: Record<string, any> = {};
+    for (let i = 0; i < 5000; i += 1) nodes[`n${i}`] = rect(`n${i}`);
+    const doc = makeDoc(nodes);
+    const ids = Object.keys(nodes);
+    const { fullIds, proxyIds } = pickFullAndProxyIds({
+      document: doc,
+      visibleIds: ids,
+      keepSet: new Set(['n0']),
+      zoom: 0.2,
+      moving: true,
+      maxProxies: 128,
+    });
+    expect(fullIds).toContain('n0');
+    expect(fullIds.length).toBeLessThanOrEqual(40);
+    expect(proxyIds.length).toBeLessThanOrEqual(128);
+    expect(fullIds.length + proxyIds.length).toBeLessThan(5000);
   });
 
   it('demotes heavy paths when force-lod', () => {

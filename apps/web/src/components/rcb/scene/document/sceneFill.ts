@@ -7,6 +7,7 @@ import {
   type MeshPoint,
   type MeshSize,
 } from './sceneDiffuseMesh';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /**
  * Solid / linear / radial / angular (conic) / diffuse mesh / image.
@@ -505,7 +506,7 @@ function stopsWithOpacity(stops: FillStop[], globalOpacityPct: number) {
 }
 
 /** Resolve node paint for SVG rendering. */
-export function resolveFill(node: any, fallback = '#FFFFFF'): SvgPaint {
+export function resolveFill(node: SceneNodeInput, fallback = '#FFFFFF'): SvgPaint {
   const attrs = node?.attrs || {};
   if (!boolEffectAttr(attrs['fill-enabled'], true)) return { kind: 'none' };
   if (!boolEffectAttr(attrs['fill-visible'], true)) return { kind: 'none' };
@@ -637,7 +638,7 @@ export function fillAttrsFromElement(_el: any, prevAttrs: Record<string, any> = 
 }
 
 /** Document artboard background paint. */
-export function resolveDocumentBackground(document: any): SvgPaint {
+export function resolveDocumentBackground(document: SceneDocument): SvgPaint {
   const type = parseFillType(document?.backgroundFillType);
   if (type === 'solid') {
     const raw = String(document?.backgroundColor || '#ffffff').trim();

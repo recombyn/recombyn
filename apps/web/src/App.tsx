@@ -1,12 +1,12 @@
-import { useEffect, memo } from 'react';
+﻿import { useEffect, memo } from 'react';
 import { useDispatch } from 'react-redux';
-import { fetchAuthConfig, getMe, loginDesktopLocal } from '@/apis/auth';
-import { fetchWallet } from '@/apis/wallet';
+import { loginDesktopLocal } from '@/service/auth';
+import { apiQuery, queryClient } from '@/service/client';
+import { clearProjectsListCache } from '@/service/projects';
+import { clearWalletCache } from '@/service/wallet';
 import AppRouter from '@/router';
 import { logout, setSession, clearSessionCaches } from '@/store/modules/auth';
 import { clearProjectsLibrary } from '@/store/modules/editor';
-import { clearWallet, setBillingEnabled, syncFromServer } from '@/store/modules/wallet';
-import type { LedgerEntry } from '@/utils/wallet';
 import { getDesktopMode } from '@/utils/apiBase';
 import { getToken, setToken } from '@/utils/token';
 
@@ -45,33 +45,26 @@ function App() {
   useEffect(() => {
     const onUnauthorized = () => {
       dispatch(logout());
-      dispatch(clearWallet());
       dispatch(clearProjectsLibrary());
       clearSessionCaches();
+      clearProjectsListCache();
+      clearWalletCache();
     };
     window.addEventListener('recombine:auth-unauthorized', onUnauthorized);
     return () => window.removeEventListener('recombine:auth-unauthorized', onUnauthorized);
   }, [dispatch]);
 
-  // Boot: desktop-local auto-login as OS user; then refresh me + wallet.
+  // Boot: desktop-local auto-login as OS user; then prefetch me + wallet into Query.
   useEffect(() => {
     let cancelled = false;
 
-    async function refreshWallet() {
+    async function prefetchWallet() {
       if (!getToken()) return;
       try {
-        const res = await fetchWallet();
-        if (cancelled || !getToken()) return;
-        dispatch(
-          syncFromServer({
-            tokens: res.tokens,
-            billingEnabled: (res as { billingEnabled?: boolean }).billingEnabled,
-            planId: res.planId,
-            planExpiresAt: res.planExpiresAt ?? null,
-            planLocked: Boolean(res.planLocked),
-            ledger: (res.ledger || []) as LedgerEntry[],
-          })
-        );
+        await queryClient.prefetchQuery({
+          ...apiQuery.walletWalletMe.queryOptions(),
+          staleTime: 30_000,
+        });
       } catch {
         /* ignore */
       }
@@ -80,12 +73,22 @@ function App() {
     async function refreshMe() {
       if (!getToken()) return false;
       try {
-        const res = await getMe();
+        const res = (await queryClient.fetchQuery({
+          ...apiQuery.authAuthMe.queryOptions(),
+          staleTime: 30_000,
+        })) as {
+          user: {
+            id?: string;
+            email: string;
+            name: string;
+            avatar?: string | null;
+            provider: string;
+            bio?: string | null;
+            role?: string;
+          };
+        };
         if (cancelled || !getToken()) return false;
         applySessionUser(dispatch, res.user, getToken() || undefined);
-        if (typeof res.tokens === 'number') {
-          dispatch(syncFromServer({ tokens: res.tokens }));
-        }
         return true;
       } catch {
         return false;
@@ -101,6 +104,7 @@ function App() {
         setToken(null);
         dispatch(logout());
         clearSessionCaches();
+        clearWalletCache();
       }
       if (getToken() || cancelled) return;
       try {
@@ -112,11 +116,12 @@ function App() {
       }
     }
 
-    async function refreshBillingFlag() {
+    async function prefetchBillingFlag() {
       try {
-        const cfg = await fetchAuthConfig();
-        if (cancelled) return;
-        dispatch(setBillingEnabled(Boolean(cfg.billingEnabled)));
+        await queryClient.prefetchQuery({
+          ...apiQuery.authAuthConfig.queryOptions(),
+          staleTime: 60_000,
+        });
       } catch {
         /* keep default off */
       }
@@ -124,17 +129,17 @@ function App() {
 
     async function boot() {
       // Public flag first so credit UI stays hidden before wallet sync.
-      await refreshBillingFlag();
+      await prefetchBillingFlag();
       if (cancelled) return;
       await ensureDesktopLocalSession();
       if (cancelled) return;
       if (getDesktopMode() !== 'local') {
         await refreshMe();
       }
-      await refreshWallet();
+      await prefetchWallet();
     }
 
-    void boot();
+    boot();
     return () => {
       cancelled = true;
     };

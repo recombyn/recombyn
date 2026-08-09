@@ -52,9 +52,7 @@ _HOST_META_TOOL_NAMES = frozenset(
     {
         "finish",
         "ask_user",
-        "request_knowledge",
         "request_tool_schemas",
-        "request_aesthetics",
         "recall_long_term_memory",
         "remember_long_term_memory",
     }
@@ -103,15 +101,11 @@ def assemble_turn_from_lc_tools(
     """
     import json as _json
 
-    from app.services.design.prompts.knowledge_store import normalize_need_knowledge
     from app.services.design.ops.tool_ops_contract import normalize_need_tools
 
     text = (content or "").strip()
     ops = tool_calls_to_canvas_ops(tool_calls)
     need_tools: list[str] = []
-    need_knowledge: list[str] = []
-    need_aesthetics = False
-    use_user_refs = False
     choices: list[str] = []
     apply_choice = ""
     done = False
@@ -156,23 +150,8 @@ def assemble_turn_from_lc_tools(
             need_tools.extend(
                 normalize_need_tools(args.get("op_keys") or args.get("tools") or args)
             )
-        elif name == "request_knowledge":
-            need_knowledge.extend(
-                normalize_need_knowledge(args.get("kinds") or args.get("need_knowledge") or args)
-            )
-        elif name == "request_aesthetics":
-            need_aesthetics = True
-            uref = args.get("use_user_refs")
-            if uref is None:
-                uref = args.get("useUserRefs")
-            use_user_refs = uref is True or str(uref).strip().lower() in (
-                "1",
-                "true",
-                "yes",
-            )
 
     need_tools = normalize_need_tools(need_tools)
-    need_knowledge = normalize_need_knowledge(need_knowledge)
     reply = finish_summary or text
     thought = (text.split("\n")[0] if text else "")[:40] or (
         "编辑画布" if ops else ("确认需求" if asked else "处理中")
@@ -184,7 +163,7 @@ def assemble_turn_from_lc_tools(
             if any(str(o.get("name") or "") in ("create_frame", "create_image") for o in ops)
             else "edit"
         )
-    elif need_tools or need_knowledge or need_aesthetics:
+    elif need_tools:
         intent = "edit"
     elif asked:
         intent = "ask"
@@ -195,7 +174,7 @@ def assemble_turn_from_lc_tools(
 
     if intent in ("chat", "ask", "done") and not ops:
         done = True
-    if need_tools or need_knowledge or need_aesthetics:
+    if need_tools:
         done = False
 
     return {
@@ -204,9 +183,6 @@ def assemble_turn_from_lc_tools(
         "thought": thought,
         "tool_ops_raw": ops or None,
         "need_tools": need_tools,
-        "need_knowledge": need_knowledge,
-        "need_aesthetics": need_aesthetics,
-        "use_user_refs": use_user_refs,
         "choices": choices,
         "apply_choice": apply_choice,
         "done": done,
@@ -238,19 +214,6 @@ def design_thought_langchain_tools() -> list[Any]:
             description="Canvas op_keys to load full schemas for",
         )
 
-    class RequestKnowledgeArgs(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        kinds: list[str] = Field(
-            description="Knowledge kinds (palette/layout/…)",
-        )
-
-    class RequestAestheticsArgs(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        use_user_refs: bool = Field(
-            default=False,
-            description="True only when matching user attachment style",
-        )
-
     def ask_user(question: str, choices: list[str] | None = None) -> str:
         """Ask the user one clarifying question before painting. Optional short choices chips."""
         return _json.dumps(
@@ -268,23 +231,6 @@ def design_thought_langchain_tools() -> list[Any]:
             ensure_ascii=False,
         )
 
-    def request_knowledge(kinds: list[str]) -> str:
-        """Request design knowledge kinds (palette/layout/…). Runtime injects next turn."""
-        return _json.dumps(
-            {"status": "runtime_will_inject", "kinds": kinds},
-            ensure_ascii=False,
-        )
-
-    def request_aesthetics(use_user_refs: bool = False) -> str:
-        """Request aesthetic reference samples.
-
-        use_user_refs=true only when matching user attachment style.
-        """
-        return _json.dumps(
-            {"status": "runtime_will_inject", "use_user_refs": bool(use_user_refs)},
-            ensure_ascii=False,
-        )
-
     tools = [
         t
         for t in design_langchain_tools()
@@ -297,14 +243,6 @@ def design_thought_langchain_tools() -> list[Any]:
             StructuredTool.from_function(
                 func=request_tool_schemas,
                 args_schema=RequestToolSchemasArgs,
-            ),
-            StructuredTool.from_function(
-                func=request_knowledge,
-                args_schema=RequestKnowledgeArgs,
-            ),
-            StructuredTool.from_function(
-                func=request_aesthetics,
-                args_schema=RequestAestheticsArgs,
             ),
         ]
     )

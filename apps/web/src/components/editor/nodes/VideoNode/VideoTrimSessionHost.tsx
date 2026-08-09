@@ -16,7 +16,9 @@ import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { closeVideoToolPanel, setDocument, setSelectedNodeId, setSelectedNodeIds, EMPTY_ID_LIST } from '@/store/modules/editor';
-import { addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  addNodeToDocument
+} from '@/components/rcb/scene/document/sceneDocument';
 import { message, Tooltip } from '@/components/base';
 import { nanoid } from 'nanoid';
 import VideoJsPlayer, {
@@ -27,6 +29,7 @@ import {
 } from '@/components/editor/nodes/VideoNode/VideoHoverPlayback';
 import type { VideoMediaControl } from '@/components/editor/nodes/VideoNode/VideoPlaybackBar';
 import { imageSrcToFile } from '@/utils/uploadImage';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 type TrimRange = { start: number; end: number };
 
@@ -253,7 +256,7 @@ async function extractFilmstrip(
  * Confirm clones a sibling to the right with trimStart/trimEnd (same src) —
  * instant, like video crop. Source node is left untouched.
  */
-function VideoTrimSessionHost({ document }: { document: any }): ReactNode {
+function VideoTrimSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const camera = useRcbCamera();

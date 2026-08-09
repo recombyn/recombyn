@@ -2,7 +2,7 @@
 
 Namespaces (conflict isolation):
   - core  — system seed skills (source=seed); bare keys kept for BC
-  - ext   — file packs under ``.agents/skills`` + data/design_skills (source=file)
+  - ext   — file packs under ``.agents/skills`` + seeds/design_skills (source=file)
   - user  — admin / user-extension skills (source=admin); keys use ``user.<local>``
 
 Also:
@@ -19,7 +19,6 @@ from .constants import (
     NS_CORE,
     NS_EXT,
     NS_USER,
-    RETIRED_NEED_PROMPT_KINDS,
     SOURCE_ADMIN,
     SOURCE_FILE,
     SOURCE_SEED,
@@ -160,7 +159,6 @@ __all__ = [
     "NS_CORE",
     "NS_EXT",
     "NS_USER",
-    "RETIRED_NEED_PROMPT_KINDS",
     "MAX_SKILL_DETAIL_CHARS",
     "_ALWAYS_ALLOW_OPS",
     "_PROTECTED_FROM_SEED",

@@ -3,11 +3,11 @@
   "name": "garden_style",
   "displayName": "Garden Style",
   "description": "风格配方引擎：大胆审美方向 + 字体气质匹配 + 海报质检",
-  "when_to_use": "需要高完成度视觉、避免通用 AI 审美、或海报字体/装饰质检时加载",
-  "category": "aesthetics",
+  "when_to_use": "Need a bold visual direction, type-mood fit, or poster quality bar — festive/illustration/atmosphere work that must look intentional, not drafty.",
+  "category": "style",
   "scenes": "all",
   "sort_weight": 82,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -16,14 +16,20 @@
     "create_svg",
     "update_node"
   ],
-  "allowed_resources": ["knowledge", "aesthetics", "tools"],
+  "allowed_resources": [
+    "tools"
+  ],
   "triggers": [
     {
       "empty_canvas": true,
-      "intent_in": ["create"]
+      "intent_in": [
+        "create"
+      ]
     },
     {
-      "intent_in": ["create"],
+      "intent_in": [
+        "create"
+      ],
       "min_prompt_chars": 8
     }
   ],

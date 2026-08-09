@@ -8,11 +8,6 @@ from app.services.design.ops.tool_ops_contract import (
     format_canvas_tools_details,
     normalize_need_tools,
 )
-from app.services.design.prompts.knowledge_store import (
-    format_knowledge_catalog,
-    normalize_need_knowledge,
-)
-from app.services.design.aesthetics.scorer import normalize_need_aesthetics
 
 
 def test_parse_need_tools_in_turn():
@@ -25,16 +20,25 @@ def test_parse_need_tools_in_turn():
     assert turn["done"] is False
 
 
-def test_parse_need_knowledge_and_aesthetics():
+def test_parse_need_skills_still_works():
     turn = _parse_agent_turn(
-        '{"thought":"配色","intent":"create","need_knowledge":["palette","layout"],'
-        '"need_aesthetics":true,"tool_ops":[],"done":false}'
+        '{"thought":"配色","intent":"create","need_skills":["design_methodology"],'
+        '"tool_ops":[],"done":false}'
     )
-    assert turn["need_knowledge"] == ["palette", "layout"]
-    assert turn["need_aesthetics"] is True
-    assert normalize_need_knowledge(True) == ["*"]
-    assert normalize_need_aesthetics("yes") is True
-    assert normalize_need_aesthetics(False) is False
+    assert turn["need_skills"] == ["design_methodology"]
+
+
+def test_parse_need_subagents_in_turn():
+    turn = _parse_agent_turn(
+        '{"thought":"读图","intent":"create",'
+        '"need_subagents":["vision_scout",{"id":"vision_scout","task":"x","background":true}],'
+        '"tool_ops":[],"done":false}'
+    )
+    jobs = turn["need_subagents"]
+    assert isinstance(jobs, list)
+    assert jobs[0]["id"] == "vision_scout"
+    assert jobs[0]["background"] is False
+    assert any(j.get("background") for j in jobs)
 
 
 def test_normalize_need_tools_dedupe():
@@ -49,6 +53,3 @@ def test_tools_catalog_nonempty_shape():
     assert isinstance(details, str)
 
 
-def test_knowledge_catalog_shape():
-    text = format_knowledge_catalog(scene="website")
-    assert "knowledge" in text.lower() or "`" in text

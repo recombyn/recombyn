@@ -1,0 +1,52 @@
+{
+  "skill_key": "mobile_app_ui",
+  "name": "mobile_app_ui",
+  "displayName": "Mobile / H5 app UI",
+  "description": "Mobile and H5 screens: safe areas, top/bottom chrome, single column, thumb-zone CTA",
+  "when_to_use": "Mobile app / H5 / 手机页 / App 界面 / iOS Android screen / 小程序页 — single-column product UI with mobile chrome (not desktop dashboard, not poster)",
+  "category": "ui",
+  "scenes": "all",
+  "sort_weight": 82,
+  "version": "2.0.0",
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "create_image",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "H5",
+        "手机",
+        "App",
+        "iOS",
+        "Android",
+        "小程序",
+        "mobile app",
+        "移动端",
+        "登录页"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Do not use desktop sidebar layouts on mobile; do not invent OS status icons clutter; do not place primary CTA outside the thumb zone without reason.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "移动 / H5 UI",
+      "description": "手机与 H5：安全区、顶底栏、单列、拇指区 CTA"
+    },
+    "en": {
+      "displayName": "Mobile / H5 app UI",
+      "description": "Mobile screens: safe areas, chrome, single column, thumb CTA"
+    }
+  }
+}

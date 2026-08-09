@@ -1,3 +1,4 @@
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Scene → native SVG DOM (no SVG.js).
  */
@@ -36,15 +37,17 @@ import { isTransparentFill, resolveDocumentBackground, resolveFill } from '../do
 import {
   isAudioGeneratorNode,
   isAudioNode,
-  resolveThemeSurfaceFill,
   isExportableSceneNode,
   isImageGeneratorNode,
   isImageProcessRunning,
   isLottieGeneratorNode,
   isLottieNode,
   isNodeHidden,
-  isVideoGeneratorNode,
-} from '../document/sceneDocument';
+  isVideoGeneratorNode
+} from '../document/nodeCapabilities';
+import {
+  resolveThemeSurfaceFill
+} from '../document/nodeFactories';
 import { generatorEmptyIconSize } from '../../core/layout';
 import {
   clampCornerRadii,
@@ -62,7 +65,6 @@ import { applyNodeShadow, applySvgFill } from './svgPaint';
 import {
   brushSize,
   findPencilBrush,
-  isStampBrush,
   paintStampDabs,
   parsePathPressures,
   parseSimplePathPoints,
@@ -101,6 +103,12 @@ export function setInfiniteSvgPaintCamera(
   if (stage && stage.width > 0 && stage.height > 0) {
     paintStage = { w: stage.width, h: stage.height };
   }
+}
+
+/** Current editor CSS zoom (for outline sparsify etc.). Falls back to 1. */
+export function getInfiniteSvgPaintZoom(): number {
+  if (!paintCamera) return 1;
+  return Math.max(0.15, rcbCameraCssZoom(paintCamera));
 }
 
 function resolvePaintCamera(camera?: RcbCamera | null): RcbCamera | null {
@@ -157,7 +165,7 @@ function nextClipId(prefix: string) {
 }
 
 /** Normalized crop rect from node attrs, or null when full-bleed / invalid. */
-function readNodeCropNorm(node: any): { x: number; y: number; w: number; h: number } | null {
+function readNodeCropNorm(node: SceneNodeInput): { x: number; y: number; w: number; h: number } | null {
   const fx = Number(node?.attrs?.cropX);
   const fy = Number(node?.attrs?.cropY);
   const fw = Number(node?.attrs?.cropW);
@@ -181,16 +189,16 @@ function num(v: any, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function sceneOrigin(document: any) {
+function sceneOrigin(document: SceneDocument | null | undefined) {
   return { ox: num(document?.x, 0), oy: num(document?.y, 0) };
 }
 
-export function nodeLeftTop(document: any, node: any) {
+export function nodeLeftTop(document: SceneDocument | null | undefined, node: SceneNodeInput) {
   const { ox, oy } = sceneOrigin(document);
   return { left: num(node.x, 0) - ox, top: num(node.y, 0) - oy };
 }
 
-function objectMeta(node: any) {
+function objectMeta(node: SceneNodeInput) {
   return {
     angle: num(node.attrs?.angle, 0),
     opacity: Math.min(1, Math.max(0, num(node.attrs?.opacity, 1))),
@@ -209,7 +217,7 @@ type ShapeStrokeOpts = {
   linejoin: StrokeLinejoin;
 };
 
-function strokeOptsFromNode(node: any, color: string, width: number): ShapeStrokeOpts {
+function strokeOptsFromNode(node: SceneNodeInput, color: string, width: number): ShapeStrokeOpts {
   const dash = strokeDashForStyle(node?.attrs?.strokeStyle);
   return {
     color,
@@ -256,12 +264,13 @@ function tipImageReady(src: string): HTMLImageElement | null {
 /**
  * Bake tip stamps into one PNG for the stroke host (keeps tip texture, 1 DOM image).
  * Supersamples to current screen density (DPR × zoom) so zoom-in stays sharp longer.
+ * Prefers OffscreenCanvas worker; falls back to main-thread canvas.
  */
-function rasterizeStampStrokeImage(
+async function rasterizeStampStrokeImage(
   samples: StampDab[],
   tipSrc: string,
   strokeOpacity: number
-): { href: string; x: number; y: number; width: number; height: number } | null {
+): Promise<{ href: string; x: number; y: number; width: number; height: number } | null> {
   if (typeof document === 'undefined' || !samples.length || !tipSrc) return null;
   const tip = tipImageReady(tipSrc);
   if (!tip) return null;
@@ -288,6 +297,32 @@ function rasterizeStampStrokeImage(
   const want = Math.min(8, Math.max(2.5, dpr * zoom * 1.35));
   const maxSide = 8192;
   const scale = Math.min(want, maxSide / Math.max(width, height));
+  const originX = -minX + pad;
+  const originY = -minY + pad;
+
+  try {
+    const tipBitmap = await createImageBitmap(tip);
+    // Dynamic import avoids sceneToSvg ↔ exportImage cycle (export uses loadSceneOntoSvg).
+    const { bakeStampStrokeInWorker } = await import('./exportImage');
+    const href = await bakeStampStrokeInWorker({
+      tip: tipBitmap,
+      dabs: samples.map((d) => ({
+        x: d.x,
+        y: d.y,
+        size: d.size,
+        opacity: d.opacity,
+      })),
+      strokeOpacity,
+      sceneWidth: width,
+      sceneHeight: height,
+      scale,
+      originX,
+      originY,
+    });
+    return { href, x: minX - pad, y: minY - pad, width, height };
+  } catch {
+    /* fall through to main-thread bake */
+  }
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.ceil(width * scale));
@@ -296,7 +331,7 @@ function rasterizeStampStrokeImage(
   if (!ctx) return null;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.setTransform(scale, 0, 0, scale, (-minX + pad) * scale, (-minY + pad) * scale);
+  ctx.setTransform(scale, 0, 0, scale, originX * scale, originY * scale);
   paintStampDabs(ctx, samples, tip, strokeOpacity);
   try {
     return {
@@ -766,8 +801,8 @@ export function findHtmlMediaMount(nodeId: string): HTMLElement | null {
 
 function createRectLike(
   ctx: DrawCtx,
-  document: any,
-  node: any,
+  document: SceneDocument,
+  node: SceneNodeInput,
   nodeId: string,
   sceneNodeKey: string,
   shapeType?: string
@@ -849,7 +884,7 @@ function createRectLike(
   return g;
 }
 
-function createShape(ctx: DrawCtx, document: any, node: any, nodeId: string) {
+async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNodeInput, nodeId: string) {
   const { root, parent } = ctx;
   const shapeType = node.attrs?.shapeType || 'rect';
   const paint = resolveFill(node, '#FFFFFF');
@@ -970,10 +1005,12 @@ function createShape(ctx: DrawCtx, document: any, node: any, nodeId: string) {
       const stampSrcAttr =
         node.attrs?.brushStampSrc != null ? String(node.attrs.brushStampSrc) : '';
       const brush = findPencilBrush(brushId);
-      const useStamp = isStampBrush(brushId, stampSrcAttr || brush.stampSrc);
+      // New tip strokes use the same SVG ribbon as vector ink (instant, no dab jitter).
+      // Legacy nodes that stored brushStampSrc still bake tip texture PNGs.
+      const useStamp = Boolean(stampSrcAttr) && pts.length >= 2;
 
-      if (useStamp && pts.length >= 2) {
-        const src = stampSrcAttr || brush.stampSrc || '';
+      if (useStamp) {
+        const src = stampSrcAttr;
         const hardnessRaw = Number(node.attrs?.brushHardness);
         const hardness = Number.isFinite(hardnessRaw)
           ? Math.max(0, Math.min(100, hardnessRaw))
@@ -988,6 +1025,8 @@ function createShape(ctx: DrawCtx, document: any, node: any, nodeId: string) {
           hardness,
           pressureEnabled: pressureOn,
           maxDabs: STAMP_MAX_DABS,
+          // Match live tip preview (endpoint taper rematerializes the whole stroke).
+          skipTaper: true,
         });
         const tinted = src ? getTintedStampSrc(src, ink, hardness) : '';
         const g = appendChild(parent, svgEl('g'));
@@ -996,7 +1035,7 @@ function createShape(ctx: DrawCtx, document: any, node: any, nodeId: string) {
             ? Math.max(0, Math.min(1, Number(node.attrs.opacity)))
             : 1;
         const baked = tinted
-          ? rasterizeStampStrokeImage(samples, tinted, strokeOp)
+          ? await rasterizeStampStrokeImage(samples, tinted, strokeOp)
           : null;
         if (baked) {
           const img = appendChild(
@@ -1052,6 +1091,8 @@ function createShape(ctx: DrawCtx, document: any, node: any, nodeId: string) {
         pressures,
         pressureEnabled: boolEffectAttr(node.attrs?.pressureEnabled, true),
         hardness: freehandHardness,
+        // Centerline is already the capture path — RDP here kinked commits vs live.
+        simplify: false,
       });
       const g = appendChild(parent, svgEl('g'));
       if (outlineD) {
@@ -1078,17 +1119,16 @@ function createShape(ctx: DrawCtx, document: any, node: any, nodeId: string) {
         ? resolveFill(node, 'transparent')
         : resolveFill(node, closed ? '#FFFFFF' : 'transparent');
     const baseD = String(d);
-    // `path` geometry already includes any rounding (outline / boolean / pen edit).
-    // Do not re-fillet from leftover radiusTL… attrs — that spawns AABB R-dots' effect
-    // and warps the silhouette (esp. after 矩形路径化).
-    const skipFillet = shapeType === 'pen' || shapeType === 'path' || !closed;
+    // Pen centerlines stay raw. Closed boolean/outline paths keep a sharp base
+    // and fillet via radiusVertices (same R dots as rect, seated on corners).
+    const skipFillet = shapeType === 'pen' || !closed;
     const cornerR = skipFillet
       ? { tl: 0, tr: 0, br: 0, bl: 0 }
       : radiiFromAttrs(node.attrs);
     const drawD = skipFillet ? baseD : filletPathD(baseD, cornerR, node.attrs);
     const path = appendChild(parent, svgEl('path', { d: drawD }));
     setAttrs(path, { 'data-baseline': '1' });
-    if (closed && shapeType !== 'pen' && shapeType !== 'path') {
+    if (closed && shapeType !== 'pen') {
       setAttrs(path, { 'data-scene-base-path': baseD });
       (path as any).__sceneBasePath = baseD;
     }
@@ -1169,8 +1209,8 @@ function buildMultilineText(
 export async function nodeToSvgElement(
   root: SVGSVGElement,
   parent: SVGElement,
-  document: any,
-  node: any,
+  document: SceneDocument,
+  node: SceneNodeInput,
   nodeId: string
 ): Promise<SVGElement | null> {
   if (!node) return null;
@@ -1245,7 +1285,7 @@ export async function nodeToSvgElement(
     return el;
   }
 
-  if (node.key === 'shape') return createShape(ctx, document, node, nodeId);
+  if (node.key === 'shape') return await createShape(ctx, document, node, nodeId);
   if (node.key === 'rect') return createRectLike(ctx, document, node, nodeId, 'rect');
 
   if (node.key === 'svg') {
@@ -2457,7 +2497,7 @@ export function fitInfiniteSvgToContent(root: SVGSVGElement, layer?: SVGElement 
 export async function loadSceneOntoSvg(
   root: SVGSVGElement,
   layer: SVGElement,
-  document: any,
+  document: SceneDocument,
   loadSeq = 0,
   boardMeta?: { loadSeq?: number },
   opts?: { infinite?: boolean; /** Skip generators + process-shimmer plates (export / cover). */ omitNonExportable?: boolean; /** @deprecated use omitNonExportable */ omitImageGenerators?: boolean }
@@ -3294,7 +3334,7 @@ const replaceGenByMap = new WeakMap<object, Map<string, number>>();
 export async function replaceSvgNode(
   root: SVGSVGElement,
   layer: SVGElement,
-  document: any,
+  document: SceneDocument,
   nodeEls: Map<string, SVGElement>,
   nodeId: string
 ) {

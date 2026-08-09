@@ -10,21 +10,18 @@ import Tooltip from '@/components/base/tooltip';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import {
   brushPreviewPath,
-  buildStampDabs,
+  DEFAULT_PENCIL_BRUSH_ID,
   findPencilBrush,
   isBrushPackFileName,
   listPencilBrushes,
   makeCustomStampBrush,
   parseBrushPackJson,
-  PENCIL_BRUSHES,
   serializeBrushPack,
   setCustomPencilBrushes,
-  setOfficialPencilBrushes,
   type PencilBrushDef,
   type PencilBrushId,
 } from '@/components/rcb/tools/pencilBrushes';
-import { fetchDesignBrushes } from '@/apis/design';
-import { getTintedStampSrc, preloadStampSrc, STAMP_TINT_READY_EVENT } from '@/components/rcb/tools/stampTint';
+import { preloadStampSrc } from '@/components/rcb/tools/stampTint';
 import {
   setActiveTool,
   setPenStrokeColor,
@@ -200,20 +197,6 @@ function readTextFile(file: File): Promise<string> {
   });
 }
 
-
-const BRUSH_LIST_PREVIEW_PATH: { x: number; y: number; pressure?: number }[] = (() => {
-  const path: { x: number; y: number; pressure?: number }[] = [];
-  for (let i = 0; i <= 40; i += 1) {
-    const t = i / 40;
-    path.push({
-      x: 10 + t * 100,
-      y: 14 + Math.sin(t * Math.PI * 2) * 6,
-      pressure: 0.55 + 0.45 * Math.sin(t * Math.PI),
-    });
-  }
-  return path;
-})();
-
 function BrushStrokePreview({
   brushId,
   color,
@@ -226,52 +209,7 @@ function BrushStrokePreview({
   className?: string;
 }) {
   const brush = findPencilBrush(brushId);
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    if (brush.kind !== 'stamp' || !brush.stampSrc) return;
-    preloadStampSrc(brush.stampSrc);
-    getTintedStampSrc(brush.stampSrc, color, hardness);
-    const onReady = () => setTick((n) => n + 1);
-    window.addEventListener(STAMP_TINT_READY_EVENT, onReady);
-    return () => window.removeEventListener(STAMP_TINT_READY_EVENT, onReady);
-  }, [brush.kind, brush.stampSrc, brushId, color, hardness]);
-
-  if (brush.kind === 'stamp' && brush.stampSrc) {
-    const tip = getTintedStampSrc(brush.stampSrc, color, hardness);
-    const dabs = buildStampDabs(BRUSH_LIST_PREVIEW_PATH, brush, 10, {
-      hardness,
-      pressureEnabled: true,
-      maxDabs: 160,
-    });
-    return (
-      <svg
-        className={className}
-        viewBox="0 0 120 28"
-        width="100%"
-        height="100%"
-        preserveAspectRatio="none"
-        aria-hidden
-      >
-        {dabs.map((p, i) => {
-          const size = Math.min(16, Math.max(2, p.size));
-          return (
-            <image
-              key={i}
-              href={tip}
-              x={p.x - size / 2}
-              y={p.y - size / 2}
-              width={size}
-              height={size}
-              opacity={Math.max(0.2, Math.min(1, p.opacity))}
-              preserveAspectRatio="none"
-            />
-          );
-        })}
-      </svg>
-    );
-  }
-
+  // Match canvas: tip brushes paint as SVG ribbon (no stamp soft-edge).
   const d = brushPreviewPath(brush, 9, hardness);
   return (
     <svg
@@ -321,7 +259,7 @@ function PenStrokeToolbar({
     return Number.isFinite(n) && n > 0 ? n : 1;
   });
   const brushId = useSelector((s: any) =>
-    String(s.editor.pencilBrushId || 'solid')
+    String(s.editor.pencilBrushId || DEFAULT_PENCIL_BRUSH_ID)
   ) as PencilBrushId;
   const eraseMode = useSelector((s: any) => Boolean(s.editor.pencilEraseMode));
   const pressureEnabled = useSelector((s: any) => s.editor.pencilPressureEnabled !== false);
@@ -350,55 +288,6 @@ function PenStrokeToolbar({
   useEffect(() => {
     hydrateCustomPencilBrushes();
     setBrushRev((n) => n + 1);
-    let cancelled = false;
-    async function loadBrushes() {
-      try {
-        const res = await fetchDesignBrushes();
-        const items = Array.isArray(res?.items) ? res.items : [];
-        if (cancelled || !items.length) return;
-        const builtinById = new Map(PENCIL_BRUSHES.map((b) => [b.id, b]));
-        const mapped: PencilBrushDef[] = items.map((b) => {
-          const builtin = builtinById.get(b.id);
-          const apiStamp =
-            typeof b.stampSrc === 'string' && b.stampSrc ? b.stampSrc : undefined;
-          const stampSrc = apiStamp || builtin?.stampSrc || undefined;
-          const kind: PencilBrushDef['kind'] =
-            b.kind === 'stamp' || stampSrc ? 'stamp' : 'freehand';
-          return {
-            id: b.id,
-            label: b.label || builtin?.label || b.id,
-            sizeFactor: Number(b.sizeFactor) || builtin?.sizeFactor || 1,
-            simulatePressure: Boolean(b.simulatePressure),
-            kind,
-            stampSrc,
-            spacingFactor:
-              b.spacingFactor != null
-                ? Number(b.spacingFactor)
-                : builtin?.spacingFactor,
-            options: {
-              thinning: Number(b.options?.thinning ?? 0.05),
-              smoothing: Number(b.options?.smoothing ?? 0.45),
-              streamline: Number(b.options?.streamline ?? 0.35),
-              easing: (x: number) => x,
-              start: { taper: 0, cap: true },
-              end: { taper: 0, cap: true },
-            },
-          };
-        });
-        // Library freehand-only rows must not replace tip builtins.
-        const libraryHasTips = items.some(
-          (b) => b.kind === 'stamp' || (typeof b.stampSrc === 'string' && b.stampSrc)
-        );
-        setOfficialPencilBrushes(libraryHasTips ? mapped : null);
-        setBrushRev((n) => n + 1);
-      } catch {
-        /* ignore brush catalog errors */
-      }
-    }
-    void loadBrushes();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const clearTimer = (ref: { current: number | null }) => {
@@ -439,7 +328,7 @@ function PenStrokeToolbar({
   const onDeleteCustom = (id: string) => {
     removeCustomPencilBrush(id);
     setBrushRev((n) => n + 1);
-    if (brushId === id) dispatch(setPencilBrushId('solid'));
+    if (brushId === id) dispatch(setPencilBrushId(DEFAULT_PENCIL_BRUSH_ID));
   };
 
   const onAddCustomBrush = async (file: File | null) => {
@@ -613,7 +502,7 @@ function PenStrokeToolbar({
                       onChange={(e) => {
                         const f = e.target.files?.[0] || null;
                         e.target.value = '';
-                        void onAddCustomBrush(f);
+                        onAddCustomBrush(f);
                       }}
                     />
                   </li>

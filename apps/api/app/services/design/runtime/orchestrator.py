@@ -21,6 +21,7 @@ from app.services.design.readpath.canvas_scene import (
     scene_key as _scene_key,
 )
 from app.services.design.readpath.catalog import get_global_rules
+from app.services.design.runtime.agent_profile import apply_profile_rules
 from app.services.design.runtime.decision_log import (
     DesignRunDecision,
     focus_frame_from_medium,
@@ -36,6 +37,7 @@ from app.services.design.runtime.models_route import (
 )
 from app.services.design.runtime.pipeline_support import (
     _normalize_ref_images,
+    _run_error_code,
     _user_facing_run_error,
 )
 from app.services.design.prompts.prompt_build import (
@@ -69,6 +71,11 @@ _log = logging.getLogger(__name__)
 AGENT_HOLD = 30
 PARTIAL_HOLD = 10
 SINGLE_HOLD = 20
+
+
+def _platform_rules_with_profile() -> dict[str, str]:
+    """Global KV rules with active AgentProfile policy overlaid."""
+    return apply_profile_rules(get_global_rules())
 
 
 def _reserve_design_hold(
@@ -170,9 +177,6 @@ async def run_design_job(
     prompt: str,
     scene: str | None = None,
     style_group_id: int | None = None,
-    style_pack_id: int | None = None,
-    template_id: int | None = None,
-    prompt_pattern_id: int | None = None,
     user_selected_model: str | None = "auto",
     canvas_id: str | None = None,
     canvas_size: str | None = None,
@@ -201,7 +205,7 @@ async def run_design_job(
     del is_premium  # reserved
     mode = _as_text(run_mode or "agent").strip().lower()
     if mode not in ("agent", "single_model", "partial"):
-        yield {"type": "error", "message": "invalid_run_mode"}
+        yield {"type": "error", "code": "invalid_run_mode", "message": "invalid_run_mode"}
         return
 
     ui_mode = _as_text(interaction_mode or "agent").strip().lower()
@@ -210,7 +214,7 @@ async def run_design_job(
 
     prompt = _as_text(prompt).strip()
     if not prompt and not apply_ops:
-        yield {"type": "error", "message": "prompt_required"}
+        yield {"type": "error", "code": "prompt_required", "message": "prompt_required"}
         return
     if not prompt and apply_ops:
         prompt = "确认执行"
@@ -249,6 +253,11 @@ async def run_design_job(
         if not can:
             yield {
                 "type": "error",
+                "code": (
+                    "free_daily_exhausted"
+                    if bal < hold_need
+                    else "insufficient_credits"
+                ),
                 "message": (
                     "free_daily_exhausted"
                     if bal < hold_need
@@ -260,7 +269,7 @@ async def run_design_job(
             exec_trace(t0, "DONE", mode="permission", can_call_llm=False, balance=bal)
             return
 
-        platform_rules = get_global_rules()
+        platform_rules = _platform_rules_with_profile()
         user_selected_model = sanitize_model_ref_for_openrouter_region(
             user_selected_model,
             platform_rules=platform_rules,
@@ -282,6 +291,11 @@ async def run_design_job(
         except ValueError:
             yield {
                 "type": "error",
+                "code": (
+                    "free_daily_exhausted"
+                    if bal < hold_need
+                    else "insufficient_credits"
+                ),
                 "message": (
                     "free_daily_exhausted"
                     if bal < hold_need
@@ -350,7 +364,7 @@ async def run_design_job(
             reset_byok_user_id(byok_token)
         return
 
-    platform_rules = get_global_rules()
+    platform_rules = _platform_rules_with_profile()
     user_selected_model = sanitize_model_ref_for_openrouter_region(
         user_selected_model,
         platform_rules=platform_rules,
@@ -442,7 +456,7 @@ async def run_design_job(
         ):
             yield ev
         return
-    yield {"type": "error", "message": "invalid_run_mode"}
+    yield {"type": "error", "code": "invalid_run_mode", "message": "invalid_run_mode"}
 
 
 async def _run_partial(
@@ -475,7 +489,16 @@ async def _run_partial(
     except ValueError:
         yield {
             "type": "error",
-            "message": "free_daily_exhausted" if bal < hold_need else "insufficient_credits",
+            "code": (
+                "free_daily_exhausted"
+                if bal < hold_need
+                else "insufficient_credits"
+            ),
+            "message": (
+                "free_daily_exhausted"
+                if bal < hold_need
+                else "insufficient_credits"
+            ),
             "balance": bal,
             "need": hold_need,
         }
@@ -490,6 +513,7 @@ async def _run_partial(
     if w <= 0 or h <= 0:
         yield {
             "type": "error",
+            "code": "invalid_canvas_size",
             "message": "invalid_canvas_size",
             "detail": "Admin default_size_* / canvas chip missing — runtime does not invent size",
         }
@@ -696,6 +720,7 @@ async def _run_partial(
         _update_task(task_id, status="error", error_message=str(err)[:800])
         yield {
             "type": "error",
+            "code": _run_error_code(err),
             "message": _user_facing_run_error(err, rules=rules),
             "task_id": task_id,
             "refunded_credits": hold,

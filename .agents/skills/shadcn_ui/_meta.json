@@ -3,11 +3,11 @@
   "name": "shadcn_ui",
   "displayName": "shadcn/ui",
   "description": "组件组合说明书：语义色、表单结构、叠层与变体优先",
-  "when_to_use": "做类产品 UI、表单、对话框、导航与状态反馈时，按组件系统规则组合",
+  "when_to_use": "Compose product UI on canvas (settings, forms, dialogs, nav, feedback) using semantic roles and shadcn-like composition — not ad-hoc chrome.",
   "category": "ui",
   "scenes": "all",
   "sort_weight": 34,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -15,7 +15,9 @@
     "create_image",
     "update_node"
   ],
-  "allowed_resources": ["knowledge", "aesthetics", "tools"],
+  "allowed_resources": [
+    "tools"
+  ],
   "triggers": [],
   "mutex_group": "",
   "prompt_negative": "不要用随意蓝/绿 hex 充当状态色；不要把所有内容塞进一个无结构容器；不要省略对话框标题级信息。",

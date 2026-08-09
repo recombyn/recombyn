@@ -1,3 +1,4 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Agent memory — task state, short-term turns, patches (M1–M3 client contract).
  */
@@ -103,7 +104,7 @@ export function emptyTaskState(params: {
   };
 }
 
-export function frameIsEmpty(doc: any, frameId: string): boolean {
+export function frameIsEmpty(doc: SceneDocument, frameId: string): boolean {
   if (!doc || !frameId) return true;
   const ids = doc?.deltaSetLike?.ROOT?.children;
   if (!Array.isArray(ids) || !ids.length) return true;
@@ -128,7 +129,7 @@ export function frameIsEmpty(doc: any, frameId: string): boolean {
 }
 
 export function buildTaskStateFromDocument(params: {
-  doc: any;
+  doc: SceneDocument;
   sessionId: string;
   projectId: string;
   focusFrameId?: string | null;

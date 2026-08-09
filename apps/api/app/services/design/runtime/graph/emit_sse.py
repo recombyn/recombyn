@@ -246,7 +246,12 @@ def _emit(ev: dict[str, Any]) -> None:
         pass
 
 def _paint_user_reply(raw: str | None, *, limit: int = 40) -> str:
-    """Short post-paint chat line — never re-emit the decide/thought essay."""
+    """Short post-paint chat line — never re-emit the decide/thought essay.
+
+    Progress belongs in activity / analysis_delta / phase SSE only.
+    This helper only strips internal tool/schema dumps and overlong essays
+    from the finish ``reply`` field — it does not guess WIP by language.
+    """
     text = " ".join(str(raw or "").split()).strip()
     if not text:
         return ""
@@ -261,13 +266,6 @@ def _paint_user_reply(raw: str | None, *, limit: int = 40) -> str:
     )
     low = text.lower()
     if any(b.lower() in low for b in banned) or len(text) > limit:
-        return ""
-    # Progress / WIP lines are not a finished reply (FE would keep them after done).
-    if text.endswith(("…", "...", "⋯")):
-        return ""
-    if text.startswith(("正在", "创建中", "生成中", "处理中")):
-        return ""
-    if low.startswith(("working", "creating", "generating", "painting")):
         return ""
     return text[:limit]
 

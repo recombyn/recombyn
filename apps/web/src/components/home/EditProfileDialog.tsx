@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { HiOutlinePencil } from 'react-icons/hi2';
-import { updateProfile } from '@/apis/auth';
+import { apiQuery } from '@/service/client';
 import { Button, Dialog, message } from '@/components/base';
 import { userInitial } from '@/components/layout/UserAccountPanel';
 import { setUser, type AuthUser } from '@/store/modules/auth';
@@ -68,6 +69,15 @@ function EditProfileDialog({ open, onClose }: Props): ReactNode {
     setSaving(false);
   }, [open, user]);
 
+  const queryClient = useQueryClient();
+  const saveProfileMutation = useMutation(
+    apiQuery.authAuthPatchProfile.mutationOptions({
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({ queryKey: apiQuery.authAuthMe.key() });
+      },
+    })
+  );
+
   const initial = userInitial(name || user?.name, user?.email);
 
   const onPickAvatar = () => {
@@ -90,7 +100,7 @@ function EditProfileDialog({ open, onClose }: Props): ReactNode {
       const url = await readAvatarDataUrl(file);
       if (url) setAvatar(url);
     }
-    void loadAvatarUrl();
+    loadAvatarUrl();
   };
 
   const onSave = async () => {
@@ -102,7 +112,13 @@ function EditProfileDialog({ open, onClose }: Props): ReactNode {
     if (!user || saving) return;
     setSaving(true);
     try {
-      const res = await updateProfile({ name: checked.name, bio: checked.bio, avatar });
+      const res = (await saveProfileMutation.mutateAsync({
+        body: {
+          name: checked.name,
+          bio: checked.bio,
+          avatar,
+        },
+      })) as { user: AuthUser };
       dispatch(
         setUser({
           ...user,
@@ -140,7 +156,7 @@ function EditProfileDialog({ open, onClose }: Props): ReactNode {
           <Button size="small" type="default" disabled={saving} onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button size="small" type="primary" loading={saving} disabled={saving} onClick={() => void onSave()}>
+          <Button size="small" type="primary" loading={saving} disabled={saving} onClick={() => onSave()}>
             {t('common.save')}
           </Button>
         </div>

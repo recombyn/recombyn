@@ -46,8 +46,8 @@ type HtmlArtboardFrameProps = {
   onMoveEnd?: () => void;
   /** Hide title while the frame is being moved. */
   hideTitle?: boolean;
-  /** body under world canvas; label above so it stays clickable */
-  layer?: 'body' | 'label';
+  /** body under shapes; process above shapes (cover until run ends); label clickable */
+  layer?: 'body' | 'process' | 'label';
   /** Unified stack z-index (interleaves with shapes). */
   zIndex?: number;
 };
@@ -287,6 +287,30 @@ function HtmlArtboardFrame({
     );
   }
 
+  // Above SvgCanvas so paint/review/retry stays covered until processStatus clears.
+  if (layer === 'process') {
+    if (!generating) return null;
+    return (
+      <>
+        <div
+          data-artboard-process-shimmer
+          data-frame-id={frame.id}
+          className="rcb-artboard-process-shimmer pointer-events-none absolute z-[40] overflow-hidden"
+          style={processOverlayStyle}
+          aria-hidden
+        />
+        <div
+          data-artboard-process-label
+          data-frame-id={frame.id}
+          className="pointer-events-none absolute z-[41] whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 py-1 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
+          style={processPillStyle}
+        >
+          {processLabel}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <div
@@ -305,25 +329,6 @@ function HtmlArtboardFrame({
           style={{ width: 0, height: 0, overflow: 'visible' }}
         />
       </div>
-      {generating ? (
-        <>
-          <div
-            data-artboard-process-shimmer
-            data-frame-id={frame.id}
-            className="rcb-artboard-process-shimmer pointer-events-none absolute z-[1] overflow-hidden"
-            style={processOverlayStyle}
-            aria-hidden
-          />
-          <div
-            data-artboard-process-label
-            data-frame-id={frame.id}
-            className="pointer-events-none absolute z-[2] whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 py-1 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
-            style={processPillStyle}
-          >
-            {processLabel}
-          </div>
-        </>
-      ) : null}
     </>
   );
 }

@@ -9,6 +9,7 @@ import {
 } from '@/components/editor/panels/agent/runDesignAgent';
 import { renderComposerChipThumb, renderExport } from '@/components/rcb/scene/paint/exportImage';
 import { imageSrcToFile } from '@/utils/uploadImage';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 
 function editorHasComposerChips(el: HTMLElement | null | undefined): boolean {
@@ -1123,7 +1124,7 @@ export default memo(AgentComposerInput);
 const MemoizedContextChipPill = memo(ContextChipPill);
 export { MemoizedContextChipPill as ContextChipPill };
 
-function nodeKindLabel(node: any): string {
+function nodeKindLabel(node: SceneNodeInput): string {
   const shape = String(node?.attrs?.shapeType || '');
   const key = String(node?.key || '');
   const map: Record<string, string> = {
@@ -1145,7 +1146,7 @@ function nodeKindLabel(node: any): string {
 }
 
 /** Unique chip label: 矩形 1 / 矩形 2 / 多边形 1 … (stable by position). */
-function numberedNodeLabel(document: any, nodeId: string): string {
+function numberedNodeLabel(document: SceneDocument, nodeId: string): string {
   const node = document?.deltaSetLike?.[nodeId];
   if (!node) return '元素';
   const base = nodeKindLabel(node);
@@ -1181,7 +1182,7 @@ function nextGroupChipLabel(chips: ComposerContext[]): string {
 }
 
 export function buildComposerContext(
-  document: any,
+  document: SceneDocument,
   selectedNodeIds: string[],
   activeFrameId: string | null,
   /** Existing chips — used to name multi-select as 组1 / 组2 … */
@@ -1301,7 +1302,7 @@ export function buildComposerContext(
 
 /** Attach a live shape/group/frame raster when the chip has no image `src` yet. */
 export async function enrichComposerContextThumb(
-  document: any,
+  document: SceneDocument,
   ctx: ComposerContext | null,
   opts: { nodeIds?: string[]; frameId?: string | null } = {}
 ): Promise<ComposerContext | null> {
@@ -1322,7 +1323,7 @@ export async function enrichComposerContextThumb(
 
 /** Same path as selection export — flatten nodes to one PNG data-URL. */
 export async function rasterizeNodesToPngDataUrl(
-  document: any,
+  document: SceneDocument,
   nodeIds: string[]
 ): Promise<string | null> {
   const ids = nodeIds.filter(Boolean);
@@ -1344,7 +1345,7 @@ export async function rasterizeNodesToPngDataUrl(
 
 /** Same path as selection export — flatten nodes to one PNG File for Chat. */
 export async function rasterizeNodesToPngFile(
-  document: any,
+  document: SceneDocument,
   nodeIds: string[],
   filename = 'canvas-group.png'
 ): Promise<File | null> {

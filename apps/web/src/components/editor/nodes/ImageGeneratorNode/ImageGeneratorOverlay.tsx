@@ -1,9 +1,12 @@
 import { useMemo, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
-import { isImageGeneratorNode } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isImageGeneratorNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import ImageGeneratorCard from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import { EMPTY_ID_LIST } from '@/store/modules/editor';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
  * World-layer Image Generator composers (same lattice as the control box).
@@ -14,7 +17,7 @@ function ImageGeneratorOverlay({
   hidden,
   readOnly,
 }: {
-  document: any;
+  document: SceneDocument;
   /** Hide while move / resize / rotate is in progress. */
   hidden?: boolean;
   readOnly?: boolean;

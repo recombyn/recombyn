@@ -21,7 +21,7 @@ import {
 /** Canvas zooms from floor → extreme (includes user repro ~31%). */
 const CANVAS_ZOOMS = [0.05, 0.13, 0.25, 0.31, 0.5, 0.8, 1, 2, 8, 20, 40, 80] as const;
 
-/** Production move settle: smart magnets → grid lattice pin → paint indicators. */
+/** Production move settle: smart magnets → grid (lattice skips smart-pinned axes). */
 function settleMove(opts: {
   box: { left: number; top: number; width: number; height: number };
   targets: Array<{ left: number; top: number; width: number; height: number }>;
@@ -32,6 +32,8 @@ function settleMove(opts: {
   const threshold = smartSnapThreshold(opts.zoom);
   let next = { ...opts.box };
   let guides = [] as ReturnType<typeof snapMoveToSmartGuides>['guides'];
+  let smartX = false;
+  let smartY = false;
   if (threshold > 0 && opts.targets.length) {
     const smart = snapMoveToSmartGuides({
       box: next,
@@ -40,9 +42,16 @@ function settleMove(opts: {
     });
     next = smart.box;
     guides = smart.guides;
+    smartX = smart.snappedX;
+    smartY = smart.snappedY;
   }
   if (gridSize > 0) {
-    next = snapBoxToGrid(next, gridSize);
+    const pinned = snapBoxToGrid(next, gridSize);
+    next = {
+      ...next,
+      left: smartX ? next.left : pinned.left,
+      top: smartY ? next.top : pinned.top,
+    };
     guides = collectMoveSnapIndicators(next, opts.targets, GUIDE_COINCIDE_EPS);
   }
   return { box: next, guides, threshold };
