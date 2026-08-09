@@ -2,15 +2,16 @@ import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
 import { useRcbCamera, rcbCameraCssZoom } from '@/components/rcb';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const PILL_BOTTOM_PAD_PX = 14;
 
-function readNodeAngle(node: any) {
+function readNodeAngle(node: SceneNodeInput) {
   const n = Number(node?.attrs?.angle);
   return Number.isFinite(n) ? n : 0;
 }
 
-function useProcessWorldBox(document: any, node: any) {
+function useProcessWorldBox(document: SceneDocument, node: SceneNodeInput) {
   const camera = useRcbCamera();
   const { left, top } = nodeLeftTop(document, node);
   const width = Math.max(1, Number(node.width) || 1);
@@ -39,8 +40,8 @@ function ProcessNodeChrome({
   document,
 }: {
   nodeId: string;
-  node: any;
-  document: any;
+  node: SceneNodeInput;
+  document: SceneDocument;
 }): ReactNode {
   const { left, top, width, height, inv, borderRadius, angle } = useProcessWorldBox(
     document,
@@ -115,7 +116,7 @@ function ImageProcessOverlay({
   document,
   hidden,
 }: {
-  document: any;
+  document: SceneDocument;
   /** Hide while move / resize / rotate is in progress. */
   hidden?: boolean;
 }): ReactNode {

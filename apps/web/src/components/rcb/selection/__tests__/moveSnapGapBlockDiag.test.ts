@@ -8,7 +8,7 @@ import {
   snapMoveToSmartGuides,
 } from '../alignGuides';
 
-/** Production settle used by move (smart → grid). */
+/** Production settle used by move (smart → grid; lattice skips smart axes). */
 function settle(opts: {
   box: { left: number; top: number; width: number; height: number };
   targets: Array<{ left: number; top: number; width: number; height: number }>;
@@ -20,6 +20,8 @@ function settle(opts: {
   let next = { ...opts.box };
   let guides = [] as ReturnType<typeof snapMoveToSmartGuides>['guides'];
   const beforeLeft = next.left;
+  let smartX = false;
+  let smartY = false;
   if (threshold > 0 && opts.targets.length) {
     const smart = snapMoveToSmartGuides({
       box: next,
@@ -28,9 +30,16 @@ function settle(opts: {
     });
     next = smart.box;
     guides = smart.guides;
+    smartX = smart.snappedX;
+    smartY = smart.snappedY;
   }
   if (gridSize > 0) {
-    next = snapBoxToGrid(next, gridSize);
+    const pinned = snapBoxToGrid(next, gridSize);
+    next = {
+      ...next,
+      left: smartX ? next.left : pinned.left,
+      top: smartY ? next.top : pinned.top,
+    };
     guides = collectMoveSnapIndicators(next, opts.targets, GUIDE_COINCIDE_EPS);
   }
   return {

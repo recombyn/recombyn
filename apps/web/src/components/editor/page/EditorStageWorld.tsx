@@ -14,6 +14,7 @@ import {
   HtmlArtboardFrame,
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
@@ -26,7 +27,18 @@ import MeshHandlesOverlay from '@/components/editor/nodes/ShapeNode/MeshHandlesO
 import FrameContextToolbar from '@/components/editor/nodes/FrameNode/FrameContextToolbar';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
-import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  stackZIndex
+} from '@/components/rcb/scene/document/sceneDocument';
+import SmartGuidesOverlay from '@/components/rcb/selection/chrome/SmartGuidesOverlay';
+import {
+  collectMoveSnapIndicators,
+  GUIDE_COINCIDE_EPS,
+  smartSnapThreshold,
+  snapBoxToGrid,
+  snapMoveToSmartGuides,
+  type SmartGuideLine,
+} from '@/components/rcb/selection/alignGuides';
 import {
   parseFillGradient,
   serializeFillGradient,
@@ -43,7 +55,6 @@ import {
   updateArtboardFrame,
   pushEditorHistory,
 } from '@/store/modules/editor';
-import { snapBoxToGrid } from '@/components/rcb/selection/alignGuides';
 import { canvasFillToDocumentMeta } from './EditorBottomHud';
 
 const EDITOR_PAN_BLOCK_SELECTOR = [
@@ -135,7 +146,7 @@ function frameLabelInteractionProps(
 }
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   worldBounds: { x: number; y: number; width: number; height: number };
   worldSurface: { x: number; y: number; width: number; height: number };
   camera: CanvasCamera;
@@ -151,7 +162,7 @@ type Props = {
   isDevMode: boolean;
   isMobileViewport: boolean;
   activeTool: string;
-  canvasDocument: any;
+  canvasDocument: SceneDocument;
   sceneReloadToken: number;
   documentPatchToken: number;
   lastPatchedNodeIds: string[];
@@ -214,6 +225,7 @@ function EditorStageWorld({
 }: Props) {
   const dispatch = useDispatch();
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
+  const [frameMoveGuides, setFrameMoveGuides] = useState<SmartGuideLine[]>([]);
 
   const onCommitFrame = useCallback(
     (rect: { x: number; y: number; width: number; height: number }) => {
@@ -234,7 +246,42 @@ function EditorStageWorld({
         width: Math.max(1, Number(frame.width) || 1),
         height: Math.max(1, Number(frame.height) || 1),
       };
-      if (!opts?.skipGrid) moving = snapBoxToGrid(moving, gridSize);
+      let guides: SmartGuideLine[] = [];
+      // Same magnet path as SelectionFeature move (frames + nodes are AABB targets).
+      if (!opts?.skipGrid) {
+        const targets = frames
+          .filter((f) => f.id !== id && !f.locked)
+          .map((f) => ({
+            left: Number(f.x) || 0,
+            top: Number(f.y) || 0,
+            width: Math.max(1, Number(f.width) || 1),
+            height: Math.max(1, Number(f.height) || 1),
+          }));
+        const threshold = smartSnapThreshold(camera.zoom);
+        let smartX = false;
+        let smartY = false;
+        if (threshold > 0 && targets.length) {
+          const smart = snapMoveToSmartGuides({
+            box: moving,
+            targets,
+            threshold,
+          });
+          moving = smart.box;
+          guides = smart.guides;
+          smartX = smart.snappedX;
+          smartY = smart.snappedY;
+        }
+        if (gridSize > 0) {
+          const pinned = snapBoxToGrid(moving, gridSize);
+          moving = {
+            ...moving,
+            left: smartX ? moving.left : pinned.left,
+            top: smartY ? moving.top : pinned.top,
+          };
+          guides = collectMoveSnapIndicators(moving, targets, GUIDE_COINCIDE_EPS);
+        }
+      }
+      setFrameMoveGuides(guides);
       dispatch(
         updateArtboardFrame({
           id,
@@ -246,12 +293,13 @@ function EditorStageWorld({
         })
       );
     },
-    [dispatch, frames, gridSize]
+    [camera.zoom, dispatch, frames, gridSize]
   );
 
   const onFrameMoveStart = useCallback(
     (frameId: string) => {
       setMovingFrameId(frameId);
+      setFrameMoveGuides([]);
       dispatch(pushEditorHistory());
     },
     [dispatch]
@@ -259,6 +307,7 @@ function EditorStageWorld({
 
   const onFrameMoveEnd = useCallback(() => {
     setMovingFrameId(null);
+    setFrameMoveGuides([]);
   }, []);
 
   const onSelectFrame = useCallback(
@@ -356,6 +405,16 @@ function EditorStageWorld({
           onAddToChat={onAddToChat}
         />
 
+        {frames.map((frame) =>
+          frame.hidden ? null : (
+            <HtmlArtboardFrame
+              key={`process-${frame.id}`}
+              frame={frame}
+              layer="process"
+            />
+          )
+        )}
+
         <ImageProcessWatcher />
         <ImageToolPanelHost document={document} />
         <ShapeStylePanelHost document={document} />
@@ -401,6 +460,10 @@ function EditorStageWorld({
 
         {showFrameToolbar && activeFrame ? (
           <FrameContextToolbar frame={activeFrame} />
+        ) : null}
+
+        {frameMoveGuides.length > 0 ? (
+          <SmartGuidesOverlay guides={frameMoveGuides} mirrorNodeId={null} />
         ) : null}
 
         <FrameMoveFeature

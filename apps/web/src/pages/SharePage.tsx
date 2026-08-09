@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
 import DevPropertiesPanel from '@/components/editor/panels/DevPropertiesPanel';
 import {
   RCB_DEFAULT_CAMERA as DEFAULT_CAMERA,
@@ -14,10 +17,14 @@ import {
 import EditorBootOverlay from '@/components/editor/chrome/EditorBootOverlay';
 import {
   listSceneNodes,
-  normalizeDocument,
-  documentForSharePreview,
-  isExportableSceneNode,
+  normalizeDocument
 } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  documentForSharePreview
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
+  isExportableSceneNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   setActiveTool,
@@ -28,7 +35,8 @@ import {
   EMPTY_ID_LIST,
   type ArtboardFrame,
 } from '@/store/modules/editor';
-import { fetchShareApi, type ShareDto } from '@/apis/shares';
+import type { ShareDto } from '@/models/shares';
+import { apiQuery } from '@/service/client';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { cssSolidWithOpacity } from '@/components/base/colorPanel';
 import ShareTopChrome from '@/components/share/ShareTopChrome';
@@ -84,7 +92,7 @@ function unionSceneBox(a: SceneBox | null, b: SceneBox): SceneBox {
 }
 
 /** Same as editor: artboards + finished scene nodes for zoom-to-fit (no generators). */
-function previewContentBounds(doc: any, frames: ArtboardFrame[]): SceneBox {
+function previewContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): SceneBox {
   let box: SceneBox | null = null;
   for (const f of frames) {
     box = unionSceneBox(box, {
@@ -144,6 +152,7 @@ function SharePage() {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageEl, setStageEl] = useState<HTMLElement | null>(null);
   const docFingerprintRef = useRef('');
+  const hydratedShareIdRef = useRef<string | null>(null);
   const didInitialFitRef = useRef(false);
   const bootOpenRef = useRef(true);
   const bootFinishingRef = useRef(false);
@@ -254,7 +263,7 @@ function SharePage() {
     setZoomFitActive(true);
   }, [document]);
 
-  // Fit once when content is on the stage — do not re-fit when panels resize.
+  // Fit once when content is on the stage 鈥?do not re-fit when panels resize.
   useEffect(() => {
     if (!document || !record?.viewerCanView || canEdit) return;
     const el = stageRef.current || stageEl;
@@ -307,53 +316,79 @@ function SharePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [onFitView, onZoomIn, onZoomOut, zoomAtStageCenter]);
 
+  const shareQuery = useQuery({
+    ...apiQuery.sharesSharesGet.queryOptions({
+      input: { params: { share_id: shareId } },
+      enabled: Boolean(shareId),
+    }),
+    staleTime: 0,
+  });
+  const refetchShareRef = useRef(shareQuery.refetch);
+  refetchShareRef.current = shareQuery.refetch;
+
   useEffect(() => {
-    let cancelled = false;
     setMissing(false);
     setForbidden(false);
     setRecord(null);
     docFingerprintRef.current = '';
-    async function loadShare() {
-      try {
-        const res = await fetchShareApi(shareId);
-        if (cancelled) return;
-        const s = res.share;
-        if (!s) {
-          setMissing(true);
-          return;
-        }
-        // Only edit-ACL links jump into the editor. View / download stay here.
-        if (s.permission === 'edit' && s.viewerCanEdit) {
-          // Owner → live project when known; collaborators stay on the share doc.
-          const isOwner = Boolean(viewerId && s.ownerId === viewerId);
-          const src = String(s.sourceProjectId || '').trim();
-          const dest = isOwner && src ? src : s.id;
-          navigate(`/editor/${encodeURIComponent(dest)}`, { replace: true });
-          return;
-        }
-        if (!s.viewerCanView || !s.document) {
-          setRecord(s);
-          setForbidden(true);
-          return;
-        }
-        setRecord(s);
-        docFingerprintRef.current = shareDocumentFingerprint(s.document);
-        dispatch(setDocument(documentForSharePreview(normalizeDocument(s.document))));
-        dispatch(setSelectedNodeIds([]));
-        dispatch(setWorkspaceMode('dev'));
-        dispatch(setActiveTool('select'));
-      } catch {
-        if (!cancelled) {
-          setMissing(true);
-          setRecord(null);
-        }
-      }
+    hydratedShareIdRef.current = null;
+  }, [shareId]);
+
+  useEffect(() => {
+    if (!shareId || shareQuery.isPending) return;
+    if (shareQuery.isError) {
+      setMissing(true);
+      setRecord(null);
+      return;
     }
-    void loadShare();
-    return () => {
-      cancelled = true;
-    };
-  }, [shareId, dispatch, navigate, viewerId]);
+    const res = shareQuery.data as { share?: ShareDto } | undefined;
+    const s = res?.share;
+    if (!s) {
+      setMissing(true);
+      return;
+    }
+    // Only edit-ACL links jump into the editor. View / download stay here.
+    if (s.permission === 'edit' && s.viewerCanEdit) {
+      const isOwner = Boolean(viewerId && s.ownerId === viewerId);
+      const src = String(s.sourceProjectId || '').trim();
+      const dest = isOwner && src ? src : s.id;
+      navigate(`/editor/${encodeURIComponent(dest)}`, { replace: true });
+      return;
+    }
+    if (!s.viewerCanView || !s.document) {
+      setRecord(s);
+      setForbidden(true);
+      return;
+    }
+    setRecord(s);
+    setForbidden(false);
+    setMissing(false);
+    const fp = shareDocumentFingerprint(s.document);
+    const firstHydrate = hydratedShareIdRef.current !== shareId;
+    if (!fp) return;
+    if (!firstHydrate && fp === docFingerprintRef.current) return;
+    docFingerprintRef.current = fp;
+    const preview = documentForSharePreview(
+      normalizeDocument(coerceSceneDocumentInput(s.document))
+    );
+    if (firstHydrate) {
+      hydratedShareIdRef.current = shareId;
+      dispatch(setDocument(preview));
+      dispatch(setSelectedNodeIds([]));
+      dispatch(setWorkspaceMode('dev'));
+      dispatch(setActiveTool('select'));
+    } else {
+      dispatch(applyCollabDocument(preview));
+    }
+  }, [
+    shareId,
+    shareQuery.data,
+    shareQuery.isPending,
+    shareQuery.isError,
+    dispatch,
+    navigate,
+    viewerId,
+  ]);
 
   // Keep inspect mode sticky — other routes may flip workspaceMode back to design.
   useEffect(() => {
@@ -365,37 +400,26 @@ function SharePage() {
   useEffect(() => {
     if (!shareId || !record?.viewerCanView || missing || forbidden) return undefined;
     if (record.permission === 'edit' && record.viewerCanEdit) return undefined;
-    let cancelled = false;
-    async function pollShare() {
-      try {
-        const res = await fetchShareApi(shareId);
-        if (cancelled) return;
-        const s = res.share;
-        if (!s?.viewerCanView || !s.document) return;
-        const fp = shareDocumentFingerprint(s.document);
-        if (!fp || fp === docFingerprintRef.current) return;
-        docFingerprintRef.current = fp;
-        setRecord(s);
-        dispatch(applyCollabDocument(documentForSharePreview(normalizeDocument(s.document))));
-      } catch {
-        /* ignore */
-      }
-    }
     const poll = () => {
-      void pollShare();
+      void refetchShareRef.current();
     };
     const timer = window.setInterval(poll, SHARE_PREVIEW_POLL_MS);
-    const onFocus = () => poll();
-    window.addEventListener('focus', onFocus);
+    window.addEventListener('focus', poll);
     return () => {
-      cancelled = true;
       window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focus', poll);
     };
-  }, [shareId, record?.viewerCanView, record?.permission, record?.viewerCanEdit, missing, forbidden, dispatch]);
+  }, [
+    shareId,
+    record?.viewerCanView,
+    record?.permission,
+    record?.viewerCanEdit,
+    missing,
+    forbidden,
+  ]);
 
   const frames: ArtboardFrame[] = Array.isArray(document?.frames) ? document.frames : [];
-  // Disable RcbCanvas one-shot autofit — we fit to finished scene content below.
+  // Disable RcbCanvas one-shot autofit 鈥?we fit to finished scene content below.
   const worldBounds = { x: 0, y: 0, width: 0, height: 0 };
   const contentBounds = previewContentBounds(document, frames);
   const worldSurface = {

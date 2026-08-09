@@ -4,14 +4,15 @@
  */
 import {
   memo,
-  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineArrowPath } from 'react-icons/hi2';
 import { LuImages, LuPanelLeft } from 'react-icons/lu';
@@ -24,7 +25,8 @@ import {
   UserAssetMediaPreview,
   USER_ASSET_SKELETON_COUNT,
 } from '@/components/home/UserAssetMediaCard';
-import { deleteAsset, listAssets, type UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
+import { apiQuery } from '@/service/client';
 import { setMediaAssetDragData, clearMediaAssetDragData } from '@/utils/chatImageDrag';
 import { cn } from '@/utils/classnames';
 
@@ -82,18 +84,40 @@ function AssetPanel({
   mobile?: boolean;
 } = {}): ReactNode {
   const { t, i18n } = useTranslation();
-  const [items, setItems] = useState<UserAsset[]>([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [dockWidth, setDockWidth] = useState(ASSET_DOCK_DEFAULT_W);
   const [preview, setPreview] = useState<UserAsset | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserAsset | null>(null);
   const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
-  const loadSeq = useRef(0);
   const draggedRef = useRef(false);
+
+  const assetsQuery = useInfiniteQuery(
+    apiQuery.assetsListMyAssets.infiniteOptions({
+      input: (pageParam: number) => ({
+        query: { page: pageParam, pageSize: PAGE_SIZE },
+      }),
+      initialPageParam: 1,
+      getNextPageParam: (last: any) =>
+        last?.hasMore ? (last.page || 0) + 1 : undefined,
+    })
+  );
+
+  const items = useMemo(() => {
+    const pages = assetsQuery.data?.pages || [];
+    const out: UserAsset[] = [];
+    for (const page of pages) {
+      const raw = page as { items?: UserAsset[] };
+      for (const a of raw.items || []) {
+        if (isMediaKind(String(a.kind || ''))) out.push(a);
+      }
+    }
+    return out;
+  }, [assetsQuery.data?.pages]);
+
+  const loading = assetsQuery.isLoading;
+  const loadingMore = assetsQuery.isFetchingNextPage;
+  const hasMore = Boolean(assetsQuery.hasNextPage);
 
   useEffect(() => {
     setDockWidth(readStoredAssetDockWidth());
@@ -105,42 +129,11 @@ function AssetPanel({
     return () => window.removeEventListener('resize', onWinResize);
   }, []);
 
-  const loadPage = useCallback(
-    async (nextPage: number, replace: boolean) => {
-      const seq = ++loadSeq.current;
-      if (replace) setLoading(true);
-      else setLoadingMore(true);
-      try {
-        const res = await listAssets({
-          page: nextPage,
-          pageSize: PAGE_SIZE,
-        });
-        if (seq !== loadSeq.current) return;
-        const media = (res.items || []).filter((a) => isMediaKind(String(a.kind || '')));
-        setItems((prev) => (replace ? media : [...prev, ...media]));
-        setPage(res.page || nextPage);
-        setHasMore(Boolean(res.hasMore));
-      } catch (err) {
-        if (seq !== loadSeq.current) return;
-        console.warn('[assets] list failed', err);
-        message.error(
-          t('editor.assets.loadFail', { defaultValue: '资产加载失败' })
-        );
-        if (replace) setItems([]);
-      } finally {
-        if (seq === loadSeq.current) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
-      }
-    },
-    [t]
-  );
-
-  // Parent mounts AssetPanel only when the assets dock is opened (click).
   useEffect(() => {
-    void loadPage(1, true);
-  }, [loadPage]);
+    if (assetsQuery.isError) {
+      message.error(t('editor.assets.loadFail', { defaultValue: '璧勪骇鍔犺浇澶辫触' }));
+    }
+  }, [assetsQuery.isError, t]);
 
   const persistDockWidth = (w: number) => {
     const next = clampAssetDockWidth(w);
@@ -180,13 +173,29 @@ function AssetPanel({
     persistDockWidth(dockWidth);
   };
 
+  const deleteAssetMutation = useMutation(apiQuery.assetsDeleteMyAsset.mutationOptions());
+
   const onDelete = async (asset: UserAsset) => {
     const id = String(asset.id || '').trim();
     if (!id || busyId) return;
     setBusyId(id);
     try {
-      await deleteAsset(id);
-      setItems((prev) => prev.filter((a) => a.id !== id));
+      await deleteAssetMutation.mutateAsync({ params: { asset_id: id } });
+      queryClient.setQueriesData(
+        { queryKey: apiQuery.assetsListMyAssets.key() },
+        (old: unknown) => {
+          if (!old || typeof old !== 'object') return old;
+          const pages = (old as { pages?: Array<{ items?: UserAsset[] }> }).pages;
+          if (!pages) return old;
+          return {
+            ...old,
+            pages: pages.map((p) => ({
+              ...p,
+              items: (p.items || []).filter((a) => a.id !== id),
+            })),
+          };
+        }
+      );
       if (preview?.id === id) setPreview(null);
       setDeleteTarget(null);
       message.destructive(
@@ -267,12 +276,12 @@ function AssetPanel({
             <button
               type="button"
               aria-label={t('editor.assets.refresh', { defaultValue: '刷新' })}
-              disabled={loading}
-              onClick={() => void loadPage(1, true)}
+              disabled={loading || assetsQuery.isFetching}
+              onClick={() => assetsQuery.refetch()}
               className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-40"
             >
               <HiOutlineArrowPath
-                className={cn('h-4 w-4', loading && 'animate-spin')}
+                className={cn('h-4 w-4', (loading || assetsQuery.isFetching) && 'animate-spin')}
                 strokeWidth={1.75}
               />
             </button>
@@ -299,7 +308,7 @@ function AssetPanel({
           hasMore={hasMore}
           onLoadMore={() => {
             if (loading || loadingMore || !hasMore) return;
-            void loadPage(page + 1, false);
+            assetsQuery.fetchNextPage();
           }}
           isEmpty={items.length === 0}
           empty={
@@ -369,7 +378,7 @@ function AssetPanel({
               destructive
               disabled={Boolean(busyId)}
               onClick={() => {
-                if (deleteTarget) void onDelete(deleteTarget);
+                if (deleteTarget) onDelete(deleteTarget);
               }}
             >
               {t('editor.assets.delete', { defaultValue: '删除' })}

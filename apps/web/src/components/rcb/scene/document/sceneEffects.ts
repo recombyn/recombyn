@@ -1,3 +1,4 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 export function boolEffectAttr(v: unknown, fallback: boolean) {
   if (v == null) return fallback;
   return v === true || v === 'true';
@@ -35,17 +36,17 @@ export function hexWithOpacity(hex: string, opacityPct: number) {
   return `rgba(${r},${g},${b},${pct / 100})`;
 }
 
-export function resolveFillColor(node: any, fallback = '#FFFFFF') {
+export function resolveFillColor(node: SceneNodeInput, fallback = '#FFFFFF') {
   const attrs = node?.attrs || {};
   if (!boolEffectAttr(attrs['fill-enabled'], true)) return 'rgba(0,0,0,0)';
   const fill = attrs['fill-color'] ?? fallback;
   if (fill === 'transparent') return 'rgba(0,0,0,0)';
   const opacity = Number(attrs['fill-opacity'] ?? 100);
   if (!boolEffectAttr(attrs['fill-visible'], true)) return 'rgba(0,0,0,0)';
-  return hexWithOpacity(fill, opacity);
+  return hexWithOpacity(String(fill ?? fallback), opacity);
 }
 
-export function resolveStroke(node: any, fallback = '#333333') {
+export function resolveStroke(node: SceneNodeInput, fallback = '#333333') {
   const attrs = node?.attrs || {};
   if (!boolEffectAttr(attrs['stroke-enabled'], true) || !boolEffectAttr(attrs['stroke-visible'], true)) {
     return { stroke: 'transparent', strokeWidth: 0 };
@@ -70,7 +71,7 @@ export function resolveStrokeAlign(attrs: Record<string, unknown> | null | undef
   return 'center';
 }
 
-function strokePaintMeta(node: any): { align: StrokeAlign; strokeWidth: number } | null {
+function strokePaintMeta(node: SceneNodeInput): { align: StrokeAlign; strokeWidth: number } | null {
   if (!node) return null;
   const key = String(node.key || '');
   const shapeType = String(node.attrs?.shapeType || '');
@@ -108,7 +109,7 @@ function strokePaintMeta(node: any): { align: StrokeAlign; strokeWidth: number }
  * How far painted stroke extends **outside** the geometric box (≥ 0).
  * Hit-testing / outer-ink bounds — inside stroke stays within geom.
  */
-export function strokeVisualOutset(node: any): number {
+export function strokeVisualOutset(node: SceneNodeInput): number {
   const meta = strokePaintMeta(node);
   if (!meta) return 0;
   if (meta.align === 'inside') return 0;
@@ -122,7 +123,7 @@ export function strokeVisualOutset(node: any): number {
  * do not pad the blue box to outer ink. Move/snap still uses visual outer via
  * `strokeVisualOutset` / `inflateBoxByVisualOutset`.
  */
-export function strokeChromeOutset(node: any): number {
+export function strokeChromeOutset(node: SceneNodeInput): number {
   void node;
   return 0;
 }
@@ -134,7 +135,7 @@ export function strokeChromeOutset(node: any): number {
  * - center  → 0 (SVG stroke already straddles the path)
  * - inside  → −sw/2
  */
-export function strokeIndicatorOutset(node: any): number {
+export function strokeIndicatorOutset(node: SceneNodeInput): number {
   const meta = strokePaintMeta(node);
   if (!meta) return 0;
   const sw = meta.strokeWidth;
@@ -155,7 +156,7 @@ export type StrokeBandBox<T extends { left: number; top: number; width: number; 
 
 export function strokeBandGuideBoxes<
   T extends { left: number; top: number; width: number; height: number },
->(geom: T, node: any): StrokeBandBox<T>[] {
+>(geom: T, node: SceneNodeInput): StrokeBandBox<T>[] {
   void node;
   return [{ ...geom, face: 'path' }];
 }
@@ -177,21 +178,21 @@ function padBox<T extends { left: number; top: number; width: number; height: nu
 /** Selection chrome AABB from geometry (path only — chrome outset is 0). */
 export function inflateBoxByStrokeOutset<
   T extends { left: number; top: number; width: number; height: number },
->(box: T, node: any): T {
+>(box: T, node: SceneNodeInput): T {
   return padBox(box, strokeChromeOutset(node));
 }
 
 /** Inverse — selection chrome → stored geometry. */
 export function deflateBoxByStrokeOutset<
   T extends { left: number; top: number; width: number; height: number },
->(box: T, node: any): T {
+>(box: T, node: SceneNodeInput): T {
   return padBox(box, -strokeChromeOutset(node));
 }
 
 /** Outer-ink AABB from geometry (≥ geometry). For hit-testing thick strokes. */
 export function inflateBoxByVisualOutset<
   T extends { left: number; top: number; width: number; height: number },
->(box: T, node: any): T {
+>(box: T, node: SceneNodeInput): T {
   return padBox(box, strokeVisualOutset(node));
 }
 
@@ -204,7 +205,7 @@ function quantizeHalfPx(n: number) {
  * Outset as if stroke were painted (ignore current stroke-visible/enabled).
  * Used when turning stroke back on to inset geom again.
  */
-function strokeVisualOutsetAssumingPainted(node: any): number {
+function strokeVisualOutsetAssumingPainted(node: SceneNodeInput): number {
   if (!node) return 0;
   return strokeVisualOutset({
     ...node,
@@ -224,7 +225,7 @@ function strokeVisualOutsetAssumingPainted(node: any): number {
  * Skips open strokes / freehand / custom path `d` (AABB alone would not offset the curve).
  */
 export function geometryPatchForStrokeVisibilityToggle(
-  node: any,
+  node: SceneNodeInput,
   nextVisible: boolean
 ): { x: number; y: number; width: number; height: number } | null {
   if (!node) return null;
@@ -296,7 +297,7 @@ export const TEXT_SELECTION_PAD = 0;
 
 export function inflateBoxByTextSelectionPad<
   T extends { left: number; top: number; width: number; height: number },
->(box: T, node: any): T {
+>(box: T, node: SceneNodeInput): T {
   if (node?.key !== 'text') return box;
   const pad = TEXT_SELECTION_PAD;
   return {
@@ -310,7 +311,7 @@ export function inflateBoxByTextSelectionPad<
 
 export function deflateBoxByTextSelectionPad<
   T extends { left: number; top: number; width: number; height: number },
->(box: T, node: any): T {
+>(box: T, node: SceneNodeInput): T {
   if (node?.key !== 'text') return box;
   const pad = TEXT_SELECTION_PAD;
   return {
@@ -328,14 +329,14 @@ export function deflateBoxByTextSelectionPad<
  */
 export function inflateSelectionBox<
   T extends { left: number; top: number; width: number; height: number },
->(box: T, node: any): T {
+>(box: T, node: SceneNodeInput): T {
   return inflateBoxByStrokeOutset(inflateBoxByTextSelectionPad(box, node), node);
 }
 
 /** Inverse of inflateSelectionBox for geometry commits. */
 export function deflateSelectionBox<
   T extends { left: number; top: number; width: number; height: number },
->(box: T, node: any): T {
+>(box: T, node: SceneNodeInput): T {
   return deflateBoxByTextSelectionPad(deflateBoxByStrokeOutset(box, node), node);
 }
 
@@ -358,7 +359,7 @@ export type ShadowSpec = {
   offsetY: number;
 } | null;
 
-export function resolveShadow(node: any): ShadowSpec {
+export function resolveShadow(node: SceneNodeInput): ShadowSpec {
   const attrs = node?.attrs || {};
   if (!boolEffectAttr(attrs['shadow-enabled'], false) || !boolEffectAttr(attrs['shadow-visible'], true)) {
     return null;

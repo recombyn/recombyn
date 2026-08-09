@@ -1,1 +1,1 @@
-"""Skills, prompt packs, knowledge, tokens, and prompt builders."""
+"""Skills, prompt packs, tokens, and prompt builders."""

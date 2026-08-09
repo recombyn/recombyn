@@ -7,9 +7,11 @@ import reducer, {
 } from '@/store/modules/editor';
 import {
   createEmptyDocument,
-  createShapeNode,
-  addNodeToDocument,
+  addNodeToDocument
 } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createShapeNode
+} from '@/components/rcb/scene/document/nodeFactories';
 
 function seedWithPathNode() {
   let doc = createEmptyDocument({ emptyWorld: true });

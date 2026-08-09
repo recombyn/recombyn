@@ -1,7 +1,7 @@
-import { memo, type ReactNode } from 'react';
+﻿import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineBookOpen } from 'react-icons/hi2';
-import type { LlmModel } from '@/apis/chat';
+import type { LlmModel } from '@/service/chat';
 import {
   dedupeModelsById,
   isImageKind,
@@ -45,15 +45,15 @@ const MODEL_ICON_RULES: Array<{ test: (s: string) => boolean; src: string }> = [
   { test: (s) => s.includes('deepseek'), src: deepseek },
   { test: (s) => s.includes('seedream'), src: doubao },
   { test: (s) => s.includes('dreamina'), src: dreamina },
-  { test: (s) => s.includes('glm') || s.includes('zhipu') || s.includes('智谱'), src: glm },
-  { test: (s) => s.includes('doubao') || s.includes('豆包') || s.includes('seed-2'), src: doubao },
-  { test: (s) => s.includes('qwen') || s.includes('dashscope') || s.includes('通义'), src: qwen },
+  { test: (s) => s.includes('glm') || s.includes('zhipu') || s.includes('鏅鸿氨'), src: glm },
+  { test: (s) => s.includes('doubao') || s.includes('璞嗗寘') || s.includes('seed-2'), src: doubao },
+  { test: (s) => s.includes('qwen') || s.includes('dashscope') || s.includes('閫氫箟'), src: qwen },
   { test: (s) => s.includes('banana') || s.includes('gemini') || s.includes('google'), src: gemini },
   { test: (s) => s.includes('claude') || s.includes('anthropic'), src: claude },
   { test: (s) => s.includes('gpt') || s.includes('openai'), src: gptImage },
   { test: (s) => s.includes('flux'), src: flux },
   { test: (s) => s.includes('ideogram'), src: ideogram },
-  { test: (s) => s.includes('kling') || s.includes('可灵'), src: kling },
+  { test: (s) => s.includes('kling') || s.includes('鍙伒'), src: kling },
   { test: (s) => s.includes('sora'), src: sora },
   { test: (s) => s.includes('minimax'), src: minimax },
   { test: (s) => s.includes('eleven'), src: elevenlabs },
@@ -101,7 +101,7 @@ const MODEL_ICON_BY_KEY: Record<string, string> = {
   openrouter: gptImage,
 };
 
-/** Preset icons for BYOK / custom model forms — catalog model brands only. */
+/** Preset icons for BYOK / custom model forms 鈥?catalog model brands only. */
 export const CUSTOM_MODEL_ICON_OPTIONS: { key: string; label: string }[] = [
   { key: 'openai', label: 'GPT' },
   { key: 'claude', label: 'Claude' },
@@ -122,7 +122,7 @@ export const CUSTOM_MODEL_ICON_OPTIONS: { key: string; label: string }[] = [
   { key: 'lipsync', label: 'Lipsync' },
 ];
 
-/** Synthetic Auto row — same shape as API models. */
+/** Synthetic Auto row 鈥?same shape as API models. */
 export const AUTO_MODEL: LlmModel = {
   id: 'auto',
   label: 'Auto',
@@ -138,7 +138,7 @@ function resolveModelIconSrc(model?: ModelIconRef | null): string | null {
   const id = String(model?.id || '').toLowerCase().trim();
   const provider = String(model?.provider || '').toLowerCase().trim();
   const label = String(model?.label || '').toLowerCase().trim();
-  // Empty / Auto / no brand → no invent DeepSeek/Doubao art.
+  // Empty / Auto / no brand 鈫?no invent DeepSeek/Doubao art.
   if (!id && !provider && !label) return null;
   if (id === 'auto' || provider === 'system' || label === 'auto') return null;
   const blob = `${id} ${provider} ${label}`;
@@ -193,19 +193,19 @@ export const AGENT_POPOVER_PANEL = cn(
   'w-[min(420px,calc(100vw-24px))] overflow-hidden'
 );
 
-/** Route-prefs primary panel — 250px (opened via Dropdown). */
+/** Route-prefs primary panel 鈥?250px (opened via Dropdown). */
 export const AGENT_ROUTE_POPOVER_PANEL = cn(
   PANEL_SHELL,
   'w-[min(250px,calc(100vw-24px))] max-h-[min(480px,calc(100vh-24px))] overflow-x-hidden overflow-y-auto'
 );
 
-/** Route field / preset side flyout — 300px. */
+/** Route field / preset side flyout 鈥?300px. */
 export const AGENT_ROUTE_SUBMENU_PANEL = cn(
   PANEL_SHELL,
   'w-[min(300px,calc(100vw-24px))] max-h-[min(520px,calc(100vh-24px))] overflow-y-auto'
 );
 
-/** 1 = 便宜 · 2 = 适中 · 3 = 较贵 (matches catalog price bands). */
+/** 1 = 渚垮疁 路 2 = 閫備腑 路 3 = 杈冭吹 (matches catalog price bands). */
 export type ModelPriceLevel = 1 | 2 | 3;
 
 export function parseModelPriceAmount(raw?: string | null): number | null {
@@ -214,7 +214,7 @@ export function parseModelPriceAmount(raw?: string | null): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-/** Map catalog `price` → relative cost level for the orange dots. */
+/** Map catalog `price` 鈫?relative cost level for the orange dots. */
 export function modelPriceLevel(
   m: Pick<LlmModel, 'id' | 'kind' | 'price' | 'provider'> | null | undefined
 ): ModelPriceLevel | null {
@@ -226,13 +226,13 @@ export function modelPriceLevel(
     if (n <= 0.4) return 2;
     return 3;
   }
-  // Text: display 元/百万 tokens
+  // Text: display 鍏?鐧句竾 tokens
   if (n < 1) return 1;
   if (n < 8) return 2;
   return 3;
 }
 
-/** Orange-dot cost tag (title row, top-right) — same pattern as video model picker. */
+/** Orange-dot cost tag (title row, top-right) 鈥?same pattern as video model picker. */
 function ModelPriceTag({
   level,
   label,
@@ -258,7 +258,7 @@ function ModelPriceTag({
   );
 }
 
-/** Soft pill for meta labels (自定义 / 多模态) — matches saved-provider kind tags. */
+/** Soft pill for meta labels (鑷畾涔?/ 澶氭ā鎬? 鈥?matches saved-provider kind tags. */
 function ModelMetaBadge({ label }: { label: string }) {
   return (
     <span className="shrink-0 rounded-lg bg-[var(--accent-soft)] px-1.5 py-0.5 text-[11px] leading-none text-[var(--muted)]">
@@ -274,7 +274,7 @@ export function isUserCustomModel(
   return isCustomModelId(m.id) || m.provider === 'custom';
 }
 
-/** Dots + relative cost label (便宜 / 适中 / 较贵) — no raw ¥ amounts. */
+/** Dots + relative cost label (渚垮疁 / 閫備腑 / 杈冭吹) 鈥?no raw 楼 amounts. */
 export function modelPriceTagInfo(
   m: Pick<LlmModel, 'id' | 'kind' | 'price' | 'provider'> | null | undefined,
   t: (key: string, opts?: Record<string, unknown>) => string
@@ -312,12 +312,12 @@ export function modelDescription(
 type Props = {
   /** Filters the list: design (=agent/ask) vs image models. */
   tab: ModelPickerTab;
-  /** Optional — kept for callers; mode switch lives in the composer toolbar. */
+  /** Optional 鈥?kept for callers; mode switch lives in the composer toolbar. */
   onTabChange?: (tab: ModelPickerTab) => void;
   models: LlmModel[];
   selectedId: string;
   onPick: (id: string) => void;
-  /** idle | loading | ready | error — drives empty / loading / error copy. */
+  /** idle | loading | ready | error 鈥?drives empty / loading / error copy. */
   status?: 'idle' | 'loading' | 'ready' | 'error';
   /** Free plan: show all models; only Auto + fixed free image model are selectable. */
   autoOnly?: boolean;
@@ -327,15 +327,15 @@ type Props = {
   hideAuto?: boolean;
   /** Use `models` as-is (route field opts already filtered). */
   useModelsAsIs?: boolean;
-  /** Show Cheap/Fair/Costly dots — default on (same as route submenu). */
+  /** Show Cheap/Fair/Costly dots 鈥?default on (same as route submenu). */
   showPrice?: boolean;
   /**
-   * popover — standalone card (image/video mode).
-   * submenu — narrower card beside AgentRoutePrefsEditor rows.
-   * plain — list only (parent supplies chrome / Back).
+   * popover 鈥?standalone card (image/video mode).
+   * submenu 鈥?narrower card beside AgentRoutePrefsEditor rows.
+   * plain 鈥?list only (parent supplies chrome / Back).
    */
   chrome?: 'popover' | 'submenu' | 'plain';
-  /** Called with pointerdown on a row — keep parent floating menus focused. */
+  /** Called with pointerdown on a row 鈥?keep parent floating menus focused. */
   onRowPointerDown?: (e: { preventDefault: () => void }) => void;
   className?: string;
 };
@@ -406,7 +406,7 @@ function listClassForChrome(
 }
 
 /**
- * Shared model picker — one list UI for home, editor, and route-prefs field submenus.
+ * Shared model picker 鈥?one list UI for home, editor, and route-prefs field submenus.
  */
 function ModelPickerPanel({
   tab,

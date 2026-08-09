@@ -1,6 +1,6 @@
 /**
- * Wallet display / catalog helpers — not Redux state.
- * Balance mutations live in `@/store/modules/wallet`.
+ * Wallet display / catalog helpers — not app state.
+ * Balance / plan SoT: TanStack Query via `@/service/wallet`.
  *
  * Unified currency: **积分** (API field `tokens` / `credits` — same balance).
  * Chat, Agent, and image gen all deduct from one wallet.

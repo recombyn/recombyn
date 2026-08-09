@@ -6,14 +6,27 @@ import {
   setDocumentCanvasMeta,
   setDocumentSize,
   updateNodeInDocument,
+  mergeNodePatch,
   alignImportedDocumentOrigin,
   mergeImportedIntoDocument,
   ensureDocumentContentOnCanvas,
+  addNodeToDocument,
+  removeNodesFromDocument
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
   clearImageProcessAttrs,
   spawnImageProcessNode,
   spawnImportPlaceholderNode,
   spawnImageUploadPlaceholderNode,
   spawnVideoUploadPlaceholderNode,
+  promoteImageGeneratorToImage,
+  promoteVideoGeneratorToVideo,
+  promoteLottieGeneratorToLottie,
+  promoteAudioGeneratorToAudio,
+  applyImageDecomposeLayers,
+  detachImageVariantToNode
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
   createImageGeneratorNode,
   createVideoGeneratorNode,
   createLottieNode,
@@ -21,31 +34,41 @@ import {
   createAudioNode,
   createAudioGeneratorNode,
   createImageNode,
-  createVideoNode,
-  promoteImageGeneratorToImage,
-  promoteVideoGeneratorToVideo,
-  promoteLottieGeneratorToLottie,
-  promoteAudioGeneratorToAudio,
-  addNodeToDocument,
-  removeNodesFromDocument,
-  isEphemeralUploadNode,
-  applyImageDecomposeLayers,
-  detachImageVariantToNode,
-} from '@/components/rcb/scene/document/sceneDocument';
+  createVideoNode
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
+  isEphemeralUploadNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   loadTemplates,
   saveTemplates,
-  isOwnedTemplate,
   isSessionTemplate,
 } from '@/utils/templatesStorage';
 import type { TemplateSource } from '@/utils/templatesStorage';
 import {
-  normalizeProjectThumbnailUrls,
   purgeLegacyCustomThumbCache,
 } from '@/utils/projectThumb';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
+import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
+import {
+  asHistoryEntry,
+  cloneDocument,
+  cloneNodeForHistory,
+  pushHistory,
+  pushNodePatchHistory,
+  restoreNodesIntoDocument,
+  scrubNodeIdsFromHistory,
+  type HistoryEntry,
+} from './editorHistory';
 
 export type { ArtboardFrame } from '@/components/rcb/frames/types';
+export type { SceneDocument } from '@/components/rcb/sceneNode';
+
+/** Import / hydrate: Zod at boundary, then align/normalize for legacy. */
+function documentFromExternalPayload(raw: unknown): SceneDocument {
+  return alignImportedDocumentOrigin(coerceSceneDocumentInput(raw));
+}
 
 /** Side panel / toolbar kinds for image tools. */
 export type ImageToolPanelKind =
@@ -113,7 +136,7 @@ export const EMPTY_ID_LIST: string[] = [];
 const initialState = {
   templates,
   currentId: null as string | null,
-  document: null as any,
+  document: null as SceneDocument | null,
   selectedNodeId: null as string | null,
   selectedNodeIds: [] as string[],
   /** Multi artboard selection (UI); document.activeFrameId is the primary. */
@@ -123,8 +146,8 @@ const initialState = {
   documentPatchToken: 0,
   /** Node ids last touched by `patchDocumentNode` — SvgCanvas refreshes these even with no selection. */
   lastPatchedNodeIds: [] as string[],
-  historyPast: [] as any[],
-  historyFuture: [] as any[],
+  historyPast: [] as HistoryEntry[],
+  historyFuture: [] as HistoryEntry[],
   activeTool: 'select' as string,
   /** Local grid snap + overlay (session-persisted; not in cloud document). */
   isGridMode: false,
@@ -160,8 +183,8 @@ const initialState = {
     fillColor: '#333333',
     fillOpacity: 100,
   },
-  /** Decorative stamp brush for pencil (solid = ink path). */
-  pencilBrushId: 'solid' as string,
+  /** Pencil brush wheel selection (default = first: 矢量墨线). */
+  pencilBrushId: 'vector-ink' as string,
   /** When true, pencil tool erases existing pencil strokes instead of drawing. */
   pencilEraseMode: false,
   /** When true, pencil uses stylus/touch pressure (+ brush speed sim). */
@@ -185,135 +208,6 @@ const initialState = {
   /** Delivered once after a successful pick; composers consume and clear. */
   pendingCanvasAttach: null as null | { target: string; payload: string | string[] },
 };
-
-/** Soft cap — prefer bytes over entry count for heavy path docs. */
-const HISTORY_MAX_ENTRIES = 50;
-const HISTORY_MAX_BYTES = 64 * 1024 * 1024;
-
-/** Full-doc snapshot (structural ops) or before-nodes for patch undo. */
-type HistorySnap = { kind: 'snap'; doc: any };
-type HistoryNodes = { kind: 'nodes'; before: Record<string, any> };
-type HistoryEntry = HistorySnap | HistoryNodes;
-
-function isHistoryEntry(x: any): x is HistoryEntry {
-  return Boolean(x && typeof x === 'object' && (x.kind === 'snap' || x.kind === 'nodes'));
-}
-
-/** Accept legacy raw-document entries still sitting in session state. */
-function asHistoryEntry(x: any): HistoryEntry {
-  if (isHistoryEntry(x)) return x;
-  return { kind: 'snap', doc: x };
-}
-
-function cloneNodeForHistory(node: any) {
-  if (!node || typeof node !== 'object') return node;
-  const attrs = node.attrs;
-  return {
-    ...node,
-    attrs: attrs && typeof attrs === 'object' ? { ...attrs } : attrs,
-    children: Array.isArray(node.children) ? [...node.children] : node.children,
-  };
-}
-
-/** Rough node payload; `seenPaths` dedupes shared path strings across the stack. */
-function estimateNodeBytes(node: any, seenPaths?: Set<string>): number {
-  if (!node) return 0;
-  const attrs = node.attrs;
-  if (!attrs) return 128;
-  const path = attrs.path != null ? String(attrs.path) : '';
-  const d = attrs.d != null ? String(attrs.d) : '';
-  let n = 192;
-  if (path) {
-    if (!seenPaths) n += path.length;
-    else if (!seenPaths.has(path)) {
-      seenPaths.add(path);
-      n += path.length;
-    }
-  }
-  if (d && d !== path) {
-    if (!seenPaths) n += d.length;
-    else if (!seenPaths.has(d)) {
-      seenPaths.add(d);
-      n += d.length;
-    }
-  }
-  return n;
-}
-
-function estimateDocumentBytes(doc: any, seenPaths?: Set<string>): number {
-  if (!doc?.deltaSetLike) return 0;
-  let n = 0;
-  for (const id of Object.keys(doc.deltaSetLike)) {
-    n += estimateNodeBytes(doc.deltaSetLike[id], seenPaths);
-  }
-  return n;
-}
-
-function estimateHistoryEntryBytes(entry: any, seenPaths?: Set<string>): number {
-  const e = asHistoryEntry(entry);
-  if (e.kind === 'nodes') {
-    let n = 64;
-    for (const id of Object.keys(e.before)) {
-      n += estimateNodeBytes(e.before[id], seenPaths);
-    }
-    return n;
-  }
-  return estimateDocumentBytes(e.doc, seenPaths);
-}
-
-/**
- * History snapshot with structural sharing of immutable path strings.
- * Avoids JSON.parse(JSON.stringify) which dominated edit cost at 5k–10k nodes.
- */
-function cloneDocumentForHistory(doc: any) {
-  if (!doc) return null;
-  const delta = doc.deltaSetLike || {};
-  const nextDelta: Record<string, unknown> = {};
-  for (const key of Object.keys(delta)) {
-    const node = delta[key];
-    if (!node || typeof node !== 'object') {
-      nextDelta[key] = node;
-      continue;
-    }
-    nextDelta[key] = cloneNodeForHistory(node);
-  }
-  return {
-    ...doc,
-    frames: Array.isArray(doc.frames)
-      ? doc.frames.map((f: any) => (f && typeof f === 'object' ? { ...f } : f))
-      : doc.frames,
-    pages: Array.isArray(doc.pages)
-      ? doc.pages.map((p: any) =>
-          p && typeof p === 'object'
-            ? {
-                ...p,
-                children: Array.isArray(p.children) ? [...p.children] : p.children,
-              }
-            : p
-        )
-      : doc.pages,
-    stackOrder: Array.isArray(doc.stackOrder) ? [...doc.stackOrder] : doc.stackOrder,
-    deltaSetLike: nextDelta,
-  };
-}
-
-function cloneDocument(doc: any) {
-  return cloneDocumentForHistory(doc);
-}
-
-function trimHistoryPast(state: typeof initialState) {
-  while (state.historyPast.length > HISTORY_MAX_ENTRIES) state.historyPast.shift();
-  // Dedup path payloads across the stack (COW shares string identity/content).
-  const seen = new Set<string>();
-  let bytes = 0;
-  for (let i = state.historyPast.length - 1; i >= 0; i -= 1) {
-    bytes += estimateHistoryEntryBytes(state.historyPast[i], seen);
-    if (bytes > HISTORY_MAX_BYTES && i > 0) {
-      state.historyPast.splice(0, i);
-      break;
-    }
-  }
-}
 
 /** Stage fill lives on Redux; SvgCanvas view docs force transparent paper for hosts. */
 const STAGE_CANVAS_META_KEYS = [
@@ -342,42 +236,6 @@ function preserveStageCanvasMeta(prev: any, incoming: any) {
   return next;
 }
 
-function pushHistory(state: typeof initialState) {
-  if (!state.document) return;
-  state.historyPast.push({ kind: 'snap', doc: cloneDocument(state.document) } satisfies HistorySnap);
-  trimHistoryPast(state);
-  state.historyFuture = [];
-}
-
-/** Patch undo: store only touched nodes (share path strings with live doc). */
-function pushNodePatchHistory(state: typeof initialState, nodeIds: string[]) {
-  if (!state.document) return;
-  const before: Record<string, any> = {};
-  for (const raw of nodeIds) {
-    const id = String(raw || '');
-    if (!id) continue;
-    const node = state.document.deltaSetLike?.[id];
-    if (!node) continue;
-    before[id] = cloneNodeForHistory(node);
-  }
-  if (!Object.keys(before).length) {
-    pushHistory(state);
-    return;
-  }
-  state.historyPast.push({ kind: 'nodes', before } satisfies HistoryNodes);
-  trimHistoryPast(state);
-  state.historyFuture = [];
-}
-
-function restoreNodesIntoDocument(doc: any, nodes: Record<string, any>) {
-  if (!doc?.deltaSetLike || !nodes) return doc;
-  const nextDelta = { ...doc.deltaSetLike };
-  for (const id of Object.keys(nodes)) {
-    nextDelta[id] = nodes[id];
-  }
-  return { ...doc, deltaSetLike: nextDelta };
-}
-
 function clearSelection(state: typeof initialState) {
   state.selectedNodeId = null;
   state.selectedNodeIds = [];
@@ -395,33 +253,6 @@ function clearPendingProcessIfNodeGone(state: typeof initialState) {
   if (!state.document?.deltaSetLike?.[pending]) {
     state.pendingImageProcessId = null;
   }
-}
-
-/** Strip nodes from every history entry so Undo cannot revive them. */
-function scrubNodeIdsFromHistory(state: typeof initialState, ids: string[]) {
-  if (!ids.length) return;
-  const idSet = new Set(ids.map(String));
-  const scrub = (raw: any) => {
-    const entry = asHistoryEntry(raw);
-    if (entry.kind === 'nodes') {
-      let changed = false;
-      const before: Record<string, any> = { ...entry.before };
-      for (const id of idSet) {
-        if (id in before) {
-          delete before[id];
-          changed = true;
-        }
-      }
-      return changed ? { kind: 'nodes' as const, before } : entry;
-    }
-    const doc = entry.doc;
-    if (!doc?.deltaSetLike) return entry;
-    const hit = ids.some((id) => doc.deltaSetLike[id]);
-    if (!hit) return entry;
-    return { kind: 'snap' as const, doc: removeNodesFromDocument(doc, [...idSet]) };
-  };
-  state.historyPast = state.historyPast.map(scrub);
-  state.historyFuture = state.historyFuture.map(scrub);
 }
 
 const editorSlice = createSlice({
@@ -604,12 +435,14 @@ const editorSlice = createSlice({
     patchDocumentNode(state, action) {
       const { nodeId, patch, skipHistory } = action.payload || {};
       if (!state.document || !nodeId) return;
-      if (!skipHistory) pushNodePatchHistory(state, [String(nodeId)]);
-      // COW update — skip full JSON normalizeDocument (was 2× clone per edit).
-      state.document = updateNodeInDocument(state.document, nodeId, patch);
+      const id = String(nodeId);
+      if (!state.document.deltaSetLike?.[id]) return;
+      if (!skipHistory) pushNodePatchHistory(state, [id]);
+      // Immer draft: single-key write — O(1) structural share, no custom Proxy.
+      state.document.deltaSetLike[id] = mergeNodePatch(state.document.deltaSetLike[id], patch);
       state.dirty = true;
       state.documentPatchToken += 1;
-      state.lastPatchedNodeIds = [String(nodeId)];
+      state.lastPatchedNodeIds = [id];
       syncLibraryOnEdit(state);
     },
     /** Apply many node patches in one Redux write (align / distribute / flip). */
@@ -620,18 +453,17 @@ const editorSlice = createSlice({
       for (const item of patches) {
         if (item?.nodeId && item?.patch) ids.push(String(item.nodeId));
       }
+      if (!ids.length) return;
       if (!skipHistory) pushNodePatchHistory(state, ids);
-      let doc = state.document;
       const applied: string[] = [];
       for (const item of patches) {
-        const nodeId = item?.nodeId;
+        const id = item?.nodeId ? String(item.nodeId) : '';
         const patch = item?.patch;
-        if (!nodeId || !patch) continue;
-        doc = updateNodeInDocument(doc, nodeId, patch);
-        applied.push(String(nodeId));
+        if (!id || !patch || !state.document.deltaSetLike?.[id]) continue;
+        state.document.deltaSetLike[id] = mergeNodePatch(state.document.deltaSetLike[id], patch);
+        applied.push(id);
       }
       if (!applied.length) return;
-      state.document = doc;
       state.dirty = true;
       state.documentPatchToken += 1;
       state.lastPatchedNodeIds = applied;
@@ -943,7 +775,10 @@ const editorSlice = createSlice({
     applyCollabDocument(state, action) {
       if (!action.payload) return;
       state.document = normalizeDocument(
-        preserveStageCanvasMeta(state.document, action.payload)
+        preserveStageCanvasMeta(
+          state.document,
+          coerceSceneDocumentInput(action.payload)
+        )
       );
       state.dirty = false;
       state.sceneReloadToken += 1;
@@ -964,7 +799,10 @@ const editorSlice = createSlice({
       if (!patch || !state.document) return;
       if (patch.mode === 'full' && patch.scene) {
         state.document = normalizeDocument(
-          preserveStageCanvasMeta(state.document, patch.scene)
+          preserveStageCanvasMeta(
+            state.document,
+            coerceSceneDocumentInput(patch.scene)
+          )
         );
         state.dirty = false;
         state.sceneReloadToken += 1;
@@ -980,7 +818,7 @@ const editorSlice = createSlice({
         return;
       }
 
-      let doc: any = state.document;
+      let doc: SceneDocument = state.document;
       const touched: string[] = [];
 
       if (patch.meta && typeof patch.meta === 'object') {
@@ -992,7 +830,7 @@ const editorSlice = createSlice({
         patch.upsertNodes && typeof patch.upsertNodes === 'object' ? patch.upsertNodes : {};
       for (const [id, node] of Object.entries(upsertNodes)) {
         if (!id || id === 'ROOT' || !node || typeof node !== 'object') continue;
-        delta[id] = node;
+        delta[id] = node as unknown as SceneNode;
         touched.push(String(id));
       }
       for (const raw of Array.isArray(patch.removeNodeIds) ? patch.removeNodeIds : []) {
@@ -1007,7 +845,17 @@ const editorSlice = createSlice({
       if (Array.isArray(patch.pageChildren)) {
         const children = patch.pageChildren.map(String);
         const pageId = String(doc.activePageId || doc.pages?.[0]?.id || 'page');
-        delta.ROOT = { ...(delta.ROOT || {}), children };
+        delta.ROOT = {
+          id: 'ROOT',
+          key: 'entry',
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          attrs: {},
+          ...(delta.ROOT || {}),
+          children,
+        };
         const pages = Array.isArray(doc.pages) ? [...doc.pages] : [{ id: pageId, children }];
         if (pages[0]) pages[0] = { ...pages[0], id: pageId, children };
         else pages.push({ id: pageId, children });
@@ -1071,7 +919,7 @@ const editorSlice = createSlice({
           (t: any) => t.originCaseId === originCaseId && t.source === 'case'
         );
         if (existing) {
-          const doc = alignImportedDocumentOrigin(payload.document);
+          const doc = documentFromExternalPayload(payload.document);
           doc.activeFrameId = null;
           existing.document = doc;
           existing.name = payload.name || existing.name || '导入作品';
@@ -1090,7 +938,7 @@ const editorSlice = createSlice({
       }
 
       const id = payload.id ? String(payload.id) : nanoid();
-      const doc = alignImportedDocumentOrigin(payload.document);
+      const doc = documentFromExternalPayload(payload.document);
       // Inspiration / import → editor: do not pre-select an artboard.
       doc.activeFrameId = null;
       const existingById = state.templates.find((t: any) => t.id === id);
@@ -1182,9 +1030,9 @@ const editorSlice = createSlice({
       }
 
       if (!state.document) {
-        state.document = alignImportedDocumentOrigin(incoming);
+        state.document = alignImportedDocumentOrigin(coerceSceneDocumentInput(incoming));
       } else {
-        state.document = mergeImportedIntoDocument(state.document, incoming, {
+        state.document = mergeImportedIntoDocument(state.document, coerceSceneDocumentInput(incoming), {
           offsetX,
           offsetY,
         });
@@ -1203,21 +1051,22 @@ const editorSlice = createSlice({
         if (state.selectedNodeId === id) clearSelection(state);
       }
       state.pendingImportPlaceholderId = null;
-      // Clear artboard-level generating chrome (design agent uses frames, not nodes).
-      if (state.document) {
-        const frames = Array.isArray(state.document.frames) ? state.document.frames : [];
-        let cleared = false;
-        for (const f of frames) {
-          if (!f || String(f.processStatus || '') !== 'running') continue;
-          delete f.processStatus;
-          delete f.processLabel;
-          delete f.processKind;
-          cleared = true;
-        }
-        if (cleared) {
-          state.document = { ...state.document, frames: [...frames] };
-          state.dirty = true;
-        }
+    },
+    /** Clear artboard process shimmer / pill (design agent cover). */
+    clearArtboardGenerating(state) {
+      if (!state.document) return;
+      const frames = Array.isArray(state.document.frames) ? state.document.frames : [];
+      let cleared = false;
+      for (const f of frames) {
+        if (!f || String(f.processStatus || '') !== 'running') continue;
+        delete f.processStatus;
+        delete f.processLabel;
+        delete f.processKind;
+        cleared = true;
+      }
+      if (cleared) {
+        state.document = { ...state.document, frames: [...frames] };
+        state.dirty = true;
       }
     },
     /** Merge PDF/image parse result into the open canvas. */
@@ -1225,10 +1074,11 @@ const editorSlice = createSlice({
       const incoming = action.payload?.document;
       if (!incoming) return;
       pushHistory(state);
+      const coerced = coerceSceneDocumentInput(incoming);
       if (!state.document) {
-        state.document = alignImportedDocumentOrigin(incoming);
+        state.document = alignImportedDocumentOrigin(coerced);
       } else {
-        state.document = mergeImportedIntoDocument(state.document, incoming, {
+        state.document = mergeImportedIntoDocument(state.document, coerced, {
           offsetX: Number(action.payload?.offsetX) || 40,
           offsetY: Number(action.payload?.offsetY) || 40,
         });
@@ -1285,109 +1135,8 @@ const editorSlice = createSlice({
       else if (custom === false) item.thumbnailCustom = false;
     },
     /**
-     * Replace owned Projects from GET /projects (cloud is source of truth).
-     * Keeps in-memory case/scratch sessions; preserves the open owned doc if still editing.
-     */
-    hydrateRemoteProjects(state, action) {
-      purgeLegacyCustomThumbCache();
-      const rows = Array.isArray(action.payload) ? action.payload : [];
-      const prevById = new Map(state.templates.map((t: any) => [t.id, t]));
-      const sessions = state.templates.filter((t: any) => isSessionTemplate(t));
-
-      const remoteItems = rows
-        .filter((row: any) => row?.id)
-        .map((row: any) => {
-          const prev = prevById.get(row.id);
-          // Cloud owns custom flag + cover URL. Never prefer local data: over list.
-          const thumbnailCustom = Boolean(row.thumbnailCustom);
-          return {
-            id: row.id,
-            name: row.name || prev?.name || 'Untitled',
-            // Keep in-memory document if we already loaded/edited this project.
-            document: prev?.document ?? null,
-            thumbnail: (() => {
-              const remote = normalizeProjectThumbnailUrls(
-                row.thumbnailUrl,
-                row.updatedAt
-              );
-              if (remote.length) return remote.length === 1 ? remote[0] : remote;
-              const prevThumb = prev?.thumbnail;
-              if (Array.isArray(prevThumb) && prevThumb.length) return prevThumb;
-              return typeof prevThumb === 'string' ? prevThumb : null;
-            })(),
-            thumbnailCustom,
-            createdAt: row.createdAt || prev?.createdAt || Date.now(),
-            updatedAt: row.updatedAt || prev?.updatedAt || Date.now(),
-            openedAt: prev?.openedAt || row.updatedAt || Date.now(),
-            source: 'user' as const,
-            remoteOnly: !prev?.document && Boolean(row.hasDocument),
-          };
-        });
-
-      // If user is editing an owned project not yet returned by list, keep it.
-      const current = state.currentId ? prevById.get(state.currentId) : null;
-      if (
-        current &&
-        isOwnedTemplate(current) &&
-        !remoteItems.some((r: any) => r.id === current.id)
-      ) {
-        remoteItems.unshift(current);
-      }
-
-      remoteItems.sort(
-        (a: any, b: any) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)
-      );
-      state.templates = [...remoteItems, ...sessions];
-      saveTemplates();
-    },
-    /** Append / upsert cloud project rows without dropping already-loaded pages. */
-    appendRemoteProjects(state, action) {
-      purgeLegacyCustomThumbCache();
-      const rows = Array.isArray(action.payload) ? action.payload : [];
-      if (!rows.length) return;
-      const prevById = new Map(state.templates.map((t: any) => [t.id, t]));
-      const sessions = state.templates.filter((t: any) => isSessionTemplate(t));
-      const owned = state.templates.filter((t: any) => isOwnedTemplate(t));
-      const byId = new Map(owned.map((t: any) => [t.id, t]));
-
-      for (const row of rows) {
-        if (!row?.id) continue;
-        const prev = byId.get(row.id) || prevById.get(row.id);
-        const thumbnailCustom = Boolean(row.thumbnailCustom);
-        const remote = normalizeProjectThumbnailUrls(row.thumbnailUrl, row.updatedAt);
-        const prevThumb = prev?.thumbnail;
-        byId.set(row.id, {
-          id: row.id,
-          name: row.name || prev?.name || 'Untitled',
-          document: prev?.document ?? null,
-          thumbnail: remote.length
-            ? remote.length === 1
-              ? remote[0]
-              : remote
-            : Array.isArray(prevThumb) && prevThumb.length
-              ? prevThumb
-              : typeof prevThumb === 'string'
-                ? prevThumb
-                : null,
-          thumbnailCustom,
-          createdAt: row.createdAt || prev?.createdAt || Date.now(),
-          updatedAt: row.updatedAt || prev?.updatedAt || Date.now(),
-          openedAt: prev?.openedAt || row.updatedAt || Date.now(),
-          source: 'user' as const,
-          remoteOnly: !prev?.document && Boolean(row.hasDocument),
-        });
-      }
-
-      const remoteItems = Array.from(byId.values()).sort(
-        (a: any, b: any) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)
-      );
-      state.templates = [...remoteItems, ...sessions];
-      saveTemplates();
-    },
-    /**
-     * Drop in-memory project library + open document (logout / guest).
-     * hydrateRemoteProjects([]) alone can keep `currentId` owned rows — that
-     * left "Recent projects" populated after sign-out.
+     * Drop in-memory open project + sessions (logout / guest).
+     * Home / Mine lists live in Query — do not keep owned rows after sign-out.
      */
     clearProjectsLibrary(state) {
       purgeLegacyCustomThumbCache();
@@ -1409,7 +1158,7 @@ const editorSlice = createSlice({
       if (!state.historyPast.length || !state.document) return;
       const entry = asHistoryEntry(state.historyPast.pop());
       if (entry.kind === 'nodes') {
-        const after: Record<string, any> = {};
+        const after: Record<string, SceneNode> = {};
         for (const id of Object.keys(entry.before)) {
           const cur = state.document.deltaSetLike?.[id];
           if (cur) after[id] = cloneNodeForHistory(cur);
@@ -1419,10 +1168,13 @@ const editorSlice = createSlice({
         state.documentPatchToken += 1;
         state.lastPatchedNodeIds = Object.keys(entry.before);
       } else {
-        state.historyFuture.unshift({
-          kind: 'snap',
-          doc: cloneDocument(state.document),
-        });
+        const currentSnap = cloneDocument(state.document);
+        if (currentSnap) {
+          state.historyFuture.unshift({
+            kind: 'snap',
+            doc: currentSnap,
+          });
+        }
         state.document = entry.doc;
         state.sceneReloadToken += 1;
         state.lastPatchedNodeIds = [];
@@ -1440,7 +1192,7 @@ const editorSlice = createSlice({
       if (!state.historyFuture.length || !state.document) return;
       const entry = asHistoryEntry(state.historyFuture.shift());
       if (entry.kind === 'nodes') {
-        const before: Record<string, any> = {};
+        const before: Record<string, SceneNode> = {};
         for (const id of Object.keys(entry.before)) {
           const cur = state.document.deltaSetLike?.[id];
           if (cur) before[id] = cloneNodeForHistory(cur);
@@ -1450,7 +1202,10 @@ const editorSlice = createSlice({
         state.documentPatchToken += 1;
         state.lastPatchedNodeIds = Object.keys(entry.before);
       } else {
-        state.historyPast.push({ kind: 'snap', doc: cloneDocument(state.document) });
+        const currentSnap = cloneDocument(state.document);
+        if (currentSnap) {
+          state.historyPast.push({ kind: 'snap', doc: currentSnap });
+        }
         state.document = entry.doc;
         state.sceneReloadToken += 1;
         state.lastPatchedNodeIds = [];
@@ -1672,7 +1427,7 @@ const editorSlice = createSlice({
       const uploadKey = String(action.payload?.uploadKey || '').trim() || undefined;
       const prompt = String(action.payload?.prompt || '').trim();
       let id = '';
-      let node: any = null;
+      let node: SceneNode | null = null;
       if (kind === 'image') {
         const w = Math.max(1, Math.round(Number(action.payload?.width) || 360));
         const h = Math.max(1, Math.round(Number(action.payload?.height) || 360));
@@ -1922,7 +1677,7 @@ const editorSlice = createSlice({
       const nodeId = action.payload?.nodeId || state.pendingImageProcessId;
       const nextSrc = action.payload?.src as string | undefined;
       const layers = action.payload?.layers as
-        | import('@/components/rcb/scene/document/sceneDocument').DecomposeLayer[]
+        | import('@/components/rcb/scene/document/mediaLifecycle').DecomposeLayer[]
         | undefined;
       const sourceWidth = action.payload?.sourceWidth as number | undefined;
       const sourceHeight = action.payload?.sourceHeight as number | undefined;
@@ -2187,12 +1942,11 @@ export const {
   startImportPlaceholder,
   finishImportPlaceholder,
   cancelImportPlaceholder,
+  clearArtboardGenerating,
   deleteTemplate,
   deleteTemplates,
   renameTemplateById,
   setTemplateThumbnail,
-  hydrateRemoteProjects,
-  appendRemoteProjects,
   clearProjectsLibrary,
   undo,
   redo,

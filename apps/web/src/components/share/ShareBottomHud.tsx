@@ -8,6 +8,7 @@ import EditorMinimap from '@/components/editor/chrome/EditorMinimap';
 import type { ArtboardFrame } from '@/store/modules/editor';
 import type { RcbCamera as CanvasCamera } from '@/components/rcb';
 import { cn } from '@/utils/classnames';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 const ZOOM_TRIGGER_BASE =
   'inline-flex h-7 min-w-[2.75rem] items-center justify-center gap-1.5 rounded px-2.5 transition-colors';
@@ -45,7 +46,7 @@ function zoomMenuSelectedKeys(opts: { zoom: number; fitActive: boolean }): strin
 }
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   frames: ArtboardFrame[];
   camera: CanvasCamera;
   stageEl: HTMLElement | null;

@@ -26,6 +26,7 @@ import {
   unregisterShapeHost,
   updateShapeHostElement,
 } from '@/components/rcb/shapes/shapeHostRegistry';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function hostJumpLog(event: string, data: Record<string, unknown> = {}) {
   const row = { event, t: Math.round(performance.now()), ...data };
@@ -41,7 +42,7 @@ function hostJumpLog(event: string, data: Record<string, unknown> = {}) {
 
 type Props = {
   nodeId: string;
-  document: any;
+  document: SceneDocument;
   /** Paint order among siblings (ROOT.children index). */
   zIndex: number;
   /** Bumps force a full remount / redraw of this host. */

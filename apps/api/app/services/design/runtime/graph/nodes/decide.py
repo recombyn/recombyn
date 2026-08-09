@@ -10,7 +10,6 @@ from langgraph.types import Command
 from app.services.design.runtime.graph.state import (
     AgentRunState,
     AgentRuntime,
-    DecideTurnSchema,
     GraphState,
     _DEFAULT_MAX_ROUNDS,
 )
@@ -41,6 +40,7 @@ from app.services.design.runtime.graph.support import (
 )
 from app.services.design.runtime.host import assemble_stage_system
 from app.services.design.runtime.host.resources import load_deferred_resources
+from app.services.design.runtime.agent_profile import resolve_contract_schema
 
 async def _node_resource(state: GraphState) -> Command:
     rt = state["rt"]
@@ -136,13 +136,14 @@ async def _node_design_agent(state: GraphState) -> Command:
                 and not turn.get("reply")
                 and not turn.get("need_tools")
                 and not turn.get("need_skills")
+                and not turn.get("need_subagents")
             ):
                 from app.services.llm import build_user_message_content
                 from app.services.llm.agent import ainvoke_structured
 
                 user_content = build_user_message_content(user_msg, turn_images)
                 structured_out = await ainvoke_structured(
-                    schema=DecideTurnSchema,
+                    schema=resolve_contract_schema("decide"),
                     messages=[{"role": "user", "content": user_content}],
                     model=st.family,
                     system=lc_system,
@@ -237,10 +238,30 @@ async def _node_design_agent(state: GraphState) -> Command:
 
         need_any = bool(
             turn.get("need_tools")
-            or turn.get("need_knowledge")
             or turn.get("need_skills")
-            or turn.get("need_aesthetics")
+            or turn.get("need_subagents")
         )
+        if not need_any:
+            # Auto-triggers (vision_scout / research) even when model omitted need_*.
+            from app.services.design.runtime.host.resources import _canvas_is_empty
+            from app.services.design.runtime.subagent import resolve_auto_need_subagents
+            from app.services.design.runtime.agent_profile import (
+                get_active_agent_profile,
+            )
+
+            auto = resolve_auto_need_subagents(
+                profile=get_active_agent_profile(),
+                has_images=bool(rt.images),
+                empty_canvas=_canvas_is_empty(rt),
+                intent=str(intent or rt.classified_intent or "create"),
+                prompt_chars=len(str(rt.prompt or "").strip()),
+                already=list(getattr(st, "subagents_loaded", None) or []),
+                existing=[],
+            )
+            if auto:
+                turn["need_subagents"] = auto
+                rt.turn = turn
+                need_any = True
         if need_any:
             await _node_resource(state)
             # Ask: after tools/skills land, decide again (clarify or paint).

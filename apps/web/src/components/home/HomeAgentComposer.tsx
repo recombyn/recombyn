@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
   FloatingPortal,
@@ -11,7 +12,8 @@ import {
   useInteractions,
 } from '@floating-ui/react';
 import { HiOutlineBookOpen } from 'react-icons/hi2';
-import { listModels, type LlmModel } from '@/apis/chat';
+import type { LlmModel, ChatModelsResponse } from '@/service/chat';
+import { apiQuery, queryClient } from '@/service/client';
 import {
   agentAttachmentLimit,
   cloudImageFallbackId,
@@ -56,7 +58,9 @@ import {
 } from '@/components/editor/panels/agent/AgentModelsPanel';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import { cn } from '@/utils/classnames';
-import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick, type PlanId } from '@/utils/wallet';import { nanoid } from 'nanoid';
+import { useWalletSnapshot } from '@/service/wallet';
+import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick } from '@/utils/wallet';
+import { nanoid } from 'nanoid';
 import {
   deleteUploadedFile,
   readFileAsDataUrl,
@@ -64,7 +68,6 @@ import {
 } from '@/utils/uploadImage';
 import { message, Dropdown } from '@/components/base';
 import AppLogo from '@/components/base/AppLogo';
-import { useSelector } from 'react-redux';
 import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
 
 export type HomeAgentCategory =
@@ -88,7 +91,7 @@ function exampleChipKeysForCategory(category: HomeAgentCategory): readonly strin
   return EXAMPLE_CHIPS_BY_CATEGORY[category] || EXAMPLE_CHIPS_BY_CATEGORY.poster;
 }
 
-/** Pixso-style capability promo — opens from「AI能做什么」. */
+/** Pixso-style capability promo 鈥?opens from銆孉I鑳藉仛浠€涔堛€? */
 function HomeAiCapabilityCard(): ReactNode {
   const { t } = useTranslation();
   return (
@@ -104,7 +107,7 @@ function HomeAiCapabilityCard(): ReactNode {
         }}
       >
         <div className="relative z-[1] inline-flex items-center gap-2 text-[#141414]">
-          {/* Header stay light — always use dark mark + dark type. */}
+          {/* Header stay light 鈥?always use dark mark + dark type. */}
           <AppLogo size={28} scheme="dark" />
           <span
             className="text-[18px] font-semibold tracking-tight text-[#141414]"
@@ -266,7 +269,7 @@ const TYPE_MS = 72;
 const DELETE_MS = 36;
 const HOLD_MS = 1800;
 
-/** Typewriter cycle through prompt phrases (type → hold → delete → next). */
+/** Typewriter cycle through prompt phrases (type 鈫?hold 鈫?delete 鈫?next). */
 function useTypewriterCycle(phrases: string[], enabled = true): string {
   const [index, setIndex] = useState(0);
   const [len, setLen] = useState(0);
@@ -301,7 +304,7 @@ function useTypewriterCycle(phrases: string[], enabled = true): string {
   return phrase.slice(0, len);
 }
 
-/** Home-page agent composer — same shell + model popover as editor AgentDock. */
+/** Home-page agent composer 鈥?same shell + model popover as editor AgentDock. */
 function HomeAgentComposer({
   onSubmit,
   className,
@@ -309,7 +312,7 @@ function HomeAgentComposer({
   onCategoryChange,
 }: Props): ReactNode {
   const { t, i18n } = useTranslation();
-  const planId = useSelector((s: any) => (s.wallet?.planId as PlanId) || 'free');
+  const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const [value, setValue] = useState('');
@@ -320,6 +323,7 @@ function HomeAgentComposer({
     modelTabForCategory(category)
   );
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [modelsWanted, setModelsWanted] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [mentionPanelOpen, setMentionPanelOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
@@ -374,18 +378,18 @@ function HomeAgentComposer({
 
   useEffect(() => {
     setImageAspectRatio(aspectRatioForCategory(category));
-    // Hero Image / Video tabs ↔ composer interaction chrome.
+    // Hero Image / Video tabs 鈫?composer interaction chrome.
     if (category === 'image') {
       leaveVideoMode();
-      void enterImageModeWithModels();
+      enterImageModeWithModels();
     } else if (category === 'video') {
       leaveImageMode();
-      void enterVideoModeWithModels();
+      enterVideoModeWithModels();
     } else {
       leaveImageMode();
       leaveVideoMode();
     }
-    // Only react to category — models list is read at switch time.
+    // Only react to category 鈥?models list is read at switch time.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [category, canPickModel]);
 
@@ -412,7 +416,7 @@ function HomeAgentComposer({
     const raw = t('home.composerPlaceholderPrompts', { returnObjects: true });
     return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
   }, [t, i18n.language, category]);
-  // Pause typewriter while the user has text/chips — avoids re-render storms during paste/typing.
+  // Pause typewriter while the user has text/chips 鈥?avoids re-render storms during paste/typing.
   const typewriterOn = !value.trim() && contexts.length === 0;
   const typedPrompt = useTypewriterCycle(placeholderPrompts, typewriterOn);
   const [caretOn, setCaretOn] = useState(true);
@@ -427,14 +431,57 @@ function HomeAgentComposer({
 
   const modelsInflightRef = useRef<Promise<LlmModel[]> | null>(null);
 
+  const modelsQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+    enabled: modelsWanted,
+  });
+
+  useEffect(() => {
+    if (!modelsWanted) return;
+    if (modelsQuery.isPending) {
+      setModelsStatus('loading');
+      return;
+    }
+    if (modelsQuery.isError) {
+      setModels([]);
+      setModelsStatus('error');
+      return;
+    }
+    if (!modelsQuery.isFetched) return;
+    const res = modelsQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModels([]);
+      setModelsStatus('error');
+      return;
+    }
+    warmOpenrouterAvailability(res.openrouterAvailable);
+    const list = normalizeModelList(res.models, res.imageModels, res.videoModels);
+    setModels(list);
+    setModelsStatus('ready');
+    setModelId((prev) => resolveModelIdAfterCatalogLoad(prev, list, canPickModel));
+  }, [
+    modelsWanted,
+    modelsQuery.data,
+    modelsQuery.isPending,
+    modelsQuery.isError,
+    modelsQuery.isFetched,
+    canPickModel,
+  ]);
+
   /** Models catalog — only when Image/Video mode or opening a model picker (not on home mount). */
   const ensureModelsLoaded = async (): Promise<LlmModel[]> => {
     if (modelsStatus === 'ready') return models;
     if (modelsInflightRef.current) return modelsInflightRef.current;
+    setModelsWanted(true);
     setModelsStatus('loading');
-    const pending = (async () => {
+
+    async function loadModels(): Promise<LlmModel[]> {
       try {
-        const res = await listModels();
+        const res = (await queryClient.ensureQueryData({
+          ...apiQuery.chatGetModels.queryOptions(),
+          staleTime: 60_000,
+        })) as ChatModelsResponse;
         warmOpenrouterAvailability(res?.openrouterAvailable);
         const list = normalizeModelList(res?.models, res?.imageModels, res?.videoModels);
         setModels(list);
@@ -448,7 +495,9 @@ function HomeAgentComposer({
       } finally {
         modelsInflightRef.current = null;
       }
-    })();
+    }
+
+    const pending = loadModels();
     modelsInflightRef.current = pending;
     return pending;
   };
@@ -521,7 +570,7 @@ function HomeAgentComposer({
         ),
         modelOpen: imageModelPanelOpen,
         onModelOpenChange: (next) => {
-          if (next) void ensureModelsLoaded();
+          if (next) ensureModelsLoaded();
           setImageModelPanelOpen(next);
         },
         modelPanel: (
@@ -568,7 +617,7 @@ function HomeAgentComposer({
         ),
         modelOpen: videoModelPanelOpen,
         onModelOpenChange: (next) => {
-          if (next) void ensureModelsLoaded();
+          if (next) ensureModelsLoaded();
           setVideoModelPanelOpen(next);
         },
         modelPanel: (
@@ -595,14 +644,14 @@ function HomeAgentComposer({
     onImageAspectRatioChange: setImageAspectRatio,
     aspectMenuPlacement: 'bottom-end' as const,
     aspectButtonPlacement: 'end' as const,
-    // Size panel has no "drawing" tab — use image presets (square canvases).
+    // Size panel has no "drawing" tab 鈥?use image presets (square canvases).
     designSceneCategory: designSceneCategoryOf(category),
     onDesignSceneChange: (scene: 'website' | 'mobile' | 'image' | 'poster' | null) => {
       // Same as editor: picking Image in the size panel enters Image chat chrome.
-      // Do not force default WxH here — SizePresetPanel already applied the picked size
-      // (resetting to 1080×1920 etc. made A0 / custom poster picks look like a no-op).
+      // Do not force default WxH here 鈥?SizePresetPanel already applied the picked size
+      // (resetting to 1080脳1920 etc. made A0 / custom poster picks look like a no-op).
       if (scene === 'image') {
-        void enterImageModeWithModels();
+        enterImageModeWithModels();
         return;
       }
       leaveImageMode();
@@ -792,7 +841,7 @@ function HomeAgentComposer({
                     /* ignore */
                   }
                 }
-                void purgeOrphanUpload();
+                purgeOrphanUpload();
               }
               return prev;
             }
@@ -827,7 +876,7 @@ function HomeAgentComposer({
             /* ignore */
           }
         }
-        void deleteRemovedAttachment();
+        deleteRemovedAttachment();
       }
     }
     setContexts(next);
@@ -910,7 +959,7 @@ function HomeAgentComposer({
         editor?.getBoundingClientRect() ??
         new DOMRect(),
     });
-    void mentionFloating.update();
+    mentionFloating.update();
   }, [mentionPanelOpen, mentionQuery, value, mentionFloating.refs, mentionFloating.update]);
 
   return (
@@ -947,12 +996,12 @@ function HomeAgentComposer({
         onInteractionModeChange={(mode) => {
           if (mode === 'image') {
             onCategoryChange?.('image');
-            void enterImageModeWithModels();
+            enterImageModeWithModels();
             return;
           }
           if (mode === 'video') {
             onCategoryChange?.('video');
-            void enterVideoModeWithModels();
+            enterVideoModeWithModels();
             return;
           }
           if (category === 'image' || category === 'video') {
@@ -984,7 +1033,7 @@ function HomeAgentComposer({
             }
             setModelOpen(next);
           },
-          // Dropdown keeps portal mounted when closed — only mount prefs (catalog/models) when open.
+          // Dropdown keeps portal mounted when closed 鈥?only mount prefs (catalog/models) when open.
           panel: modelOpen ? (
             <AgentRoutePrefsEditor compact modeLabel={t('agent.interactionAgent')} />
           ) : (

@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { parseAsStringLiteral, useQueryState } from 'nuqs';
+import { useQuery, useInfiniteQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { apiQuery } from '@/service/client';
 import { Icon } from '@/components/base/icon';
 import EditProfileDialog from '@/components/home/EditProfileDialog';
 import EmptyState from '@/components/home/EmptyState';
@@ -22,19 +25,10 @@ import {
 import SegmentTabs from '@/components/home/SegmentTabs';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { buildLoginUrl } from '@/utils/authReturnTo';
-import { deleteAsset, listAssets, type UserAsset } from '@/apis/assets';
+import type { UserAsset } from '@/models/assets';
 import {
-  fetchMyLiked,
-  likePlazaItem,
-  syncMyLiked,
-  unlikePlazaItem,
-} from '@/apis/me';
-import {
-  fetchMyPlazaSubmissions,
-  fetchPlazaItem,
   plazaDisplayCoverUrls,
-  recordPlazaUse,
-} from '@/apis/plaza';
+} from '@/models/plaza';
 import {
   caseAuthorLabel,
   resolveCaseTitle,
@@ -44,13 +38,20 @@ import {
 import { Button, Dialog, message } from '@/components/base';
 import { getToken } from '@/utils/token';
 
-/** Me profile feed — same scale as Skills: 2 → 3 → 4 → 5 (2xl). */
+/** Me profile feed 鈥?same scale as Skills: 2 鈫?3 鈫?4 鈫?5 (2xl). */
 const ME_FLOW_COLUMNS =
   'w-full columns-2 gap-4 md:columns-3 lg:columns-4 2xl:columns-5';
 
+const PAGE_SIZE = 20;
 const ASSETS_PAGE_SIZE = 30;
 
 type ProfileTab = 'published' | 'liked' | 'assets';
+
+const PROFILE_TABS = ['published', 'liked', 'assets'] as const;
+
+const meTabParser = parseAsStringLiteral(PROFILE_TABS)
+  .withDefault('published')
+  .withOptions({ history: 'replace', clearOnDefault: true });
 
 function isMediaAssetKind(kind: string): kind is 'image' | 'video' | 'audio' | 'lottie' {
   return kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'lottie';
@@ -64,7 +65,7 @@ type Props = {
 
 const LIKED_LOCAL_PREFIX = 'recombyn-liked-cases-v1:';
 
-/** One-shot migrate local likes → API, then clear localStorage. */
+/** One-shot migrate local likes 鈫?API, then clear localStorage. */
 function loadLocalLikedIds(userId: string): string[] {
   try {
     const raw = localStorage.getItem(`${LIKED_LOCAL_PREFIX}${userId}`);
@@ -134,8 +135,6 @@ function mapLikedItem(x: {
   };
 }
 
-const PAGE_SIZE = 20;
-
 function mapPublishedSubmission(x: {
   id: string;
   title: string;
@@ -170,284 +169,395 @@ function mapPublishedSubmission(x: {
   };
 }
 
-/** 「我的」页：资料区 + 已发布 / 我的喜欢 / 资产 — 卡片与预览同广场；资产跨项目。 */
+type PlazaMinePage = {
+  items?: Array<Parameters<typeof mapPublishedSubmission>[0] & { status?: string }>;
+};
+
+type LikedListPage = {
+  items?: Array<Parameters<typeof mapLikedItem>[0]>;
+  page?: number;
+  hasMore?: boolean;
+};
+
+type AssetsListPage = {
+  items?: UserAsset[];
+  page?: number;
+  hasMore?: boolean;
+};
+
+type PlazaItemPayload = {
+  item?: {
+    document?: unknown | null;
+    panelUrls?: OfficialCaseMeta['panelUrls'];
+  };
+};
+
+type LikeToggleResult = {
+  liked?: boolean;
+  likeCount?: number;
+};
+
+function applyPanelUrls<T extends OfficialCaseMeta>(
+  items: T[],
+  panelUrlsById: Record<string, OfficialCaseMeta['panelUrls']>
+): T[] {
+  if (!Object.keys(panelUrlsById).length) return items;
+  return items.map((c) => {
+    const panels = panelUrlsById[c.id];
+    return panels ? { ...c, panelUrls: panels } : c;
+  });
+}
+
+function patchMineLikeCount(
+  old: unknown,
+  submissionId: string,
+  wasLiked: boolean,
+  nowLiked: boolean,
+  serverCount: number
+): unknown {
+  const data = old as PlazaMinePage | null | undefined;
+  if (!data?.items) return old;
+  return {
+    ...data,
+    items: data.items.map((item) =>
+      item.id !== submissionId
+        ? item
+        : {
+            ...item,
+            likeCount: resolveNextLikeCount(
+              Number(item.likeCount) || 0,
+              wasLiked,
+              nowLiked,
+              serverCount
+            ),
+          }
+    ),
+  };
+}
+
+function patchLikedPages(
+  old: unknown,
+  submissionId: string,
+  wasLiked: boolean,
+  nowLiked: boolean,
+  serverCount: number
+): unknown {
+  const data = old as { pages?: LikedListPage[]; pageParams?: unknown } | null | undefined;
+  if (!data?.pages) return old;
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: nowLiked
+        ? (page.items || []).map((item) =>
+            item.id !== submissionId
+              ? item
+              : {
+                  ...item,
+                  likeCount: resolveNextLikeCount(
+                    Number(item.likeCount) || 0,
+                    wasLiked,
+                    nowLiked,
+                    serverCount
+                  ),
+                }
+          )
+        : (page.items || []).filter((item) => item.id !== submissionId),
+    })),
+  };
+}
+
+/** 銆屾垜鐨勩€嶉〉锛氳祫鏂欏尯 + 宸插彂甯?/ 鎴戠殑鍠滄 / 璧勪骇 鈥?鍗＄墖涓庨瑙堝悓骞垮満锛涜祫浜ц法椤圭洰銆?*/
 function MePage({ onOpenCase }: Props): ReactNode {
   const { t, i18n } = useTranslation();
   const user = useSelector((s: any) => s.auth.user);
   const navigate = useNavigate();
-  const [tab, setTab] = useState<ProfileTab>('published');
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useQueryState('meTab', meTabParser);
   const [editOpen, setEditOpen] = useState(false);
 
-  const [liked, setLiked] = useState<LikedCaseItem[]>([]);
-  const [likedPage, setLikedPage] = useState(1);
-  const [likedHasMore, setLikedHasMore] = useState(false);
-  const [likedLoading, setLikedLoading] = useState(false);
-  const [likedLoadingMore, setLikedLoadingMore] = useState(false);
-  /** First fetch done — skip skeleton when switching back to Liked. */
-  const [likedReady, setLikedReady] = useState(false);
-
-  const [publishedAll, setPublishedAll] = useState<OfficialCaseMeta[]>([]);
   const [publishedVisible, setPublishedVisible] = useState(PAGE_SIZE);
-  const [publishedLoading, setPublishedLoading] = useState(false);
   const [publishedLoadingMore, setPublishedLoadingMore] = useState(false);
-  /** First fetch done — skip skeleton when switching back to Published. */
-  const [publishedReady, setPublishedReady] = useState(false);
 
-  const [assets, setAssets] = useState<UserAsset[]>([]);
-  const [assetsPage, setAssetsPage] = useState(1);
-  const [assetsHasMore, setAssetsHasMore] = useState(false);
-  const [assetsLoading, setAssetsLoading] = useState(false);
-  const [assetsLoadingMore, setAssetsLoadingMore] = useState(false);
-  /** First fetch done — skip skeleton when switching back to Assets. */
-  const [assetsReady, setAssetsReady] = useState(false);
   const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
   const [assetPreview, setAssetPreview] = useState<UserAsset | null>(null);
   const [assetDeleteTarget, setAssetDeleteTarget] = useState<UserAsset | null>(null);
 
-  const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set());
   const [likeBusyId, setLikeBusyId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [docs, setDocs] = useState<Record<string, unknown>>({});
+  const [panelUrlsById, setPanelUrlsById] = useState<
+    Record<string, OfficialCaseMeta['panelUrls']>
+  >({});
   const [remixingId, setRemixingId] = useState<string | null>(null);
 
   const likedMigratedRef = useRef(false);
-  const likedFetchGen = useRef(0);
-  const assetsFetchGen = useRef(0);
-  const likedLoadedUserRef = useRef<string | null>(null);
-  const publishedLoadedUserRef = useRef<string | null>(null);
-  const assetsLoadedUserRef = useRef<string | null>(null);
 
   const displayName = user?.name || user?.email?.split('@')[0] || t('home.account');
   const userId = user?.id as string | undefined;
   const authed = Boolean(userId && getToken());
 
   useEffect(() => {
-    // New account session — allow first-fetch skeletons again.
-    likedLoadedUserRef.current = null;
-    publishedLoadedUserRef.current = null;
-    assetsLoadedUserRef.current = null;
-    setLikedReady(false);
-    setPublishedReady(false);
-    setAssetsReady(false);
-    setLiked([]);
-    setLikedIds(new Set());
-    setPublishedAll([]);
-    setAssets([]);
+    setPublishedVisible(PAGE_SIZE);
     setAssetPreview(null);
     setAssetDeleteTarget(null);
+    setPreviewId(null);
+    setPanelUrlsById({});
     likedMigratedRef.current = false;
   }, [userId]);
 
-  const loadLikedOnce = useCallback(async () => {
-    if (!authed || !userId) {
-      setLiked([]);
-      setLikedHasMore(false);
-      setLikedLoading(false);
-      setLikedReady(true);
-      return;
-    }
-    if (likedLoadedUserRef.current === userId) return;
-    likedLoadedUserRef.current = userId;
-    const gen = ++likedFetchGen.current;
-    setLikedLoading(true);
-    setLikedLoadingMore(false);
-    try {
-      if (!likedMigratedRef.current) {
-        const localIds = loadLocalLikedIds(userId);
-        if (localIds.length) {
-          await syncMyLiked(localIds);
-          clearLocalLiked(userId);
-        }
-        likedMigratedRef.current = true;
-      }
-      if (gen !== likedFetchGen.current) return;
-      const res = await fetchMyLiked({ page: 1, pageSize: PAGE_SIZE });
-      if (gen !== likedFetchGen.current) return;
-      const items = (res.items || []).map(mapLikedItem);
-      setLiked(items);
-      setLikedIds((prev) => {
-        const next = new Set(prev);
-        for (const item of items) next.add(item.id);
-        return next;
-      });
-      setLikedPage(1);
-      setLikedHasMore(Boolean(res.hasMore));
-    } catch {
-      if (gen === likedFetchGen.current) {
-        likedLoadedUserRef.current = null;
-        setLiked([]);
-        setLikedHasMore(false);
-        message.error(t('home.casesLoadFailed'));
-      }
-    } finally {
-      if (gen === likedFetchGen.current) {
-        setLikedLoading(false);
-        setLikedReady(true);
+  useEffect(() => {
+    if (!authed || !userId || likedMigratedRef.current) return;
+    async function migrateLocalLiked() {
+      const localIds = loadLocalLikedIds(userId!);
+      likedMigratedRef.current = true;
+      if (!localIds.length) return;
+      try {
+        await apiQuery.meMeLikedSync.call({ body: { ids: localIds } });
+        clearLocalLiked(userId!);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: apiQuery.meMeLikedList.key() }),
+          queryClient.invalidateQueries({ queryKey: apiQuery.meMeLikedIds.key() }),
+        ]);
+      } catch {
+        /* ignore migrate failures 鈥?list can still load */
       }
     }
-  }, [authed, userId, t]);
+    migrateLocalLiked();
+  }, [authed, userId, queryClient]);
 
-  const loadPublishedOnce = useCallback(async () => {
-    if (!userId) {
-      setPublishedAll([]);
-      setPublishedLoading(false);
-      setPublishedReady(true);
-      return;
-    }
-    if (publishedLoadedUserRef.current === userId) return;
-    publishedLoadedUserRef.current = userId;
-    setPublishedLoading(true);
-    setPublishedVisible(PAGE_SIZE);
-    setPublishedLoadingMore(false);
-    try {
-      const res = await fetchMyPlazaSubmissions();
-      const approved = (res.items || [])
+  const publishedQuery = useQuery({
+    ...apiQuery.plazaPlazaMine.queryOptions({
+      enabled: Boolean(userId),
+    }),
+    select: (data: unknown) => {
+      const res = data as PlazaMinePage;
+      return (res.items || [])
         .filter((x) => x.status === 'approved')
         .map(mapPublishedSubmission);
-      setPublishedAll(approved);
-    } catch {
-      publishedLoadedUserRef.current = null;
-      setPublishedAll([]);
-    } finally {
-      setPublishedLoading(false);
-      setPublishedReady(true);
-    }
-  }, [userId]);
+    },
+  });
 
-  const loadAssetsOnce = useCallback(async () => {
-    if (!userId) {
-      setAssets([]);
-      setAssetsHasMore(false);
-      setAssetsLoading(false);
-      setAssetsReady(true);
-      return;
-    }
-    if (assetsLoadedUserRef.current === userId) return;
-    assetsLoadedUserRef.current = userId;
-    const gen = ++assetsFetchGen.current;
-    setAssetsLoading(true);
-    setAssetsLoadingMore(false);
-    try {
-      const res = await listAssets({ page: 1, pageSize: ASSETS_PAGE_SIZE });
-      if (gen !== assetsFetchGen.current) return;
-      const media = (res.items || []).filter((a) =>
-        isMediaAssetKind(String(a.kind || ''))
+  const likedIdsQuery = useQuery({
+    ...apiQuery.meMeLikedIds.queryOptions({
+      enabled: Boolean(authed),
+    }),
+  });
+
+  const likedQuery = useInfiniteQuery(
+    apiQuery.meMeLikedList.infiniteOptions({
+      input: (pageParam: number) => ({
+        query: { page: pageParam, pageSize: PAGE_SIZE },
+      }),
+      initialPageParam: 1,
+      getNextPageParam: (last: any) =>
+        last?.hasMore ? (last.page || 0) + 1 : undefined,
+      enabled: tab === 'liked' && authed,
+    })
+  );
+
+  const assetsQuery = useInfiniteQuery(
+    apiQuery.assetsListMyAssets.infiniteOptions({
+      input: (pageParam: number) => ({
+        query: { page: pageParam, pageSize: ASSETS_PAGE_SIZE },
+      }),
+      initialPageParam: 1,
+      getNextPageParam: (last: any) =>
+        last?.hasMore ? (last.page || 0) + 1 : undefined,
+      enabled: tab === 'assets' && authed,
+    })
+  );
+
+  const previewItemQuery = useQuery({
+    ...apiQuery.plazaPlazaItem.queryOptions({
+      input: { params: { submission_id: previewId || '' } },
+      enabled: Boolean(previewId),
+    }),
+  });
+
+  useEffect(() => {
+    if (likedQuery.isError) message.error(t('home.casesLoadFailed'));
+  }, [likedQuery.isError, t]);
+
+  useEffect(() => {
+    if (assetsQuery.isError) message.error(t('me.assetsLoadFail'));
+  }, [assetsQuery.isError, t]);
+
+  useEffect(() => {
+    if (!previewId || !previewItemQuery.data) return;
+    const item = (previewItemQuery.data as PlazaItemPayload).item;
+    if (!item) return;
+    if (Array.isArray(item.panelUrls) && item.panelUrls.length) {
+      const panels = item.panelUrls;
+      setPanelUrlsById((prev) =>
+        prev[previewId] === panels ? prev : { ...prev, [previewId]: panels }
       );
-      setAssets(media);
-      setAssetsPage(res.page || 1);
-      setAssetsHasMore(Boolean(res.hasMore));
-    } catch {
-      if (gen !== assetsFetchGen.current) return;
-      assetsLoadedUserRef.current = null;
-      setAssets([]);
-      setAssetsHasMore(false);
-      message.error(t('me.assetsLoadFail'));
-    } finally {
-      if (gen === assetsFetchGen.current) {
-        setAssetsLoading(false);
-        setAssetsReady(true);
+    }
+  }, [previewId, previewItemQuery.data]);
+
+  const likedIds = useMemo(() => {
+    const ids = (likedIdsQuery.data as { ids?: string[] } | undefined)?.ids || [];
+    return new Set(ids.map(String));
+  }, [likedIdsQuery.data]);
+
+  const publishedAll = useMemo(() => {
+    const list = publishedQuery.isError ? [] : publishedQuery.data || [];
+    return applyPanelUrls(list, panelUrlsById);
+  }, [publishedQuery.data, publishedQuery.isError, panelUrlsById]);
+
+  const liked = useMemo(() => {
+    const pages = likedQuery.data?.pages || [];
+    const items: LikedCaseItem[] = [];
+    const seen = new Set<string>();
+    for (const page of pages) {
+      const res = page as LikedListPage;
+      for (const x of res.items || []) {
+        const mapped = mapLikedItem(x as Parameters<typeof mapLikedItem>[0]);
+        if (seen.has(mapped.id)) continue;
+        seen.add(mapped.id);
+        items.push(mapped);
       }
     }
-  }, [userId, t]);
+    return applyPanelUrls(items, panelUrlsById);
+  }, [likedQuery.data, panelUrlsById]);
 
-  // First enter「我的」(only mounted when nav=account) → 已发布 list.
-  // Projects 页 (nav=mine) must never mount this component / call plaza/mine.
-  useEffect(() => {
-    void loadPublishedOnce();
-  }, [userId, loadPublishedOnce]);
+  const assets = useMemo(() => {
+    const pages = assetsQuery.data?.pages || [];
+    const items: UserAsset[] = [];
+    const seen = new Set<string>();
+    for (const page of pages) {
+      const res = page as AssetsListPage;
+      for (const a of res.items || []) {
+        if (!isMediaAssetKind(String(a.kind || ''))) continue;
+        if (seen.has(a.id)) continue;
+        seen.add(a.id);
+        items.push(a);
+      }
+    }
+    return items;
+  }, [assetsQuery.data]);
 
   const onProfileTabChange = (id: string) => {
     const next = id as ProfileTab;
-    setTab(next);
-    if (next === 'liked') void loadLikedOnce();
-    else if (next === 'published') void loadPublishedOnce();
-    else if (next === 'assets') void loadAssetsOnce();
-  };
-
-  const loadMoreLiked = useCallback(() => {
-    if (!authed || !likedHasMore || likedLoading || likedLoadingMore) return;
-    const nextPage = likedPage + 1;
-    const gen = likedFetchGen.current;
-    setLikedLoadingMore(true);
-    async function loadMore() {
-      try {
-        const res = await fetchMyLiked({ page: nextPage, pageSize: PAGE_SIZE });
-        if (gen !== likedFetchGen.current) return;
-        const items = (res.items || []).map(mapLikedItem);
-        setLiked((prev) => {
-          const seen = new Set(prev.map((x) => x.id));
-          return [...prev, ...items.filter((x) => !seen.has(x.id))];
-        });
-        setLikedIds((prev) => {
-          const next = new Set(prev);
-          for (const item of items) next.add(item.id);
-          return next;
-        });
-        setLikedPage(nextPage);
-        setLikedHasMore(Boolean(res.hasMore));
-      } catch {
-        if (gen === likedFetchGen.current) message.error(t('home.casesLoadFailed'));
-      } finally {
-        if (gen === likedFetchGen.current) setLikedLoadingMore(false);
+    void setTab(next);
+    async function refreshTab() {
+      if (next === 'liked') {
+        await queryClient.invalidateQueries({ queryKey: apiQuery.meMeLikedList.key() });
+      } else if (next === 'published') {
+        setPublishedVisible(PAGE_SIZE);
+        await queryClient.invalidateQueries({ queryKey: apiQuery.plazaPlazaMine.key() });
+      } else if (next === 'assets') {
+        await queryClient.invalidateQueries({ queryKey: apiQuery.assetsListMyAssets.key() });
       }
     }
-    void loadMore();
-  }, [authed, likedHasMore, likedLoading, likedLoadingMore, likedPage, t]);
+    void refreshTab();
+  };
 
   const publishedSlice = publishedAll.slice(0, publishedVisible);
   const publishedHasMore = publishedVisible < publishedAll.length;
+  const publishedLoading = Boolean(userId) && publishedQuery.isPending;
 
-  const loadMorePublished = useCallback(() => {
+  const loadMorePublished = () => {
     if (!publishedHasMore || publishedLoading || publishedLoadingMore) return;
     setPublishedLoadingMore(true);
     window.setTimeout(() => {
       setPublishedVisible((n) => Math.min(n + PAGE_SIZE, publishedAll.length));
       setPublishedLoadingMore(false);
     }, 180);
-  }, [publishedAll.length, publishedHasMore, publishedLoading, publishedLoadingMore]);
+  };
 
-  const loadMoreAssets = useCallback(() => {
-    if (!userId || !assetsHasMore || assetsLoading || assetsLoadingMore) return;
-    const nextPage = assetsPage + 1;
-    const gen = assetsFetchGen.current;
-    setAssetsLoadingMore(true);
-    async function loadMore() {
-      try {
-        const res = await listAssets({ page: nextPage, pageSize: ASSETS_PAGE_SIZE });
-        if (gen !== assetsFetchGen.current) return;
-        const media = (res.items || []).filter((a) =>
-          isMediaAssetKind(String(a.kind || ''))
+  const loadMoreLiked = () => {
+    if (!likedQuery.hasNextPage || likedQuery.isPending || likedQuery.isFetchingNextPage) return;
+    likedQuery.fetchNextPage();
+  };
+
+  const loadMoreAssets = () => {
+    if (!assetsQuery.hasNextPage || assetsQuery.isPending || assetsQuery.isFetchingNextPage) return;
+    assetsQuery.fetchNextPage();
+  };
+
+  const deleteAssetMutation = useMutation(
+    apiQuery.assetsDeleteMyAsset.mutationOptions({
+      onSuccess: async (_data, variables) => {
+        const id = String(variables.params.asset_id || '').trim();
+        queryClient.setQueriesData(
+          { queryKey: apiQuery.assetsListMyAssets.key() },
+          (old: unknown) => {
+            const data = old as { pages?: AssetsListPage[]; pageParams?: unknown } | null | undefined;
+            if (!data?.pages) return old;
+            return {
+              ...data,
+              pages: data.pages.map((page) => ({
+                ...page,
+                items: (page.items || []).filter((a) => a.id !== id),
+              })),
+            };
+          }
         );
-        setAssets((prev) => {
-          const seen = new Set(prev.map((x) => x.id));
-          return [...prev, ...media.filter((x) => !seen.has(x.id))];
-        });
-        setAssetsPage(nextPage);
-        setAssetsHasMore(Boolean(res.hasMore));
-      } catch {
-        if (gen === assetsFetchGen.current) message.error(t('me.assetsLoadFail'));
-      } finally {
-        if (gen === assetsFetchGen.current) setAssetsLoadingMore(false);
-      }
-    }
-    void loadMore();
-  }, [userId, assetsHasMore, assetsLoading, assetsLoadingMore, assetsPage, t]);
+        await queryClient.invalidateQueries({ queryKey: apiQuery.assetsListMyAssets.key() });
+        if (assetPreview?.id === id) setAssetPreview(null);
+        setAssetDeleteTarget(null);
+        message.destructive(t('me.deleteAssetOk'));
+      },
+      onError: () => {
+        message.error(t('me.deleteAssetFail'));
+      },
+      onSettled: () => {
+        setAssetBusyId(null);
+      },
+    })
+  );
+
+  const toggleLikeMutation = useMutation({
+    mutationFn: async (meta: OfficialCaseMeta) => {
+      const wasLiked = likedIds.has(meta.id);
+      const input = { params: { submission_id: meta.id } };
+      const res = (await (wasLiked
+        ? apiQuery.meMeUnlike.call(input)
+        : apiQuery.meMeLike.call(input))) as LikeToggleResult;
+      return { meta, wasLiked, res };
+    },
+    onSuccess: async ({ meta, wasLiked, res }) => {
+      const nowLiked = Boolean(res?.liked);
+      const serverCount = Number(res?.likeCount);
+
+      queryClient.setQueryData(apiQuery.meMeLikedIds.queryKey(), (old: unknown) => {
+        const prev = old as { ids?: string[] } | null | undefined;
+        const next = new Set((prev?.ids || []).map(String));
+        if (nowLiked) next.add(meta.id);
+        else next.delete(meta.id);
+        return { ids: [...next] };
+      });
+
+      queryClient.setQueriesData(
+        { queryKey: apiQuery.plazaPlazaMine.key() },
+        (old) => patchMineLikeCount(old, meta.id, wasLiked, nowLiked, serverCount)
+      );
+      queryClient.setQueriesData(
+        { queryKey: apiQuery.meMeLikedList.key() },
+        (old) => patchLikedPages(old, meta.id, wasLiked, nowLiked, serverCount)
+      );
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: apiQuery.meMeLikedIds.key() }),
+        queryClient.invalidateQueries({ queryKey: apiQuery.meMeLikedList.key() }),
+      ]);
+
+      if (!nowLiked && previewId === meta.id) setPreviewId(null);
+      message.success(nowLiked ? t('home.cases.likedToast') : t('home.cases.unlikedToast'));
+    },
+    onError: () => {
+      message.error(t('home.casesLoadFailed'));
+    },
+    onSettled: () => {
+      setLikeBusyId(null);
+    },
+  });
 
   const onDeleteAsset = async (asset: UserAsset) => {
     const id = String(asset.id || '').trim();
     if (!id || assetBusyId) return;
     setAssetBusyId(id);
-    try {
-      await deleteAsset(id);
-      setAssets((prev) => prev.filter((a) => a.id !== id));
-      if (assetPreview?.id === id) setAssetPreview(null);
-      setAssetDeleteTarget(null);
-      message.destructive(t('me.deleteAssetOk'));
-    } catch {
-      message.error(t('me.deleteAssetFail'));
-    } finally {
-      setAssetBusyId(null);
-    }
+    await deleteAssetMutation.mutateAsync({ params: { asset_id: id } });
   };
 
   const openAssetPreview = (asset: UserAsset) => {
@@ -458,43 +568,14 @@ function MePage({ onOpenCase }: Props): ReactNode {
 
   const listForPreview = tab === 'liked' ? liked : publishedAll;
 
-  useEffect(() => {
-    if (!previewId) return;
-    if (docs[previewId] !== undefined) return;
-    let cancelled = false;
-    async function loadPreviewDoc() {
-      try {
-        const res = await fetchPlazaItem(previewId);
-        if (cancelled) return;
-        const item = res.item;
-        setDocs((prev) =>
-          prev[previewId] !== undefined ? prev : { ...prev, [previewId]: item.document ?? null }
-        );
-        if (Array.isArray(item.panelUrls) && item.panelUrls.length) {
-          const panels = item.panelUrls;
-          setLiked((prev) =>
-            prev.map((c) => (c.id === previewId ? { ...c, panelUrls: panels } : c))
-          );
-          setPublishedAll((prev) =>
-            prev.map((c) => (c.id === previewId ? { ...c, panelUrls: panels } : c))
-          );
-        }
-      } catch {
-        if (!cancelled) {
-          setDocs((prev) => (prev[previewId] !== undefined ? prev : { ...prev, [previewId]: null }));
-        }
-      }
-    }
-    void loadPreviewDoc();
-    return () => {
-      cancelled = true;
-    };
-  }, [previewId, docs]);
-
   const previewMeta = useMemo(
     () => (previewId ? listForPreview.find((c) => c.id === previewId) || null : null),
     [listForPreview, previewId]
   );
+
+  const previewDocument = previewMeta
+    ? ((previewItemQuery.data as PlazaItemPayload | undefined)?.item?.document ?? null)
+    : null;
 
   const openPreview = (meta: OfficialCaseMeta) => {
     setPreviewId(meta.id);
@@ -509,43 +590,8 @@ function MePage({ onOpenCase }: Props): ReactNode {
       return;
     }
     if (likeBusyId === meta.id) return;
-    const wasLiked = likedIds.has(meta.id);
     setLikeBusyId(meta.id);
-    try {
-      const res = await (wasLiked ? unlikePlazaItem(meta.id) : likePlazaItem(meta.id));
-      const nowLiked = Boolean(res?.liked);
-      const serverCount = Number(res?.likeCount);
-      setLikedIds((prev) => {
-        const next = new Set(prev);
-        if (nowLiked) next.add(meta.id);
-        else next.delete(meta.id);
-        return next;
-      });
-      const patchCount = (c: OfficialCaseMeta) =>
-        c.id !== meta.id
-          ? c
-          : {
-              ...c,
-              likeCount: resolveNextLikeCount(
-                Number(c.likeCount) || 0,
-                wasLiked,
-                nowLiked,
-                serverCount
-              ),
-            };
-      setPublishedAll((prev) => prev.map(patchCount));
-      if (!nowLiked) {
-        setLiked((prev) => prev.filter((x) => x.id !== meta.id));
-        if (previewId === meta.id) setPreviewId(null);
-      } else {
-        setLiked((prev) => prev.map(patchCount) as LikedCaseItem[]);
-      }
-      message.success(nowLiked ? t('home.cases.likedToast') : t('home.cases.unlikedToast'));
-    } catch {
-      message.error(t('home.casesLoadFailed'));
-    } finally {
-      setLikeBusyId(null);
-    }
+    await toggleLikeMutation.mutateAsync(meta);
   };
 
   const remix = async (meta: OfficialCaseMeta) => {
@@ -554,7 +600,9 @@ function MePage({ onOpenCase }: Props): ReactNode {
     try {
       async function trackRemixUse() {
         try {
-          await recordPlazaUse(meta.id);
+          await apiQuery.plazaPlazaItemUse.call({
+            params: { submission_id: meta.id },
+          });
         } catch {
           /* ignore */
         }
@@ -664,9 +712,9 @@ function MePage({ onOpenCase }: Props): ReactNode {
                 <EmptyState hint={t('home.cases.likeNeedLogin')} />
               ) : (
                 <FlowScrollSection
-                  loading={likedLoading}
-                  loadingMore={likedLoadingMore}
-                  hasMore={likedHasMore}
+                  loading={likedQuery.isPending}
+                  loadingMore={likedQuery.isFetchingNextPage}
+                  hasMore={Boolean(likedQuery.hasNextPage)}
                   onLoadMore={loadMoreLiked}
                   isEmpty={liked.length === 0}
                   empty={<EmptyState hint={t('me.emptyLiked')} />}
@@ -697,9 +745,9 @@ function MePage({ onOpenCase }: Props): ReactNode {
                 <EmptyState hint={t('plaza.needLogin')} />
               ) : (
                 <InfiniteScrollSection
-                  loading={assetsLoading}
-                  loadingMore={assetsLoadingMore}
-                  hasMore={assetsHasMore}
+                  loading={assetsQuery.isPending}
+                  loadingMore={assetsQuery.isFetchingNextPage}
+                  hasMore={Boolean(assetsQuery.hasNextPage)}
                   onLoadMore={loadMoreAssets}
                   isEmpty={assets.length === 0}
                   empty={<EmptyState hint={t('me.emptyAssets')} />}
@@ -728,12 +776,12 @@ function MePage({ onOpenCase }: Props): ReactNode {
       <InspirationCasePreview
         open={!!previewMeta}
         caseMeta={previewMeta}
-        projectDocument={previewMeta ? docs[previewMeta.id] ?? null : null}
+        projectDocument={previewDocument}
         likedIds={likedIds}
         likeBusy={!!previewMeta && likeBusyId === previewMeta.id}
         remixing={!!remixingId}
         onClose={() => setPreviewId(null)}
-        onRemix={(meta) => void remix(meta)}
+        onRemix={(meta) => remix(meta)}
         onToggleLike={(meta) => onToggleLike(meta)}
       />
 
@@ -768,7 +816,7 @@ function MePage({ onOpenCase }: Props): ReactNode {
               destructive
               disabled={Boolean(assetBusyId)}
               onClick={() => {
-                if (assetDeleteTarget) void onDeleteAsset(assetDeleteTarget);
+                if (assetDeleteTarget) onDeleteAsset(assetDeleteTarget);
               }}
             >
               {t('me.deleteAsset')}

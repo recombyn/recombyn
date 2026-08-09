@@ -79,14 +79,30 @@ function boxYMarks(box: SceneBox): AxisMark[] {
 }
 
 /**
- * Oversized billboard / artboard / poster — skip its **center** magnet so a
- * small mover is not glued to a page plate. Edges (corners) stay snappable.
+ * Oversized billboard / artboard / poster — its center line is special.
+ * Edge↔center pairs are skipped so a small mover hunting flush is not yanked
+ * to the page mid. True center↔center stays on so centering still has magnet feel.
  */
 export function isOversizedMidSnapTarget(box: SceneBox, target: SceneBox): boolean {
   if (!(box.width > 0) || !(box.height > 0) || !(target.width > 0) || !(target.height > 0)) {
     return false;
   }
   return target.width >= box.width * 2 && target.height >= box.height * 2;
+}
+
+/**
+ * Whether this mark pair against an oversized plate should be ignored.
+ * Mid↔mid = keep (小元素居中吸附). Edge↔mid / mid↔edge = skip.
+ */
+export function skipOversizedMidPair(
+  box: SceneBox,
+  target: SceneBox,
+  moverRole: AxisMark['role'],
+  targetRole: AxisMark['role']
+): boolean {
+  if (!isOversizedMidSnapTarget(box, target)) return false;
+  if (moverRole === 'mid' && targetRole === 'mid') return false;
+  return moverRole === 'mid' || targetRole === 'mid';
 }
 
 /** @deprecated Use {@link isOversizedMidSnapTarget}. */
@@ -554,13 +570,13 @@ export function snapMoveToSmartGuides(opts: {
    * for shift-locked axis.
    */
   axes?: { x?: boolean; y?: boolean } | null;
-}): { box: SceneBox; guides: SmartGuideLine[] } {
+}): { box: SceneBox; guides: SmartGuideLine[]; snappedX: boolean; snappedY: boolean } {
   const { box, targets, threshold } = opts;
   void opts.gridSize; // lattice pin is a separate pass — never filters magnets
   const allowX = opts.axes?.x !== false;
   const allowY = opts.axes?.y !== false;
   if (!(threshold > 0) || !targets.length) {
-    return { box, guides: [] };
+    return { box, guides: [], snappedX: false, snappedY: false };
   }
 
   // Closest offset per axis; prefer edges over mid on ties.
@@ -577,6 +593,14 @@ export function snapMoveToSmartGuides(opts: {
 
   const roleRank = (r: AxisMark['role']) => (r === 'mid' ? 1 : 0);
 
+  const consider = (best: Cand | null, next: Cand): Cand => {
+    if (!best) return next;
+    if (next.abs < best.abs - 1e-9) return next;
+    if (next.abs > best.abs + 1e-9) return best;
+    // Tie: prefer edges over mid.
+    return roleRank(next.role) < roleRank(best.role) ? next : best;
+  };
+
   const mx = boxXMarks(box);
   const my = boxYMarks(box);
 
@@ -587,34 +611,42 @@ export function snapMoveToSmartGuides(opts: {
     if (allowX) {
       for (const m of mx) {
         for (const tm of tx) {
-          if (tm.role === 'mid' && isOversizedMidSnapTarget(box, t)) continue;
-          if (m.role === 'mid' && isOversizedMidSnapTarget(box, t)) continue;
+          if (skipOversizedMidPair(box, t, m.role, tm.role)) continue;
           const delta = tm.value - m.value;
           const abs = Math.abs(delta);
           if (abs > threshold) continue;
-          if (bestX && abs > bestX.abs + 1e-9) continue;
-          if (bestX && Math.abs(abs - bestX.abs) <= 1e-9 && roleRank(tm.role) > roleRank(bestX.role)) {
-            continue;
-          }
+          // Already coincident mid-mid: don't let abs=0 block a sibling edge
+          // magnet (low-zoom flush hunt while sitting on plate center).
+          if (abs <= 1e-9 && m.role === 'mid' && tm.role === 'mid') continue;
           const ext = mergeGuideExtent(box.top, box.top + box.height, t.top, t.top + t.height);
-          bestX = { abs, delta, at: tm.value, from: ext.from, to: ext.to, role: tm.role };
+          bestX = consider(bestX, {
+            abs,
+            delta,
+            at: tm.value,
+            from: ext.from,
+            to: ext.to,
+            role: tm.role,
+          });
         }
       }
     }
     if (allowY) {
       for (const m of my) {
         for (const tm of ty) {
-          if (tm.role === 'mid' && isOversizedMidSnapTarget(box, t)) continue;
-          if (m.role === 'mid' && isOversizedMidSnapTarget(box, t)) continue;
+          if (skipOversizedMidPair(box, t, m.role, tm.role)) continue;
           const delta = tm.value - m.value;
           const abs = Math.abs(delta);
           if (abs > threshold) continue;
-          if (bestY && abs > bestY.abs + 1e-9) continue;
-          if (bestY && Math.abs(abs - bestY.abs) <= 1e-9 && roleRank(tm.role) > roleRank(bestY.role)) {
-            continue;
-          }
+          if (abs <= 1e-9 && m.role === 'mid' && tm.role === 'mid') continue;
           const ext = mergeGuideExtent(box.left, box.left + box.width, t.left, t.left + t.width);
-          bestY = { abs, delta, at: tm.value, from: ext.from, to: ext.to, role: tm.role };
+          bestY = consider(bestY, {
+            abs,
+            delta,
+            at: tm.value,
+            from: ext.from,
+            to: ext.to,
+            role: tm.role,
+          });
         }
       }
     }
@@ -626,9 +658,13 @@ export function snapMoveToSmartGuides(opts: {
     left: bestX ? box.left + bestX.delta : box.left,
     top: bestY ? box.top + bestY.delta : box.top,
   };
+  const snappedX = Boolean(bestX);
+  const snappedY = Boolean(bestY);
   return {
     box: next,
-    guides: finishSmartGuides(next, targets, threshold, Boolean(bestX), Boolean(bestY), {
+    snappedX,
+    snappedY,
+    guides: finishSmartGuides(next, targets, threshold, snappedX, snappedY, {
       x: bestX
         ? {
             kind: 'align',

@@ -27,9 +27,6 @@ _SOURCE_TO_NS = {
     SOURCE_ADMIN: NS_USER,
 }
 
-# Retired need_* prompt packs (methodology/vision/aesthetics → Skills). DELETE leftovers on sync.
-RETIRED_NEED_PROMPT_KINDS = frozenset({"design_spec", "vision", "aesthetics"})
-
 # Ops always allowed even when preferred_tools allowlist is active.
 _ALWAYS_ALLOW_OPS = frozenset(
     {
@@ -60,7 +57,7 @@ _PIN_RE = re.compile(r"^(.+?)@([0-9]+(?:\.[0-9]+){0,2})$")
 _RUNTIME_SKILL_KEYS: frozenset[str] | None = None
 _RUNTIME_SKILL_INDEX: dict[str, dict[str, Any]] | None = None
 
-_INTERNAL_RESOURCE_KINDS = frozenset({"knowledge", "aesthetics", "tools"})
+_INTERNAL_RESOURCE_KINDS = frozenset({"tools"})
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 

@@ -37,16 +37,21 @@ import {
   type ExportSlotConfig,
 } from '@/components/rcb/scene/paint/exportImage';
 import {
-  normalizeDocument,
+  normalizeDocument
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
   isExportableSceneNode,
   isVideoNode,
-  isLottieNode,
-  parseLottieAnimationData,
-} from '@/components/rcb/scene/document/sceneDocument';
+  isLottieNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  parseLottieAnimationData
+} from '@/components/rcb/scene/document/nodeFactories';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { downloadVideoNodeAsset } from '@/components/editor/nodes/VideoNode/VideoDownloadButton';
 import { cn } from '@/utils/classnames';
 import { SEL_ICON_BTN } from '@/components/rcb/selection/chrome/ToolbarValueSlider';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 type VideoExportFormat = 'mp4' | 'mp3';
 type LottieExportFormat = 'json';
@@ -60,34 +65,34 @@ const LOTTIE_FORMAT_OPTIONS: { value: LottieExportFormat; label: string }[] = [
   { value: 'json', label: 'JSON' },
 ];
 
-function videoNodesForExport(document: any, ids: string[]) {
+function videoNodesForExport(document: SceneDocument, ids: string[]) {
   return ids
     .map((id) => document?.deltaSetLike?.[id])
-    .filter((node: any) => isVideoNode(node) && String(node?.attrs?.src || '').trim());
+    .filter((node: SceneNodeInput) => isVideoNode(node) && String(node?.attrs?.src || '').trim());
 }
 
-function lottieNodesForExport(document: any, ids: string[]) {
+function lottieNodesForExport(document: SceneDocument, ids: string[]) {
   return ids
     .map((id) => document?.deltaSetLike?.[id])
     .filter(
-      (node: any) =>
+      (node: SceneNodeInput) =>
         isLottieNode(node) && Boolean(parseLottieAnimationData(node?.attrs?.animationData))
     );
 }
 
-function isVideoOnlyExport(document: any, ids: string[], hasCrop: boolean): boolean {
+function isVideoOnlyExport(document: SceneDocument, ids: string[], hasCrop: boolean): boolean {
   if (hasCrop || ids.length === 0) return false;
   const videos = videoNodesForExport(document, ids);
   return videos.length === ids.length && videos.length > 0;
 }
 
-function isLottieOnlyExport(document: any, ids: string[], hasCrop: boolean): boolean {
+function isLottieOnlyExport(document: SceneDocument, ids: string[], hasCrop: boolean): boolean {
   if (hasCrop || ids.length === 0) return false;
   const nodes = lottieNodesForExport(document, ids);
   return nodes.length === ids.length && nodes.length > 0;
 }
 
-function downloadLottieJson(node: any, fallbackName: string) {
+function downloadLottieJson(node: SceneNodeInput, fallbackName: string) {
   const data = parseLottieAnimationData(node?.attrs?.animationData);
   if (!data) throw new Error('invalid lottie');
   const raw = JSON.stringify(data);
@@ -217,7 +222,7 @@ function parseAffixMode(value: string): ExportAffixMode {
 export type NamedExportCrop = ExportCropRegion & { name?: string };
 
 /** When there are no artboard frames, crop to scene content (or document size). */
-function contentCropFallback(document: any, name: string): NamedExportCrop | null {
+function contentCropFallback(document: SceneDocument, name: string): NamedExportCrop | null {
   if (!document) return null;
   let minX = Infinity;
   let minY = Infinity;
@@ -268,7 +273,7 @@ function contentCropFallback(document: any, name: string): NamedExportCrop | nul
 
 /** Scene pixel size of the export target (largest crop, or union of nodes). */
 function exportSourceSize(
-  document: any,
+  document: SceneDocument,
   ids: string[],
   cropList: NamedExportCrop[]
 ): { width: number; height: number } {
@@ -403,12 +408,12 @@ function ExportSelectionPanel({
           src: String(attrs.src || ''),
           name: String(node?.name || attrs.name || name || 'video'),
           uploadKey: attrs.uploadKey != null ? String(attrs.uploadKey) : null,
-          cropX: attrs.cropX,
-          cropY: attrs.cropY,
-          cropW: attrs.cropW,
-          cropH: attrs.cropH,
-          trimStart: attrs.trimStart,
-          trimEnd: attrs.trimEnd,
+          cropX: Number(attrs.cropX) || 0,
+          cropY: Number(attrs.cropY) || 0,
+          cropW: Number(attrs.cropW) || 0,
+          cropH: Number(attrs.cropH) || 0,
+          trimStart: Number(attrs.trimStart) || 0,
+          trimEnd: Number(attrs.trimEnd) || 0,
           flipX: isAttrFlagTrue(attrs.flipX),
           flipY: isAttrFlagTrue(attrs.flipY),
           mode,
@@ -620,7 +625,7 @@ function ExportSelectionPanel({
       <button
         type="button"
         disabled={busy || !canExport || (!videoOnly && !lottieOnly && !scaleSafe)}
-        onClick={() => void runExport()}
+        onClick={() => runExport()}
         className="mt-3 flex h-7 w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ink)] text-[12px] font-medium text-[var(--surface)] disabled:opacity-40"
       >
         <HiOutlineArrowDownTray className="h-3.5 w-3.5" />

@@ -1,5 +1,6 @@
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
- * Canvas design tools — schemas + local execution (Cursor-like tool loop).
+ * Canvas design tools — schemas + local execution (tool loop).
  */
 
 import type { Dispatch } from '@reduxjs/toolkit';
@@ -19,19 +20,27 @@ import {
 import { exportFabricImage } from '@/components/rcb/scene/paint/exportImage';
 import {
   addNodeToDocument,
+  removeNodesFromDocument,
+  reorderNodesInDocument
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
   createImageNode,
   createShapeNode,
   createSvgNode,
   createLottieNode,
+  createTextNode
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
   isLottieGeneratorNode,
-  promoteLottieGeneratorToLottie,
-  createTextNode,
+  supportsBooleanOp
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  promoteLottieGeneratorToLottie
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
   groupNodesInDocument,
-  removeNodesFromDocument,
-  reorderNodesInDocument,
-  supportsBooleanOp,
-  ungroupNodesInDocument,
-} from '@/components/rcb/scene/document/sceneDocument';
+  ungroupNodesInDocument
+} from '@/components/rcb/scene/document/sceneGroups';
 import {
   buildMarkdownTextAttrs,
   measurePlainTextSize,
@@ -72,7 +81,7 @@ export type AgentToolResult = {
 
 export type DesignToolContext = {
   dispatch: Dispatch;
-  getDocument: () => any;
+  getDocument: () => SceneDocument | null;
   /** Prefer placing new nodes inside this frame. When set (e.g. user @ artboard), frame ops are pinned to it. */
   targetFrameId?: string | null;
   /**
@@ -449,7 +458,7 @@ function resolvePencilBrushStyle(
 ): string | undefined {
   if (mapped !== 'pencil') return undefined;
   const raw = args.brushStyle != null ? String(args.brushStyle).trim() : '';
-  if (!raw) return 'solid';
+  if (!raw) return 'vector-ink';
   const aliased = PENCIL_BRUSH_LEGACY_ALIAS[raw] || raw;
   if (PENCIL_TIP_BRUSH_IDS.has(aliased)) return aliased;
   // Unknown / custom — keep as-is; findPencilBrush falls back at paint time.
@@ -541,12 +550,12 @@ function normalizePathPressureArg(raw: unknown): string | undefined {
     .join(',');
 }
 
-function listFrames(doc: any): ArtboardFrame[] {
+function listFrames(doc: SceneDocument): ArtboardFrame[] {
   return Array.isArray(doc?.frames) ? doc.frames : [];
 }
 
 /** Scene node ids whose boxes mostly overlap any of the given frames. */
-function nodeIdsInsideFrameLocal(doc: any, frameIds: string[]): string[] {
+function nodeIdsInsideFrameLocal(doc: SceneDocument, frameIds: string[]): string[] {
   if (!doc || !frameIds.length) return [];
   const idSet = new Set(frameIds.map(String));
   const frames = listFrames(doc).filter((f) => f?.id && idSet.has(String(f.id)));
@@ -573,12 +582,12 @@ function nodeIdsInsideFrameLocal(doc: any, frameIds: string[]): string[] {
   return out;
 }
 
-function frameById(doc: any, id?: string | null) {
+function frameById(doc: SceneDocument, id?: string | null) {
   if (!id) return null;
   return listFrames(doc).find((f) => f.id === id) || null;
 }
 
-function sceneSummary(doc: any, targetFrameId?: string | null) {
+function sceneSummary(doc: SceneDocument, targetFrameId?: string | null) {
   const frames = listFrames(doc).map((f) => ({
     id: f.id,
     name: f.name,
@@ -626,7 +635,7 @@ function sceneSummary(doc: any, targetFrameId?: string | null) {
   };
 }
 
-function applyCornerRadius(node: any, r: number) {
+function applyCornerRadius(node: SceneNodeInput, r: number) {
   const v = Math.max(0, Math.round(r));
   node.attrs = {
     ...node.attrs,
@@ -654,7 +663,7 @@ function parseMeshPoints(raw: unknown, size: MeshSize, base: string) {
 }
 
 function applyShapeFill(
-  node: any,
+  node: SceneNodeInput,
   args: Record<string, unknown>,
   fallbackFill: string
 ) {
@@ -752,7 +761,7 @@ function applyShapeFill(
 }
 
 /** Stroke dash / align / cap / join / opacity / side strokes. */
-function applyStrokeExtras(node: any, args: Record<string, unknown>) {
+function applyStrokeExtras(node: SceneNodeInput, args: Record<string, unknown>) {
   const attrs: Record<string, unknown> = { ...(node.attrs || {}) };
   if (args.strokeStyle != null && isStrokeStyle(String(args.strokeStyle))) {
     attrs.strokeStyle = String(args.strokeStyle);
@@ -802,7 +811,7 @@ function applyStrokeExtras(node: any, args: Record<string, unknown>) {
   node.attrs = attrs;
 }
 
-function applyShadow(node: any, args: Record<string, unknown>) {
+function applyShadow(node: SceneNodeInput, args: Record<string, unknown>) {
   const attrs: Record<string, unknown> = { ...(node.attrs || {}) };
   if (args.shadowEnabled != null) {
     attrs['shadow-enabled'] = truthy(args.shadowEnabled) ? 'true' : 'false';
@@ -828,7 +837,7 @@ function applyShadow(node: any, args: Record<string, unknown>) {
   node.attrs = attrs;
 }
 
-function applyCornerRadii(node: any, args: Record<string, unknown>) {
+function applyCornerRadii(node: SceneNodeInput, args: Record<string, unknown>) {
   if (args.cornerRadius != null) {
     applyCornerRadius(node, num(args.cornerRadius));
     return;
@@ -885,7 +894,7 @@ type AgentNodeBox = {
   attrs?: Record<string, unknown>;
 };
 
-function readAgentBoxes(doc: any, nodeIds: string[]): AgentNodeBox[] {
+function readAgentBoxes(doc: SceneDocument, nodeIds: string[]): AgentNodeBox[] {
   return nodeIds
     .map((id) => {
       const node = doc?.deltaSetLike?.[id];
@@ -1235,7 +1244,7 @@ function rectHitsAny(
   );
 }
 
-function collectFrameObstacles(doc: any): WorldRect[] {
+function collectFrameObstacles(doc: SceneDocument): WorldRect[] {
   return listFrames(doc).map((f) => ({
     id: f.id,
     x: Math.round(Number(f.x) || 0),
@@ -1246,7 +1255,7 @@ function collectFrameObstacles(doc: any): WorldRect[] {
 }
 
 function collectNodeObstacles(
-  doc: any,
+  doc: SceneDocument,
   opts?: { frame?: ArtboardFrame | null; excludeIds?: Set<string> }
 ): WorldRect[] {
   const rootChildren: string[] = Array.isArray(doc?.deltaSetLike?.ROOT?.children)
@@ -1366,7 +1375,7 @@ function findFreeOrigin(opts: {
 
 /** Place a new artboard in empty world space (no overlap with frames or free nodes). */
 export function nextArtboardOrigin(
-  doc: any,
+  doc: SceneDocument,
   width = 390,
   height = 844
 ): { x: number; y: number } {
@@ -1414,7 +1423,7 @@ export function nextArtboardOrigin(
 function execCreateShape(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
 
@@ -1529,8 +1538,8 @@ function execCreateShape(
         })
       : undefined;
   const brushStampSrc =
-    mapped === 'pencil' && brushStyle
-      ? String(findPencilBrush(brushStyle).stampSrc || '').trim() || undefined
+    mapped === 'pencil' && args.brushStampSrc != null
+      ? String(args.brushStampSrc).trim() || undefined
       : undefined;
   const { id, node } = createShapeNode({
     x: placed.x,
@@ -1588,7 +1597,7 @@ function execCreateShape(
 function execCreateText(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
 
@@ -1761,7 +1770,7 @@ function patchUpdateNodeGeometry(
   patch: Record<string, unknown>,
   args: Record<string, unknown>,
   latest: any,
-  doc: any,
+  doc: SceneDocument,
   targetFrameId: string | null | undefined
 ) {
   const argWidth = args.width ?? args.w;
@@ -1843,7 +1852,7 @@ function updateNodeStyleArgsTouched(
 function execUpdateNode(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   _pushHistory: () => void
 ): AgentToolResult {
   const nodeId = String(args.nodeId || args.id || '');
@@ -1916,8 +1925,8 @@ function execUpdateNode(
           : undefined;
     if (nextStyle) {
       shell.attrs.brushStyle = nextStyle;
-      const tip = findPencilBrush(nextStyle).stampSrc;
-      if (tip) shell.attrs.brushStampSrc = tip;
+      // Tip texture bake is legacy — new tip strokes use SVG ribbon like vector ink.
+      delete shell.attrs.brushStampSrc;
     }
   }
   if (args.brushHardness != null || args.hardness != null) {
@@ -1993,7 +2002,7 @@ function execUpdateNode(
 function execCreateFrame(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
 
@@ -2069,7 +2078,7 @@ function execCreateFrame(
 function execGetSceneSummary(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   _pushHistory: () => void
 ): AgentToolResult {
   const summary = sceneSummary(doc, ctx.targetFrameId);
@@ -2083,7 +2092,7 @@ function execGetSceneSummary(
 function execListCapabilities(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ui = ctx.canvasUi;
@@ -2124,7 +2133,7 @@ function execListCapabilities(
 function execSetViewport(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ui = ctx.canvasUi;
@@ -2188,7 +2197,7 @@ function execSetViewport(
 function execSetCanvasBackground(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const color = String(args.color ?? args.backgroundColor ?? args.fill ?? '').trim();
@@ -2253,7 +2262,7 @@ function execSetCanvasBackground(
 function execSetAgentMode(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const mode = String(args.mode || '').toLowerCase();
@@ -2281,7 +2290,7 @@ function execSetAgentMode(
 function execToggleEditorPanel(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  _doc: any,
+  _doc: SceneDocument,
   _pushHistory: () => void
 ): AgentToolResult {
   const spec = resolveEditorPanel(String(args.panel || args.name || ''));
@@ -2326,7 +2335,7 @@ function execToggleEditorPanel(
 function execAskUser(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const question = String(args.question || '').trim();
@@ -2353,7 +2362,7 @@ function execAskUser(
 function execFinish(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const summary = String(args.summary || 'Done');
@@ -2364,7 +2373,7 @@ function execFinish(
 function execCreateSvg(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const width = Math.max(1, num(args.width, 48));
@@ -2415,7 +2424,7 @@ function execCreateSvg(
 function execCreateLottie(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
   const raw =
@@ -2506,7 +2515,7 @@ function execCreateLottie(
 function execCreateImage(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
   const width = Math.max(8, num(args.width, 240));
@@ -2585,7 +2594,7 @@ function execCreateImage(
 function execAlignNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2634,7 +2643,7 @@ function execAlignNodes(
 function execDistributeNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2692,7 +2701,7 @@ function execDistributeNodes(
 function execBooleanOp(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2756,7 +2765,7 @@ function execBooleanOp(
 function execReorderNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2789,7 +2798,7 @@ function execReorderNodes(
 function execGroupNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2807,7 +2816,7 @@ function execGroupNodes(
 function execUngroupNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2825,7 +2834,7 @@ function execUngroupNodes(
 function execDuplicateNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2863,7 +2872,7 @@ function execDuplicateNodes(
 function execFlipNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
@@ -2912,7 +2921,7 @@ function execFlipNodes(
 function execDeleteNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     if (!ctx.allowDestructive) {
@@ -2971,7 +2980,7 @@ function execDeleteNodes(
 function execDeleteFrame(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     if (!ctx.allowDestructive) {
@@ -3004,7 +3013,7 @@ function execDeleteFrame(
 function execUpdateFrame(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const id = resolveFrameOpId(args, ctx);
@@ -3025,7 +3034,7 @@ function execUpdateFrame(
 function execImageProcess(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const nodeId = String(args.nodeId || args.id || '').trim();
@@ -3095,7 +3104,7 @@ function execImageProcess(
 function execExportCanvas(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
-  doc: any,
+  doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
     const formatRaw = String(args.format || 'png').toLowerCase();

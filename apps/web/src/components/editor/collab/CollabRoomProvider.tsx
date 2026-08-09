@@ -1,5 +1,5 @@
-/**
- * Yjs room lifecycle: mint token → IndexedDB (offline) + WebsocketProvider → bridge scene ↔ Redux.
+﻿/**
+ * Yjs room lifecycle: mint token → IndexedDB (offline) + WebsocketProvider → bridge scene → Redux.
  * Presence (selection / cursors) via Awareness. Persist via debounced cloud PATCH (or PUT).
  * Offline: y-indexeddb keeps the room locally; reconnect merges with peers / server.
  * @see https://docs.yjs.dev/getting-started/allowing-offline-editing
@@ -22,20 +22,20 @@ import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
-import { mintCollabRoomTokenApi } from '@/apis/collab';
-import { updateShareDocumentApi } from '@/apis/shares';
+import { mintCollabRoomTokenApi } from '@/service/collab';
+import { apiClient } from '@/service/client';
 import { rcbSceneToScreen, rcbScreenToScene } from '@/components/rcb/core/math';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import {
-  buildProjectDocumentPatch,
   getProjectDraft,
   hashDocument,
   markProjectDraftSynced,
 } from '@/components/editor/projectDraftStore';
 import {
-  patchProjectToCloud,
-  ProjectRevisionConflictError,
+  applyProjectRevisionConflictChoice,
+  asCloudRevision,
   pushProjectToCloud,
+  syncOwnedDocumentToCloud,
 } from '@/components/editor/useProjectCloudSync';
 import store from '@/store';
 import { applyCollabDocument, applyCollabScenePatch, EMPTY_ID_LIST } from '@/store/modules/editor';
@@ -110,62 +110,40 @@ async function persistCloudSnapshot(opts: {
   scene: unknown;
 }): Promise<void> {
   const { id, name, scene } = opts;
-  let draft: Awaited<ReturnType<typeof getProjectDraft>> | null = null;
-  try {
-    draft = await getProjectDraft(id);
-  } catch {
-    draft = null;
-  }
-  const baseRevision =
-    draft?.cloudRevision != null && Number(draft.cloudRevision) >= 1
-      ? Number(draft.cloudRevision)
-      : null;
-  const baseDoc = draft?.baseDocument ?? null;
+  const draft = await getProjectDraft(id);
   const contentHash = hashDocument(scene);
-  const delta =
-    baseDoc && baseRevision != null ? buildProjectDocumentPatch(baseDoc, scene) : null;
+  const written = await syncOwnedDocumentToCloud({
+    id,
+    name,
+    document: scene,
+    baseRevision: asCloudRevision(draft?.cloudRevision),
+    baseDoc: draft?.baseDocument ?? null,
+  });
 
-  try {
-    let acked: { revision: number } | undefined;
-    if (delta && !delta.preferFull && baseRevision != null) {
-      try {
-        acked = await patchProjectToCloud({
-          id,
-          name,
-          baseRevision,
-          patch: delta.patch,
-        });
-      } catch (err) {
-        if (err instanceof ProjectRevisionConflictError) throw err;
-        acked = await pushProjectToCloud({
-          id,
-          name,
-          document: scene,
-          baseRevision,
-        });
-      }
-    } else {
-      acked = await pushProjectToCloud({
-        id,
-        name,
-        document: scene,
-        baseRevision,
-      });
-    }
-    await markProjectDraftSynced(id, contentHash, acked?.revision ?? null);
-  } catch {
-    // Revision conflict / flake — last-writer full PUT without If-Match.
-    try {
-      const acked = await pushProjectToCloud({
-        id,
-        name,
-        document: scene,
-        baseRevision: null,
-      });
-      await markProjectDraftSynced(id, contentHash, acked?.revision ?? null);
-    } catch {
-      /* keep local Y truth; retry on next edit */
-    }
+  if (written.status === 'ok') {
+    await markProjectDraftSynced(id, contentHash, written.ack.revision);
+    return;
+  }
+  if (written.status === 'conflict') {
+    await applyProjectRevisionConflictChoice({
+      dispatch: store.dispatch,
+      projectId: id,
+      name,
+      localDocument: scene,
+      mode: 'collab',
+    });
+    return;
+  }
+
+  // Transport flake — last-writer full PUT without If-Match.
+  const forced = await pushProjectToCloud({
+    id,
+    name,
+    document: scene,
+    baseRevision: null,
+  });
+  if (forced.status === 'ok') {
+    await markProjectDraftSynced(id, contentHash, forced.ack.revision);
   }
 }
 
@@ -260,7 +238,7 @@ function preferPeer(prev: CollabPeer, next: CollabPeer): CollabPeer {
   return prev;
 }
 
-/** One entry per userId — skip self (incl. stale tabs after refresh) and merge multi-tab ghosts. */
+/** One entry per userId 鈥?skip self (incl. stale tabs after refresh) and merge multi-tab ghosts. */
 function readPeers(awareness: Awareness, selfId: number, selfUserId: string): CollabPeer[] {
   const byUserId = new Map<string, CollabPeer>();
   awareness.getStates().forEach((state, clientId) => {
@@ -626,7 +604,7 @@ export function CollabRoomProvider({
       setCollabCloudPersistOwned(roleRef.current === 'edit' && seededRef.current);
     };
 
-    // Track only local scene writes — seed / remote / undo replay stay out of the stack.
+    // Track only local scene writes 鈥?seed / remote / undo replay stay out of the stack.
     const undoManager = new Y.UndoManager(
       [yMetaMap(ydoc), yFramesMap(ydoc), yNodesMap(ydoc), yPageChildren(ydoc), yStackOrder(ydoc)],
       {
@@ -651,7 +629,10 @@ export function CollabRoomProvider({
         if (id.startsWith('share_')) {
           async function persistShareDocument() {
             try {
-              await updateShareDocumentApi(id, scene);
+              await apiClient.sharesSharesUpdateDocument({
+                params: { share_id: id },
+                body: { document: scene as Record<string, unknown> },
+              });
             } catch {
               /* ignore */
             }
@@ -699,7 +680,7 @@ export function CollabRoomProvider({
         return;
       }
 
-      // Viewers never seed — wait for an editor to populate the room.
+      // Viewers never seed 鈥?wait for an editor to populate the room.
       if (roleRef.current === 'view') {
         window.setTimeout(() => {
           if (cancelled) return;
@@ -738,7 +719,7 @@ export function CollabRoomProvider({
             hydrateFromY();
             return;
           }
-          // Leader never seeded (left / failed) — claim and seed as fallback.
+          // Leader never seeded (left / failed) 鈥?claim and seed as fallback.
           if (tryClaimRoomSeed(ydoc, ydoc.clientID)) {
             seedFromLocal(localDoc);
           }
@@ -955,7 +936,7 @@ export function CollabRoomProvider({
     apply(next);
   }, [followingUserId, peers, stageEl]);
 
-  // Local Redux → Y (editors only).
+  // Local Redux 鈫?Y (editors only).
   useEffect(() => {
     if (!enabled || role !== 'edit') return;
     const ydoc = ydocRef.current;
@@ -981,7 +962,7 @@ export function CollabRoomProvider({
     awareness.setLocalStateField('selectedFrameIds', frameIds);
   }, [enabled, status, selectedNodeIds, selectedFrameIds, activeFrameId]);
 
-  // Awareness: local pointer → scene coords (so peers with different cameras still align).
+  // Awareness: local pointer 鈫?scene coords (so peers with different cameras still align).
   useEffect(() => {
     if (!enabled || !stageEl || status === 'idle') return undefined;
     let lastSent = 0;

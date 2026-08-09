@@ -1,6 +1,9 @@
 import { message } from '@/components/base';
+import { getHttpErrorMessage } from '@/service/client';
 import { uploadImageFile, readFileAsDataUrl, waitForImageReady } from '@/utils/uploadImage';
-import { measureImageNaturalSize } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  measureImageNaturalSize
+} from '@/components/rcb/scene/document/nodeFactories';
 import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
 
 type DispatchLike = (action: unknown) => unknown;
@@ -93,8 +96,7 @@ export async function replaceImageNodeFromFile(opts: {
   } catch (err: any) {
     if (alive()) {
       dispatch(finishImageProcess({ nodeId }));
-      const detail = err?.response?.data?.detail || err?.message || '替换图片失败';
-      message.error(typeof detail === 'string' ? detail : '替换图片失败');
+      message.error(getHttpErrorMessage(err, '替换图片失败'));
     }
   }
 }

@@ -1,20 +1,31 @@
-import { useEffect, useState, memo } from 'react';
+import { lazy, Suspense, useEffect, useState, memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { NuqsAdapter } from 'nuqs/adapters/react-router/v6';
 import AppShell from '@/components/layout/AppShell';
-import AccountSettingsPage from '@/pages/AccountSettingsPage';
-import EditorPage from '@/pages/EditorPage';
 import HomePage from '@/pages/HomePage';
-import GoogleOAuthCallbackPage from '@/pages/GoogleOAuthCallbackPage';
 import LoginRedirectPage from '@/pages/LoginRedirectPage';
 import ActivateEmailPage from '@/pages/ActivateEmailPage';
-import SharePage from '@/pages/SharePage';
+import GoogleOAuthCallbackPage from '@/pages/GoogleOAuthCallbackPage';
 import { RequireAuth } from '@/router/AuthGuards';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import {
   basenameToI18nLang,
   getLocaleBasename,
 } from '@/i18n/localePath';
+
+const AccountSettingsPage = lazy(() => import('@/pages/AccountSettingsPage'));
+const EditorPage = lazy(() => import('@/pages/EditorPage'));
+const SharePage = lazy(() => import('@/pages/SharePage'));
+
+/** Minimal shell while a heavy route chunk loads. */
+function RouteFallback(): ReactNode {
+  return <div className="h-full min-h-0 w-full bg-[var(--canvas)]" aria-busy="true" />;
+}
+
+function LazyRoute({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
+}
 
 /** Product routes set app document title. */
 function DocumentTitleSync() {
@@ -30,9 +41,15 @@ function LocaleSync({ basename }: { basename: string }) {
   const { i18n } = useTranslation();
   useEffect(() => {
     const next = basenameToI18nLang(basename);
-    if (i18n.language !== next) {
-      void i18n.changeLanguage(next);
+    if (i18n.language === next) return;
+    async function syncLang() {
+      try {
+        await i18n.changeLanguage(next);
+      } catch {
+        /* ignore */
+      }
     }
+    syncLang();
   }, [basename, i18n]);
   return null;
 }
@@ -50,14 +67,35 @@ function AppRoutes() {
         {/* OAuth return can finish signing in without the login modal. */}
         <Route path="login/google/callback" element={<GoogleOAuthCallbackPage />} />
 
-        {/* Product workspace */}
+        {/* Product workspace — Home stays eager for first paint. */}
         <Route path="home" element={<HomePage />} />
-        <Route path="s/:shareId" element={<SharePage />} />
+        <Route
+          path="s/:shareId"
+          element={
+            <LazyRoute>
+              <SharePage />
+            </LazyRoute>
+          }
+        />
 
         <Route element={<RequireAuth />}>
-          <Route path="account" element={<AccountSettingsPage />} />
+          <Route
+            path="account"
+            element={
+              <LazyRoute>
+                <AccountSettingsPage />
+              </LazyRoute>
+            }
+          />
           {/* One route so /editor → /editor/:id does not remount and drop home-agent draft. */}
-          <Route path="editor/:projectId?" element={<EditorPage />} />
+          <Route
+            path="editor/:projectId?"
+            element={
+              <LazyRoute>
+                <EditorPage />
+              </LazyRoute>
+            }
+          />
         </Route>
 
         <Route path="*" element={<Navigate to="/home" replace />} />
@@ -76,9 +114,11 @@ function AppRouter() {
 
   return (
     <BrowserRouter basename={basename || undefined} key={basename || 'en'}>
-      <LocaleSync basename={basename} />
-      <DocumentTitleSync />
-      <AppRoutes />
+      <NuqsAdapter>
+        <LocaleSync basename={basename} />
+        <DocumentTitleSync />
+        <AppRoutes />
+      </NuqsAdapter>
     </BrowserRouter>
   );
 }

@@ -15,13 +15,13 @@ from app import crud
 from app.core.db import engine
 from app.services.design.readpath.catalog import ensure_design_catalog
 
-# Seed: data/design_tokens_seed.json (bump schemaVersion to upgrade rows).
+# Seed: seeds/design_tokens_seed.json (bump schemaVersion to upgrade rows).
 
 
 def _load_tokens_seed() -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
-    from app.core.config import resolve_data_file
+    from app.core.config import resolve_seed_file
 
-    path = resolve_data_file("design_tokens_seed.json")
+    path = resolve_seed_file("design_tokens_seed.json")
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
     except Exception:

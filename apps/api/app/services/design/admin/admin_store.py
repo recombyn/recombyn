@@ -132,7 +132,7 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
     elif resources_raw is not None:
         allowed_resources = str(resources_raw).strip()
     else:
-        # Custom admin skills default: tools only (no knowledge/prompts/aesthetics).
+        # Custom admin skills default: tools only.
         allowed_resources = json.dumps(["tools"], ensure_ascii=False)
     in_schema_obj, in_errs = validate_skill_io_schema(
         payload.get("inputSchema") or payload.get("input_schema"), field="input_schema"
@@ -525,10 +525,10 @@ _AGENT_FLOW_NODE_TEMPLATES_KEY = "agent.flow.node_templates_json"
 _AGENT_FLOW_ACTION_CONTRACTS_KEY = "agent.flow.action_contracts_json"
 
 def _load_json_seed(name: str, default: Any) -> Any:
-    """Load seed JSON from apps/api/data/."""
-    from app.core.config import resolve_data_file
+    """Load seed JSON from apps/api/seeds/."""
+    from app.core.config import resolve_seed_file
 
-    path = resolve_data_file(name)
+    path = resolve_seed_file(name)
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -971,33 +971,11 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
         }
         del packs_from_bank, seed_by_kind
 
-        # Drop retired methodology prompt nodes (now Skills).
-        _DROP_PROMPT = {
-            "prompt_design_spec",
-            "prompt_vision",
-            "prompt_aesthetics",
-        }
         _KEEP_PROMPT = {
             "prompt_react",
             "prompt_plan",
             "prompt_ask",
         }
-        drop_retired = {
-            str(n.get("id") or "")
-            for n in nodes
-            if str(n.get("id") or "") in _DROP_PROMPT
-        }
-        if drop_retired:
-            nodes[:] = [n for n in nodes if str(n.get("id") or "") not in drop_retired]
-            edges[:] = [
-                e
-                for e in edges
-                if str(e.get("source") or "") not in drop_retired
-                and str(e.get("target") or "") not in drop_retired
-            ]
-            ids -= drop_retired
-            changed = True
-
         drop_scene = {
             str(n.get("id") or "")
             for n in nodes
@@ -1032,30 +1010,13 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 n["promptText"] = ""
                 changed = True
 
-        # Drop knowledge catalog — domain judgment is in module prompts.
-        for n in nodes:
-            inj = n.get("inject")
-            if not isinstance(inj, dict):
-                continue
-            cats = inj.get("catalogs")
-            if not isinstance(cats, list) or "knowledge" not in cats:
-                continue
-            inj["catalogs"] = [c for c in cats if c != "knowledge"]
-            changed = True
-
-        # Remap retired configRef soft-tags → runtime keys / clear.
-        _config_ref_aliases = {
-            "quality_samples": "design_aesthetics",
-        }
+        # Remap configRef soft-tags → runtime keys / clear.
+        _config_ref_aliases: dict[str, str] = {}
         for n in nodes:
             ref = str(n.get("configRef") or "").strip()
             if not ref:
                 continue
             pk = str(n.get("phaseKey") or "").strip()
-            if ref == "design_knowledge":
-                n["configRef"] = ""
-                changed = True
-                continue
             if ref == "models+routes":
                 # Soft tag removed; only model_route nodes keep the real runtime key.
                 n["configRef"] = (
@@ -1068,28 +1029,13 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 n["configRef"] = nxt
                 changed = True
 
-        # Always drop orphan knowledge_details even before parallel expand.
-        if any(str(n.get("id") or "") == "knowledge_details" for n in nodes):
-            nodes[:] = [n for n in nodes if str(n.get("id") or "") != "knowledge_details"]
-            edges[:] = [
-                e
-                for e in edges
-                if str(e.get("source") or "") != "knowledge_details"
-                and str(e.get("target") or "") != "knowledge_details"
-                and str(e.get("condition") or "") != "need_knowledge&no_ops"
-            ]
-            ids.discard("knowledge_details")
-            changed = True
-
-    # Expand「资源并行网关」→ 并行 + 知识检索 + 美学/工具 + 汇聚（删除 resource_fork 合成节点）。
+    # Expand「资源并行网关」→ 并行 + 工具 + 汇聚（删除 resource_fork 合成节点）。
     edge_ids = {str(e.get("id") or "") for e in edges}
     if "thought" in ids and (
         "resource_fork" in ids
         or "parallel" in ids
         or "resource_join" in ids
-        or "aesthetics_details" in ids
         or "tool_details" in ids
-        or "knowledge_details" in ids
     ):
         thought_n = next(n for n in nodes if str(n.get("id")) == "thought")
         tx = float(thought_n.get("x") or 1720)
@@ -1131,7 +1077,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 n["phaseKey"] = "resource_fork"
                 lab = str(n.get("label") or "").strip()
                 n["label"] = "并行网关" if (not lab or "资源" in lab) else lab
-                n["description"] = "分叉拉取知识/美学/工具/提示词；运行时批量 gather 后汇聚"
+                n["description"] = "分叉拉取工具详情；运行时 gather 后汇聚"
                 break
             for e in edges:
                 if str(e.get("source") or "") == "resource_fork":
@@ -1155,53 +1101,15 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
         _ensure_node(
             {
                 "id": "parallel",
-                    "label": "并行网关",
-                "description": "分叉：提示词 / 美学 / 工具；运行时批量拉取后走汇聚（领域判断写在各模块提示词）",
-                    "kind": "parallel",
-                    "capability": "control",
+                "label": "并行网关",
+                "description": "分叉拉取工具详情；运行时 gather 后汇聚",
+                "kind": "parallel",
+                "capability": "control",
                 "phaseKey": "resource_fork",
                 "x": tx + 280,
-                    "y": ty,
-            }
-        )
-        # Drop「知识检索」— domain judgment lives in module prompts; LLM decides.
-        if "knowledge_details" in ids or "need_knowledge" in ids:
-            drop_know = {"knowledge_details", "need_knowledge"}
-            nodes[:] = [n for n in nodes if str(n.get("id") or "") not in drop_know]
-            edges[:] = [
-                e
-                for e in edges
-                if str(e.get("source") or "") not in drop_know
-                and str(e.get("target") or "") not in drop_know
-                and str(e.get("condition") or "") != "need_knowledge&no_ops"
-            ]
-            ids -= drop_know
-            edge_ids = {str(e.get("id") or "") for e in edges}
-            changed = True
-        _ensure_node(
-            {
-                "id": "aesthetics_details",
-                "label": "美学看图",
-                "description": "CLIP 向量检索样本图后附图给主思考看图；不注入短评/令牌",
-                "kind": "observe",
-                "capability": "knowledge",
-                "phaseKey": "aesthetics_details",
-                "configRef": "design_aesthetics",
-                "inject": {"mode": "details", "source": "aesthetics"},
-                "x": tx + 520,
                 "y": ty,
             }
         )
-        # Force rename legacy「美学检索」label on existing node.
-        for n in nodes:
-            if str(n.get("id") or "") != "aesthetics_details":
-                continue
-            if str(n.get("label") or "") in ("", "美学检索", "详情·美学"):
-                n["label"] = "美学看图"
-                n["description"] = "CLIP 向量检索样本图后附图给主思考看图；不注入短评/令牌"
-                n["kind"] = "observe"
-                changed = True
-            break
         _ensure_node(
             {
                 "id": "tool_details",
@@ -1217,16 +1125,16 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             }
         )
         _ensure_node(
-                {
-                    "id": "resource_join",
-                    "label": "汇聚",
+            {
+                "id": "resource_join",
+                "label": "汇聚",
                 "description": "等待分支完成后按 mode 回到思考",
-                    "kind": "join",
-                    "capability": "control",
+                "kind": "join",
+                "capability": "control",
                 "phaseKey": "resource_join",
-                    "joinMode": "and",
+                "joinMode": "and",
                 "x": tx + 760,
-                    "y": ty,
+                "y": ty,
             }
         )
 
@@ -1275,63 +1183,16 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             edge_ids.add(name)
             changed = True
 
-        # thought / ask → parallel on need_*（三条独立：工具 / 提示词 / 美学；提示词不绑美学）
-        for eid, cond, pri in (
-            ("e6_tools", "need_tools&no_ops", 10),
-            ("e6_aes", "need_aesthetics&no_ops", 13),
-        ):
-            _ensure_edge(eid, "thought", "parallel", cond, priority=pri)
+        _ensure_edge("e6_tools", "thought", "parallel", "need_tools&no_ops", priority=10)
         if "ask_thought" in ids:
-            for eid, cond, pri in (
-                ("e_ask_res_tools", "need_tools&no_ops", 7),
-                ("e_ask_res_aes", "need_aesthetics&no_ops", 10),
-            ):
-                _ensure_edge(eid, "ask_thought", "parallel", cond, priority=pri)
-            # Repair drafts that stamped every ask→parallel wire as aesthetics.
-            for e in edges:
-                if str(e.get("source") or "") != "ask_thought":
-                    continue
-                if str(e.get("target") or "") != "parallel":
-                    continue
-                eid = str(e.get("id") or "")
-                cond = str(e.get("condition") or "").strip()
-                if eid in ("e_ask_res_tools", "e_ask_res_aes"):
-                    continue
-                if cond in ("need_aesthetics&no_ops", "need_aesthetics", "需要美学且无操作"):
-                    # Orphan duplicate aesthetics wire — drop (canonical is e_ask_res_aes).
-                    e["_drop"] = True
-                    changed = True
-            if any(e.get("_drop") for e in edges):
-                edges[:] = [e for e in edges if not e.pop("_drop", False)]
-                edge_ids = {str(e.get("id") or "") for e in edges}
-                changed = True
+            _ensure_edge(
+                "e_ask_res_tools",
+                "ask_thought",
+                "parallel",
+                "need_tools&no_ops",
+                priority=7,
+            )
 
-        for e in edges:
-            if str(e.get("source") or "") != "thought":
-                continue
-            if str(e.get("target") or "") != "parallel":
-                continue
-            eid = str(e.get("id") or "")
-            cond = str(e.get("condition") or "").strip()
-            if eid in ("e6_tools", "e6_prompt", "e6_aes"):
-                continue
-            if cond in ("need_aesthetics&no_ops", "need_aesthetics", "需要美学且无操作"):
-                e["_drop"] = True
-                changed = True
-        if any(e.get("_drop") for e in edges):
-            edges[:] = [e for e in edges if not e.pop("_drop", False)]
-            edge_ids = {str(e.get("id") or "") for e in edges}
-            changed = True
-
-        # parallel → lanes → join (visual): each lane shows its need_*；live gather still jumps to join.
-        _ensure_edge(
-            "e_par_aes",
-            "parallel",
-            "aesthetics_details",
-            "need_aesthetics",
-            priority=11,
-            is_default=False,
-        )
         _ensure_edge(
             "e_par_tools",
             "parallel",
@@ -1340,22 +1201,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             priority=12,
             is_default=False,
         )
-        _ensure_edge("e_aes_join", "aesthetics_details", "resource_join", "", priority=10, is_default=True)
         _ensure_edge("e_tools_join", "tool_details", "resource_join", "", priority=10, is_default=True)
-
-
-        # Drop retired need_prompts flow edges (methodology → skills).
-        before_e = len(edges)
-        edges[:] = [
-            e
-            for e in edges
-            if "need_prompts" not in str(e.get("condition") or "")
-            and str(e.get("id") or "")
-            not in ("e6_prompt", "e_ask_res_prompt")
-        ]
-        if len(edges) != before_e:
-            edge_ids = {str(e.get("id") or "") for e in edges}
-            changed = True
 
         # Scene / pack「提示词」nodes: wire into main path parallel → prompt_* → join.
         par_n = next((n for n in nodes if str(n.get("id") or "") == "parallel"), None)
@@ -1372,9 +1218,6 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
         for i, pn in enumerate(scene_prompts):
             pid = str(pn.get("id") or "")
             if not pid:
-                continue
-            # Methodology prompt packs retired — skip skill-migrated node ids.
-            if pid in ("prompt_design_spec", "prompt_vision", "prompt_aesthetics"):
                 continue
             lane_cond = ""
             has_in = any(
@@ -1518,17 +1361,6 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 _ensure_prompt_edge(
                     f"e_par_{pid}", "parallel", pid, "", priority=20 + i
                 )
-            else:
-                # Repair empty/legacy labels so 提示词 lane ≠ 美学.
-                for e in edges:
-                    if (
-                        str(e.get("source") or "") == "parallel"
-                        and str(e.get("target") or "") == pid
-                        and str(e.get("condition") or "").strip()
-                        in ("", "need_aesthetics", "need_aesthetics&no_ops")
-                    ):
-                        e["condition"] = ""
-                        changed = True
             if not has_out:
                 _ensure_prompt_edge(
                     f"e_{pid}_join", pid, "resource_join", "", priority=10, is_default=True
@@ -1976,7 +1808,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                     {
                         "id": "verify",
                         "label": "",
-                        "description": "结构/美学门禁；只写 verify_* flag",
+                        "description": "结构门禁；只写 verify_* flag",
                         "kind": "observe",
                         "capability": "io",
                         "phaseKey": "verify",

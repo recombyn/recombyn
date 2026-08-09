@@ -1,1 +1,0 @@
-No reference image attached.

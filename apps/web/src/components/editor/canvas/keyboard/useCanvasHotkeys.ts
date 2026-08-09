@@ -1,9 +1,11 @@
 import { useEffect, type RefObject } from 'react';
 import { useDispatch } from 'react-redux';
 import {
-  isGeneratorNode,
-  resolveSelectionNodeIds,
-} from '@/components/rcb/scene/document/sceneDocument';
+  isGeneratorNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  resolveSelectionNodeIds
+} from '@/components/rcb/scene/document/sceneClipboard';
 import {
   clearCanvasAttachPick,
   redo,
@@ -31,7 +33,7 @@ type UseCanvasHotkeysArgs = {
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onSelectMixed: (nodeIds: string[], frameIds: string[]) => void;
-  listNodeIds: () => string[];
+  listNodeIds: () => readonly string[];
   deleteCanvasSelection: () => boolean;
   reorderLayer: (dir: 'front' | 'forward' | 'backward' | 'back', ids: string[]) => void;
   copySelected: (nodeIds?: string[], frameIds?: string[]) => boolean;

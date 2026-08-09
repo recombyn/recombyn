@@ -105,6 +105,64 @@ def _attached_images_prompt_note(
         return custom
 
 
+def _run_error_code(err: BaseException | str) -> str:
+    """Stable machine code for SSE ``error.code`` (FE i18n); not user-facing copy."""
+    raw = _as_text(err).strip()
+    low = raw.lower()
+    if low == "free_daily_exhausted" or "free_daily_exhausted" in low:
+        return "free_daily_exhausted"
+    if low == "insufficient_credits" or (
+        "insufficient" in low and "credit" in low
+    ):
+        return "insufficient_credits"
+    if low in {"prompt_required", "invalid_run_mode", "invalid_canvas_size"}:
+        return low
+    if low in {
+        "task_not_found",
+        "forbidden",
+        "resume_token_mismatch",
+        "checkpoint_empty",
+        "checkpoint_corrupt",
+        "lease_held",
+    }:
+        return "auth_forbidden" if low != "task_not_found" else "task_not_found"
+    if low == "cancelled" or low.endswith(":cancelled"):
+        return "cancelled"
+    if "missing_tool_ops" in low or "tool_ops_invalid" in low or low.startswith(
+        "paint_ops"
+    ):
+        return "paint_ops_failed"
+    if (
+        "validate_failed" in low
+        or "final_validate" in low
+        or "sparse_svg" in low
+    ):
+        return "validate_failed"
+    if "no_vision_model" in low or "vision_rejected" in low:
+        return "vision_unavailable"
+    if low.startswith("blocked:") or "blocked:" in low:
+        return "blocked"
+    if "timeout" in low:
+        return "timeout"
+    if low.startswith("skill_failed:") or re.match(
+        r"name\s+['`].+['`]\s+is not defined", low
+    ):
+        return "internal_error"
+    if re.match(r"^[a-z][a-z0-9_]+:", low) and " " not in low[:40]:
+        head = low.split(":", 1)[0]
+        if head in {
+            "free_daily_exhausted",
+            "insufficient_credits",
+            "prompt_required",
+            "invalid_run_mode",
+            "invalid_canvas_size",
+            "cancelled",
+        }:
+            return head
+        return "internal_error"
+    return "internal_error"
+
+
 def _user_facing_run_error(
     err: BaseException | str,
     *,

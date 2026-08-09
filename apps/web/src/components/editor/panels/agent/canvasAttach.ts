@@ -6,12 +6,17 @@ import {
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
 import {
-  canAttachNodeToChat,
-  captureVideoPosterFrame,
+  canAttachNodeToChat
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
+  captureVideoPosterFrame
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
   listGroupMemberIds,
-  readNodeGroupId,
-} from '@/components/rcb/scene/document/sceneDocument';
+  readNodeGroupId
+} from '@/components/rcb/scene/document/sceneGroups';
 import { imageSrcToFile } from '@/utils/uploadImage';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
  * Canvas → composer:
@@ -24,7 +29,7 @@ export function canvasAttachToken(payload: string | string[]): string {
 }
 
 /** Full member ids when every selected id shares one groupId; otherwise null. */
-function sharedGroupAttachIds(doc: any, ids: string[]): string[] | null {
+function sharedGroupAttachIds(doc: SceneDocument, ids: string[]): string[] | null {
   if (!doc || !ids || ids.length < 2) return null;
   const first = readNodeGroupId(doc?.deltaSetLike?.[ids[0]]);
   if (!first) return null;
@@ -34,7 +39,7 @@ function sharedGroupAttachIds(doc: any, ids: string[]): string[] | null {
 }
 
 async function buildCanvasVideoAttachment(
-  doc: any,
+  doc: SceneDocument,
   id: string,
   existingChips: ComposerContext[]
 ): Promise<ComposerContext | null> {
@@ -62,7 +67,7 @@ async function buildCanvasVideoAttachment(
 }
 
 export async function applyCanvasAttachPayload(opts: {
-  document: any;
+  document: SceneDocument;
   payload: string | string[];
   existingChips: ComposerContext[];
   onAttachFiles: (files: File[], opts?: { mention?: boolean }) => void | Promise<void>;

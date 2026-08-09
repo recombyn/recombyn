@@ -7,11 +7,14 @@ import {
   rcbSceneToScreen,
 } from '@/components/rcb';
 import {
-  isImageGeneratorNode,
-  listImageVariantUrls,
-} from '@/components/rcb/scene/document/sceneDocument';
+  isImageGeneratorNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  listImageVariantUrls
+} from '@/components/rcb/scene/document/mediaLifecycle';
 import { detachImageVariant, patchDocumentNode } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 const EDGE_PAD = 10;
 const EXPAND_GAP = 12;
 const CORNER_BTN = 20;
@@ -73,7 +76,7 @@ function ImageVariantsOverlay({
   hidden,
   readOnly,
 }: {
-  document: any;
+  document: SceneDocument;
   nodeId: string;
   /** Scene-space image box (same as SelectionFeature chrome). */
   box: SceneBox;

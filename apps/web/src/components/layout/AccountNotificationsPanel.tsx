@@ -4,12 +4,21 @@
  * Each tab loads its own list via GET /notices?kind=…
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
+import { useMemo, useState, type ReactNode, memo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineCheck, HiOutlineMegaphone } from 'react-icons/hi2';
-import { fetchNotices, type NoticeDto } from '@/apis/notices';
 import { SegmentedControl } from '@/components/base';
+import { apiQuery } from '@/service/client';
 import { cn } from '@/utils/classnames';
+
+type NoticeDto = {
+  id: string;
+  kind: 'announcement' | 'notification' | string;
+  title: string;
+  body: string;
+  createdAt: number;
+};
 
 type NoticeTab = 'announcement' | 'notification';
 
@@ -62,53 +71,31 @@ function AccountNotificationsPanel(): ReactNode {
   const { t, i18n } = useTranslation();
   const [tab, setTab] = useState<NoticeTab>('announcement');
   const [readIds, setReadIds] = useState<Set<string>>(() => loadReadIds());
-  const [itemsByTab, setItemsByTab] = useState<Record<NoticeTab, NoticeDto[]>>({
-    announcement: [],
-    notification: [],
-  });
-  const [loading, setLoading] = useState(false);
-  const [loadedTabs, setLoadedTabs] = useState<Partial<Record<NoticeTab, boolean>>>({});
-  const loadGenRef = useRef(0);
 
-  const loadTab = useCallback(async (kind: NoticeTab) => {
-    const gen = ++loadGenRef.current;
-    setLoading(true);
-    try {
-      const res = await fetchNotices({ kind });
-      if (gen !== loadGenRef.current) return;
-      const list = (res.items || [])
-        .filter((n) => n.kind === kind)
+  const noticesQuery = useQuery({
+    ...apiQuery.noticesNoticesList.queryOptions({
+      input: { query: { kind: tab } },
+    }),
+    select: (res) => {
+      const raw = res as { items?: NoticeDto[] };
+      return (raw.items || [])
+        .filter((n) => n.kind === tab)
         .sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
-      setItemsByTab((prev) => ({ ...prev, [kind]: list }));
-      setLoadedTabs((prev) => ({ ...prev, [kind]: true }));
-    } catch {
-      if (gen !== loadGenRef.current) return;
-      setItemsByTab((prev) => ({ ...prev, [kind]: [] }));
-      setLoadedTabs((prev) => ({ ...prev, [kind]: true }));
-    } finally {
-      if (gen === loadGenRef.current) setLoading(false);
-    }
-  }, []);
+    },
+  });
 
-  // Enter panel / switch tab → request that kind (no prefetch of the other tab).
-  useEffect(() => {
-    void loadTab(tab);
-  }, [loadTab, tab]);
+  const items = noticesQuery.data || [];
+  const loading = noticesQuery.isFetching && !noticesQuery.data;
+  const loaded = noticesQuery.isFetched || noticesQuery.isError;
 
-  const items = itemsByTab[tab];
-
-  const unreadByTab = useMemo(() => {
-    const count = (kind: NoticeTab) =>
-      itemsByTab[kind].reduce((n, item) => (readIds.has(item.id) ? n : n + 1), 0);
-    return {
-      announcement: count('announcement'),
-      notification: count('notification'),
-    };
-  }, [itemsByTab, readIds]);
+  const unreadInTab = useMemo(
+    () => items.reduce((n, item) => (readIds.has(item.id) ? n : n + 1), 0),
+    [items, readIds]
+  );
 
   const markAllRead = () => {
     const next = new Set(readIds);
-    for (const n of itemsByTab[tab]) next.add(n.id);
+    for (const n of items) next.add(n.id);
     setReadIds(next);
     saveReadIds(next);
   };
@@ -126,9 +113,8 @@ function AccountNotificationsPanel(): ReactNode {
     { id: 'notification', label: t('account.notices.tabNotification') },
   ];
 
-  const unreadInTab = unreadByTab[tab];
   const lang = i18n.resolvedLanguage || i18n.language || 'zh-CN';
-  const showLoading = loading && !loadedTabs[tab];
+  const showLoading = loading && !loaded;
 
   return (
     <div className="flex min-h-[360px] flex-col">
@@ -139,7 +125,7 @@ function AccountNotificationsPanel(): ReactNode {
           options={tabs.map((item) => ({
             value: item.id,
             label: item.label,
-            badge: unreadByTab[item.id] > 0,
+            badge: item.id === tab ? unreadInTab > 0 : false,
           }))}
         />
 

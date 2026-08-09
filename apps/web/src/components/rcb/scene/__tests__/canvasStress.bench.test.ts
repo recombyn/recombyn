@@ -1,3 +1,4 @@
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Canvas stress micro-benchmarks (Node/jsdom) — post-optimization suite.
  *
@@ -13,10 +14,11 @@ import {
   createEmptyDocument,
   normalizeDocument,
   stackNodeKey,
-  updateNodeInDocument,
+  updateNodeInDocument
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
   RcbSpatialIndex,
+  SceneSpatialRuntime,
   boxesIntersect,
   nodeSceneAabb,
 } from '@/components/rcb/core/spatialIndex';
@@ -164,7 +166,7 @@ function buildStressDocument(n: number, kind: Kind) {
 }
 
 /** Mirror editor.ts structural history clone (share path strings). */
-function cloneDocumentCow(doc: any) {
+function cloneDocumentCow(doc: SceneDocument): SceneDocument {
   const delta = doc.deltaSetLike || {};
   const nextDelta: Record<string, unknown> = {};
   for (const key of Object.keys(delta)) {
@@ -192,11 +194,11 @@ function cloneDocumentCow(doc: any) {
             : p
         )
       : doc.pages,
-    deltaSetLike: nextDelta,
+    deltaSetLike: nextDelta as SceneDocument['deltaSetLike'],
   };
 }
 
-function estimateNodeBytes(node: any, seenPaths?: Set<string>): number {
+function estimateNodeBytes(node: SceneNodeInput, seenPaths?: Set<string>): number {
   if (!node) return 0;
   const attrs = node.attrs;
   if (!attrs) return 128;
@@ -220,7 +222,7 @@ function estimateNodeBytes(node: any, seenPaths?: Set<string>): number {
   return n;
 }
 
-function estimateDocBytes(doc: any, seen?: Set<string>) {
+function estimateDocBytes(doc: SceneDocument, seen?: Set<string>) {
   let n = 0;
   for (const id of Object.keys(doc?.deltaSetLike || {})) {
     n += estimateNodeBytes(doc.deltaSetLike[id], seen);
@@ -245,7 +247,7 @@ function timeMs(fn: () => void, runs: number) {
   return median(samples);
 }
 
-function measureLinearCull(doc: any, view: { minX: number; minY: number; maxX: number; maxY: number }) {
+function measureLinearCull(doc: SceneDocument, view: { minX: number; minY: number; maxX: number; maxY: number }) {
   const ids: string[] = doc.deltaSetLike?.ROOT?.children || [];
   let visible = 0;
   const t0 = performance.now();
@@ -266,14 +268,14 @@ function measureIndexCull(
   return { ms: performance.now() - t0, visible: hits.length, ids: hits.map((h) => h.id) };
 }
 
-function measureHitNearby(doc: any, idx: RcbSpatialIndex, points: Array<[number, number]>) {
-  const allIds: string[] = [...(doc.deltaSetLike?.ROOT?.children || [])].reverse();
+function measureHitNearby(doc: SceneDocument, _idx: RcbSpatialIndex, points: Array<[number, number]>) {
+  const allIds: string[] = doc.deltaSetLike?.ROOT?.children || [];
+  const runtime = new SceneSpatialRuntime(256);
+  runtime.sync({ document: doc, childrenIds: allIds, reloadToken: 1 });
   let candSum = 0;
   const t0 = performance.now();
   for (const [x, y] of points) {
-    const nearby = idx.searchPoint(x, y, 48);
-    const allow = new Set(nearby.map((it) => it.id));
-    const order = nearby.length ? allIds.filter((id) => allow.has(id)) : allIds;
+    const order = runtime.hitCandidateIds({ x, y, pad: 48, allIds });
     for (const id of order) {
       const box = nodeSceneAabb(doc, id, 8);
       candSum += 1;
@@ -287,7 +289,7 @@ function measureHitNearby(doc: any, idx: RcbSpatialIndex, points: Array<[number,
   };
 }
 
-function hostBudgetFor(doc: any, visibleIds: string[], zoom: number, moving: boolean) {
+function hostBudgetFor(doc: SceneDocument, visibleIds: string[], zoom: number, moving: boolean) {
   const { fullIds, proxyIds } = pickFullAndProxyIds({
     document: doc,
     visibleIds,

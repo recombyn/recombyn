@@ -1,13 +1,14 @@
-"""Prompt packs — seed under ``data/design_prompt_packs/`` (``_index.json`` + ``*.md``)."""
+"""Prompt packs — seed under ``seeds/design_prompt_packs/`` (``_index.json`` + staged ``*.md``)."""
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from app.core.config import resolve_data_dir, resolve_data_file
+from app.core.config import resolve_seed_dir, resolve_seed_file
 from app import crud
 from app.core.db import engine
 from app.services.design.readpath.catalog import ensure_design_catalog
@@ -16,12 +17,44 @@ from sqlmodel import Session
 _PACKS_READY = False
 _PACKS_LOCK = threading.RLock()
 
+# Shared seed files: `<!-- pack:kind -->` then body until the next pack marker.
+_PACK_SECTION_RE = re.compile(
+    r"<!--\s*pack:([^\s]+?)\s*-->\s*\n?",
+    re.MULTILINE,
+)
+
 
 def _safe_pack_kind(kind: str) -> str | None:
     k = str(kind or "").strip()
     if not k or "/" in k or "\\" in k or ".." in k:
         return None
     return k
+
+
+def _safe_seed_relpath(rel: str) -> str | None:
+    """Relative path under the packs root (no escape)."""
+    raw = str(rel or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/") or ".." in raw.split("/"):
+        return None
+    return raw
+
+
+def _parse_pack_sections(text: str) -> dict[str, str]:
+    """Split a staged markdown file into kind → body."""
+    matches = list(_PACK_SECTION_RE.finditer(text))
+    if not matches:
+        return {}
+    out: dict[str, str] = {}
+    for i, m in enumerate(matches):
+        kind = _safe_pack_kind(m.group(1))
+        if not kind:
+            continue
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        out[kind] = text[start:end].strip("\n")
+        if out[kind]:
+            out[kind] += "\n"
+    return out
 
 
 def _parse_pack_index(parsed: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]]:
@@ -43,18 +76,39 @@ def _parse_pack_index(parsed: dict[str, Any]) -> tuple[dict[str, str], list[dict
 def _attach_bodies_from_dir(
     root: Path, items: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
+    """Load bodies from ``item.file`` section files, or legacy ``<kind>.md``."""
+    section_cache: dict[str, dict[str, str]] = {}
     out: list[dict[str, Any]] = []
+
+    def sections_for(rel: str) -> dict[str, str]:
+        if rel in section_cache:
+            return section_cache[rel]
+        path = root / rel
+        parsed: dict[str, str] = {}
+        if path.is_file():
+            try:
+                parsed = _parse_pack_sections(path.read_text(encoding="utf-8"))
+            except Exception:
+                parsed = {}
+        section_cache[rel] = parsed
+        return parsed
+
     for item in items:
         kind = _safe_pack_kind(item.get("kind"))
         if not kind:
             continue
-        body_path = root / f"{kind}.md"
         body = ""
-        if body_path.is_file():
-            try:
-                body = body_path.read_text(encoding="utf-8")
-            except Exception:
-                body = ""
+        rel = _safe_seed_relpath(str(item.get("file") or ""))
+        if rel:
+            body = sections_for(rel).get(kind) or ""
+        if not body:
+            # Legacy: one file per kind at pack root.
+            body_path = root / f"{kind}.md"
+            if body_path.is_file():
+                try:
+                    body = body_path.read_text(encoding="utf-8")
+                except Exception:
+                    body = ""
         merged = dict(item)
         merged["kind"] = kind
         merged["body"] = body
@@ -63,8 +117,8 @@ def _attach_bodies_from_dir(
 
 
 def _load_prompt_packs_seed() -> tuple[dict[str, str], list[dict[str, Any]]]:
-    """Prefer ``design_prompt_packs/_index.json`` + ``*.md``; legacy monolith JSON fallback."""
-    root = resolve_data_dir("design_prompt_packs")
+    """Prefer ``design_prompt_packs/_index.json`` + staged md; legacy monolith JSON fallback."""
+    root = resolve_seed_dir("design_prompt_packs")
     index_path = root / "_index.json"
     if index_path.is_file():
         try:
@@ -75,7 +129,7 @@ def _load_prompt_packs_seed() -> tuple[dict[str, str], list[dict[str, Any]]]:
             labels, items = _parse_pack_index(parsed)
             return labels, _attach_bodies_from_dir(root, items)
 
-    legacy = resolve_data_file("design_prompt_packs_seed.json")
+    legacy = resolve_seed_file("design_prompt_packs_seed.json")
     try:
         parsed = json.loads(legacy.read_text(encoding="utf-8"))
     except Exception:
@@ -272,11 +326,8 @@ def list_prompt_nodes_from_flow(*, graph: dict[str, Any] | None = None) -> list[
     return out
 
 
-# Methodology packs migrated to design_skill (need_skills). Keep empty allowlist
-# so format/catalog no longer advertise them; bridge lives in skill_store.
+# Methodology packs migrated to design_skill (need_skills).
 _NEED_PROMPT_KINDS = frozenset()
-# Alias used by seed / overlay helpers (legacy kinds still recognized for disable).
-RETIRED_NEED_PROMPT_KINDS = frozenset({"design_spec", "vision", "aesthetics"})
 
 PACK_TYPE_NEED = "need"
 PACK_TYPE_SYSTEM = "system"
@@ -296,7 +347,6 @@ PROMPT_PACK_STAGES = (
     "settle",
     "orchestrator",
     "resources",
-    "aesthetics",
     "precheck",
     "persona",
     "legacy",
@@ -360,6 +410,14 @@ _OBSOLETE_SCENE_KINDS = frozenset(
         "social",
         "leaflet",
         "card",
+        # Retired knowledge / aesthetics packs (removed from seed).
+        "agent.prompt.pending_knowledge",
+        "agent.prompt.knowledge_details_header",
+        "agent.prompt.knowledge_catalog_header",
+        "agent.prompt.knowledge_catalog_empty",
+        "agent.prompt.knowledge_when_line",
+        "agent.prompt.prompt_packs_retired_catalog",
+        "agent.prompt.pending_aesthetics",
     }
 )
 
@@ -411,7 +469,7 @@ def _pub(r: Any) -> dict[str, Any]:
 
 
 def seed_prompt_overlay_nodes(*, x0: float = 2280, y0: float = 80, dy: float = 140) -> list[dict[str, Any]]:
-    """Seed only need_* methodology / vision / aesthetics prompt nodes."""
+    """Seed need_* prompt overlay nodes (if any remain in seed)."""
     out: list[dict[str, Any]] = []
     i = 0
     for item in _SEED:
@@ -476,11 +534,11 @@ def seed_prompt_bank_node(*, x: float = 2280, y: float = 400) -> dict[str, Any]:
 
 
 def _prune_prompt_packs_to_seed(session: Session, *, now: float) -> None:
-    """Drop obsolete scene packs + retired methodology kinds; leave system keys alone."""
+    """Drop obsolete scene packs; leave system keys alone."""
     del now
     from app.models import DesignPromptPack
 
-    drop_kinds = set(_OBSOLETE_SCENE_KINDS) | set(RETIRED_NEED_PROMPT_KINDS)
+    drop_kinds = set(_OBSOLETE_SCENE_KINDS)
     if drop_kinds:
         crud.delete_design_prompt_packs_by_kinds(session=session, kinds=drop_kinds)
 
@@ -528,47 +586,6 @@ def _prune_prompt_packs_to_seed(session: Session, *, now: float) -> None:
                 session.add(row)
 
 
-# Distinctive phrases that must appear in the current paint_system seed.
-# DB rows that still look like OSS paint_system but miss any of these get replaced.
-# Do not hardcode prior full bodies here — add a short marker when the seed contract changes.
-_PAINT_SYSTEM_SEED_MARKERS = (
-    "HOST_ARTBOARD",
-    "CLIENT_SIZE_LOCK",
-    "Craft (skills own the playbooks)",
-    "SKILL_DETAILS",
-    "brush_ops",
-    "motion_lottie",
-    "Do not emit choice_ui here",
-    "ambient SCENE",
-    "fillType=linear|radial|angular|diffuse",
-    "Cap about 8 boards per step",
-)
-
-
-def _bump_stale_paint_system_body(session: Session, *, now: float) -> None:
-    """Replace OSS paint_system packs that lag the seed contract (marker check)."""
-    kind = "agent.prompt.paint_system"
-    seed_item = _SEED_BY_KIND.get(kind) or {}
-    new_body = str(seed_item.get("body") or "").replace("\r\n", "\n").strip()
-    if not new_body:
-        return
-    markers = tuple(m for m in _PAINT_SYSTEM_SEED_MARKERS if m in new_body)
-    if not markers:
-        return
-    prefix = "You are the canvas PAINT stage"
-    seed_raw = str(seed_item.get("body") or "")
-    for pack in crud.list_design_prompt_packs_by_kind(session=session, kind=kind):
-        cur = str(pack.body or "").replace("\r\n", "\n").strip()
-        if cur == new_body:
-            continue
-        # Only touch the OSS paint_system lineage — leave unrelated admin forks alone.
-        if not cur.startswith(prefix):
-            continue
-        if all(m in cur for m in markers):
-            continue
-        pack.body = seed_raw
-        pack.updated_at = now
-        session.add(pack)
 
 
 def _sync_system_prompts_into_packs(session: Session, *, now: float) -> None:
@@ -606,10 +623,15 @@ def _sync_system_prompts_into_packs(session: Session, *, now: float) -> None:
         existing.add(key)
 
 
-def ensure_design_prompt_packs() -> None:
-    """Seed missing packs from ``data/design_prompt_packs/``; prune junk; migrate legacy.
+def _norm_pack_text(value: str) -> str:
+    return str(value or "").replace("\r\n", "\n").strip()
 
-    After first insert, Admin-edited ``body`` / ``used_by`` are preserved (no FORCE sync).
+
+def ensure_design_prompt_packs() -> None:
+    """Upsert packs from ``seeds/design_prompt_packs/``; prune junk; migrate legacy.
+
+    Git seed is source of truth for body / title / when / scenes / used_by / pack_type /
+    sort_order. Admin UI edits are overwritten on the next ensure (API boot).
     """
     global _PACKS_READY
     now = time.time()
@@ -649,47 +671,45 @@ def ensure_design_prompt_packs() -> None:
                     )
                 )
                 existing_kinds.add(kind)
-            # Admin bodies are source of truth after first insert.
-            # Seed only fills missing kinds above; do NOT force-overwrite pack/system bodies.
-            # One-shot replace when DB paint_system lags seed markers (not admin forks).
-            _bump_stale_paint_system_body(session, now=now)
-            # Backfill empty used_by from seed (Admin-set stages are preserved).
-            for kind, item in _SEED_BY_KIND.items():
-                csv = used_by_csv(item.get("usedBy") or item.get("used_by"))
-                if not csv:
-                    continue
-                for pack in crud.list_design_prompt_packs_by_kind(
-                    session=session, kind=kind
-                ):
-                    if str(pack.used_by or "").strip():
-                        continue
-                    pack.used_by = csv
-                    pack.updated_at = now
-                    session.add(pack)
-            # Sync pack_type + when_to_use from seed. Body / used_by stay Admin-owned.
+            # Seed wins: keep DB rows aligned with staged md + _index.
             for row in crud.list_all_design_prompt_packs(session=session):
                 kind = str(row.kind or "")
                 seed_item = _SEED_BY_KIND.get(kind)
                 if not seed_item:
                     continue
                 changed = False
-                raw_type = str(seed_item.get("type") or "").strip()
-                if not raw_type:
-                    if str(row.pack_type or "").strip().lower() not in _PACK_TYPES:
-                        want = normalize_pack_type("", kind=kind)
-                        if str(row.pack_type or "").strip().lower() != want:
-                            row.pack_type = want
-                            changed = True
-                else:
-                    want = normalize_pack_type(raw_type, kind=kind)
-                    if str(row.pack_type or "").strip().lower() != want:
-                        row.pack_type = want
-                        changed = True
-                seed_when = str(seed_item.get("when_to_use") or "").strip()
-                if seed_when and str(row.when_to_use or "").strip() != seed_when:
-                    # Seed owns catalog blurb; Admin can still edit body.
-                    # Skip overwrite only when seed when is empty.
-                    row.when_to_use = seed_when
+                want_type = normalize_pack_type(seed_item.get("type"), kind=kind)
+                if str(row.pack_type or "").strip().lower() != want_type:
+                    row.pack_type = want_type
+                    changed = True
+                want_title = (
+                    str(seed_item.get("title") or KIND_LABELS.get(kind, kind)).strip()
+                    or kind
+                )
+                if str(row.title or "").strip() != want_title:
+                    row.title = want_title
+                    changed = True
+                want_when = str(seed_item.get("when_to_use") or "")
+                if _norm_pack_text(row.when_to_use or "") != _norm_pack_text(want_when):
+                    row.when_to_use = want_when
+                    changed = True
+                want_scenes = str(seed_item.get("scenes") or "all") or "all"
+                if str(row.scenes or "").strip() != want_scenes:
+                    row.scenes = want_scenes
+                    changed = True
+                want_used = used_by_csv(
+                    seed_item.get("usedBy") or seed_item.get("used_by")
+                )
+                if str(row.used_by or "").strip() != want_used:
+                    row.used_by = want_used
+                    changed = True
+                want_sort = int(seed_item.get("sort_order") or 0)
+                if int(row.sort_order or 0) != want_sort:
+                    row.sort_order = want_sort
+                    changed = True
+                seed_body = str(seed_item.get("body") or "")
+                if _norm_pack_text(row.body or "") != _norm_pack_text(seed_body):
+                    row.body = seed_body
                     changed = True
                 if changed:
                     row.updated_at = now
@@ -699,7 +719,7 @@ def ensure_design_prompt_packs() -> None:
 
 
 def list_prompt_pack_bodies_for_system(*, ensure: bool = True) -> dict[str, str]:
-    """Packs whose kind is a system prompt key → body (Admin 提示词包 is source of truth)."""
+    """Packs whose kind is a system prompt key → body (Admin 系统提示词 / pack table)."""
     if ensure:
         ensure_design_prompt_packs()
     from app.services.design.prompts.system_prompt_store import is_system_prompt_key
@@ -712,148 +732,3 @@ def list_prompt_pack_bodies_for_system(*, ensure: bool = True) -> dict[str, str]
             continue
         out[kind] = body
     return out
-
-
-def list_prompt_packs(
-    *,
-    kind: str | None = None,
-    pack_type: str | None = None,
-    used_by: str | None = None,
-    enabled: bool | None = True,
-    ensure: bool = True,
-) -> list[dict[str, Any]]:
-    """Prefer flow 提示词节点; else DB table. ``pack_type`` filters by code (need|system|template)."""
-    type_filter = str(pack_type or "").strip().lower() or None
-    if type_filter and type_filter not in _PACK_TYPES:
-        type_filter = None
-    stage_filter = str(used_by or "").strip().lower() or None
-    if stage_filter and stage_filter not in _PROMPT_PACK_STAGES:
-        stage_filter = None
-    flow_rows = list_prompt_nodes_from_flow()
-    if flow_rows:
-        rows = flow_rows
-        if kind:
-            rows = [r for r in rows if r["kind"] == kind]
-        if type_filter:
-            rows = [
-                r
-                for r in rows
-                if normalize_pack_type(r.get("type"), kind=str(r.get("kind") or ""))
-                == type_filter
-            ]
-        if stage_filter:
-            rows = [
-                r
-                for r in rows
-                if stage_filter in normalize_used_by(r.get("usedBy") or r.get("used_by"))
-            ]
-        if enabled is False:
-            return []
-        return rows
-    if ensure:
-        ensure_design_catalog()
-        ensure_design_prompt_packs()
-    with Session(engine) as session:
-        rows = crud.list_design_prompt_packs(
-            session=session,
-            kind=kind,
-            pack_type=type_filter,
-            enabled=enabled,
-        )
-    out = [_pub(r) for r in rows]
-    if stage_filter:
-        out = [r for r in out if stage_filter in (r.get("usedBy") or [])]
-    return out
-
-
-def upsert_prompt_pack(payload: dict[str, Any]) -> dict[str, Any]:
-    ensure_design_catalog()
-    ensure_design_prompt_packs()
-    kid = payload.get("id")
-    kind = str(payload.get("kind") or "").strip()[:128]
-    title = str(payload.get("title") or "").strip()[:128]
-    body = str(payload.get("body") or "").strip()
-    if not kind or not title or not body:
-        raise ValueError("kind, title, body required")
-    when = str(payload.get("whenToUse") or payload.get("when_to_use") or "").strip()
-    scenes = str(payload.get("scenes") or "all").strip()[:128] or "all"
-    used_by = used_by_csv(
-        payload.get("usedBy")
-        if payload.get("usedBy") is not None
-        else payload.get("used_by")
-    )
-    if not used_by:
-        seed_item = _SEED_BY_KIND.get(kind) or {}
-        used_by = used_by_csv(seed_item.get("usedBy") or seed_item.get("used_by"))
-    sort_order = int(payload.get("sortOrder") or payload.get("sort_order") or 0)
-    enabled = 1 if payload.get("enabled", True) else 0
-    pack_type = normalize_pack_type(
-        payload.get("type") or payload.get("pack_type") or payload.get("packType"),
-        kind=kind,
-    )
-    with Session(engine) as session:
-        row = crud.upsert_design_prompt_pack(
-            session=session,
-            item_id=int(kid) if kid else None,
-            kind=kind,
-            pack_type=pack_type,
-            title=title,
-            body=body,
-            when_to_use=when,
-            scenes=scenes,
-            used_by=used_by,
-            sort_order=sort_order,
-            enabled=enabled,
-        )
-    # Mirror system keys so legacy design_system_prompt readers stay in sync.
-    try:
-        from app.services.design.prompts.system_prompt_store import (
-            is_system_prompt_key,
-            upsert_system_prompt,
-        )
-
-        if is_system_prompt_key(kind) or pack_type == PACK_TYPE_SYSTEM:
-            upsert_system_prompt(
-                key=kind,
-                body=body,
-                label=title,
-                description=when or None,
-                sort_order=sort_order,
-                enabled=bool(enabled),
-            )
-    except Exception:
-        pass
-    return _pub(row)
-
-
-def soft_delete_prompt_pack(item_id: int) -> bool:
-    """Hard-delete a prompt pack row (Admin「删除」)."""
-    ensure_design_catalog()
-    ensure_design_prompt_packs()
-    with Session(engine) as session:
-        return crud.delete_design_prompt_pack(session=session, item_id=int(item_id))
-
-
-def format_prompt_pack_block(rows: list[dict[str, Any]]) -> str:
-    if not rows:
-        return ""
-    header = render_prompt_body("agent.prompt.prompt_pack_inject_header").strip()
-    parts = [header] if header else []
-    for r in rows:
-        label = KIND_LABELS.get(r["kind"], r["kind"])
-        title = r.get("title") or label
-        when = (r.get("whenToUse") or "").strip()
-        head = f"【{label}·{title}】"
-        if when:
-            when_ln = render_prompt_body(
-                "agent.prompt.knowledge_when_line", when=when
-            ).strip()
-            if when_ln:
-                head += f"\n{when_ln}"
-        parts.append(f"{head}\n{r.get('body') or ''}".strip())
-    return "\n\n".join(parts)
-
-
-def format_prompt_packs_catalog(*, scene: str = "website") -> str:
-    del scene
-    return render_prompt_body("agent.prompt.prompt_packs_retired_catalog")

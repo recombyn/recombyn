@@ -63,7 +63,7 @@ class ChatMessageIn(BaseModel):
 
 
 class AgentTurnIn(BaseModel):
-    """One Cursor-like agent LLM turn (may return tool_calls)."""
+    """One agent LLM turn (may return tool_calls)."""
 
     messages: list[dict] = Field(default_factory=list)
     model: str | None = None

@@ -57,8 +57,9 @@ import {
   isImageGeneratorNode,
   isLottieGeneratorNode,
   isVideoGeneratorNode,
-  type ImageProcessKind,
-} from '@/components/rcb/scene/document/sceneDocument';
+  supportsCornerRadius,
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
 import ToolbarMenuSelect from './ToolbarMenuSelect';
 import BlendModeControl from './BlendModeControl';
 import {
@@ -90,7 +91,6 @@ import {
   getLiveCornerRadiusPreview,
   subscribeLiveCornerRadiusPreview,
 } from '@/components/rcb/scene/document/sceneRadii';
-import { supportsCornerRadius } from '@/components/rcb/scene/document/sceneDocument';
 import {
   buildOutlinePathAsync,
   canOutlineNode,
@@ -106,6 +106,7 @@ import {
 import { TbVectorBezier } from 'react-icons/tb';
 import { message } from '@/components/base';
 import { cn } from '@/utils/classnames';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const SIZE_OPTIONS = [12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72, 80, 96, 108].map((n) => ({
   value: String(n),
@@ -115,7 +116,7 @@ const SIZE_OPTIONS = [12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72, 80, 96, 10
 type SceneBox = { left: number; top: number; width: number; height: number };
 
 type Props = {
-  document: any;
+  document: SceneDocument;
   nodeId: string;
   box: SceneBox;
   /** Scene pad beyond chrome for outer stroke ink (center stroke half-width). */
@@ -130,7 +131,7 @@ function Sep() {
 }
 
 /** Prefer attrs.lockAspect; default locked for image/video. */
-function resolveImageAspectLocked(node: any, kind: string): boolean {
+function resolveImageAspectLocked(node: SceneNodeInput, kind: string): boolean {
   const raw = node?.attrs?.lockAspect;
   if (raw === true || raw === 'true' || raw === 1 || raw === '1') return true;
   if (raw === false || raw === 'false' || raw === 0 || raw === '0') return false;

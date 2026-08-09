@@ -1,13 +1,55 @@
 /** Custom LLM provider prefs (OpenAI-compatible). API keys never stored as plaintext. */
 
-import type { LlmModel, ModelReferenceType } from '@/apis/chat';
+import type { LlmModel, ModelReferenceType } from '@/service/chat';
+import { apiClient, apiQuery, queryClient } from '@/service/client';
 import { getToken } from '@/utils/token';
-import {
-  deleteByokProvider,
-  fetchByokProviders,
-  upsertByokProvider,
-  type ByokProviderDto,
-} from '@/apis/me';
+
+type ByokProviderDto = {
+  id: string;
+  name: string;
+  website?: string;
+  baseUrl: string;
+  apiModel: string;
+  modelKind?: string;
+  hasApiKey?: boolean;
+  apiKeyHint?: string;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+type ByokListResponse = { items?: ByokProviderDto[] };
+
+function invalidateByokListCache() {
+  queryClient.invalidateQueries({ queryKey: apiQuery.meMeByokList.key() });
+}
+
+async function fetchByokProviders(): Promise<ByokProviderDto[]> {
+  const data = (await queryClient.ensureQueryData({
+    ...apiQuery.meMeByokList.queryOptions(),
+    staleTime: 30_000,
+  })) as ByokListResponse;
+  return data.items || [];
+}
+
+async function upsertByokProvider(body: {
+  id?: string;
+  name: string;
+  website?: string;
+  baseUrl: string;
+  apiModel: string;
+  modelKind?: string;
+  apiKey?: string;
+}): Promise<ByokProviderDto> {
+  const data = (await apiClient.meMeByokUpsert({ body })) as { item: ByokProviderDto };
+  invalidateByokListCache();
+  return data.item;
+}
+
+async function deleteByokProvider(providerId: string) {
+  const res = await apiClient.meMeByokDelete({ params: { provider_id: providerId } });
+  invalidateByokListCache();
+  return res;
+}
 
 /**
  * User-facing model category when adding a custom provider.
@@ -26,7 +68,7 @@ export function isPlatformModelId(id: string | null | undefined): boolean {
   return Boolean(id && String(id).startsWith(PLATFORM_MODEL_ID_PREFIX));
 }
 
-/** ``pm:openrouter:xxx`` → ``openrouter``. */
+/** ``pm:openrouter:xxx`` 鈫?``openrouter``. */
 export function platformProviderFromModelId(id: string): string | null {
   if (!isPlatformModelId(id)) return null;
   const rest = String(id).slice(PLATFORM_MODEL_ID_PREFIX.length);
@@ -59,7 +101,7 @@ export type CustomLlmProvider = {
   apiModel: string;
   /** text | vision(multimodal). Legacy ``image`` is normalized to text. */
   modelKind: CustomModelKind;
-  /** Built-in brand icon key (openai / claude / doubao / …). */
+  /** Built-in brand icon key (openai / claude / doubao / 鈥?. */
   iconKey?: string;
   /** Custom uploaded icon (data URL or https). Takes precedence over iconKey in the picker. */
   iconUrl?: string;
@@ -106,7 +148,10 @@ async function getOrCreateDeviceKey(): Promise<CryptoKey> {
   const existing = sessionStorage.getItem(DEVICE_KEY_STORAGE);
   if (existing) {
     const raw = b64ToBytes(existing);
-    return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    return crypto.subtle.importKey('raw', raw as BufferSource, 'AES-GCM', false, [
+      'encrypt',
+      'decrypt',
+    ]);
   }
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
     'encrypt',
@@ -117,7 +162,7 @@ async function getOrCreateDeviceKey(): Promise<CryptoKey> {
   return key;
 }
 
-/** AES-256-GCM encrypt — ciphertext never logged. */
+/** AES-256-GCM encrypt 鈥?ciphertext never logged. */
 export async function encryptApiKeyLocal(plaintext: string): Promise<string> {
   const text = String(plaintext || '');
   if (!text) return '';
@@ -154,7 +199,7 @@ function apiKeyHint(plaintext: string): string {
   const s = String(plaintext || '').trim();
   if (!s) return '';
   if (s.length <= 4) return '****';
-  return `…${s.slice(-4)}`;
+  return `鈥?{s.slice(-4)}`;
 }
 
 function mapDto(
@@ -208,7 +253,7 @@ function readLocalRaw(): CustomLlmProvider[] {
 
 function writeLocalEncrypted(list: CustomLlmProvider[]) {
   try {
-    // Persist ciphertext / hints only — never plaintext apiKey.
+    // Persist ciphertext / hints only 鈥?never plaintext apiKey.
     const safe = list.map((p) => ({
       id: p.id,
       name: p.name,
@@ -230,7 +275,7 @@ function writeLocalEncrypted(list: CustomLlmProvider[]) {
   }
 }
 
-/** Sync load for picker — keys may be empty until hydrate. */
+/** Sync load for picker 鈥?keys may be empty until hydrate. */
 export function loadCustomLlmProviders(): CustomLlmProvider[] {
   return readLocalRaw().map((p) => ({
     ...p,
@@ -249,7 +294,7 @@ export function createCustomLlmProviderId() {
 /**
  * Persist a provider: server AES vault when logged in; else local AES-GCM.
  * Plaintext apiKey is never written to localStorage.
- * Platform-linked models (``pm:<provider>:…``) may omit apiKey and inherit
+ * Platform-linked models (``pm:<provider>:鈥`) may omit apiKey and inherit
  * the parent platform credential's cipher.
  */
 export async function persistCustomLlmProvider(
@@ -336,19 +381,22 @@ export async function removeCustomLlmProvider(id: string): Promise<void> {
   writeLocalEncrypted(loadCustomLlmProviders().filter((p) => p.id !== id));
 }
 
-/** Single-flight — Account Agent mounts RoutePrefs + panel both used to call this. */
+/** Single-flight 鈥?Account Agent mounts RoutePrefs + panel both used to call this. */
 let _hydrateProvidersInflight: Promise<CustomLlmProvider[]> | null = null;
 
 /** Pull server vault + migrate legacy plaintext local keys. */
 export async function hydrateCustomLlmProviders(): Promise<CustomLlmProvider[]> {
   if (_hydrateProvidersInflight) return _hydrateProvidersInflight;
-  const pending = (async () => {
+
+  let pending: Promise<CustomLlmProvider[]> | null = null;
+  async function runHydrate(): Promise<CustomLlmProvider[]> {
     try {
       return await hydrateCustomLlmProvidersBody();
     } finally {
       if (_hydrateProvidersInflight === pending) _hydrateProvidersInflight = null;
     }
-  })();
+  }
+  pending = runHydrate();
   _hydrateProvidersInflight = pending;
   return pending;
 }
@@ -357,7 +405,7 @@ async function hydrateCustomLlmProvidersBody(): Promise<CustomLlmProvider[]> {
   const token = getToken();
   let local = readLocalRaw();
 
-  // Migrate legacy plaintext → ciphertext (or server).
+  // Migrate legacy plaintext 鈫?ciphertext (or server).
   const migrated: CustomLlmProvider[] = [];
   for (const p of local) {
     const plain = String(p.apiKey || '').trim();
@@ -453,7 +501,7 @@ function llmKindFor(kind: CustomModelKind): NonNullable<LlmModel['kind']> {
   return 'text';
 }
 
-/** Map saved providers → entries for the model picker / route prefs. */
+/** Map saved providers 鈫?entries for the model picker / route prefs. */
 export function customProvidersAsModels(
   providers: CustomLlmProvider[] = loadCustomLlmProviders()
 ): LlmModel[] {

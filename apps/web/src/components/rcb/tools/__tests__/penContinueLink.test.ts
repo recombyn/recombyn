@@ -5,6 +5,7 @@ import {
   type PenAnchor,
 } from '../penPath';
 import { findOpenPenEndpointResume } from '../PenDrawFeature';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
  * Regression: re-clicking the same landing (esp. last≈first) used to close and
@@ -125,7 +126,7 @@ describe('resume open pen from endpoint (link later stroke)', () => {
           },
         },
       },
-    };
+    } as unknown as SceneDocument;
     const hit = findOpenPenEndpointResume(document, 40, 10, 10);
     // eslint-disable-next-line no-console
     console.log('[test:pen-resume:end]', hit);
@@ -150,7 +151,7 @@ describe('resume open pen from endpoint (link later stroke)', () => {
           },
         },
       },
-    };
+    } as unknown as SceneDocument;
     // nodeLeftTop uses x/y → scene anchors at (5,5)-(35,5)
     const hit = findOpenPenEndpointResume(document, 5, 5, 8);
     // eslint-disable-next-line no-console
@@ -176,7 +177,7 @@ describe('resume open pen from endpoint (link later stroke)', () => {
           },
         },
       },
-    };
+    } as unknown as SceneDocument;
     const hit = findOpenPenEndpointResume(document, 10, 10, 10);
     // eslint-disable-next-line no-console
     console.log('[test:pen-resume:closed]', hit);

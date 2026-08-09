@@ -1,16 +1,19 @@
+import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /** Shared independent corner-radius helpers for scene nodes. */
 
 import {
   clampShapeSides,
   DEFAULT_SHAPE_SIDES,
+  shapeVertexPoints,
   sidesFromAttrs,
+  starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
 
 export type CornerRadii = { tl: number; tr: number; br: number; bl: number };
 export type CornerKey = keyof CornerRadii;
 
 /** Per-vertex editors stay usable; denser paths keep uniform R only. */
-export const MAX_EDITABLE_CORNER_VERTICES = 16;
+export const MAX_EDITABLE_CORNER_VERTICES = 24;
 
 function num(v: unknown, fallback = 0) {
   const n = Number(v);
@@ -38,10 +41,38 @@ export function serializeRadiusVertices(rs: number[]): string {
   return rs.map((v) => Math.max(0, Math.round(Number(v) || 0))).join(',');
 }
 
+/** Signed-free polygon area (shoelace) for picking the exterior ring. */
+function ringPolygonArea(ring: Array<[number, number]>): number {
+  const n = ring.length;
+  if (n < 3) return 0;
+  let a = 0;
+  for (let i = 0; i < n; i += 1) {
+    const [x1, y1] = ring[i];
+    const [x2, y2] = ring[(i + 1) % n];
+    a += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(a) * 0.5;
+}
+
+/** Exterior / primary ring — largest area (not vertex count; holes are denser). */
+export function primaryClosedPathRingIndex(rings: Array<Array<[number, number]>>): number {
+  if (rings.length <= 1) return 0;
+  let best = 0;
+  let bestA = ringPolygonArea(rings[0]);
+  for (let i = 1; i < rings.length; i += 1) {
+    const a = ringPolygonArea(rings[i]);
+    if (a > bestA) {
+      best = i;
+      bestA = a;
+    }
+  }
+  return best;
+}
+
 /**
  * How many fillet-able corners a node has (rect=4, path=sharp verts only…).
  */
-export function cornerVertexCount(node: any): number {
+export function cornerVertexCount(node: SceneNodeInput): number {
   if (!node) return 4;
   const key = String(node.key || '');
   const t = String(node.attrs?.shapeType || (key === 'path' ? 'path' : key) || 'rect');
@@ -51,12 +82,16 @@ export function cornerVertexCount(node: any): number {
   if (t === 'path' || t === 'pen' || key === 'path') {
     const rings = parseClosedPathRings(String(node.attrs?.path || node.attrs?.d || ''));
     if (!rings.length) return 4;
-    let best = 0;
+    let n = 0;
     for (const ring of rings) {
-      const sharp = sharpCornerIndices(ring);
-      best = Math.max(best, sharp.length > 0 ? sharp.length : ring.length);
+      n += sharpCornerIndices(ring).length;
+      if (n >= MAX_EDITABLE_CORNER_VERTICES) {
+        return MAX_EDITABLE_CORNER_VERTICES;
+      }
     }
-    return Math.max(1, best);
+    if (n > 0) return n;
+    const primary = rings[primaryClosedPathRingIndex(rings)];
+    return Math.max(1, Math.min(primary.length, 4));
   }
   if (
     t === 'rect' ||
@@ -74,6 +109,10 @@ export function cornerVertexCount(node: any): number {
 
 /** Minimum turn (deg from straight) to treat a polyline vertex as a real corner. */
 const SHARP_CORNER_MIN_DEG = 32;
+/** Dense arc polylines (boolean crescents): only cusps should get R dots. */
+const SHARP_CORNER_DENSE_MIN_DEG = 48;
+/** ≥ this many verts ⇒ treat as densified curve, raise turn threshold. */
+const SHARP_CORNER_DENSE_VERT_COUNT = 24;
 
 /**
  * Turn away from a straight line at `curr` (0 = collinear, 90 = right angle).
@@ -96,11 +135,47 @@ export function vertexTurnDegrees(
 }
 
 /**
+ * Edge length from corner `i` along `dir`, merging near-colinear stubs.
+ * Boolean rings often leave 1–2 micro verts on an AABB edge before a real
+ * mouth fold; measuring only the last stub made those folds look “short”
+ * and dropped their R-dots.
+ */
+function edgeLenSkippingColinear(
+  points: Array<[number, number]>,
+  edgeLens: number[],
+  cornerIndex: number,
+  dir: 1 | -1
+): number {
+  const n = points.length;
+  const colinearDeg = 3;
+  const maxHops = 4;
+  let len = 0;
+  let at = cornerIndex;
+  for (let hop = 0; hop < maxHops; hop += 1) {
+    const edgeIdx = dir === 1 ? at : (at - 1 + n) % n;
+    len += edgeLens[edgeIdx];
+    const nxt = (at + dir + n) % n;
+    const after = (nxt + dir + n) % n;
+    // Far vertex still on the same line → absorb the next stub.
+    if (vertexTurnDegrees(points[at], points[nxt], points[after]) >= colinearDeg) break;
+    at = nxt;
+  }
+  return len;
+}
+
+/**
  * Indices of real corners on a closed polyline.
  * Skips dense curve samples and line→arc joins (one long edge + one short
  * chord). Those joins used to get handles but barely move when R is large,
  * because fillet clamps to half the short edge — looking “stuck” while true
  * corners round a lot.
+ *
+ * Sparse rings (boolean leftovers / simple polygons): only drop micro-edges —
+ * `maxEdge * 0.08` was wiping real corners that sit on a long AABB side next
+ * to a shorter edge (missing R-dots on the flush side).
+ *
+ * Edge lengths skip near-colinear stubs so a notch mouth on the AABB edge
+ * still counts as a real corner even when the last segment is tiny.
  */
 export function sharpCornerIndices(points: Array<[number, number]>): number[] {
   const n = points.length;
@@ -121,17 +196,21 @@ export function sharpCornerIndices(points: Array<[number, number]>): number[] {
   }
   const diag = Math.hypot(maxX - minX, maxY - minY) || 1;
   const maxEdge = Math.max(...edgeLens, 1);
-  // Both adjacent edges must be substantial (true polygon sides), not arc chords.
-  const minCornerEdge = Math.max(diag * 0.02, maxEdge * 0.08);
+  const dense = n >= SHARP_CORNER_DENSE_VERT_COUNT;
+  // Dense: keep chord filter. Sparse: allow short sides of irregular polygons.
+  const minCornerEdge = dense
+    ? Math.max(diag * 0.02, maxEdge * 0.08)
+    : Math.max(1e-4, diag * 0.002);
+  const minTurn = dense ? SHARP_CORNER_DENSE_MIN_DEG : SHARP_CORNER_MIN_DEG;
   const out: number[] = [];
   for (let i = 0; i < n; i += 1) {
     const prev = points[(i - 1 + n) % n];
     const curr = points[i];
     const next = points[(i + 1) % n];
     const turn = vertexTurnDegrees(prev, curr, next);
-    if (turn < SHARP_CORNER_MIN_DEG) continue;
-    const len1 = edgeLens[(i - 1 + n) % n];
-    const len2 = edgeLens[i];
+    if (turn < minTurn) continue;
+    const len1 = edgeLenSkippingColinear(points, edgeLens, i, -1);
+    const len2 = edgeLenSkippingColinear(points, edgeLens, i, 1);
     if (len1 < minCornerEdge || len2 < minCornerEdge) continue;
     out.push(i);
   }
@@ -148,7 +227,36 @@ export type SharpCornerSite = {
   /** Inward unit (angle bisector) in local path space. */
   ix: number;
   iy: number;
+  /**
+   * Max fillet R for this corner alone (adjacent edges × tan(α/2)).
+   * Drag / seat range must use this — not the node AABB half-min — so small
+   * hole corners cannot be dragged to the outer stadium's min(w,h)/2.
+   */
+  maxR: number;
 };
+
+/** Geometry for a tangent fillet at one polyline corner. */
+export function filletCornerMetric(
+  prev: [number, number],
+  curr: [number, number],
+  next: [number, number]
+): { len1: number; len2: number; tanHalf: number; maxR: number } {
+  const v1x = prev[0] - curr[0];
+  const v1y = prev[1] - curr[1];
+  const v2x = next[0] - curr[0];
+  const v2y = next[1] - curr[1];
+  const len1 = Math.hypot(v1x, v1y) || 1;
+  const len2 = Math.hypot(v2x, v2y) || 1;
+  const dot = Math.max(
+    -1,
+    Math.min(1, (v1x / len1) * (v2x / len2) + (v1y / len1) * (v2y / len2))
+  );
+  const alpha = Math.acos(dot);
+  const tanHalfRaw = Math.tan(alpha / 2);
+  const tanHalf = tanHalfRaw > 1e-6 && Number.isFinite(tanHalfRaw) ? tanHalfRaw : 0;
+  const maxR = tanHalf > 0 ? Math.min(len1, len2) * tanHalf : 0;
+  return { len1, len2, tanHalf, maxR };
+}
 
 function unitEdgeBisector(
   prev: [number, number],
@@ -169,51 +277,98 @@ function unitEdgeBisector(
 }
 
 /**
- * Sharp corner handle sites for closed path nodes (local path coords).
- * Returns null for rect-like shapes that should keep AABB corner handles.
+ * R-dot sites on one closed ring.
+ * Park along the corner's ≤180° angle bisector (no centroid flip):
+ * convex tips → into the fold / fill; concave valleys → into the exterior notch.
+ * Forcing every site toward the ring centroid parked valleys deep inside stars.
+ * `sharpIndex` is the flat radiusVertices index.
  */
-export function sharpCornerSitesForNode(node: any): SharpCornerSite[] | null {
-  if (!node) return null;
-  const key = String(node.key || '');
-  const t = String(node.attrs?.shapeType || (key === 'path' ? 'path' : key) || 'rect');
-  if (!(t === 'path' || key === 'path')) return null;
-  const rings = parseClosedPathRings(String(node.attrs?.path || node.attrs?.d || ''));
-  if (!rings.length) return null;
-  // Largest ring drives UI (boolean holes are secondary).
-  let ring = rings[0];
-  for (const r of rings) {
-    if (r.length > ring.length) ring = r;
+function sitesFromClosedRing(
+  ring: Array<[number, number]>,
+  opts: {
+    startSharpIndex: number;
+    budget: number;
+    /** Geo star/polygon/triangle: every vert is a fold. */
+    useAllVerts?: boolean;
   }
-  const sharp = sharpCornerIndices(ring);
-  if (!sharp.length) return null;
+): SharpCornerSite[] {
+  if (ring.length < 3 || opts.budget <= 0) return [];
+  const sharp = opts.useAllVerts
+    ? ring.map((_, i) => i).slice(0, opts.budget)
+    : sharpCornerIndices(ring).slice(0, opts.budget);
+  if (!sharp.length) return [];
   const n = ring.length;
-  let cx = 0;
-  let cy = 0;
-  for (const [x, y] of ring) {
-    cx += x;
-    cy += y;
-  }
-  cx /= n;
-  cy /= n;
-  return sharp.map((ringIndex, sharpIndex) => {
+  return sharp.map((ringIndex, j) => {
     const prev = ring[(ringIndex - 1 + n) % n];
     const curr = ring[ringIndex];
     const next = ring[(ringIndex + 1) % n];
-    let { ix, iy } = unitEdgeBisector(prev, curr, next);
-    // Bisector should point into the fill (toward centroid).
-    if (ix * (cx - curr[0]) + iy * (cy - curr[1]) < 0) {
-      ix = -ix;
-      iy = -iy;
-    }
+    const { ix, iy } = unitEdgeBisector(prev, curr, next);
+    const { maxR } = filletCornerMetric(prev, curr, next);
     return {
-      sharpIndex,
+      sharpIndex: opts.startSharpIndex + j,
       ringIndex,
       x: curr[0],
       y: curr[1],
       ix,
       iy,
+      maxR,
     };
   });
+}
+
+/**
+ * Sharp corner handle sites (local geom coords).
+ * Paths: exterior + hole sharp verts (boolean cutouts). Geo star/polygon/triangle:
+ * every vertex. Returns null for rect-like shapes that keep AABB corner handles.
+ */
+export function sharpCornerSitesForNode(node: SceneNodeInput): SharpCornerSite[] | null {
+  if (!node) return null;
+  const key = String(node.key || '');
+  const t = String(node.attrs?.shapeType || (key === 'path' ? 'path' : key) || 'rect');
+
+  if (t === 'path' || key === 'path') {
+    const rings = parseClosedPathRings(String(node.attrs?.path || node.attrs?.d || ''));
+    if (!rings.length) return null;
+    const primaryIdx = primaryClosedPathRingIndex(rings);
+    const order = [
+      primaryIdx,
+      ...rings.map((_, i) => i).filter((i) => i !== primaryIdx),
+    ];
+    const sites: SharpCornerSite[] = [];
+    for (const ri of order) {
+      const budget = MAX_EDITABLE_CORNER_VERTICES - sites.length;
+      if (budget <= 0) break;
+      sites.push(
+        ...sitesFromClosedRing(rings[ri], {
+          startSharpIndex: sites.length,
+          budget,
+        })
+      );
+    }
+    return sites.length ? sites : null;
+  }
+
+  if (t === 'star' || t === 'polygon' || t === 'triangle') {
+    const w = Math.max(1, Number(node.width) || 1);
+    const h = Math.max(1, Number(node.height) || 1);
+    const sides = clampShapeSides(sidesFromAttrs(node.attrs), DEFAULT_SHAPE_SIDES);
+    const pts = shapeVertexPoints(
+      t,
+      w,
+      h,
+      sides,
+      starInnerRatioFromAttrs(node.attrs)
+    );
+    if (pts.length < 3) return null;
+    const sites = sitesFromClosedRing(pts, {
+      startSharpIndex: 0,
+      budget: MAX_EDITABLE_CORNER_VERTICES,
+      useAllVerts: true,
+    });
+    return sites.length ? sites : null;
+  }
+
+  return null;
 }
 
 /**
@@ -226,17 +381,16 @@ export function radiiForPolylineRing(
 ): number[] {
   const sharp = sharpCornerIndices(ring);
   const full = ring.map(() => 0);
-  const effective =
-    attrs ||
-    (fallbackCorners
-      ? {
-          radiusTL: fallbackCorners.tl,
-          radiusTR: fallbackCorners.tr,
-          radiusBR: fallbackCorners.br,
-          radiusBL: fallbackCorners.bl,
-          radiusLinked: 'true',
-        }
-      : null);
+  let effective: Record<string, unknown> | null | undefined = attrs;
+  if (!effective && fallbackCorners) {
+    effective = {
+      radiusTL: fallbackCorners.tl,
+      radiusTR: fallbackCorners.tr,
+      radiusBR: fallbackCorners.br,
+      radiusBL: fallbackCorners.bl,
+      radiusLinked: 'true',
+    };
+  }
   if (!sharp.length) {
     return vertexRadiiFromAttrs(effective, ring.length, 'path');
   }
@@ -466,9 +620,10 @@ export function parseClosedPathRings(d: string): Array<Array<[number, number]>> 
 }
 
 /**
- * Fillet sharp corners of a closed polyline path. Falls back to `d` when
- * the path cannot be parsed (curves, etc.).
- * Pass `attrs` so multi-corner paths can use per-vertex `radiusVertices`.
+ * Fillet sharp corners of a closed polyline path (exterior + holes).
+ * Falls back to `d` when the path cannot be parsed (curves, etc.).
+ * `radiusVertices` is a flat list: primary-ring sharps, then each hole's sharps
+ * (same order as {@link sharpCornerSitesForNode}).
  * Only real corners are filleted — arc / curve samples stay smooth.
  */
 export function filletPathD(
@@ -489,12 +644,31 @@ export function filletPathD(
         radiusBL: r.bl,
         radiusLinked: 'true',
       };
+  const primaryIdx = primaryClosedPathRingIndex(rings);
+  const order = [
+    primaryIdx,
+    ...rings.map((_, i) => i).filter((i) => i !== primaryIdx),
+  ];
+  const sharpByRing = order.map((ri) => sharpCornerIndices(rings[ri]));
+  const totalSharp = sharpByRing.reduce((n, s) => n + s.length, 0);
+  const flat =
+    totalSharp > 0
+      ? vertexRadiiFromAttrs(effectiveAttrs, totalSharp, 'path')
+      : [];
+
+  let offset = 0;
   let out = '';
   let anyFillet = false;
-  for (const ring of rings) {
-    const radii = radiiForPolylineRing(effectiveAttrs, ring, r);
-    if (radii.some((v) => v >= 0.5)) {
-      out += roundedPolygonPath(ring, radii);
+  for (let oi = 0; oi < order.length; oi += 1) {
+    const ring = rings[order[oi]];
+    const sharp = sharpByRing[oi];
+    const full = ring.map(() => 0);
+    for (let j = 0; j < sharp.length; j += 1) {
+      full[sharp[j]] = flat[offset + j] ?? 0;
+    }
+    offset += sharp.length;
+    if (full.some((v) => v >= 0.5)) {
+      out += roundedPolygonPath(ring, full);
       anyFillet = true;
     } else {
       out += `M ${ring.map(([x, y]) => `${x} ${y}`).join(' L ')} Z`;
@@ -506,8 +680,11 @@ export function filletPathD(
 /**
  * Rounded polygon path. `radii[i]` fillets vertex `points[i]`.
  * Soft curve-sample vertices are forced to 0 even if radii says otherwise.
- * Radii are clamped so adjacent corners never consume more than an edge's length
- * (large R on short edges otherwise self-intersects — common after pen→polyline).
+ *
+ * Tangent fillet: offset along each edge is `r / tan(α/2)` (α = angle between
+ * edges). Using offset=`r` is only correct for 90° — elsewhere the arc is not
+ * tangent and the corner “bulges” or kinks at the join.
+ * Radii are clamped so adjacent offsets never consume more than an edge.
  */
 export function roundedPolygonPath(
   points: Array<[number, number]>,
@@ -526,26 +703,35 @@ export function roundedPolygonPath(
     return `M ${points.map(([x, y]) => `${x} ${y}`).join(' L ')} Z`;
   }
 
-  // Per-vertex max from adjacent half-edges.
+  const len1s: number[] = [];
+  const len2s: number[] = [];
+  const tanHalfs: number[] = [];
   for (let i = 0; i < n; i += 1) {
     const prev = points[(i - 1 + n) % n];
     const curr = points[i];
     const next = points[(i + 1) % n];
-    const len1 = Math.hypot(prev[0] - curr[0], prev[1] - curr[1]) || 1;
-    const len2 = Math.hypot(next[0] - curr[0], next[1] - curr[1]) || 1;
-    rs[i] = Math.min(rs[i], len1 / 2, len2 / 2);
+    const m = filletCornerMetric(prev, curr, next);
+    len1s.push(m.len1);
+    len2s.push(m.len2);
+    tanHalfs.push(m.tanHalf);
+    if (!(m.tanHalf > 0) || rs[i] < 0.5) {
+      rs[i] = 0;
+      continue;
+    }
+    // offset = r / tan(α/2) must fit on both adjacent edges.
+    rs[i] = Math.min(rs[i], m.maxR);
   }
-  // Shared-edge budget: r[i] + r[i+1] must not exceed edge length.
+
+  // Shared-edge budget on tangent offsets (not raw r — acute corners offset > r).
   for (let i = 0; i < n; i += 1) {
-    const a = points[i];
-    const b = points[(i + 1) % n];
-    const edge = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-    const ri = rs[i];
-    const rj = rs[(i + 1) % n];
-    if (ri + rj > edge && ri + rj > 1e-6) {
-      const scale = edge / (ri + rj);
+    const j = (i + 1) % n;
+    const edge = Math.hypot(points[j][0] - points[i][0], points[j][1] - points[i][1]) || 1;
+    const oi = tanHalfs[i] > 0 ? rs[i] / tanHalfs[i] : 0;
+    const oj = tanHalfs[j] > 0 ? rs[j] / tanHalfs[j] : 0;
+    if (oi + oj > edge && oi + oj > 1e-6) {
+      const scale = edge / (oi + oj);
       rs[i] *= scale;
-      rs[(i + 1) % n] *= scale;
+      rs[j] *= scale;
     }
   }
 
@@ -558,28 +744,28 @@ export function roundedPolygonPath(
     const v1y = prev[1] - curr[1];
     const v2x = next[0] - curr[0];
     const v2y = next[1] - curr[1];
-    const len1 = Math.hypot(v1x, v1y) || 1;
-    const len2 = Math.hypot(v2x, v2y) || 1;
+    const len1 = len1s[i];
+    const len2 = len2s[i];
     const r = rs[i];
     const ux1 = v1x / len1;
     const uy1 = v1y / len1;
     const ux2 = v2x / len2;
     const uy2 = v2y / len2;
-    const p1x = curr[0] + ux1 * r;
-    const p1y = curr[1] + uy1 * r;
-    const p2x = curr[0] + ux2 * r;
-    const p2y = curr[1] + uy2 * r;
+    const tanHalf = tanHalfs[i];
+    const offset = r > 0.5 && tanHalf > 0 ? r / tanHalf : 0;
+    const p1x = curr[0] + ux1 * offset;
+    const p1y = curr[1] + uy1 * offset;
+    const p2x = curr[0] + ux2 * offset;
+    const p2y = curr[1] + uy2 * offset;
 
     if (i === 0) parts.push(`M ${p1x} ${p1y}`);
     else parts.push(`L ${p1x} ${p1y}`);
 
-    if (r > 0.5) {
-      // Unit inward bisector isn't needed — use signed cross for arc direction.
-      // Prefer the short arc that stays near the vertex (avoid 360° flips on concave tips).
+    if (r > 0.5 && offset > 0) {
       const cross = v1x * v2y - v1y * v2x;
       const dot = ux1 * ux2 + uy1 * uy2;
       // Near-collinear: skip arc, keep sharp.
-      if (dot > 0.999) {
+      if (dot > 0.999 || dot < -0.999) {
         parts.push(`L ${curr[0]} ${curr[1]}`);
         parts.push(`L ${p2x} ${p2y}`);
       } else {

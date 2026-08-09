@@ -11,7 +11,6 @@ import {
   outlinePathFromPoints,
   paintStampDabs,
   setCustomPencilBrushes,
-  setOfficialPencilBrushes,
   STAMP_MAX_DABS_LIVE,
   STAMP_MAX_DABS,
 } from '../pencilBrushes';
@@ -20,7 +19,6 @@ const TIPS_DIR = resolve(__dirname, '../../../../../public/brushes/tips');
 
 describe('pencil tip stamps', () => {
   it('builtin tip stamps have public tip files; vector brushes are freehand', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const list = listPencilBrushes();
     expect(list.length).toBeGreaterThan(5);
@@ -42,7 +40,6 @@ describe('pencil tip stamps', () => {
   });
 
   it('vector brushes build filled freehand outlines (not stamp)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     for (const id of ['vector-ink', 'vector-even', 'vector-calligraphy'] as const) {
       const brush = findPencilBrush(id);
@@ -65,7 +62,6 @@ describe('pencil tip stamps', () => {
   });
 
   it('vector hardness soft vs hard changes outline (pressure width)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const pts = [
       { x: 0, y: 10, pressure: 0.2 },
@@ -85,8 +81,54 @@ describe('pencil tip stamps', () => {
     expect(hard.length).toBeGreaterThan(20);
   });
 
+  it('vector width follows real pressure not geometric end taper', () => {
+    setCustomPencilBrushes([]);
+    const fat = outlinePathFromPoints(
+      [
+        { x: 0, y: 20, pressure: 0.95 },
+        { x: 40, y: 20, pressure: 0.95 },
+        { x: 80, y: 20, pressure: 0.95 },
+      ],
+      12,
+      'vector-ink',
+      { pressureEnabled: true, hardness: 50 }
+    );
+    const thin = outlinePathFromPoints(
+      [
+        { x: 0, y: 20, pressure: 0.1 },
+        { x: 40, y: 20, pressure: 0.1 },
+        { x: 80, y: 20, pressure: 0.1 },
+      ],
+      12,
+      'vector-ink',
+      { pressureEnabled: true, hardness: 50 }
+    );
+    const noPressure = outlinePathFromPoints(
+      [
+        { x: 0, y: 20 },
+        { x: 40, y: 20 },
+        { x: 80, y: 20 },
+      ],
+      12,
+      'vector-ink',
+      { pressureEnabled: true, hardness: 50 }
+    );
+    const bboxH = (d: string) => {
+      const nums = d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)?.map(Number) || [];
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (let i = 1; i < nums.length; i += 2) {
+        minY = Math.min(minY, nums[i]);
+        maxY = Math.max(maxY, nums[i]);
+      }
+      return maxY - minY;
+    };
+    expect(bboxH(fat)).toBeGreaterThan(bboxH(thin) * 1.35);
+    // No hardware pressure → constant full width (not fake end taper).
+    expect(Math.abs(bboxH(noPressure) - bboxH(fat))).toBeLessThan(bboxH(fat) * 0.08);
+  });
+
   it('buildStampDabs places overlapping tips (not sparse dots)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const brush = findPencilBrush('solid');
     const wavy = [];
@@ -119,7 +161,6 @@ describe('pencil tip stamps', () => {
   });
 
   it('airbrush tip stamp path stays stamp (not freehand silhouette)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const brush = findPencilBrush('airbrush');
     expect(isStampBrush(brush.id, brush.stampSrc)).toBe(true);
@@ -137,7 +178,6 @@ describe('pencil tip stamps', () => {
   });
 
   it('paintStampDabs draws each dab (single-canvas bake path)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const brush = findPencilBrush('solid');
     const dabs = buildStampDabs(
@@ -167,7 +207,6 @@ describe('pencil tip stamps', () => {
   });
 
   it('extendStampLiveWalk only adds new dabs (live incremental)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const brush = findPencilBrush('solid');
     const pts = [
@@ -184,8 +223,37 @@ describe('pencil tip stamps', () => {
     expect(walk.dabs.length - n1).toBeGreaterThan(5);
   });
 
+  it('extendStampLiveWalk spacingScale sparsifies; maxDabs does not skip remaining pts', () => {
+    setCustomPencilBrushes([]);
+    const brush = findPencilBrush('solid');
+    const pts = [];
+    for (let i = 0; i <= 200; i += 1) pts.push({ x: i * 2, y: 0, pressure: 0.6 });
+    const dense = extendStampLiveWalk(emptyStampLiveWalk(), pts, brush, 8, {
+      hardness: 80,
+      maxDabs: 5000,
+      spacingScale: 1,
+      minStep: 0.25,
+    });
+    const sparse = extendStampLiveWalk(emptyStampLiveWalk(), pts, brush, 8, {
+      hardness: 80,
+      maxDabs: 5000,
+      spacingScale: 3,
+      minStep: 0.45,
+    });
+    expect(sparse.dabs.length).toBeLessThan(dense.dabs.length);
+    expect(sparse.walkedPts).toBe(pts.length);
+
+    const capped = extendStampLiveWalk(emptyStampLiveWalk(), pts, brush, 4, {
+      hardness: 40,
+      maxDabs: 40,
+      spacingScale: 1,
+      minStep: 0.25,
+    });
+    expect(capped.dabs.length).toBeLessThanOrEqual(40);
+    expect(capped.walkedPts).toBeLessThan(pts.length);
+  });
+
   it('stamp dab build cost for many strokes (soft budget)', () => {
-    setOfficialPencilBrushes(null);
     setCustomPencilBrushes([]);
     const brush = findPencilBrush('solid');
     const pts = [];

@@ -1,3 +1,4 @@
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Run backend design pipeline and stream progress into the agent UI.
  * Live-draw applies SVG via existing design tools (create_shape / create_text / …)
@@ -7,6 +8,7 @@
 import type { Dispatch } from '@reduxjs/toolkit';
 import {
   fetchDesignRunStatus,
+  parseDesignJobEvent,
   runDesignJob,
   resumeDesignJob,
   postDesignSceneFeedback,
@@ -15,8 +17,13 @@ import {
   type DesignScene,
   type DesignSvgPatch,
   type RunDesignJobBody,
-} from '@/apis/design';
-import { removeNodesFromDocument, groupNodesInDocument } from '@/components/rcb/scene/document/sceneDocument';
+} from '@/service/design';
+import {
+  removeNodesFromDocument
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
+  groupNodesInDocument
+} from '@/components/rcb/scene/document/sceneGroups';
 import { scalePathData } from '@/components/rcb/scene/document/pathScale';
 import { maxRadius, radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { renderExport } from '@/components/rcb/scene/paint/exportImage';
@@ -40,6 +47,7 @@ import {
 } from '@/components/editor/panels/agent/toolOpsContract';
 import {
   cancelImportPlaceholder,
+  clearArtboardGenerating,
   pushEditorHistory,
   setDocument,
   updateArtboardFrame,
@@ -120,7 +128,7 @@ function parseSize(canvasSize?: string | null): { width: number; height: number 
   const raw = String(canvasSize || '390x844')
     .toLowerCase()
     .replace('*', 'x')
-    .replace('×', 'x')
+    .replace('脳', 'x')
     .replace(/\s+/g, '')
     .trim();
   if (raw === 'auto') return { width: 1440, height: 900 };
@@ -143,7 +151,7 @@ function parseResolvedSize(
   const raw = String(canvasSize || '')
     .toLowerCase()
     .replace('*', 'x')
-    .replace('×', 'x')
+    .replace('脳', 'x')
     .replace(/\s+/g, '')
     .trim();
   const m = raw.match(/^(\d+)x(\d+)$/);
@@ -165,7 +173,7 @@ function parseLockedClientSize(canvasSize?: string | null): string | null {
 
 /** Pick artboard for edit context: @ chip → last agent frame → active → sole frame. */
 export function resolveDesignTargetFrame(
-  doc: any,
+  doc: SceneDocument,
   chipFrameId?: string | null,
   lastAgentFrameId?: string | null
 ): { id: string; width: number; height: number; x: number; y: number; name?: string } | null {
@@ -190,7 +198,7 @@ export function resolveDesignTargetFrame(
 }
 
 /** Scene node ids that mostly overlap a frame. */
-export function nodeIdsInsideFrame(doc: any, frameId: string | null | undefined): string[] {
+export function nodeIdsInsideFrame(doc: SceneDocument, frameId: string | null | undefined): string[] {
   if (!doc || !frameId) return [];
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   const frame = frames.find((f: any) => f?.id === frameId);
@@ -216,7 +224,7 @@ export function nodeIdsInsideFrame(doc: any, frameId: string | null | undefined)
 
 /** Frame that mostly contains a node, or null for free-canvas shapes. */
 export function frameIdContainingNode(
-  doc: any,
+  doc: SceneDocument,
   nodeId: string | null | undefined
 ): string | null {
   if (!doc || !nodeId) return null;
@@ -251,7 +259,7 @@ export function frameIdContainingNode(
  * Lightweight SVG snapshot of a frame for edit-in-place when the last agent SVG
  * is unavailable (e.g. page refresh). Includes size + visible text + big fills.
  */
-export function buildEditContextSvg(doc: any, frameId: string | null | undefined): string {
+export function buildEditContextSvg(doc: SceneDocument, frameId: string | null | undefined): string {
   if (!doc || !frameId) return '';
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   const frame = frames.find((f: any) => f?.id === frameId);
@@ -352,7 +360,7 @@ export type SceneNodeInventoryItem = {
 };
 
 /** Prefer solid fills for inventory (text color + shape fill). */
-function nodeFillForInventory(node: any): string {
+function nodeFillForInventory(node: SceneNodeInput): string {
   const attrs = node?.attrs || {};
   const candidates = [
     attrs['fill-color'],
@@ -421,9 +429,9 @@ function sizeFromCreateFrameOp(
 
 /** Full node snapshot for SCENE_NODES (@ targets + edit inventory). No field filtering. */
 function nodeToInventoryItem(
-  doc: any,
+  doc: SceneDocument,
   id: string,
-  node: any,
+  node: SceneNodeInput,
   originX = 0,
   originY = 0,
   frameId?: string | null
@@ -502,7 +510,7 @@ function nodeToInventoryItem(
 
 /** World-space inventory for free-canvas @ targets (no artboard). */
 export function buildSceneNodesForIds(
-  doc: any,
+  doc: SceneDocument,
   nodeIds: string[]
 ): SceneNodeInventoryItem[] {
   if (!doc || !nodeIds.length) return [];
@@ -517,7 +525,7 @@ export function buildSceneNodesForIds(
 
 /** Frame-local node inventory for edit-in-place tool ops (full snapshot per node). */
 export function buildSceneNodesForEdit(
-  doc: any,
+  doc: SceneDocument,
   frameId: string | null | undefined,
   forceIds?: string[] | null
 ): SceneNodeInventoryItem[] {
@@ -549,7 +557,7 @@ export function buildSceneNodesForEdit(
 
 /** All artboards + free-canvas nodes — what the agent actually "sees". */
 export function buildSceneNodesForCanvas(
-  doc: any,
+  doc: SceneDocument,
   opts?: {
     focusFrameId?: string | null;
     forceIds?: string[] | null;
@@ -615,7 +623,7 @@ export type SceneFrameSnapshot = {
 };
 
 /** Artboard list for SCENE_FRAMES — sent with every agent turn. */
-export function buildSceneFramesSnapshot(doc: any): SceneFrameSnapshot[] {
+export function buildSceneFramesSnapshot(doc: SceneDocument): SceneFrameSnapshot[] {
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
   return frames.slice(0, 32).map((f: any) => {
     const id = String(f.id);
@@ -696,7 +704,7 @@ function _boxesOverlap(a: SpatialBox, b: SpatialBox, gap = 0): boolean {
 
 /** Map-like summary for the agent (focused / peripheral / empty slots). */
 export function buildSpatialSummary(
-  doc: any,
+  doc: SceneDocument,
   opts?: {
     focusFrameId?: string | null;
     maxFocused?: number;
@@ -863,7 +871,7 @@ export function buildSpatialSummary(
  * Not a photoreal export — colored boxes so the model sees denseness / stacking.
  */
 export async function captureFocusFramePreview(
-  doc: any,
+  doc: SceneDocument,
   focusFrameId?: string | null
 ): Promise<string | null> {
   if (typeof window === 'undefined' || !doc) return null;
@@ -880,7 +888,12 @@ export async function captureFocusFramePreview(
   const outW = Math.max(64, Math.round(fw * scale));
   const outH = Math.max(64, Math.round(fh * scale));
 
-  const bg = String(frame?.fill || frame?.background || '#ffffff');
+  const bg = String(
+    (frame as { fill?: string; background?: string } | undefined)?.fill ||
+      (frame as { fill?: string; background?: string } | undefined)?.background ||
+      frame?.backgroundColor ||
+      '#ffffff'
+  );
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${outH}" viewBox="0 0 ${fw} ${fh}">`,
     `<rect width="${fw}" height="${fh}" fill="${bg.replace(/"/g, '') || '#fff'}"/>`,
@@ -928,7 +941,7 @@ export async function captureFocusFramePreview(
  * Caps longest edge so the scene_feedback POST stays small.
  */
 export async function captureCritiquePreview(
-  doc: any,
+  doc: SceneDocument,
   focusFrameId?: string | null
 ): Promise<string | null> {
   if (typeof window === 'undefined' || !doc) return null;
@@ -979,7 +992,7 @@ export type ToolOpResult = {
 export async function applyAgentToolOps(opts: {
   ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
   dispatch: Dispatch;
-  getDocument: () => any;
+  getDocument: () => SceneDocument | null;
   frameId: string | null;
   signal?: AbortSignal;
   /** Prefer update over create when model stacks a new bg plate. */
@@ -1036,7 +1049,7 @@ export async function applyAgentToolOps(opts: {
   }
 
   const pickTargetFrameIdForCreate = (
-    doc: any,
+    doc: SceneDocument,
     args: Record<string, unknown>,
     fallback: string | null
   ): string | null => {
@@ -1201,7 +1214,7 @@ function markArtboardGenerating(
 
 function ensureFrameSize(opts: {
   dispatch: Dispatch;
-  getDocument: () => any;
+  getDocument: () => SceneDocument | null;
   frameId: string | null;
   width: number;
   height: number;
@@ -1781,7 +1794,7 @@ function normalizeShapeType(raw: unknown): string {
   return s;
 }
 
-function nodeMatchesOp(node: any, op: ToolOp): boolean {
+function nodeMatchesOp(node: SceneNodeInput, op: ToolOp): boolean {
   if (!node) return false;
   if (op.name === 'create_text') return node.key === 'text';
   if (op.name === 'create_image') return node.key === 'image';
@@ -1793,7 +1806,7 @@ function nodeMatchesOp(node: any, op: ToolOp): boolean {
 function assignOpsToPrevNodes(
   ops: ToolOp[],
   prevIds: string[],
-  getDocument: () => any
+  getDocument: () => SceneDocument | null
 ): { assignment: (string | null)[]; leftoverPrev: string[] } {
   const assignment: (string | null)[] = Array(ops.length).fill(null);
   const used = new Set<string>();
@@ -1847,7 +1860,7 @@ function shouldFullReplace(
 
 type ApplyCoreOpts = {
   dispatch: Dispatch;
-  getDocument: () => any;
+  getDocument: () => SceneDocument | null;
   ops: ToolOp[];
   frameId: string | null;
   prevIds: string[];
@@ -2003,7 +2016,7 @@ function collectPrevIds(opts: {
  * Apply design SVG through canvas tools → editable nodes (progressive live-draw).
  */
 function frameSizeFromDoc(
-  getDocument: () => any,
+  getDocument: () => SceneDocument | null,
   frameId: string | null | undefined
 ): { width: number; height: number } | null {
   if (!frameId) return null;
@@ -2019,7 +2032,7 @@ function frameSizeFromDoc(
 
 export async function applyDesignSvgToDocumentProgressive(opts: {
   dispatch: Dispatch;
-  getDocument: () => any;
+  getDocument: () => SceneDocument | null;
   svg: string;
   canvasSize?: string | null;
   targetFrameId?: string | null;
@@ -2044,7 +2057,7 @@ export async function applyDesignSvgToDocumentProgressive(opts: {
   };
   if (!opts.getDocument()) return empty;
 
-  // Never spawn a stock 1440×900 from Auto / partial-auto.
+  // Never spawn a stock 1440脳900 from Auto / partial-auto.
   const resolved =
     parseResolvedSize(opts.canvasSize) ||
     frameSizeFromDoc(opts.getDocument, opts.targetFrameId);
@@ -2127,7 +2140,7 @@ export type AgentStepEvent =
       durationSec?: number;
       count?: number;
       skillName?: string;
-      /** Human-readable what happened (e.g. 添加文字「中秋」). */
+      /** Human-readable what happened (e.g. 娣诲姞鏂囧瓧銆屼腑绉嬨€?. */
       detail?: string;
       /** Expandable secondary copy (kept out of the capsule/row label). */
       summary?: string;
@@ -2148,7 +2161,7 @@ export type AgentStepEvent =
       applyChoice?: string;
       choiceUi?: AskChoiceUi;
     }
-  | { type: 'error'; message: string; resumable?: boolean }
+  | { type: 'error'; code: string; resumable?: boolean }
   | {
       type: 'paused';
       taskId: string;
@@ -2198,7 +2211,7 @@ export type RunDesignAgentParams = {
   memory?: DesignMemoryPayload | null;
   onMemoryPatch?: (patch: MemoryPatch, localHints: { lastAgentFrameId?: string | null }) => void;
   dispatch: Dispatch;
-  getDocument: () => any;
+  getDocument: () => SceneDocument | null;
   targetFrameId?: string | null;
   /**
    * Explicit user @ artboard (or @ node → containing frame).
@@ -2215,6 +2228,7 @@ export type RunDesignAgentParams = {
     thinking?: string;
     exploring?: string;
     editing?: string;
+    reviewing?: string;
   } | null;
   /** Auto routing overrides from account prefs (null = platform). */
   routeOverrides?: Record<string, string> | null;
@@ -2409,6 +2423,7 @@ function refreshActivityProcessPill(opts: {
     exploring?: string;
     thinking?: string;
     editing?: string;
+    reviewing?: string;
   };
 }): void {
   const { pillFrame, status, kind, setProcessPill, processLabels } = opts;
@@ -2467,7 +2482,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   const lockedClientSize = parseLockedClientSize(params.canvasSize);
   let liveCanvasSize = lockedClientSize || params.canvasSize || null;
   /** Pre-draw grade=good refs actually attached to vision (activity UI). */
-  let aesRefsAttached = 0;
   /** Authoritative only after backend status.edit_in_place — never infer from local canvas. */
   let editInPlace = false;
   let toolOpsApplied = false;
@@ -2486,8 +2500,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     });
   }
 
-  // Do not mark process shimmer until backend status.
-  // Shimmer for create OR empty edit target (focused blank artboard).
+  // Cover stays up through paint → review → reflect retry until settle/abort.
   const processLabels = params.processLabels || {};
   let shimmerFrameId: string | null = null;
 
@@ -2499,7 +2512,19 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
 
   const clearProcessPill = () => {
     shimmerFrameId = null;
-    params.dispatch(cancelImportPlaceholder());
+    params.dispatch(clearArtboardGenerating());
+  };
+
+  /** Keep cover on the live board once canvas work has started (incl. edit-in-place). */
+  const coverLiveBoard = (label: string) => {
+    const id =
+      shimmerFrameId ||
+      live.frameId ||
+      params.pinnedFrameId ||
+      params.targetFrameId ||
+      null;
+    if (!id || blankArtboard) return;
+    setProcessPill(id, label);
   };
 
   const shouldShimmerFrame = (frameId: string | null, edit: boolean): boolean => {
@@ -2615,16 +2640,18 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       });
       return;
     }
-    paintChain = (async () => {
-      await paintChain;
+    const prevPaint = paintChain;
+    async function runPaintSvgProgressive() {
+      await prevPaint;
       if (params.signal?.aborted) return;
-      // First paint replaces the import-style shimmer plate on the same frame.
+      // Drop import placeholder only — keep artboard process cover until settle.
       params.dispatch(cancelImportPlaceholder());
       const frameReady = ensureCreateFrameReady();
       if (!frameReady && !parseResolvedSize(paintCanvasSize())) {
         // Size still Auto — do not mark painted; allow retry after 设计思考 status.
         return;
       }
+      coverLiveBoard(processLabels.editing || 'Editing elements…');
       lastPaintedSvg = trimmed;
       params.onEvent({ type: 'drawing', active: true, done: 0, total: 0 });
       try {
@@ -2655,6 +2682,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         live.nodeIds = applied.nodeIds;
         live.frameId = applied.frameId;
         live.fingerprintById = applied.fingerprintById;
+        coverLiveBoard(processLabels.editing || 'Editing elements…');
         // Prefer backend patch counts when present (source of truth for "incremental").
         const created = patch ? patch.create_count : applied.created;
         const updated = patch ? patch.update_count : applied.updated;
@@ -2689,7 +2717,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       } finally {
         params.onEvent({ type: 'drawing', active: false });
       }
-    });
+    }
+    paintChain = runPaintSvgProgressive();
   };
 
   const emitPhase = (currentIndex: number, category?: string) => {
@@ -2713,20 +2742,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     }
     if (ev.status === 'routing') {
       // Legacy status — ignore (no longer emitted).
-      return;
-    }
-    if (ev.status === 'aesthetic_refs') {
-      // Internal retrieval only — do not surface as an Explored activity row.
-      const aesEv = ev as {
-        refs?: Array<{ name?: string; score?: number; imageUrl?: string }>;
-        aesRefsAttached?: number;
-      };
-      const refs = Array.isArray(aesEv.refs) ? aesEv.refs : [];
-      const attached = Number(aesEv.aesRefsAttached);
-      aesRefsAttached = Number.isFinite(attached)
-        ? Math.max(0, attached)
-        : refs.filter((r) => String(r.imageUrl || '').trim()).length ||
-          (refs.length ? refs.length : 0);
       return;
     }
 
@@ -2858,11 +2873,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       }
       if (frameId) {
         live.frameId = frameId;
-        // Clear stale chrome, then show shimmer for create / empty artboard.
+        // Placeholder only — process cover stays through the whole run.
         params.dispatch(cancelImportPlaceholder());
         if (blankArtboard) {
           painted = true;
-        } else if (shouldShimmerFrame(frameId, editInPlace)) {
+        } else if (shouldShimmerFrame(frameId, editInPlace) || shimmerFrameId) {
           setProcessPill(
             frameId,
             processLabels.preparing || 'Preparing…'
@@ -2893,6 +2908,18 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       name,
     });
     const kind = activityKindForSkill(ev.category, name);
+    const skillKey = String(ev.skill_key || '').toLowerCase();
+    const isReviewSkill =
+      skillKey === 'review' ||
+      String(ev.category || '').toLowerCase() === 'critique' ||
+      /review/i.test(name);
+    if (isReviewSkill) {
+      coverLiveBoard(
+        processLabels.reviewing ||
+          processLabels.editing ||
+          'Reviewing design…'
+      );
+    }
     if (kind !== 'hidden') {
       params.onEvent({
         type: 'activity',
@@ -2988,8 +3015,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     if (deleteish.length) {
       console.info('[sse tool_ops delete]', deleteish);
     }
-    paintChain = (async () => {
-      await paintChain;
+    const prevPaint = paintChain;
+    async function runPaintToolOps() {
+      await prevPaint;
       if (params.signal?.aborted) return;
       params.onEvent({ type: 'drawing', active: true, done: 0, total: ops.length });
       const pinned = explicitPinnedFrameId({
@@ -3057,13 +3085,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           : null;
       if (frameId) {
         live.frameId = frameId;
-        // Plate scan-light only for new/blank boards — not for adding a rect onto a page.
-        if (aiCreatesFrame || shouldShimmerFrame(frameId, editInPlace)) {
-          setProcessPill(
-            frameId,
-            processLabels.editing || 'Editing elements…'
-          );
-        }
+        // Cover through tool_ops → observe → review → reflect (not only blank boards).
+        coverLiveBoard(processLabels.editing || 'Editing elements…');
       }
       try {
         const applied = await applyAgentToolOps({
@@ -3101,15 +3124,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         if (applied.nodeIds.length) {
           live.nodeIds = [...new Set([...live.nodeIds, ...applied.nodeIds])];
         }
-        // Keep plate shimmer only when we intentionally opened a board this run.
-        if (
-          live.frameId &&
-          (aiCreatesFrame || shouldShimmerFrame(live.frameId, editInPlace))
-        ) {
-          setProcessPill(
-            live.frameId,
-            processLabels.editing || 'Editing elements…'
-          );
+        // Keep cover for review / reflect retries after paint lands.
+        if (live.frameId && (aiCreatesFrame || editInPlace || anyOk || shimmerFrameId)) {
+          coverLiveBoard(processLabels.editing || 'Editing elements…');
         }
       } finally {
         params.onEvent({
@@ -3119,7 +3136,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           total: ops.length,
         });
       }
-    });
+    }
+    paintChain = runPaintToolOps();
     return;
     
   };
@@ -3129,10 +3147,16 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     const taskId = String(ev.task_id || liveTaskId || '').trim();
     const round = typeof ev.round === 'number' ? ev.round : undefined;
     if (!taskId) return;
-    // Wait until pending paints land, then POST real inventory via axios.
-    paintChain = (async () => {
-      await paintChain;
+    // Wait until pending paints land, then POST real inventory via scene feedback.
+    const prevPaint = paintChain;
+    async function runSceneFeedbackAfterPaint() {
+      await prevPaint;
       if (params.signal?.aborted) return;
+      coverLiveBoard(
+        processLabels.reviewing ||
+          processLabels.editing ||
+          'Reviewing design…'
+      );
       const docNow = params.getDocument();
       const nodes = buildSceneNodesForCanvas(docNow, {
         focusFrameId: live.frameId || params.targetFrameId || null,
@@ -3183,7 +3207,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       } catch {
         /* ignore */
       }
-    });
+    }
+    paintChain = runSceneFeedbackAfterPaint();
     return;
     
   };
@@ -3363,26 +3388,54 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           if (typeof ev.index === 'number') emitPhase(ev.index + 1, params.scene || 'design');
           return;
         case 'critique_start': {
-          const label = `Critique ${ev.round}`;
+          const row = ev as {
+            round: number;
+            source?: string;
+            agent?: string;
+          };
+          const isReview = row.source === 'review_agent' || row.agent === 'review';
+          const label = isReview ? `Review ${row.round}` : `Critique ${row.round}`;
           if (!labels.includes(label)) labels.push(label);
           params.onEvent({
             type: 'activity',
-            id: `critique-${ev.round}`,
+            id: `critique-${row.round}`,
             kind: 'tool',
             status: 'running',
+            detail: isReview ? 'Review Agent' : undefined,
           });
+          coverLiveBoard(
+            processLabels.reviewing ||
+              processLabels.editing ||
+              'Reviewing design…'
+          );
           emitPhase(Math.max(0, labels.length - 1), 'critique');
           return;
         }
-        case 'critique_done':
+        case 'critique_done': {
+          const marketGap = String(ev.market_gap || '').trim();
+          const weaknesses = Array.isArray(ev.weaknesses)
+            ? ev.weaknesses.map((w) => String(w || '').trim()).filter(Boolean)
+            : [];
+          const tasteDetail =
+            marketGap ||
+            (weaknesses.length ? String(weaknesses[0]) : '') ||
+            (ev.ok === false && Array.isArray(ev.issues) && ev.issues.length
+              ? String(ev.issues[0] || '')
+              : '');
           params.onEvent({
             type: 'activity',
             id: `critique-${ev.round}`,
             kind: ev.ok === false ? 'skipped' : 'tool',
             status: 'done',
+            detail: tasteDetail
+              ? tasteDetail.slice(0, 120)
+              : ev.source === 'review_agent'
+                ? 'Review Agent'
+                : undefined,
           });
           emitPhase(labels.length, 'critique');
           return;
+        }
         case 'replan':
           // Dynamic skip: labels may shrink; just log, no UI needed.
           return;
@@ -3421,7 +3474,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         case 'cancelled':
           params.onEvent({
             type: 'error',
-            message: 'cancelled',
+            code: 'cancelled',
           });
           return;
         case 'error':
@@ -3431,12 +3484,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             params.onEvent({
               type: 'paused',
               taskId: tid,
-              message: ev.message || 'design_paused',
               interruptKind: 'error',
             });
             return;
           }
-          params.onEvent({ type: 'error', message: ev.message || 'design_failed' });
+          params.onEvent({
+            type: 'error',
+            code: String(ev.code || '').trim() || 'internal_error',
+          });
           return;
         default:
           return;
@@ -3447,7 +3502,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       const raw = String(frame.data || '').trim();
       if (!raw || raw === '[DONE]') return;
       try {
-        onStreamEvent(JSON.parse(raw) as DesignJobEvent);
+        const ev = parseDesignJobEvent(JSON.parse(raw));
+        if (!ev) return;
+        onStreamEvent(ev);
       } catch {
         /* ignore malformed SSE frame */
       }
@@ -3465,8 +3522,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               type: 'paused',
               taskId: liveTaskId,
               resumeToken: st.resume_token,
-              message:
-                'Connection lost — generation paused. You can resume from the checkpoint.',
               interruptKind: st.interrupt_kind || 'paused',
             });
             return;
@@ -3477,9 +3532,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       }
       params.onEvent({
         type: 'error',
-        message: networkish
-          ? 'Connection lost (proxy timeout or API reload). Retry; avoid saving API code mid-run.'
-          : msg || 'Failed to fetch',
+        code: networkish ? 'timeout' : 'internal_error',
       });
     };
 
@@ -3494,7 +3547,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           signal: params.signal,
           onmessage: onStreamMessage,
           onerror: (err) => {
-            void onStreamError(err);
+            onStreamError(err);
           },
         }
       );
@@ -3503,7 +3556,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         signal: params.signal,
         onmessage: onStreamMessage,
         onerror: (err) => {
-          void onStreamError(err);
+          onStreamError(err);
         },
       });
     }
@@ -3512,7 +3565,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     } catch {
       /* ignore */
     }
+    // Only clear cover when the full Design→Review(+retry) run has finished.
     params.dispatch(cancelImportPlaceholder());
+    clearProcessPill();
 
     if (pendingDone) {
       const summary = (pendingDone.summary || resultSummary || '').trim();
@@ -3549,9 +3604,10 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         params.dispatch(setDocument(groupNodesInDocument(doc, ids)));
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     params.dispatch(cancelImportPlaceholder());
+    clearProcessPill();
     if (params.signal?.aborted) return;
-    params.onEvent({ type: 'error', message: err?.message || String(err) });
+    params.onEvent({ type: 'error', code: 'internal_error' });
   }
 }

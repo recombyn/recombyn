@@ -771,6 +771,13 @@ const zhCN = {
   editor: {
     save: '保存',
     preview: '预览',
+    revisionConflictTitle: '云端有更新版本',
+    revisionConflictBody:
+      '此项目在其他地方已保存为更新修订。加载云端版本，或用本地编辑覆盖云端。',
+    revisionConflictCollabBody:
+      '协作过程中云端修订已变化。加载云端快照，或将当前房间文档推送到云端。',
+    revisionConflictAdopt: '加载云端',
+    revisionConflictOverwrite: '保留本地',
     undo: '撤销',
     redo: '重做',
     zoomIn: '放大',
@@ -972,6 +979,7 @@ const zhCN = {
       polygon: '多边形',
       star: '星形',
       uploadImage: '图片上传',
+      uploadVideo: '视频上传',
       uploadMedia: '上传文件',
       audio: '音频',
       imageGenerator: '图像生成器',
@@ -1536,8 +1544,6 @@ const zhCN = {
     activityLookupDoneCount: '已确认设计参数',
     lookupKindSkill: '技能包',
     lookupKindRule: '设计规则',
-    lookupKindKnowledge: '场景知识',
-    lookupKindAesthetics: '美学令牌分析',
     lookupGate: '先检索材料再上画',
     stageLookup: '确认设计参数',
     stageScene: '已确认画布',
@@ -1557,6 +1563,7 @@ const zhCN = {
     canvasProcessThinking: '正在理解需求…',
     canvasProcessExploring: '正在确认设计参数…',
     canvasProcessEditing: '正在更新画布…',
+    canvasProcessReviewing: '正在评审设计…',
     replied: '已回复',
     taskCompleteNamed: '{{name}} 已完成任务',
     proposeOpsPreview: '将应用 {{count}} 项画布操作',

@@ -15,7 +15,7 @@ import {
   plazaDisplayCoverUrls,
   type PlazaSubmissionDto,
   type PlazaStatus,
-} from '@/apis/plaza';
+} from '@/models/plaza';
 import ProjectCoverThumb from '@/components/home/ProjectCoverThumb';
 import { useGoEditor } from '@/utils/goEditor';
 import { projectThumbFrameClass } from '@/utils/projectThumb';
@@ -51,7 +51,7 @@ function statusLabelKey(status: PlazaStatus): string {
   return 'plaza.statusRejected';
 }
 
-/** Shared card skeleton — cover + title lines. */
+/** Shared card skeleton 鈥?cover + title lines. */
 function ProjectCardSkeleton({ label }: { label?: string }): ReactNode {
   return (
     <article className="group" aria-busy="true" aria-label={label || 'loading'}>
@@ -64,7 +64,7 @@ function ProjectCardSkeleton({ label }: { label?: string }): ReactNode {
   );
 }
 
-/** Dashed “New project” tile — first cell in Recent / My projects grids. */
+/** Dashed 鈥淣ew project鈥?tile 鈥?first cell in Recent / My projects grids. */
 function NewProjectCard({
   disabled = false,
   onClick,
@@ -112,7 +112,7 @@ type Props = {
   plazaStatus?: PlazaSubmissionDto | null;
   onToggle?: () => void;
   onDelete: () => void;
-  /** Menu → rename dialog. */
+  /** Menu 鈫?rename dialog. */
   onRename: () => void;
   /** Title inline contentEditable commit. */
   onCommitRename: (name: string) => void;
@@ -182,7 +182,7 @@ function ProjectCard({
 
   const openEditor = () => {
     if (disabled) return;
-    // New tab loads /editor/:id and hydrates itself — no need to preload here.
+    // New tab loads /editor/:id and hydrates itself 鈥?no need to preload here.
     goEditor({ projectId: item.id, newWindow: true });
   };
 
@@ -230,7 +230,7 @@ function ProjectCard({
 
   const onPrimary = () => {
     if (selectMode) onToggle?.();
-    else void openEditor();
+    else openEditor();
   };
 
   return (
@@ -250,7 +250,6 @@ function ProjectCard({
           <ProjectCoverThumb
             thumbnail={coverThumbnail}
             version={stamp}
-            document={item.document}
             className={selected ? 'border-[#8eb4e8]' : undefined}
           />
         </button>

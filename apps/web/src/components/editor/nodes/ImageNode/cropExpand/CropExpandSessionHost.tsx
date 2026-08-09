@@ -25,7 +25,12 @@ import {
   startImageProcess,
   type ImageToolPanelKind,
 } from '@/store/modules/editor';
-import { addNodeToDocument, isVideoGeneratorNode } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  addNodeToDocument
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isVideoGeneratorNode
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { imageSrcToFile } from '@/utils/uploadImage';
 import { cn } from '@/utils/classnames';
@@ -39,6 +44,7 @@ import CropExpandOverlay, {
   type CropRect,
   type ExpandFrame,
 } from './CropExpandOverlay';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /**
  * Decode src for canvas crop. Must go through authenticated fetch for local
@@ -117,7 +123,7 @@ function expandMetaFromFrame(cw: number, ch: number, frame: ExpandFrame) {
   };
 }
 
-function nodeBox(document: any, node: any) {
+function nodeBox(document: SceneDocument, node: SceneNodeInput) {
   if (!node) return null;
   const { left, top } = nodeLeftTop(document, node);
   return {
@@ -128,7 +134,7 @@ function nodeBox(document: any, node: any) {
   };
 }
 
-function isCroppableNode(node: any) {
+function isCroppableNode(node: SceneNodeInput) {
   if (!node) return false;
   if (node.key === 'image') return true;
   if (node.key === 'video' && !isVideoGeneratorNode(node)) return true;
@@ -186,7 +192,7 @@ export const CROP_EXPAND_RATIOS: { id: string; label: string; w: number; h: numb
 /**
  * On-canvas crop / expand: control frame + compact bar under the frame.
  */
-function CropExpandSessionHost({ document }: { document: any }): ReactNode {
+function CropExpandSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const dispatch = useDispatch();
   const camera = useRcbCamera();
   const panel = useSelector((s: any) => s.editor.imageToolPanel as null | {

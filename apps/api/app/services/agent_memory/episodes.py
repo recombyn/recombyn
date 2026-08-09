@@ -130,7 +130,7 @@ def embed_episode(episode_id: str) -> bool:
                     updated_at=time.time(),
                 )
                 return False
-            from app.services.design.aesthetics.clip_encoder import EMB_DIM, MODEL_ID
+            from app.services.agent_memory.clip_encoder import EMB_DIM, MODEL_ID
 
             crud.update_agent_episode_embed(
                 session=session,

@@ -74,6 +74,7 @@ class ProjectListOut(SQLModel):
     page: int | None = None
     pageSize: int | None = None
     total: int | None = None
+    hasMore: bool | None = None
 
 
 class IdsOut(SQLModel):
@@ -350,63 +351,6 @@ class DesignLayerLock(SQLModel, table=True):
     created_at: float = Field(default=0.0)
     updated_at: float = Field(default=0.0)
 
-
-class DesignLibraryItem(SQLModel, table=True):
-    __tablename__ = "design_library_item"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(max_length=128)
-    kind: str = Field(default="style", max_length=32)
-    scene: str = Field(default="all", max_length=64)
-    cover_url: Optional[str] = Field(default=None)
-    tags: str = Field(default="", max_length=255)
-    description: Optional[str] = Field(default=None)
-    enabled: int = Field(default=1)
-    sort_order: int = Field(default=0)
-    meta_json: Optional[str] = Field(default=None)
-    created_at: float = Field(default=0.0)
-    updated_at: float = Field(default=0.0)
-
-
-class DesignQualitySample(SQLModel, table=True):
-    __tablename__ = "design_quality_sample"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(default="", max_length=128)
-    scene: str = Field(default="website", max_length=32)
-    grade: str = Field(default="good", max_length=16)
-    tags: str = Field(default="", max_length=512)
-    comment_text: Optional[str] = Field(default=None)
-    image_url: str = Field(default="")
-    origin_path: Optional[str] = Field(default=None)
-    thumb_webp: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
-    layout_emb: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
-    color_emb: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
-    aesthetic_emb: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
-    emb_dim: int = Field(default=512)
-    emb_model: str = Field(default="openclip-vit-b-32", max_length=64)
-    embed_status: str = Field(default="pending", max_length=32)
-    embed_error: Optional[str] = Field(default=None)
-    enabled: int = Field(default=1)
-    meta_json: Optional[str] = Field(default=None)
-    created_at: float = Field(default=0.0)
-    updated_at: float = Field(default=0.0)
-
-
-class DesignKnowledge(SQLModel, table=True):
-    __tablename__ = "design_knowledge"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    kind: str = Field(max_length=32)
-    title: str = Field(max_length=128)
-    body: str = Field(default="")
-    when_to_use: Optional[str] = Field(default=None)
-    scenes: str = Field(default="all", max_length=128)
-    skill_categories: str = Field(default="all", max_length=128)
-    sort_order: int = Field(default=0)
-    enabled: int = Field(default=1)
-    created_at: float = Field(default=0.0)
-    updated_at: float = Field(default=0.0)
 
 
 class DesignTokenPack(SQLModel, table=True):

@@ -8,6 +8,13 @@ import {
   type Ring,
 } from 'polygon-clipping';
 import { getShapeBaselineD } from '@/components/rcb/core/geometry';
+import {
+  clampShapeSides,
+  DEFAULT_SHAPE_SIDES,
+  shapeVertexPoints,
+  sidesFromAttrs,
+  starInnerRatioFromAttrs,
+} from '@/components/rcb/scene/document/sceneShapes';
 
 export type ShapeBox = {
   left: number;
@@ -40,15 +47,29 @@ export type BoolResult = {
 };
 
 /**
- * Curve sample spacing. Was 1.25 → hundreds of verts on long paths, and boolean
- * kept every clip vertex with no RDP (path-edit looked like a bead string).
+ * Curve sample spacing. Adaptive per-shape — fixed 2.5px turned small circles
+ * into coarse polygons after boolean sparsify.
  */
-const SAMPLE_STEP_PX = 2.5;
-const MIN_SAMPLE_POINTS = 16;
-const FALLBACK_ELLIPSE_SEGMENTS = 64;
-/** Post-boolean path-edit budget per ring. */
-const BOOL_RING_MAX_PTS = 72;
-const BOOL_RING_EPS = 0.85;
+const SAMPLE_STEP_PX = 1.6;
+const MIN_SAMPLE_POINTS = 24;
+const FALLBACK_ELLIPSE_SEGMENTS = 192;
+/** Post-boolean path-edit budget per ring (floor; grows with ring size). */
+const BOOL_RING_MAX_PTS = 220;
+const BOOL_RING_EPS = 0.08;
+
+function ellipseSegmentCount(b: ShapeBox): number {
+  const peri =
+    Math.PI *
+    (3 * (b.width + b.height) -
+      Math.sqrt((3 * b.width + b.height) * (b.width + 3 * b.height)));
+  // ~0.4 scene-px chord before clip/RDP.
+  return Math.max(FALLBACK_ELLIPSE_SEGMENTS, Math.ceil(peri / 0.4));
+}
+
+function sampleStepForBox(b: ShapeBox): number {
+  const m = Math.max(1, Math.min(b.width, b.height));
+  return Math.max(0.35, Math.min(SAMPLE_STEP_PX, m / 80));
+}
 
 function rectRing(b: ShapeBox): Ring {
   const { left, top, width, height } = b;
@@ -61,14 +82,15 @@ function rectRing(b: ShapeBox): Ring {
   ];
 }
 
-function ellipseRingFallback(b: ShapeBox): Ring {
+function ellipseRingFallback(b: ShapeBox, segments?: number): Ring {
   const cx = b.left + b.width / 2;
   const cy = b.top + b.height / 2;
   const rx = b.width / 2;
   const ry = b.height / 2;
+  const n = segments ?? ellipseSegmentCount(b);
   const ring: Ring = [];
-  for (let i = 0; i < FALLBACK_ELLIPSE_SEGMENTS; i++) {
-    const angle = (i / FALLBACK_ELLIPSE_SEGMENTS) * Math.PI * 2;
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2;
     ring.push([cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)]);
   }
   ring.push(ring[0]);
@@ -272,13 +294,29 @@ function sparsifyClosedRing(
   }
   if (pts.length < 3) return closeRing(pts);
 
-  let out = simplifyRdp(pts.concat([pts[0]]), epsilon);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  const diag = Math.hypot(maxX - minX, maxY - minY) || 1;
+  // Max chord error ~0.04–0.08u so boolean crescents stay visually round.
+  const eps = Math.max(0.025, Math.min(epsilon, diag * 0.00055));
+  const budget = Math.min(640, Math.max(maxPts, Math.round(diag / 0.35)));
+
+  let out = simplifyRdp(pts.concat([pts[0]]), eps);
   if (out.length >= 2) {
     const f = out[0];
     const l = out[out.length - 1];
     if (Math.hypot(f[0] - l[0], f[1] - l[1]) < 1e-6) out = out.slice(0, -1);
   }
-  if (out.length > maxPts) {
+  // Only cull when far over budget — never flatten arcs just to hit a low cap.
+  if (out.length > budget) {
     const turnMag = (idx: number) => {
       const n = out.length;
       const prev = out[(idx - 1 + n) % n];
@@ -293,7 +331,7 @@ function sparsifyClosedRing(
       const dot = Math.max(-1, Math.min(1, (ax / la) * (bx / lb) + (ay / la) * (by / lb)));
       return Math.acos(dot);
     };
-    while (out.length > maxPts && out.length > 3) {
+    while (out.length > budget && out.length > 3) {
       let minI = 0;
       let minTurn = Infinity;
       for (let i = 0; i < out.length; i += 1) {
@@ -329,6 +367,90 @@ function localBaselinePathD(b: ShapeBox): string {
       attrs,
     }) || ''
   );
+}
+
+/**
+ * Sharp geo verts for star / polygon / triangle — reliable boolean rings without
+ * SVG Path sampling (arcs / empty getTotalLength used to fall through to AABB).
+ */
+function geoShapeLocalRing(b: ShapeBox): Ring | null {
+  const t = String(b.shapeType || 'rect');
+  if (t !== 'star' && t !== 'polygon' && t !== 'triangle') return null;
+  const sides =
+    b.sides != null && Number.isFinite(Number(b.sides))
+      ? clampShapeSides(Number(b.sides), DEFAULT_SHAPE_SIDES)
+      : sidesFromAttrs(b.attrs);
+  const pts = shapeVertexPoints(
+    t,
+    b.width,
+    b.height,
+    sides,
+    starInnerRatioFromAttrs(b.attrs)
+  );
+  if (pts.length < 3) return null;
+  const cleaned = dedupeRingPts(
+    pts.map(([x, y]) => [x, y] as [number, number]),
+    0.25
+  );
+  if (cleaned.length < 3) return null;
+  return closeRing(cleaned);
+}
+
+/**
+ * Nonzero star fill as a simple outer ring (triangle-fan ∪).
+ * Tip–valley star polylines self-intersect; polygon-clipping then throws or
+ * returns empty when the star is the subtract base — triggering AABB fallback.
+ */
+function simpleRingFromStarFan(localClosed: Ring): Ring | null {
+  let pts = localClosed.map(([x, y]) => [x, y] as [number, number]);
+  if (
+    pts.length >= 2 &&
+    Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 1e-6
+  ) {
+    pts = pts.slice(0, -1);
+  }
+  if (pts.length < 3) return null;
+  let cx = 0;
+  let cy = 0;
+  for (const [x, y] of pts) {
+    cx += x;
+    cy += y;
+  }
+  cx /= pts.length;
+  cy /= pts.length;
+
+  let mp: MultiPolygon | null = null;
+  for (let i = 0; i < pts.length; i += 1) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const tri: Polygon = [
+      [
+        [cx, cy],
+        [a[0], a[1]],
+        [b[0], b[1]],
+        [cx, cy],
+      ],
+    ];
+    try {
+      mp = mp ? (union(mp, tri) as MultiPolygon) : [tri];
+    } catch {
+      return null;
+    }
+  }
+  if (!mp?.length) return null;
+  // Largest outer ring (fan union is usually one polygon).
+  let best: Ring | null = null;
+  let bestArea = -1;
+  for (const poly of mp) {
+    const outer = poly[0];
+    if (!outer || outer.length < 4) continue;
+    const a = ringAbsArea(outer);
+    if (a > bestArea) {
+      bestArea = a;
+      best = outer;
+    }
+  }
+  return best ? closeRing(dedupeRingPts(best.map(([x, y]) => [x, y] as [number, number]), 0.2)) : null;
 }
 
 /**
@@ -385,22 +507,50 @@ function shapeToPolygon(b: ShapeBox): Polygon | null {
   const cx = b.left + b.width / 2;
   const cy = b.top + b.height / 2;
   const angle = b.angle || 0;
+  const toWorld = (ring: Ring): Ring =>
+    rotateRing(translateRing(ring, b.left, b.top), cx, cy, angle);
+
+  // Circles / ellipses: dense parametric rings (SVG A sampling + RDP flattened arcs).
+  const t = String(b.shapeType || 'rect');
+  if (t === 'circle' || t === 'ellipse') {
+    const local = ellipseRingFallback(
+      { ...b, left: 0, top: 0 },
+      ellipseSegmentCount(b)
+    );
+    return [toWorld(local)];
+  }
+
+  // Star / polygon / triangle: prefer sharp verts so concave tips never become AABB.
+  const geo = geoShapeLocalRing(b);
+  if (geo && geo.length >= 4) {
+    if (t === 'star') {
+      // Always use the simple nonzero fill — self-intersecting tip–valley rings
+      // break polygon-clipping when the star is the subtract/union subject.
+      const simple = simpleRingFromStarFan(geo);
+      if (simple && simple.length >= 4) {
+        return [toWorld(simple)];
+      }
+    }
+    const d = localBaselinePathD(b);
+    // Rounded geo still try curve sample; fall back to sharp verts if sample empty.
+    if (d && /[AaCcQqSsTt]/.test(d)) {
+      const localRings = sampleLocalPathToRings(d, sampleStepForBox(b));
+      if (localRings.length && localRings[0] && localRings[0].length >= 4) {
+        return localRings.map((ring) => toWorld(ring));
+      }
+    }
+    return [toWorld(geo)];
+  }
+
   const d = localBaselinePathD(b);
-  const localRings = d ? sampleLocalPathToRings(d) : [];
+  const localRings = d ? sampleLocalPathToRings(d, sampleStepForBox(b)) : [];
 
   if (localRings.length) {
-    const world = localRings.map((ring) =>
-      rotateRing(translateRing(ring, b.left, b.top), cx, cy, angle)
-    );
+    const world = localRings.map((ring) => toWorld(ring));
     if (world[0] && world[0].length >= 4) return world;
   }
 
-  // DOM-less / empty baseline fallback (sharp AABB or dense ellipse).
-  const t = String(b.shapeType || 'rect');
-  if (t === 'circle' || t === 'ellipse') {
-    const ring = rotateRing(ellipseRingFallback(b), cx, cy, angle);
-    return ring.length >= 4 ? [ring] : null;
-  }
+  // DOM-less / empty baseline fallback (sharp AABB).
   const ring = rotateRing(rectRing(b), cx, cy, angle);
   return ring.length >= 4 ? [ring] : null;
 }
@@ -456,32 +606,36 @@ function multipolygonHasHoles(mp: MultiPolygon): boolean {
   return mp.some((poly) => poly.length > 1);
 }
 
-function runClipping(boxes: ShapeBox[], mode: BoolMode): MultiPolygon | null {
+function clipShapes(
+  boxes: ShapeBox[],
+  mode: BoolMode
+): { failed: true } | { failed: false; mp: MultiPolygon } {
   const polygons: Polygon[] = [];
   for (const b of boxes) {
     const poly = shapeToPolygon(b);
-    if (!poly || !poly[0] || poly[0].length < 4) return null;
+    if (!poly || !poly[0] || poly[0].length < 4) return { failed: true };
     polygons.push(poly);
   }
-  if (polygons.length < 2) return null;
+  if (polygons.length < 2) return { failed: true };
 
   try {
+    let mp: MultiPolygon;
     if (mode === 'union') {
       const [first, ...rest] = polygons;
-      return union(first, ...rest);
-    }
-    if (mode === 'subtract') {
+      mp = union(first, ...rest);
+    } else if (mode === 'subtract') {
       const [base, ...rest] = polygons;
-      return difference(base, ...rest);
-    }
-    if (mode === 'intersect') {
+      mp = difference(base, ...rest);
+    } else if (mode === 'intersect') {
       const [first, ...rest] = polygons;
-      return intersection(first, ...rest);
+      mp = intersection(first, ...rest);
+    } else {
+      const [first, ...rest] = polygons;
+      mp = xor(first, ...rest);
     }
-    const [first, ...rest] = polygons;
-    return xor(first, ...rest);
+    return { failed: false, mp: mp || [] };
   } catch {
-    return null;
+    return { failed: true };
   }
 }
 
@@ -560,14 +714,23 @@ export function computeShapeBoolean(
     const t = String(b.shapeType || 'rect');
     return t !== 'rect';
   });
-  const mp = runClipping(boxes, mode);
+  // Subtract: punch smaller from larger (click/stack order often puts the star first).
+  const ordered =
+    mode === 'subtract' && boxes.length >= 2
+      ? [...boxes].sort((a, b) => b.width * b.height - a.width * a.height)
+      : boxes;
+  const clipped = clipShapes(ordered, mode);
 
-  if (!mp || mp.length === 0) {
+  // Hard failure only — empty subtract is a valid "nothing left", not AABB soup.
+  if (clipped.failed) {
     const fallback = rectOnlyFallback(boxes, mode);
     return { result: fallback, usedFallback: Boolean(fallback), hasNonRect };
   }
+  if (!clipped.mp.length) {
+    return { result: null, usedFallback: false, hasNonRect };
+  }
 
-  const { minX, minY, maxX, maxY } = multipolygonBounds(mp);
+  const { minX, minY, maxX, maxY } = multipolygonBounds(clipped.mp);
   if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
     const fallback = rectOnlyFallback(boxes, mode);
     return { result: fallback, usedFallback: Boolean(fallback), hasNonRect };
@@ -575,7 +738,7 @@ export function computeShapeBoolean(
 
   const width = Math.max(1, maxX - minX);
   const height = Math.max(1, maxY - minY);
-  const path = multipolygonToPath(mp, minX, minY);
+  const path = multipolygonToPath(clipped.mp, minX, minY);
   if (!path) {
     const fallback = rectOnlyFallback(boxes, mode);
     return { result: fallback, usedFallback: Boolean(fallback), hasNonRect };
@@ -589,7 +752,7 @@ export function computeShapeBoolean(
       width,
       height,
       // Holes from subtract / donut operands need evenodd when windings are mixed.
-      fillRule: multipolygonHasHoles(mp) || mode === 'exclude' ? 'evenodd' : 'nonzero',
+      fillRule: multipolygonHasHoles(clipped.mp) || mode === 'exclude' ? 'evenodd' : 'nonzero',
     },
     usedFallback: false,
     hasNonRect,
