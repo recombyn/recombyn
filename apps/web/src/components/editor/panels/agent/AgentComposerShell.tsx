@@ -53,6 +53,13 @@ export type ComposerRunMode = 'agent' | 'image' | 'video';
 /** Agent = edit canvas; Ask = propose / clarify first; Image / Video = direct gen in chat. */
 export type ComposerInteractionMode = 'agent' | 'ask' | 'image' | 'video';
 
+const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = [
+  'agent',
+  'ask',
+  'image',
+  'video',
+];
+
 /** Controls shown when `interactionMode === 'image'` (mirrors ImageGeneratorCard footer). */
 export type ImageModeComposerControls = {
   resolution: string;
@@ -234,6 +241,8 @@ type Props = {
   /** Left toolbar extras (e.g. 取消 / 还原 when editing). */
   leadingActions?: ReactNode;
   canSend: boolean;
+  /** Tooltip when send is disabled or models are unhealthy. */
+  sendDisabledReason?: string;
   /** Open OS file picker and receive selected files (images). */
   onAttachFiles?: (files: File[], opts?: { mention?: boolean }) => void;
   /** Tooltip for the attach (+) button. */
@@ -583,6 +592,7 @@ function AttachmentAudioPreview({ src }: { src: string }): ReactNode {
       <span className="text-[12px] tabular-nums text-[var(--muted)]">
         {formatAudioTime(audioTime.current)} / {formatAudioTime(audioTime.duration || 0)}
       </span>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption -- attachment audio preview, not dialogue */}
       <audio
         ref={audioRef}
         src={src}
@@ -996,6 +1006,7 @@ function AgentComposerShell({
   placeholder,
   leadingActions,
   canSend,
+  sendDisabledReason,
   onAttachFiles,
   attachTooltip,
   onPickFromCanvas,
@@ -1033,10 +1044,17 @@ function AgentComposerShell({
   const allowedModes =
     allowedInteractionModes && allowedInteractionModes.length
       ? allowedInteractionModes
-      : (['agent', 'ask', 'image', 'video'] as ComposerInteractionMode[]);
+      : DEFAULT_INTERACTION_MODES;
+
+  const sendButtonTitle = sendDisabledReason || t('agent.send');
 
   const attachments = contexts.filter((c) => c.kind === 'attachment');
-  const inlineContexts = contexts.filter((c) => c.kind !== 'attachment');
+  // Keep the same array identity when there are no attachments so the
+  // contenteditable sync effect does not re-fire on every parent render.
+  const inlineContexts =
+    attachments.length === 0
+      ? contexts
+      : contexts.filter((c) => c.kind !== 'attachment');
   const isImageMode = interactionMode === 'image' && Boolean(imageModeControls);
   const isVideoMode = interactionMode === 'video' && Boolean(videoModeControls);
   const isGenMediaMode = isImageMode || isVideoMode;
@@ -1226,6 +1244,7 @@ function AgentComposerShell({
           onRemove={removeAttachment}
         />
       )}
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
       <div
         className={cn('flex flex-1 cursor-text items-start', inputMinClass, 'max-h-[140px] overflow-hidden')}
         onClick={(e) => {
@@ -1537,9 +1556,12 @@ function AgentComposerShell({
                   aria-label={t('agent.send')}
                   disabled={!canSend}
                   onClick={onSubmit}
-                  title={t('wallet.creditCostTip', {
-                    count: imageModeControls.creditCost,
-                  })}
+                  title={
+                    sendDisabledReason ||
+                    t('wallet.creditCostTip', {
+                      count: imageModeControls.creditCost,
+                    })
+                  }
                   className={creditSendBtn}
                 >
                   <HiOutlineBolt className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1549,7 +1571,7 @@ function AgentComposerShell({
                 <button
                   type="button"
                   aria-label={t('agent.send')}
-                  title={t('agent.send')}
+                  title={sendButtonTitle}
                   disabled={!canSend}
                   onClick={onSubmit}
                   className={cn(iconSendBtn, 'hover:opacity-90 disabled:opacity-35')}
@@ -1602,9 +1624,12 @@ function AgentComposerShell({
                   aria-label={t('agent.send')}
                   disabled={!canSend}
                   onClick={onSubmit}
-                  title={t('wallet.creditCostTip', {
-                    count: videoModeControls.creditCost,
-                  })}
+                  title={
+                    sendDisabledReason ||
+                    t('wallet.creditCostTip', {
+                      count: videoModeControls.creditCost,
+                    })
+                  }
                   className={creditSendBtn}
                 >
                   <HiOutlineBolt className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1614,7 +1639,7 @@ function AgentComposerShell({
                 <button
                   type="button"
                   aria-label={t('agent.send')}
-                  title={t('agent.send')}
+                  title={sendButtonTitle}
                   disabled={!canSend}
                   onClick={onSubmit}
                   className={cn(iconSendBtn, 'hover:opacity-90 disabled:opacity-35')}
@@ -1637,7 +1662,7 @@ function AgentComposerShell({
             <button
               type="button"
               aria-label={submitLabel}
-              title={submitLabel}
+              title={sendDisabledReason || submitLabel}
               disabled={!canSend}
               onClick={onSubmit}
               className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl bg-[var(--ink)] px-4 text-[13px] font-medium text-[var(--on-brand)] transition-opacity disabled:opacity-35"
@@ -1648,7 +1673,7 @@ function AgentComposerShell({
             <button
               type="button"
               aria-label={t('agent.send')}
-              title={t('agent.send')}
+              title={sendButtonTitle}
               disabled={!canSend}
               onClick={onSubmit}
               className={cn(iconSendBtn, 'hover:opacity-90 disabled:opacity-35')}

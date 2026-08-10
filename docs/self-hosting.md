@@ -29,8 +29,7 @@ Default config loads from seed JSON under `apps/api/seeds/` on first API start.
 |------|------------------------------|--------|
 | Prompt packs | `design_prompt_packs/` (`_index.json` + `stages/*.md` + `snippets.md`) | `type=system` stage protocols; `type=template` inject lines — git seed upserts DB on boot |
 | AgentProfile | `agents/profiles/*.yaml` + `agents/bindings.yaml` | Topology / roles / subagents — see [agent-profile.md](./agent-profile.md) |
-| Skills (core) | playbooks in `design_skills_seed.json` | e.g. `design_methodology` / `vision_extract` / `canvas_edit` / `image_gen` |
-| Skills (ext) | `design_skills/<key>/` + repo `.agents/skills/` | e.g. `brush_ops`, `motion_lottie`, `poster_craft`, `resume_layout`, `ecommerce_surface`, `landing_page`, `frontend_ui`, `dashboard_ui`, `mobile_app_ui`, `ui_ux_pro_max` — also Admin zip / folders |
+| Skills | `design_skills/<key>/` | Deliverable/tool playbooks only: `poster_craft`, `image_gen`, `banner_ad`, … — not vision/edit/taste system protocols (those live in prompt packs). Also Admin zip / folders |
 | Tokens / models | Shipped | Expand further via Admin after install |
 | Canvas actions, fonts, dicts, stages | Shipped | |
 
@@ -87,12 +86,13 @@ POST /api/v1/design/run
           → graph.build.run_agent_graph  # LangGraph driver (Profile template)
               → bootstrap
                    ├─ apply_ops? → apply_confirm → observe → …
-                   └─ memory → intent → decide → paint_ops
+                   └─ memory → intent → decide|paint → …
                         ├─ Ask + ops → propose → settle    # Confirm = new run
                         └─ Agent → action → observe
                              ├─ critique fail → paint_ops
-                             └─ ok → review (forked) → settle
-                                  └─ must_fix → paint_ops (budget from Profile loops)
+                             ├─ Review auto gate? → review (forked) → settle
+                             │      └─ must_fix → paint_ops (budget from Profile loops)
+                             └─ else → settle
 ```
 
 Details: [agent-profile.md](./agent-profile.md).
@@ -119,7 +119,7 @@ Two layers — do not mix product routing with model I/O:
                          │ astream + interrupt bridge
                          ▼
                LangGraph outer graph (checkpointer)
-               bootstrap → … → paint → observe → review → settle
+               bootstrap → … → paint → observe → [Review auto?] → settle
                          │ per-node
           ┌──────────────┼──────────────┐
           ▼              ▼              ▼
@@ -132,24 +132,24 @@ Outer graph (dynamic `Command(goto=…)`):
 ```text
 START → bootstrap
           ├─ apply_ops? → apply_confirm → observe → …
-          └─ memory → intent_classify → design_agent (decide)
+          └─ memory → intent_classify → design_agent (decide) | paint_ops (canvas_op)
                            ├─ chat / clarify only → settle
                            └─ needs paint → paint_ops
                                   ├─ Ask → propose → settle
                                   └─ Agent → action → observe
                                          ├─ critique fail → paint_ops
-                                         ├─ ok → review (forked subagent)
+                                         ├─ Review auto gate? → review (forked subagent)
                                          │      ├─ must_fix → paint_ops
                                          │      └─ pass → settle → END
-                                         └─ review off → settle → END
+                                         └─ else → settle → END
 ```
 
 | Node | Role |
 |------|------|
-| `design_agent` | Decide: reply / `need_tools` / `need_skills` / `need_subagents` — **no** canvas ops |
+| `design_agent` | Decide: reply / `need_tools` / `need_skills` / `need_subagents` / **design_brief** — **no** canvas ops |
 | `paint_ops` | Structured `tool_ops` only |
-| `observe` | Wait FE scene (`interrupt`); structural critique |
-| `review` | Forked quality gate (`ReviewTurn.v1`); may force paint retry |
+| `observe` | Wait FE scene (`interrupt`); structural critique only |
+| `review` | Forked craft gate when auto/always; may force paint retry |
 | `propose` | Ask preview → Confirm as **new** run |
 
 Inside a node: assemble pack → LangChain stream/structured → validate ops → `Command(update, goto)`.  
@@ -196,12 +196,12 @@ Profile YAML: [agent-profile.md](./agent-profile.md).
 ```text
 User turn
   → Decide (need_tools_overlay)
-      · intent / need_skills / need_tools / need_subagents — no long craft text
-      · host may auto-spawn research / vision_scout
-  → Lazy-load Skill bodies + SubAgent results
+      · intent / need_skills / need_tools / design_brief — no long craft text
+      · look at attachments yourself (design process); no auto scout/research
+  → Lazy-load Skill bodies
   → Paint (paint_system)
-      · tool_ops + FOCUS / size; craft from loaded skills / subagent notes
-  → Observe → Review (forked) → settle | paint retry
+      · tool_ops + FOCUS / size; craft from loaded skills + design_brief
+  → Observe → [Review auto?] → settle | paint retry
 ```
 
 | Layer | Owns | Does not own |
@@ -210,19 +210,19 @@ User turn
 | `type=system` packs | JSON contract, Ask/Agent gates, FOCUS/size, when to `need_*` | Poster layout, brush args, Lottie playbook |
 | `type=template` packs | One-line inject strings (headers, empty states) | “How to use” / `format_*` / code-path notes |
 | Skills | How a class of work is done | Stage JSON / HITL `choice_ui` |
-| Sub-agents | Forked specialist turns (`ReviewTurn` / scout / research) | Parent chat history |
+| Sub-agents | Forked specialist turns (`ReviewTurn`) | Parent chat history; look-at-image (Decide) |
 
 ### Skills namespaces
 
 | Namespace | Source | Notes |
 |-----------|--------|--------|
-| `core` | `design_skills_seed.json` | Bare keys (`design_methodology`); aliases `core.<key>` |
-| `ext` | `seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`) | e.g. `brush_ops`, `motion_lottie`; also `.agents/skills/` encyclopedias |
+| `core` | Legacy `source=seed` only (not shipped) | Prefer file packs; bare keys stay BC aliases |
+| `ext` | `seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`) | Deliverable/tool playbooks: `image_gen`, `poster_craft`, …; also `.agents/skills/` |
 | `user` | Admin API | Always `user.<local>`; cannot claim core keys |
 
 Env: `DESIGN_SKILLS_HOT_RELOAD` (default true), `DESIGN_SKILLS_HOT_RELOAD_INTERVAL_SEC`. Manual: Admin `POST /api/v1/admin/design/skills/resync`.
 
-Pack layout: `seeds/design_skills/<key>/_meta.json` + `SKILL.md` (copy `example_ext/` to add one).
+Pack layout: `seeds/design_skills/<key>/_meta.json` + `SKILL.md` (copy any existing pack folder to add one).
 
 ### Prompt packs
 

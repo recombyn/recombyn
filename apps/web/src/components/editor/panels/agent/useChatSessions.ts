@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChatSessionMessageDto } from '@/models/chatSessions';
 import { apiClient, apiQuery } from '@/service/client';
@@ -64,6 +64,24 @@ function upsertChatSession(sessions: ChatSession[], next: ChatSession): ChatSess
     .slice(0, MAX_CHAT_SESSIONS);
 }
 
+/** Compare session lists without `updatedAt` churn (persist effect bumps it every run). */
+function sessionsContentKey(sessions: ChatSession[]): string {
+  return JSON.stringify(
+    sessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      taskState: s.taskState ?? null,
+      messages: s.messages,
+    }))
+  );
+}
+
+function sameSessionsContent(a: ChatSession[], b: ChatSession[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return sessionsContentKey(a) === sessionsContentKey(b);
+}
+
 export function formatChatTime(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
@@ -103,15 +121,58 @@ function pickAskPersistFields(m: {
   applyChoice?: string | null;
   choiceUi?: ChatUiMessage['choiceUi'] | null;
 }): Partial<ChatSessionMessage> {
-  return {
-    ...(m.designTaskId ? { designTaskId: m.designTaskId } : {}),
-    ...(m.canResume ? { canResume: true } : {}),
-    ...(m.proposedOps?.length ? { proposedOps: m.proposedOps } : {}),
-    ...(m.proposalId ? { proposalId: m.proposalId } : {}),
-    ...(m.choices?.length ? { choices: m.choices } : {}),
-    ...(m.applyChoice ? { applyChoice: m.applyChoice } : {}),
-    ...(m.choiceUi ? { choiceUi: m.choiceUi } : {}),
+  const out: Partial<ChatSessionMessage> = {};
+  if (m.designTaskId) out.designTaskId = m.designTaskId;
+  if (m.canResume) out.canResume = true;
+  if (m.proposedOps?.length) out.proposedOps = m.proposedOps;
+  if (m.proposalId) out.proposalId = m.proposalId;
+  if (m.choices?.length) out.choices = m.choices;
+  if (m.applyChoice) out.applyChoice = m.applyChoice;
+  if (m.choiceUi) out.choiceUi = m.choiceUi;
+  return out;
+}
+
+function messageWorthPersisting(m: ChatUiMessage): boolean {
+  return Boolean(
+    m.content ||
+      m.thinking ||
+      m.intent ||
+      m.canResume ||
+      m.designTaskId ||
+      m.proposalId ||
+      m.choiceUi ||
+      m.contexts?.length ||
+      m.steps?.length ||
+      m.images?.length ||
+      m.videos?.length ||
+      m.proposedOps?.length
+  );
+}
+
+function toPersistedMessage(m: ChatUiMessage): ChatSessionMessage {
+  const out: ChatSessionMessage = {
+    id: m.id,
+    role: m.role,
+    content: m.content,
   };
+  if (m.contexts?.length) out.contexts = m.contexts;
+  if (m.contentMarked) out.contentMarked = m.contentMarked;
+  if (m.thinking) out.thinking = m.thinking;
+  if (typeof m.durationMs === 'number') out.durationMs = m.durationMs;
+  if (m.intent) out.intent = m.intent;
+  if (m.steps?.length) {
+    out.steps = m.steps.map((s) => ({
+      ...s,
+      status: s.status === 'running' ? ('done' as const) : s.status,
+    }));
+  }
+  if (m.images?.length) out.images = m.images;
+  if (m.videos?.length) out.videos = m.videos;
+  if (m.imageModelId) out.imageModelId = m.imageModelId;
+  if (m.imageModelLabel) out.imageModelLabel = m.imageModelLabel;
+  if (m.imageAspectRatio) out.imageAspectRatio = m.imageAspectRatio;
+  Object.assign(out, pickAskPersistFields(m));
+  return out;
 }
 
 function toUiMessages(session: ChatSession): ChatUiMessage[] {
@@ -119,19 +180,39 @@ function toUiMessages(session: ChatSession): ChatUiMessage[] {
     id: m.id,
     role: m.role,
     content: m.content,
-    ...(m.contexts?.length ? { contexts: m.contexts } : {}),
-    ...(m.contentMarked ? { contentMarked: m.contentMarked } : {}),
     thinking: m.thinking,
-    ...(typeof m.durationMs === 'number' ? { durationMs: m.durationMs } : {}),
-    ...(m.intent ? { intent: m.intent } : {}),
-    ...(m.steps?.length ? { steps: m.steps } : {}),
-    ...(m.images?.length ? { images: m.images } : {}),
-    ...(m.videos?.length ? { videos: m.videos } : {}),
-    ...(m.imageModelId ? { imageModelId: m.imageModelId } : {}),
-    ...(m.imageModelLabel ? { imageModelLabel: m.imageModelLabel } : {}),
-    ...(m.imageAspectRatio ? { imageAspectRatio: m.imageAspectRatio } : {}),
+    ...pickOptionalMessageFields(m),
     ...pickAskPersistFields(m),
   }));
+}
+
+/** Optional chat fields shared by UI hydrate / DTO map (omit empties). */
+function pickOptionalMessageFields(m: {
+  contexts?: ChatUiMessage['contexts'];
+  contentMarked?: string;
+  thinking?: string;
+  durationMs?: number;
+  intent?: string;
+  steps?: ChatUiMessage['steps'];
+  images?: string[];
+  videos?: string[];
+  imageModelId?: string;
+  imageModelLabel?: string;
+  imageAspectRatio?: string;
+}): Partial<ChatSessionMessage> {
+  const out: Partial<ChatSessionMessage> = {};
+  if (m.contexts?.length) out.contexts = m.contexts;
+  if (m.contentMarked) out.contentMarked = m.contentMarked;
+  if (m.thinking) out.thinking = m.thinking;
+  if (typeof m.durationMs === 'number') out.durationMs = m.durationMs;
+  if (m.intent) out.intent = m.intent;
+  if (m.steps?.length) out.steps = m.steps;
+  if (m.images?.length) out.images = m.images;
+  if (m.videos?.length) out.videos = m.videos;
+  if (m.imageModelId) out.imageModelId = m.imageModelId;
+  if (m.imageModelLabel) out.imageModelLabel = m.imageModelLabel;
+  if (m.imageAspectRatio) out.imageAspectRatio = m.imageAspectRatio;
+  return out;
 }
 
 function dtoToSession(dto: RemoteSessionDto): ChatSession {
@@ -144,17 +225,7 @@ function dtoToSession(dto: RemoteSessionDto): ChatSession {
       id: m.id || `msg_${i}`,
       role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
       content: m.content || '',
-      ...(m.contexts?.length ? { contexts: m.contexts } : {}),
-      ...(m.contentMarked ? { contentMarked: m.contentMarked } : {}),
-      ...(m.thinking ? { thinking: m.thinking } : {}),
-      ...(typeof m.durationMs === 'number' ? { durationMs: m.durationMs } : {}),
-      ...(m.intent ? { intent: m.intent } : {}),
-      ...(m.steps?.length ? { steps: m.steps } : {}),
-      ...(m.images?.length ? { images: m.images } : {}),
-      ...(m.videos?.length ? { videos: m.videos } : {}),
-      ...(m.imageModelId ? { imageModelId: m.imageModelId } : {}),
-      ...(m.imageModelLabel ? { imageModelLabel: m.imageModelLabel } : {}),
-      ...(m.imageAspectRatio ? { imageAspectRatio: m.imageAspectRatio } : {}),
+      ...pickOptionalMessageFields(m),
       ...pickAskPersistFields(m),
     })),
   };
@@ -168,46 +239,7 @@ function mapRemoteSessions(data: unknown): ChatSession[] {
 }
 
 function messagesToPersisted(messages: ChatUiMessage[]): ChatSessionMessage[] {
-  return messages
-    .filter(
-      (m) =>
-        m.content ||
-        m.thinking ||
-        m.intent ||
-        m.canResume ||
-        m.designTaskId ||
-        (m.proposedOps && m.proposedOps.length) ||
-        m.proposalId ||
-        m.choiceUi ||
-        (m.contexts && m.contexts.length) ||
-        (m.steps && m.steps.length) ||
-        (m.images && m.images.length) ||
-        (m.videos && m.videos.length)
-    )
-    .map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content,
-      ...(m.contexts?.length ? { contexts: m.contexts } : {}),
-      ...(m.contentMarked ? { contentMarked: m.contentMarked } : {}),
-      ...(m.thinking ? { thinking: m.thinking } : {}),
-      ...(typeof m.durationMs === 'number' ? { durationMs: m.durationMs } : {}),
-      ...(m.intent ? { intent: m.intent } : {}),
-      ...(m.steps?.length
-        ? {
-            steps: m.steps.map((s) => ({
-              ...s,
-              status: s.status === 'running' ? ('done' as const) : s.status,
-            })),
-          }
-        : {}),
-      ...(m.images?.length ? { images: m.images } : {}),
-      ...(m.videos?.length ? { videos: m.videos } : {}),
-      ...(m.imageModelId ? { imageModelId: m.imageModelId } : {}),
-      ...(m.imageModelLabel ? { imageModelLabel: m.imageModelLabel } : {}),
-      ...(m.imageAspectRatio ? { imageAspectRatio: m.imageAspectRatio } : {}),
-      ...pickAskPersistFields(m),
-    }));
+  return messages.filter(messageWorthPersisting).map(toPersistedMessage);
 }
 
 function sessionPayloadJson(session: {
@@ -245,9 +277,13 @@ export function useChatSessions(documentId: string | null | undefined) {
   /** Scope that already opened its first remote (or empty) session. */
   const openedScopeRef = useRef<string | null>(null);
 
-  const sessionsQueryKey = apiQuery.chatSessionsGetSessions.queryKey({
-    input: { query: { projectId: scope || '__none__' } },
-  });
+  const sessionsQueryKey = useMemo(
+    () =>
+      apiQuery.chatSessionsGetSessions.queryKey({
+        input: { query: { projectId: scope || '__none__' } },
+      }),
+    [scope]
+  );
 
   const sessionsQuery = useQuery({
     ...apiQuery.chatSessionsGetSessions.queryOptions({
@@ -256,6 +292,8 @@ export function useChatSessions(documentId: string | null | undefined) {
     }),
     staleTime: 60_000,
   });
+  /** Fingerprint of last local upsert — blocks persist↔query cache ping-pong. */
+  const lastLocalContentKeyRef = useRef<string>('');
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -329,6 +367,7 @@ export function useChatSessions(documentId: string | null | undefined) {
     setMessages([]);
     setTaskState(null);
     lastSyncedJson.current = '';
+    lastLocalContentKeyRef.current = '';
     if (!apiEnabled) {
       setReadyScope(scope);
       openedScopeRef.current = scope;
@@ -352,7 +391,7 @@ export function useChatSessions(documentId: string | null | undefined) {
     if (sessionsQuery.isPending && !sessionsQuery.data) return;
 
     const remote = mapRemoteSessions(sessionsQuery.data);
-    setSessions(remote);
+    setSessions((prev) => (sameSessionsContent(prev, remote) ? prev : remote));
 
     if (openedScopeRef.current === scope) return;
 
@@ -361,11 +400,13 @@ export function useChatSessions(documentId: string | null | undefined) {
       setMessages(toUiMessages(remote[0]));
       setTaskState(remote[0].taskState || null);
       lastSyncedJson.current = sessionPayloadJson(remote[0]);
+      lastLocalContentKeyRef.current = sessionsContentKey([remote[0]]);
     } else {
       setSessionId(chatUid());
       setMessages([]);
       setTaskState(null);
       lastSyncedJson.current = '';
+      lastLocalContentKeyRef.current = '';
     }
     openedScopeRef.current = scope;
     setReadyScope(scope);
@@ -407,6 +448,19 @@ export function useChatSessions(documentId: string | null | undefined) {
     const persistedMsgs = messagesToPersisted(messages);
     if (persistedMsgs.length === 0 && !taskState) return;
 
+    const contentKey = sessionsContentKey([
+      {
+        id: sessionId,
+        title: titleFromMessages(persistedMsgs),
+        updatedAt: 0,
+        messages: persistedMsgs,
+        taskState,
+      },
+    ]);
+    // Same chat body as last upsert — skip (updatedAt alone must not re-fire the loop).
+    if (contentKey === lastLocalContentKeyRef.current) return;
+    lastLocalContentKeyRef.current = contentKey;
+
     const persisted: ChatSession = {
       id: sessionId,
       title: titleFromMessages(persistedMsgs),
@@ -416,17 +470,34 @@ export function useChatSessions(documentId: string | null | undefined) {
     };
     setSessions((prev) => {
       const next = upsertChatSession(prev, persisted);
+      if (sameSessionsContent(prev, next)) return prev;
       queryClient.setQueryData(sessionsQueryKey, (old: unknown) => {
         const prevPayload = old as SessionsListPayload | undefined;
+        const nextSessions = next.map((s) => ({
+          id: s.id,
+          title: s.title,
+          updatedAt: s.updatedAt,
+          taskState: s.taskState || null,
+          messages: s.messages,
+        }));
+        const prevSessions = prevPayload?.sessions;
+        if (
+          prevSessions &&
+          sessionsContentKey(
+            prevSessions.map((s) => ({
+              id: s.id,
+              title: s.title,
+              updatedAt: s.updatedAt || 0,
+              messages: (s.messages || []) as ChatSessionMessage[],
+              taskState: s.taskState || null,
+            }))
+          ) === sessionsContentKey(next)
+        ) {
+          return old;
+        }
         return {
           ...(prevPayload && typeof prevPayload === 'object' ? prevPayload : {}),
-          sessions: next.map((s) => ({
-            id: s.id,
-            title: s.title,
-            updatedAt: s.updatedAt,
-            taskState: s.taskState || null,
-            messages: s.messages,
-          })),
+          sessions: nextSessions,
         };
       });
       return next;
@@ -474,6 +545,7 @@ export function useChatSessions(documentId: string | null | undefined) {
     setMessages([]);
     setTaskState(null);
     lastSyncedJson.current = '';
+    lastLocalContentKeyRef.current = '';
   }, [flushPendingSync]);
 
   const openSession = useCallback(
@@ -513,8 +585,7 @@ export function useChatSessions(documentId: string | null | undefined) {
     await refetchSessionsRef.current();
   }, [flushPendingSync, apiEnabled]);
 
-  const chatTitle =
-    messages.length === 0 ? '新对话' : titleFromMessages(messages as ChatSessionMessage[]);
+  const chatTitle = messages.length === 0 ? '新对话' : titleFromMessages(messages as ChatSessionMessage[]);
 
   return {
     sessions,

@@ -1,6 +1,16 @@
 # Agent Profile — design canvas (live default).
 # Kernel reads this for Voice (stage→pack) and Policy (routing/runtime → KV overlay).
 # Topology/contracts/capabilities are declared for forward-compat (P2+).
+#
+# Boundary (hard):
+#   Agent kernel  = control loop, tool scheduling, canvas R/W, max rounds / reflect,
+#                   permission, ops allowlist. NO design aesthetic / deliverable craft.
+#   Skills        = business playbooks (构图/审美/评审标准/few-shot). New scenes → Skills only.
+#                   May *reference* design tokens; do NOT redefine JSON图元 or patch schema.
+#   Tools         = atomic canvas ops + JSON element format + patch/tool_ops contract
+#                   (canvas_actions_seed / tool_ops_contract). Host validates.
+#   Stage packs   = stage *protocol* (JSON turn shapes, routing). Not craft curricula.
+# Hard caps (max rounds, review→paint max, wallet, allowlist) stay in kernel — never Skills.
 apiVersion: recombyn.agent/v1
 kind: AgentProfile
 id: design.canvas
@@ -9,7 +19,7 @@ status: active
 
 metadata:
   display_name: Design Agent
-  description: Canvas ops design agent (intent → decide → paint → observe → review; catalog subagents)
+  description: Canvas ops design agent (intent → decide|paint → observe → [review auto] → settle)
   tags: [canvas, design]
 
 identity:
@@ -30,13 +40,6 @@ identity:
         protocol: agent.prompt.paint_system
       review:
         protocol: agent.prompt.review_system
-        mode_overlay: false
-      # Catalog-only spawn stage (not in topology.stages_enabled).
-      vision_scout:
-        protocol: agent.prompt.vision_scout_system
-        mode_overlay: false
-      research:
-        protocol: agent.prompt.research_system
         mode_overlay: false
 
 topology:
@@ -62,7 +65,8 @@ roles:
       subagent: review
 
 # Forked sub-agents — system+task only, no parent chat.
-# Primary declares need_subagents during decide; review also runs as graph fork.
+# Looking at refs / synthesizing design_brief is Decide (design process), not a scout fork.
+# Review runs as the post-paint graph fork.
 subagents:
   review:
     description: Post-paint quality gate with fresh context (no parent transcript)
@@ -74,38 +78,12 @@ subagents:
     tools: []
     max_turns: 1
     parallel: false
-  vision_scout:
-    description: >-
-      Read user refs / brief for subjects, palette, layout notes, and style
-      keywords before paint (forked vision scout)
-    isolation: forked_context
-    model: $kv:precheck.vision_model
-    stage: vision_scout
-    system: agent.prompt.vision_scout_system
-    contract: VisionScoutTurn.v1
-    tools: []
-    max_turns: 1
-    parallel: true
-  research:
-    description: >-
-      Brief/industry research — audience, tone, messaging, visual directions
-      (forked; no parent chat)
-    isolation: forked_context
-    model: $kv:precheck.router_model
-    stage: research
-    system: agent.prompt.research_system
-    contract: ResearchTurn.v1
-    tools: []
-    max_turns: 1
-    parallel: true
 
 contracts:
   intent: { schema: IntentTurn.v1 }
   decide: { schema: DecideTurn.v1 }
   act: { schema: ToolOpsBatch.v1 }
   review: { schema: ReviewTurn.v1 }
-  vision_scout: { schema: VisionScoutTurn.v1 }
-  research: { schema: ResearchTurn.v1 }
 
 capabilities:
   tools:
@@ -138,6 +116,8 @@ runtime:
   flags:
     defer_tools: true
     critique_enabled: true
+    # auto = Review only on structure retry / taste complaint / high-stakes
+    review_mode: auto
     memory_clip: true
     official_agent: true
   memory:

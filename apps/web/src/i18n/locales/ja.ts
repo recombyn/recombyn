@@ -1270,7 +1270,8 @@ const ja = {
     routeMultimodalTip:
       'すべてのモデルを一度に呼び出すわけではありません。再試行はプラットフォームが制限します。高コストのモデルは該当車線またはビジョン手順でのみ使われます。',
     routeMultimodalAuto: '自動',
-    routeMultimodalCustom: 'カスタム',
+    routeMultimodalCustom: 'マルチルート',
+    routeMultimodalSingle: '単一モデル',
     routeBack: '戻る',
     routePresetShortPlatform: 'Auto',
     routePresetShortEconomy: '節約',
@@ -1417,6 +1418,7 @@ const ja = {
     activityCanvasSizeDone: 'キャンバス {{size}}',
     lookupHostPrefix: 'Host · {{name}}',
     activitySkipped: 'スキップ',
+    activityOpsValidateFailed: '{{count}} 件の操作検証エラー：{{codes}}',
     activityTool: 'キャンバス操作を確認しました',
     activityToolRunning: 'キャンバス操作を実行中…',
     activityImageGenRunning: '画像を生成中…',
@@ -1459,6 +1461,17 @@ const ja = {
     insufficientCredits: 'トークン不足です。チャージまたはプラン変更をしてください。',
     designOpsMissing:
       'キャンバス操作を実行できませんでした。変更・削除したい対象をはっきり書いて再試行してください。',
+    uxTipDecideFailed: '判断に失敗しました。もう一度お試しください。',
+    uxTipPaintFailed:
+      '有効なキャンバス操作を生成できませんでした。より具体的な編集内容を書いてください。',
+    uxTipObserveOpsFailed:
+      '一部の操作を適用できませんでした（{{count}}）：{{notes}}。対象を指定して再試行してください。',
+    uxTipApplyConfirmFailed:
+      '確認済みの案を安全に適用できませんでした（{{error}}）。言い換えるか再試行してください。',
+    uxTipObserveCritiqueFailed: 'キャンバス構造チェックに失敗：{{issues}}',
+    uxTipReviewMustFix: 'レビュー未通過：{{issues}}',
+    uxTipApplyOpsApplied: '{{count}} 件のキャンバス変更を適用しました。',
+    uxTipAskDismissed: 'キャンセルしました。',
     designDone: 'キャンバス上でデザインが完了しました。',
     checkpointInvalid: 'このスナップショットは無効です（更新後は利用できません）',
     restored: 'このコマンド実行前のキャンバスに復元しました',

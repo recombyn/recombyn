@@ -303,7 +303,7 @@ async def load_deferred_resources(
     need_subagents = parse_need_subagents(
         turn.get("need_subagents") or turn.get("needSubagents")
     )
-    # Auto-merge catalog subagents (vision_scout on refs; research on empty create).
+    # Pass-through only — no auto vision_scout / research.
     intent_l = str(turn.get("intent") or st.intent or "").strip() or "create"
     need_subagents = resolve_auto_need_subagents(
         profile=get_active_agent_profile(),
@@ -404,16 +404,44 @@ async def load_deferred_resources(
                 detail_chars=len(details_s),
                 summary="注入 skill：" + "、".join(fresh_s),
             )
+            skill_csv = (", ".join(fresh_s))[:200]
             _emit(
                 {
                     "type": "activity",
                     "id": f"skill-details-{round_i}",
                     "kind": "explored",
                     "status": "done",
-                    "summary": (", ".join(fresh_s))[:200],
+                    "summary": skill_csv,
+                    "detail": skill_csv,
                     "index": round_i,
                 }
             )
+            # Telemetry: craft skills are playbooks (not paint_ops). Emit start/done
+            # so SSE consumers / stress can see skill_expect keys, not only react.
+            for k in fresh_s:
+                key = str(k or "").strip()
+                if not key:
+                    continue
+                _emit(
+                    {
+                        "type": "skill_start",
+                        "index": round_i,
+                        "skill_id": None,
+                        "skill_key": key,
+                        "skill_name": key,
+                        "category": "design",
+                        "trace_id": st.trace_id,
+                    }
+                )
+                _emit(
+                    {
+                        "type": "skill_done",
+                        "index": round_i,
+                        "skill_key": key,
+                        "skill_name": key,
+                        "tokens": 0,
+                    }
+                )
     tb = bundles.get("tools") if need_tools else None
     if isinstance(tb, dict) and tb.get("details"):
         details_t = str(tb["details"])

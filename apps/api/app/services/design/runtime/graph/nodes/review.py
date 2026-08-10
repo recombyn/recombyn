@@ -1,4 +1,4 @@
-"""Review Agent — post-paint LLM quality gate (Design + Review multi-agent)."""
+"""Review Agent — optional post-paint craft gate (sparse by default; see review_mode)."""
 from __future__ import annotations
 
 import json
@@ -19,10 +19,11 @@ from app.services.design.runtime.graph.state import (
 from app.services.design.runtime.graph.support import (
     _bump,
     _emit,
-    _llm_ux_reply,
+    _emit_ux_tip,
 )
 from app.services.design.runtime.host import assemble_stage_system
 from app.services.design.runtime.agent_profile import resolve_contract_schema
+
 
 _log = logging.getLogger(__name__)
 
@@ -154,40 +155,33 @@ def _parse_review_structured(raw: Any) -> dict[str, Any]:
 
 
 def _scene_digest(rt: AgentRuntime) -> str:
-    nodes = [n for n in (rt.scene_nodes or []) if isinstance(n, dict)]
-    frames = [f for f in (rt.scene_frames or []) if isinstance(f, dict)]
-    lines = [
-        f"nodes={len(nodes)} frames={len(frames)} focus={rt.focus_id or '-'}",
-        f"scene_key={rt.scene_key or '-'}",
-        f"canvas={rt.canvas_size or f'{rt.w}x{rt.h}'}",
-    ]
-    for n in nodes[:40]:
-        nid = str(n.get("id") or "")[:16]
-        ntype = str(n.get("type") or n.get("key") or "")[:20]
-        text = str(n.get("text") or "")[:40]
-        box = ""
-        try:
-            x = n.get("x")
-            y = n.get("y")
-            w = n.get("w") if n.get("w") is not None else n.get("width")
-            h = n.get("h") if n.get("h") is not None else n.get("height")
-            if None not in (x, y, w, h):
-                box = f" @({float(x):.0f},{float(y):.0f},{float(w):.0f}x{float(h):.0f})"
-        except (TypeError, ValueError):
-            box = ""
-        bit = f"- {ntype}#{nid}{box}"
-        if text:
-            bit = f"{bit} text={text!r}"
-        lines.append(bit)
-    ops = list(rt.paint_ops or [])[:12]
-    if ops:
-        lines.append("RECENT_PAINT_OPS:")
-        for op in ops:
-            if not isinstance(op, dict):
-                continue
-            name = str(op.get("name") or op.get("tool") or "")[:40]
-            lines.append(f"- {name}")
-    return "\n".join(lines)[:6000]
+    """Compact scene for Review — reuse paint digest (fills included)."""
+    from app.services.design.runtime.graph.scene_log import (
+        _scene_digest as _paint_scene_digest,
+    )
+
+    try:
+        fw = int(rt.w or 0)
+        fh = int(rt.h or 0)
+    except (TypeError, ValueError):
+        fw, fh = 0, 0
+    body = _paint_scene_digest(
+        list(rt.scene_nodes or []),
+        list(rt.scene_frames or []),
+        focus_id=str(rt.focus_id or ""),
+        focus_w=fw,
+        focus_h=fh,
+        limit=24,
+    )
+    ops = list(rt.paint_ops or [])[:8]
+    if not ops:
+        return body[:2400]
+    lines = [body[:2200], "RECENT_PAINT_OPS:"]
+    for op in ops:
+        if isinstance(op, dict):
+            lines.append(f"- {str(op.get('name') or op.get('tool') or '')[:40]}")
+    return "\n".join(lines)[:2800]
+
 
 
 def _build_review_user_msg(
@@ -196,45 +190,63 @@ def _build_review_user_msg(
     signals: list[str],
     has_preview: bool,
 ) -> str:
+    brief = str(getattr(rt, "design_brief", "") or "").strip()
     parts = [
         f"USER_GOAL:\n{str(rt.prompt or rt.run.goal or '').strip()[:2000]}",
-        f"SCENE:\n{_scene_digest(rt)}",
     ]
-    if has_preview:
+    if brief:
         parts.append(
-            "PREVIEW_IMAGE: attached below.\n"
-            "Look at the canvas screenshot first like a senior art director comparing "
-            "this work to polished market-quality designs for the same deliverable type "
-            "(poster, landing, app UI, …). Evaluate taste: what already works "
-            "(strengths), what looks weak vs that bar (weaknesses), and the concrete "
-            "market_gap (what pros would still change). Also judge UI craft, hierarchy, "
-            "typography, color/contrast, and ship-readiness. SCENE JSON is supporting "
-            "evidence only."
+            "DESIGN_BRIEF (execution contract — paint must match this):\n"
+            + brief[:4000]
         )
     else:
         parts.append(
-            "PREVIEW_IMAGE: missing.\n"
-            "No screenshot — judge from SCENE + SIGNALS only; be conservative on pass. "
-            "Still return strengths / weaknesses / market_gap vs market-quality work "
-            "for this deliverable type when you can infer them."
+            "DESIGN_BRIEF: missing.\n"
+            "Judge USER_GOAL + SCENE; be stricter — prefer must_fix if the board "
+            "looks improvised without a brief."
+        )
+    # Craft criteria come from Skills (not kernel Python / stage packs).
+    skill_craft = str(getattr(rt, "pending_skill_details", "") or "").strip()
+    if skill_craft:
+        parts.append(
+            "SKILL_CRAFT (business playbooks for this run — judge against these):\n"
+            + skill_craft[:4000]
+        )
+    elif list(getattr(rt.run, "skills_loaded", None) or []):
+        keys = ", ".join(str(k) for k in rt.run.skills_loaded[:12])
+        parts.append(
+            f"SKILL_CRAFT: playbook bodies not in context; loaded keys: {keys}. "
+            "Gate on DESIGN_BRIEF fidelity + SCENE; do not invent extra aesthetic curricula."
+        )
+    parts.append(f"SCENE:\n{_scene_digest(rt)}")
+    if has_preview:
+        parts.append(
+            "PREVIEW_IMAGE: attached below.\n"
+            "Look at the screenshot vs DESIGN_BRIEF (+ SKILL_CRAFT when present). "
+            "SCENE JSON is supporting evidence."
+        )
+    else:
+        parts.append(
+            "PREVIEW_IMAGE: not attached (unavailable or model is non-vision).\n"
+            "Judge from DESIGN_BRIEF + SCENE + SIGNALS (+ SKILL_CRAFT) only; "
+            "say text-only in summary. Still gate brief fidelity; be conservative on pass."
         )
     if signals:
         parts.append(
-            "HEURISTIC_SIGNALS (confirm or dismiss after looking):\n"
+            "HEURISTIC_SIGNALS (host/structure hints only — confirm or dismiss):\n"
             + "\n".join(f"- {s}" for s in signals[:12])
         )
     else:
         parts.append("HEURISTIC_SIGNALS:\n(none)")
     spat = rt.spatial_summary if isinstance(rt.spatial_summary, dict) else None
-    if spat:
+    if spat and not has_preview:
         try:
-            parts.append("SPATIAL:\n" + json.dumps(spat, ensure_ascii=False)[:1200])
+            parts.append("SPATIAL:\n" + json.dumps(spat, ensure_ascii=False)[:800])
         except Exception:
             pass
     parts.append(
         "Return pass / must_fix / issues / strengths / weaknesses / market_gap. "
-        "Do not emit tool_ops. Prioritize what a human would notice when opening "
-        "the design, especially the gap vs market-quality references."
+        "Do not emit tool_ops. Prioritize DESIGN_BRIEF fidelity, then SKILL_CRAFT."
     )
     return "\n\n".join(parts)
 
@@ -247,7 +259,7 @@ async def _invoke_review_llm(
 ) -> dict[str, Any]:
     st = rt.run
     ask_mode = str(rt.flags.get("mode") or "") == "ask"
-    # Review stays skill-free: judge from preview / SCENE / signals only.
+    # Craft bar = DESIGN_BRIEF + SKILL_CRAFT in user msg; kernel stays thin.
     images: list[str] = []
     prev = str(preview_image or "").strip()
     if prev.startswith("data:image/") or prev.startswith("http"):
@@ -270,7 +282,11 @@ async def _invoke_review_llm(
         if images:
             st.vision_used = True
             rt.last_images = list(images)[:2]
-        model_id, _lane = resolve_review_model(rt.rules)
+        model_id, _lane = resolve_review_model(
+            rt.rules,
+            user_selected_model=rt.user_selected_model,
+            design_model=st.family,
+        )
         result = await run_subagent(
             agent_id=sub.id,
             task=user_msg,
@@ -310,7 +326,7 @@ async def _invoke_review_llm(
             summary=(
                 parsed.get("summary")
                 or result.summary
-                or ("评审通过" if parsed.get("pass") else "评审未通过")
+                or ("review pass" if parsed.get("pass") else "review must_fix")
             )[:160],
             duration_ms=result.duration_ms,
             model=result.model or st.family,
@@ -372,8 +388,8 @@ async def _invoke_review_llm(
         market_gap=(str(parsed.get("market_gap") or "").strip()[:320] or None),
         summary=(
             parsed.get("summary")
-            or ("评审通过" if parsed.get("pass") else "评审未通过")
-        )[:160],
+            or ("review pass" if parsed.get("pass") else "review must_fix")
+            )[:160],
         duration_ms=duration_ms,
         model=st.family,
         has_preview=has_preview or None,
@@ -385,9 +401,9 @@ def _fallback_from_signals(signals: list[str]) -> dict[str, Any]:
     issues = [
         {
             "severity": "major",
-            "area": "layout",
+            "area": "ops",
             "issue": s,
-            "fix_hint": "Fix this layout/craft issue on the next paint pass.",
+            "fix_hint": "Fix this host/structure signal on the next paint pass.",
         }
         for s in signals[:6]
     ]
@@ -398,22 +414,16 @@ def _fallback_from_signals(signals: list[str]) -> dict[str, Any]:
         "summary": ("heuristic signals clear" if not must else f"heuristic×{len(issues)}"),
         "strengths": [],
         "weaknesses": weak,
-        "market_gap": (
-            ""
-            if not must
-            else (
-                "Heuristic layout/craft signals suggest the canvas is below "
-                "market-quality polish; fix listed issues before shipping."
-            )
-        ),
+        "market_gap": "",
         "must_fix": must,
         "fix_brief": (
             ""
             if not must
-            else "Address the listed layout/craft issues; keep the user goal intact."
+            else "Address the listed host/structure issues; keep the user goal intact."
         ),
         "issues": issues,
     }
+
 
 
 async def _retry_paint_from_review(
@@ -442,7 +452,7 @@ async def _retry_paint_from_review(
         reason="review_failed",
         reflect_left=st.reflect_left,
         issues=issue_labels[:6],
-        summary=f"评审未通过，重试绘制：{'; '.join(issue_labels)[:120]}"[:160],
+        summary=f"review must_fix, retry paint: {'; '.join(issue_labels)[:120]}"[:160],
     )
     st.reflect_left -= 1
     _emit(
@@ -465,7 +475,7 @@ async def _retry_paint_from_review(
 
 
 async def _node_review_agent(state: GraphState) -> Command:
-    """Review Agent: LLM quality gate after observe; may force paint retry."""
+    """Review Agent: optional craft gate after observe; may force paint retry."""
     rt = state["rt"]
     st = rt.run
     round_i = st.round
@@ -482,10 +492,14 @@ async def _node_review_agent(state: GraphState) -> Command:
         rt.terminal = True
         return Command(update=_bump(rt), goto="__settle__")
 
-    # Review Agent: pinned vision model (not Design Auto / user lock).
+    # Review Agent: user lock → Admin pin → follow design model → vision.
     from app.services.design.runtime.models_route import resolve_review_model
 
-    family, reason = resolve_review_model(rt.rules)
+    family, reason = resolve_review_model(
+        rt.rules,
+        user_selected_model=rt.user_selected_model,
+        design_model=st.family,
+    )
     st.family = family
     rt.last_reason = reason
     if "vision" in reason or bool(preview_image):
@@ -499,7 +513,7 @@ async def _node_review_agent(state: GraphState) -> Command:
         vision=True if preview_image else None,
         run_mode=rt.mode or None,
         attempt=int(st.round),
-        summary=f"Review 固定模型 {family}",
+        summary=f"Review pinned model {family}",
     )
 
     _emit(
@@ -615,17 +629,11 @@ async def _node_review_agent(state: GraphState) -> Command:
         )
 
     if must_fix:
-        tip = await _llm_ux_reply(
+        _emit_ux_tip(
             rt,
-            situation=(
-                "Review Agent found design issues but retry budget is exhausted. "
-                "Mention one concrete fix the user can try; keep it short."
-            ),
-            facts=f"issues={'; '.join(issue_text)[:240]}",
+            "review_must_fix",
+            params={"issues": "; ".join(issue_text[:2]) or "adjust per DESIGN_BRIEF"},
         )
-        if tip:
-            st.reply = tip
-            _emit({"type": "token", "text": tip})
 
     _emit(
         {
@@ -636,6 +644,7 @@ async def _node_review_agent(state: GraphState) -> Command:
             "tokens": rt.last_used,
         }
     )
+
     rt.flags["scene_ready"] = True
     rt.flags["op_failed"] = False
     rt.flags["critique_failed"] = bool(must_fix)

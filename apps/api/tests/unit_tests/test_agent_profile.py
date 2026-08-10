@@ -213,21 +213,55 @@ def test_should_route_to_review_follows_profile(monkeypatch):
 
     class _P:
         stages_enabled = ("intent", "decide", "paint", "observe", "review")
+        runtime_flags = {"review_mode": "always"}
 
     monkeypatch.setattr(
         "app.services.design.runtime.agent_profile.get_active_agent_profile",
         lambda: _P(),
     )
-    assert obs._should_route_to_review(object()) is True
+    monkeypatch.setattr(
+        "app.core.config.settings.design_review_agent_enabled",
+        True,
+        raising=False,
+    )
+    # always + review stage → route (clean design prompt, non-lean length)
+    rt = type(
+        "RT",
+        (),
+        {
+            "classified_intent": "design",
+            "prompt": (
+                "Design a complete multi-section marketing landing page with nav, hero, "
+                "three feature blocks, testimonials, pricing table, FAQ, and footer."
+            ),
+            "images": None,
+            "flags": {},
+            "run": None,
+            "paint_ops": [],
+            "rules": {"design.review.mode": "always"},
+        },
+    )()
+    assert obs._should_route_to_review(rt) is True
 
     class _NoReview:
         stages_enabled = ("intent", "decide", "paint", "observe")
+        runtime_flags = {"review_mode": "always"}
 
     monkeypatch.setattr(
         "app.services.design.runtime.agent_profile.get_active_agent_profile",
         lambda: _NoReview(),
     )
-    assert obs._should_route_to_review(object()) is False
+    assert obs._should_route_to_review(rt) is False
+
+
+def test_profile_review_mode_string_flag():
+    from app.services.design.runtime.agent_profile import _policy_from_runtime
+
+    patches, flags = _policy_from_runtime({"flags": {"review_mode": "auto", "critique_enabled": True}})
+    assert flags.get("review_mode") == "auto"
+    assert patches.get("design.review.mode") == "auto"
+    assert flags.get("critique_enabled") is True
+    assert patches.get("design.critique.enabled") == "1"
 
 
 def test_unknown_topology_template_fails():
@@ -436,7 +470,7 @@ def test_design_canvas_review_is_forked_subagent():
     assert prof.subagent_for_stage("review") is sa
 
 
-def test_design_canvas_vision_scout_catalog():
+def test_design_canvas_subagent_catalog_is_review_only():
     from app.services.design.runtime.agent_profile import (
         ensure_contract_registry,
         validate_profile_surface,
@@ -444,25 +478,21 @@ def test_design_canvas_vision_scout_catalog():
     from app.services.design.runtime.subagent import format_subagents_catalog
 
     prof = load_agent_profile("design.canvas")
-    scout = prof.get_subagent("vision_scout")
-    assert scout is not None
-    assert scout.isolation == "forked_context"
-    assert scout.contract == "VisionScoutTurn.v1"
-    assert scout.parallel_ok is True
-    research = prof.get_subagent("research")
-    assert research is not None
-    assert research.contract == "ResearchTurn.v1"
+    assert prof.get_subagent("vision_scout") is None
+    assert prof.get_subagent("research") is None
+    review = prof.get_subagent("review")
+    assert review is not None
+    assert review.isolation == "forked_context"
+    assert review.contract == "ReviewTurn.v1"
     reg = ensure_contract_registry()
-    assert "VisionScoutTurn.v1" in reg
-    assert "ResearchTurn.v1" in reg
-    assert prof.contracts.get("vision_scout") == "VisionScoutTurn.v1"
-    assert prof.contracts.get("research") == "ResearchTurn.v1"
-    assert prof.stage_protocol("vision_scout") == "agent.prompt.vision_scout_system"
-    assert prof.stage_protocol("research") == "agent.prompt.research_system"
+    assert "ReviewTurn.v1" in reg
+    assert prof.contracts.get("review") == "ReviewTurn.v1"
+    assert prof.stage_protocol("review") == "agent.prompt.review_system"
     validate_profile_surface(prof)
     cat = format_subagents_catalog(prof)
-    assert "vision_scout" in cat
-    assert "research" in cat
+    assert "review" in cat
+    assert "vision_scout" not in cat
+    assert "research" not in cat
     assert "need_subagents" in cat
 
 
