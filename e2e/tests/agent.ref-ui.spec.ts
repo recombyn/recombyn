@@ -9,13 +9,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
+import { E2E_TOKEN_SKIP_REASON, resolveE2EToken } from './e2eAuth';
 
 const ROOT = path.resolve(__dirname, '../..');
 const FIX = path.join(__dirname, '../fixtures/refs');
 const OUT = path.join(ROOT, '.tmp-agent-ref-ui');
-const TOKEN =
-  (process.env.E2E_TOKEN || '').trim() ||
-  fs.readFileSync(path.join(ROOT, '.tmp-token.txt'), 'utf8').trim();
+const TOKEN = resolveE2EToken(ROOT);
 
 const HOME_REF = path.join(FIX, 'zhuanzhuan-home.png');
 const DETAIL_REF = path.join(FIX, 'summer-detail-middle.png');
@@ -128,6 +127,7 @@ async function waitRunSettle(page: Page, outName: string, maxMs = 480_000) {
 }
 
 test.describe('agent ref UI browser E2E', () => {
+  test.skip(!TOKEN, E2E_TOKEN_SKIP_REASON);
   test.beforeAll(() => {
     fs.mkdirSync(OUT, { recursive: true });
     expect(fs.existsSync(HOME_REF)).toBeTruthy();

@@ -18,6 +18,7 @@ IMAGE_PROCESS_KINDS = frozenset(
         "expand",
         "editText",
         "editElements",
+        "detectRegions",
         "replaceText",
         "vector",
         "adjust",
@@ -26,9 +27,10 @@ IMAGE_PROCESS_KINDS = frozenset(
 
 # Vision split / cutout — not Seedream re-render.
 DECOMPOSE_KINDS = frozenset({"editText", "editElements"})
+DETECT_KINDS = frozenset({"detectRegions"})
 CUTOUT_KINDS = frozenset({"removeBg"})
 # Local rembg / OCR decompose — no LLM → never charge platform credits.
-NO_LLM_KINDS = CUTOUT_KINDS | DECOMPOSE_KINDS
+NO_LLM_KINDS = CUTOUT_KINDS | DECOMPOSE_KINDS | DETECT_KINDS
 
 
 def uses_llm_for_kind(kind: str | None) -> bool:
@@ -93,7 +95,7 @@ def _prompt_for(
             f"Continue the scene naturally beyond the edges; match lighting, perspective, and style. "
             f"Do not distort the original subject."
         )
-    if kind in ("editText", "editElements"):
+    if kind in ("editText", "editElements", "detectRegions"):
         return "unused"
     if kind == "replaceText":
         original = str(m.get("originalText") or m.get("from") or "").strip()
@@ -162,6 +164,7 @@ async def process_image_tool(
     - ``removeBg`` → local rembg (GrabCut fallback) transparent PNG
     - ``editText`` → OCR text layers + inpainted background
     - ``editElements`` → subjects + text layers + inpainted background
+    - ``detectRegions`` → subject/text boxes only (Mark tool proposals)
     - other kinds → Seedream image-to-image
 
     Returns ``{ image, layers?, text?, kind, model?, width?, height?, warnings? }``.
@@ -182,6 +185,11 @@ async def process_image_tool(
         from app.services.vision.image_edit import decompose_image
 
         return await decompose_image(kind=k, image=src)  # type: ignore[arg-type]
+
+    if k in DETECT_KINDS:
+        from app.services.vision.image_edit import detect_regions
+
+        return await detect_regions(image=src)
 
     prompt = _prompt_for(k, meta=meta)
     result = await generate_image(

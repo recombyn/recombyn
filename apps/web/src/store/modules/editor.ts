@@ -81,7 +81,8 @@ export type ImageToolPanelKind =
   | 'flipRotate'
   | 'quickEdit'
   | 'replaceText'
-  | 'lottieEdit';
+  | 'lottieEdit'
+  | 'mark';
 
 /** On-canvas video tool sessions (trim timeline). Spatial crop reuses image crop panel. */
 export type VideoToolPanelKind = 'trim';
@@ -207,6 +208,19 @@ const initialState = {
   canvasAttachPickBlocked: false,
   /** Delivered once after a successful pick; composers consume and clear. */
   pendingCanvasAttach: null as null | { target: string; payload: string | string[] },
+  /**
+   * Mark / programmatic chips for the right AgentDock (@ mentions).
+   * EditorPage opens the panel when `agentOpenNonce` bumps; dock inserts then clears.
+   */
+  pendingAgentContexts: [] as Array<{
+    key: string;
+    label: string;
+    kind: string;
+    payload: string;
+    dataUrl?: string;
+    thumbUrl?: string;
+  }>,
+  agentOpenNonce: 0,
 };
 
 /** Stage fill lives on Redux; SvgCanvas view docs force transparent paper for hosts. */
@@ -1909,6 +1923,27 @@ const editorSlice = createSlice({
     consumePendingCanvasAttach(state) {
       state.pendingCanvasAttach = null;
     },
+    enqueueAgentContexts(
+      state,
+      action: PayloadAction<
+        Array<{
+          key: string;
+          label: string;
+          kind: string;
+          payload: string;
+          dataUrl?: string;
+          thumbUrl?: string;
+        }>
+      >
+    ) {
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      if (!list.length) return;
+      state.pendingAgentContexts = [...state.pendingAgentContexts, ...list];
+      state.agentOpenNonce = (Number(state.agentOpenNonce) || 0) + 1;
+    },
+    consumePendingAgentContexts(state) {
+      state.pendingAgentContexts = [];
+    },
   },
 });
 
@@ -1997,6 +2032,8 @@ export const {
   setCanvasAttachPickBlocked,
   setPendingCanvasAttach,
   consumePendingCanvasAttach,
+  enqueueAgentContexts,
+  consumePendingAgentContexts,
 } = editorSlice.actions;
 
 export default editorSlice.reducer;
