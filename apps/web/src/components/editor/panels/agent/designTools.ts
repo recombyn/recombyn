@@ -288,33 +288,7 @@ function supportedTogglePanelIds(): string[] {
   ).map((p) => p.id);
 }
 
-/** FE Action executors (op_key must match Admin design_canvas_tool). */
-export const FE_ACTION_EXECUTOR_KEYS = [
-  'update_node',
-  'create_shape',
-  'create_text',
-  'outline_text',
-  'create_image',
-  'create_svg',
-  'create_lottie',
-  'create_icon',
-  'create_frame',
-  'delete_nodes',
-  'update_frame',
-  'delete_frame',
-  'align_nodes',
-  'distribute_nodes',
-  'reorder_nodes',
-  'group_nodes',
-  'ungroup_nodes',
-  'duplicate_nodes',
-  'flip_nodes',
-  'boolean_op',
-  'set_canvas_background',
-  'set_viewport',
-  'image_process',
-  'export_canvas',
-] as const;
+/** FE Action op_keys live in Admin `design_canvas_tool` + executeDesignTool switch. */
 
 export const DESIGN_TOOL_NAMES = [
   'get_scene_summary',
@@ -554,8 +528,11 @@ function listFrames(doc: SceneDocument): ArtboardFrame[] {
   return Array.isArray(doc?.frames) ? doc.frames : [];
 }
 
-/** Scene node ids whose boxes mostly overlap any of the given frames. */
-function nodeIdsInsideFrameLocal(doc: SceneDocument, frameIds: string[]): string[] {
+/** Scene node ids whose boxes mostly overlap any of the given frames (≥35% area). */
+export function nodeIdsInsideFramesOverlap(
+  doc: SceneDocument,
+  frameIds: string[]
+): string[] {
   if (!doc || !frameIds.length) return [];
   const idSet = new Set(frameIds.map(String));
   const frames = listFrames(doc).filter((f) => f?.id && idSet.has(String(f.id)));
@@ -580,6 +557,15 @@ function nodeIdsInsideFrameLocal(doc: SceneDocument, frameIds: string[]): string
     if (hits) out.push(id);
   }
   return out;
+}
+
+/** Single-frame helper (agent edit target / scene inventory). */
+export function nodeIdsInsideFrame(
+  doc: SceneDocument,
+  frameId: string | null | undefined
+): string[] {
+  if (!frameId) return [];
+  return nodeIdsInsideFramesOverlap(doc, [String(frameId)]);
 }
 
 function frameById(doc: SceneDocument, id?: string | null) {
@@ -2940,18 +2926,16 @@ function execDeleteNodes(
     const frameIdSet = new Set(listFrames(docNow).map((f) => String(f.id)));
     const frameIds = ids.filter((id) => frameIdSet.has(id));
     const nodeIds = ids.filter((id) => !frameIdSet.has(id));
-    // Models often pass artboard id into delete_nodes — remap to frame delete.
+    // Never remap artboard ids → wipe-all-children. That deleted "kept" colors
+    // when models stuffed FOCUS frame id into delete_nodes by mistake.
     if (frameIds.length) {
-      const childIds = nodeIdsInsideFrameLocal(docNow, frameIds);
-      const removeIds = [...new Set([...nodeIds, ...childIds])];
-      if (removeIds.length) {
-        ctx.dispatch(setDocument(removeNodesFromDocument(ctx.getDocument(), removeIds)));
-      }
-      ctx.dispatch(removeArtboardFrames(frameIds));
       return {
-        status: 'success',
-        summary: `Deleted ${frameIds.length} frame(s)` + (removeIds.length ? ` + ${removeIds.length} node(s)` : ''),
-        artifacts: { frameIds, nodeIds: removeIds },
+        status: 'error',
+        summary:
+          'delete_nodes must list element node ids only (not artboard/frame ids). ' +
+          'Use delete_frame to remove a board, or pass concrete nodeIds to keep.',
+        next_actions: ['delete_nodes', 'delete_frame', 'update_node'],
+        artifacts: { rejectedFrameIds: frameIds, nodeIds },
       };
     }
     const before = new Set(
@@ -2997,7 +2981,7 @@ function execDeleteFrame(
     if (!listFrames(docNow).some((f) => String(f.id) === fid)) {
       return { status: 'error', summary: `frame not found: ${fid}` };
     }
-    const childIds = nodeIdsInsideFrameLocal(docNow, [fid]);
+    const childIds = nodeIdsInsideFramesOverlap(docNow, [fid]);
     if (childIds.length) {
       ctx.dispatch(setDocument(removeNodesFromDocument(ctx.getDocument(), childIds)));
     }

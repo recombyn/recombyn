@@ -189,23 +189,34 @@ function syncPlainText(root: HTMLElement, text: string) {
       ? getPlainTextCaretOffset(root)
       : null;
 
-  const textNodes: ChildNode[] = [];
-  const collect = (parent: Node) => {
-    for (const n of Array.from(parent.childNodes)) {
-      if (n.nodeType === Node.TEXT_NODE) {
-        textNodes.push(n);
-        continue;
+  // Empty contenteditable often keeps a lone <br> for the caret. readPlainText
+  // ignores it, so a text-only replace used to leave `<br>prompt` → blank line
+  // above (home example chips / programmatic setValue).
+  if (!hasChip) {
+    root.replaceChildren(document.createTextNode(text || ''));
+  } else {
+    const textNodes: ChildNode[] = [];
+    const collect = (parent: Node) => {
+      for (const n of Array.from(parent.childNodes)) {
+        if (n.nodeType === Node.TEXT_NODE) {
+          textNodes.push(n);
+          continue;
+        }
+        if (n.nodeType === Node.ELEMENT_NODE && (n as HTMLElement).dataset?.composerChip === '1') {
+          continue;
+        }
+        collect(n);
       }
-      if (n.nodeType === Node.ELEMENT_NODE && (n as HTMLElement).dataset?.composerChip === '1') {
-        continue;
+    };
+    collect(root);
+    textNodes.forEach((n) => n.parentNode?.removeChild(n));
+    for (const node of Array.from(root.childNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === 'BR') {
+        node.parentNode?.removeChild(node);
       }
-      collect(n);
     }
-  };
-  collect(root);
-  textNodes.forEach((n) => n.parentNode?.removeChild(n));
-
-  root.appendChild(document.createTextNode(text || (hasChip ? '\u200b' : '')));
+    root.appendChild(document.createTextNode(text || '\u200b'));
+  }
 
   if (restore != null && document.activeElement === root) {
     const range = setPlainTextCaretOffset(root, restore);
@@ -639,6 +650,128 @@ function stripOrphanPasteImages(root: HTMLElement) {
   });
 }
 
+/** Insert a chip at the saved/plain caret. Does not touch React context state. */
+function insertChipAtSavedCaret(
+  el: HTMLElement,
+  ctx: ComposerContext,
+  opts: {
+    savedCaretRef: { current: number | null };
+    onRemove: (key: string) => void;
+    markHasChips: () => void;
+  }
+): boolean {
+  scrubComposerScaffold(el);
+
+  const chip = buildChip({
+    kind: 'context',
+    id: ctx.key,
+    label: ctx.label,
+    iconSvg: CONTEXT_ICON,
+    thumbUrl: ctx.thumbUrl || ctx.dataUrl,
+    hideLeadingIcon: isSkillComposerContext(ctx),
+    onRemove: () => opts.onRemove(ctx.key),
+  });
+
+  const sel = window.getSelection();
+  let range: Range | null = null;
+  const plainLen = readPlainText(el).length;
+  // Prefer saved caret. Never trust the live selection right after el.focus() —
+  // browsers reset it to offset 0 (and may fire select → rememberCaret).
+  // Empty composer: always append (avoids inserting after a leftover <br>).
+  if (plainLen === 0) {
+    range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+  } else if (opts.savedCaretRef.current != null) {
+    range = setPlainTextCaretOffset(el, opts.savedCaretRef.current);
+  }
+  if (!range) {
+    range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+  }
+
+  range.deleteContents();
+  range.insertNode(chip);
+  const spacer = document.createTextNode('\u200b');
+  chip.after(spacer);
+  scrubComposerScaffold(el);
+  // Hide placeholder immediately — don't wait for the React contexts commit.
+  opts.markHasChips();
+
+  const next = document.createRange();
+  next.setStartAfter(spacer);
+  next.collapse(true);
+  sel?.removeAllRanges();
+  sel?.addRange(next);
+  opts.savedCaretRef.current = getPlainTextCaretOffset(el);
+  return true;
+}
+
+/** Full rewrite. Chips go at the saved caret (or end), never forced to index 0. */
+function writeComposerDom(
+  el: HTMLElement,
+  nextContexts: ComposerContext[],
+  text: string,
+  opts: {
+    savedCaretRef: { current: number | null };
+    onRemove: (key: string) => void;
+    caret?: 'end' | 'preserve';
+  }
+) {
+  const plain = text || '';
+  const caret = opts.caret ?? 'end';
+  let at =
+    caret === 'preserve' && opts.savedCaretRef.current != null
+      ? opts.savedCaretRef.current
+      : plain.length;
+  at = Math.max(0, Math.min(at, plain.length));
+  const before = plain.slice(0, at);
+  const after = plain.slice(at);
+
+  el.innerHTML = '';
+  if (before) el.appendChild(document.createTextNode(before));
+  for (const ctx of nextContexts) {
+    el.appendChild(
+      buildChip({
+        kind: 'context',
+        id: ctx.key,
+        label: ctx.label,
+        iconSvg: CONTEXT_ICON,
+        thumbUrl: ctx.thumbUrl || ctx.dataUrl,
+        hideLeadingIcon: isSkillComposerContext(ctx),
+        onRemove: () => opts.onRemove(ctx.key),
+      })
+    );
+  }
+  const hasChip = nextContexts.length > 0;
+  el.appendChild(document.createTextNode(after || (hasChip ? '\u200b' : '')));
+  if (document.activeElement === el || hasChip) {
+    el.focus();
+    const range = setPlainTextCaretOffset(el, before.length);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    // Place caret after chips when we inserted at `at`.
+    if (hasChip) {
+      const lastChip = el.querySelector(
+        `[data-chip-kind="context"][data-chip-id="${CSS.escape(
+          nextContexts[nextContexts.length - 1]!.key
+        )}"]`
+      );
+      const spacer = lastChip?.nextSibling;
+      if (spacer) {
+        const afterChip = document.createRange();
+        afterChip.setStartAfter(spacer);
+        afterChip.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(afterChip);
+      }
+    }
+    opts.savedCaretRef.current = getPlainTextCaretOffset(el);
+  }
+}
+
 /**
  * Contenteditable composer: context chips inline; supports insert-at-caret.
  */
@@ -694,7 +827,8 @@ const AgentComposerInput = forwardRef<
   onPasteImagesRef.current = onPasteImages;
 
   const syncDomHasChips = () => {
-    setDomHasChips(editorHasComposerChips(editorRef.current));
+    const next = editorHasComposerChips(editorRef.current);
+    setDomHasChips((prev) => (prev === next ? prev : next));
   };
 
   const removeContextByKey = (key: string) => {
@@ -707,124 +841,6 @@ const AgentComposerInput = forwardRef<
     if (!el) return;
     const off = getPlainTextCaretOffset(el);
     if (off != null) savedCaretRef.current = off;
-  };
-
-  /**
-   * Insert a chip at the saved/plain caret. Does not touch React state.
-   * Returns true when a new DOM chip was inserted.
-   */
-  const insertChipAtSavedCaret = (ctx: ComposerContext): boolean => {
-    const el = editorRef.current;
-    if (!el) return false;
-
-    scrubComposerScaffold(el);
-
-    const chip = buildChip({
-      kind: 'context',
-      id: ctx.key,
-      label: ctx.label,
-      iconSvg: CONTEXT_ICON,
-      thumbUrl: ctx.thumbUrl || ctx.dataUrl,
-      hideLeadingIcon: isSkillComposerContext(ctx),
-      onRemove: () => removeContextByKey(ctx.key),
-    });
-
-    const sel = window.getSelection();
-    let range: Range | null = null;
-    const plainLen = readPlainText(el).length;
-    // Prefer saved caret. Never trust the live selection right after el.focus() —
-    // browsers reset it to offset 0 (and may fire select → rememberCaret).
-    // Empty composer: always append (avoids inserting after a leftover <br>).
-    if (plainLen === 0) {
-      range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-    } else if (savedCaretRef.current != null) {
-      range = setPlainTextCaretOffset(el, savedCaretRef.current);
-    }
-    if (!range) {
-      range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-    }
-
-    range.deleteContents();
-    range.insertNode(chip);
-    const spacer = document.createTextNode('\u200b');
-    chip.after(spacer);
-    scrubComposerScaffold(el);
-    // Hide placeholder immediately — don't wait for the React contexts commit.
-    setDomHasChips(true);
-
-    const next = document.createRange();
-    next.setStartAfter(spacer);
-    next.collapse(true);
-    sel?.removeAllRanges();
-    sel?.addRange(next);
-    savedCaretRef.current = getPlainTextCaretOffset(el);
-    return true;
-  };
-
-  /**
-   * Full rewrite. Chips go at the saved caret (or end), never forced to index 0.
-   */
-  const writeDom = (
-    nextContexts: ComposerContext[],
-    text: string,
-    caret: 'end' | 'preserve' = 'end'
-  ) => {
-    const el = editorRef.current;
-    if (!el) return;
-    const plain = text || '';
-    let at =
-      caret === 'preserve' && savedCaretRef.current != null
-        ? savedCaretRef.current
-        : plain.length;
-    at = Math.max(0, Math.min(at, plain.length));
-    const before = plain.slice(0, at);
-    const after = plain.slice(at);
-
-    el.innerHTML = '';
-    if (before) el.appendChild(document.createTextNode(before));
-    for (const ctx of nextContexts) {
-      el.appendChild(
-        buildChip({
-          kind: 'context',
-          id: ctx.key,
-          label: ctx.label,
-          iconSvg: CONTEXT_ICON,
-          thumbUrl: ctx.thumbUrl || ctx.dataUrl,
-          hideLeadingIcon: isSkillComposerContext(ctx),
-          onRemove: () => removeContextByKey(ctx.key),
-        })
-      );
-    }
-    const hasChip = nextContexts.length > 0;
-    el.appendChild(document.createTextNode(after || (hasChip ? '\u200b' : '')));
-    if (document.activeElement === el || hasChip) {
-      el.focus();
-      const range = setPlainTextCaretOffset(el, before.length);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-      // Place caret after chips when we inserted at `at`.
-      if (hasChip) {
-        const lastChip = el.querySelector(
-          `[data-chip-kind="context"][data-chip-id="${CSS.escape(
-            nextContexts[nextContexts.length - 1]!.key
-          )}"]`
-        );
-        const spacer = lastChip?.nextSibling;
-        if (spacer) {
-          const afterChip = document.createRange();
-          afterChip.setStartAfter(spacer);
-          afterChip.collapse(true);
-          sel?.removeAllRanges();
-          sel?.addRange(afterChip);
-        }
-      }
-      savedCaretRef.current = getPlainTextCaretOffset(el);
-    }
   };
 
   // Capture caret before canvas/context-menu steals focus (blur selection is already gone).
@@ -890,7 +906,11 @@ const AgentComposerInput = forwardRef<
 
         el.focus();
         if (caretBeforeFocus != null) savedCaretRef.current = caretBeforeFocus;
-        insertChipAtSavedCaret(unique);
+        insertChipAtSavedCaret(el, unique, {
+          savedCaretRef,
+          onRemove: removeContextByKey,
+          markHasChips: () => setDomHasChips((prev) => (prev ? prev : true)),
+        });
 
         skipSyncRef.current = true;
         const text = readPlainText(el);
@@ -939,7 +959,19 @@ const AgentComposerInput = forwardRef<
       el.querySelector(`[data-composer-chip]:not([data-chip-style="${CHIP_STYLE}"])`)
     );
     if (sameCtx && currentText === value && !chipsStale) {
-      syncDomHasChips();
+      // Drop leftover caret <br> that readPlainText ignores but still paints a blank line.
+      if (value.trim() !== '') {
+        for (const node of Array.from(el.childNodes)) {
+          if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === 'BR') {
+            node.parentNode?.removeChild(node);
+          }
+        }
+      }
+      // DOM already matches React — only fix placeholder flag if it drifted.
+      // Use contexts.length (sameCtx ⇒ equivalent to DOM) to avoid extra reads /
+      // setState when parent passes a new contexts[] identity each render.
+      const next = nextCtxKeys.length > 0;
+      setDomHasChips((prev) => (prev === next ? prev : next));
       return;
     }
     // Contexts unchanged but React `value` changed (e.g. cleared after send).
@@ -962,7 +994,11 @@ const AgentComposerInput = forwardRef<
         for (const key of nextCtxKeys.slice(domCtxKeys.length)) {
           const ctx = contexts.find((c) => c.key === key);
           if (!ctx) continue;
-          insertChipAtSavedCaret(ctx);
+          insertChipAtSavedCaret(el, ctx, {
+            savedCaretRef,
+            onRemove: removeContextByKey,
+            markHasChips: () => setDomHasChips((prev) => (prev ? prev : true)),
+          });
         }
       } finally {
         insertingRef.current = false;
@@ -973,7 +1009,11 @@ const AgentComposerInput = forwardRef<
       syncDomHasChips();
       return;
     }
-    writeDom(contexts, value, 'preserve');
+    writeComposerDom(el, contexts, value, {
+      savedCaretRef,
+      onRemove: removeContextByKey,
+      caret: 'preserve',
+    });
     // After chips are removed from the DOM — only then can the placeholder show.
     syncDomHasChips();
   }, [contexts, value]);
@@ -1089,6 +1129,7 @@ const AgentComposerInput = forwardRef<
       <div
         ref={editorRef}
         role="textbox"
+        tabIndex={disabled ? -1 : 0}
         aria-multiline="true"
         aria-placeholder={showPlaceholder ? placeholder : undefined}
         aria-disabled={disabled || undefined}

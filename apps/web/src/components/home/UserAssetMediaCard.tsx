@@ -11,10 +11,8 @@ import {
   useState,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
-  type SyntheticEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -35,7 +33,7 @@ import { toDisplayMediaUrl } from '@/utils/uploadImage';
 /** Varied aspects for flow skeletons (same rhythm as plaza). */
 const ASSET_SKELETON_RATIOS = ['3 / 4', '4 / 5', '1 / 1', '4 / 3', '5 / 6', '2 / 3', '5 / 4'] as const;
 
-// 鈹€鈹€鈹€ pure helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// --- pure helpers ----------------------------------------------------------
 
 function formatUserAssetRelativeTime(
   ms: number | null | undefined,
@@ -133,7 +131,7 @@ function mountLottieOnHost(
   });
 }
 
-// 鈹€鈹€鈹€ hooks 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// --- hooks -----------------------------------------------------------------
 
 /** Display URL as-is (bare storage keys → /api/v1/uploads/files/…). */
 function useDisplayMediaSrc(
@@ -157,7 +155,7 @@ function useEscapeToClose(open: boolean, onClose: () => void) {
   }, [open, onClose]);
 }
 
-// 鈹€鈹€鈹€ thumbnails 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// --- thumbnails ------------------------------------------------------------
 
 function PlaceholderThumb({ kind }: { kind: string }): ReactNode {
   if (kind === 'audio') return <LuAudioLines className="h-6 w-6" strokeWidth={1.75} />;
@@ -173,6 +171,8 @@ function ImageThumb({
   onNatural: (w: number, h: number) => void;
 }): ReactNode {
   return (
+    // onLoad reports natural size for aspect ratio — not an interactive handler.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <img
       src={src}
       alt=""
@@ -234,7 +234,7 @@ function LottieAssetThumb({
   useEffect(() => {
     const aspect = aspectFromAsset(asset);
     if (aspect) onNaturalAspect?.(aspect);
-  }, [asset.width, asset.height, onNaturalAspect]);
+  }, [asset.width, asset.height, onNaturalAspect, asset]);
 
   useEffect(() => {
     if (!hostEl) return undefined;
@@ -307,7 +307,7 @@ function UserAssetThumb({
   );
 }
 
-// 鈹€鈹€鈹€ card chrome 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// --- card chrome -----------------------------------------------------------
 
 function AssetCardMetaOverlay({
   title,
@@ -380,7 +380,7 @@ type UserAssetCardProps = {
   onActivate: (asset: UserAsset) => void;
   onDelete?: (asset: UserAsset) => void;
   /** When set, card body is HTML5-draggable (Assets → canvas). */
-  onDragStart?: (e: ReactDragEvent<HTMLDivElement>, asset: UserAsset) => void;
+  onDragStart?: (e: ReactDragEvent<HTMLElement>, asset: UserAsset) => void;
   onDragEnd?: () => void;
 };
 
@@ -393,15 +393,11 @@ function handleAssetCardActivate(
   onActivate(asset);
 }
 
-function handleAssetCardKeyDown(
-  e: ReactKeyboardEvent,
-  asset: UserAsset,
-  url: string,
-  onActivate: (asset: UserAsset) => void
+function closePreviewOnBackdropClick(
+  e: ReactMouseEvent<HTMLElement>,
+  onClose: () => void
 ) {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  e.preventDefault();
-  handleAssetCardActivate(asset, url, onActivate);
+  if (e.target === e.currentTarget) onClose();
 }
 
 function UserAssetCard({
@@ -425,19 +421,19 @@ function UserAssetCard({
 
   useEffect(() => {
     setNaturalAspect(aspectFromAsset(asset));
-  }, [asset.id, asset.width, asset.height]);
+  }, [asset]);
 
   const frameStyle: CSSProperties = {
     aspectRatio: naturalAspect || defaultFrameAspect(String(asset.kind || '')),
   };
 
-  const onBodyDragStart = (e: ReactDragEvent<HTMLDivElement>) => {
+  const onBodyDragStart = (e: ReactDragEvent<HTMLButtonElement>) => {
     if (!canDrag) return;
     markAssetCardDragging(e.currentTarget);
     onDragStart?.(e, asset);
   };
 
-  const onBodyDragEnd = (e: ReactDragEvent<HTMLDivElement>) => {
+  const onBodyDragEnd = (e: ReactDragEvent<HTMLButtonElement>) => {
     clearAssetCardDragging(e.currentTarget);
     onDragEnd?.();
   };
@@ -465,20 +461,14 @@ function UserAssetCard({
         // Long prompt tips: wrap + modest radius (base Tooltip is single-line pill).
         popupClassName="!h-auto !max-w-[14rem] !whitespace-normal !break-words !rounded-md !py-1.5 !leading-snug !items-start !justify-start text-left"
       >
-        <div
-          role={canDrag ? undefined : 'button'}
-          tabIndex={canDrag ? undefined : 0}
+        <button
+          type="button"
           draggable={canDrag}
           onDragStart={canDrag ? onBodyDragStart : undefined}
           onDragEnd={onBodyDragEnd}
           onClick={() => handleAssetCardActivate(asset, url, onActivate)}
-          onKeyDown={
-            canDrag
-              ? undefined
-              : (e) => handleAssetCardKeyDown(e, asset, url, onActivate)
-          }
           className={cn(
-            'relative block w-full text-left',
+            'relative block w-full appearance-none border-0 bg-transparent p-0 text-left',
             canDrag && 'cursor-grab active:cursor-grabbing'
           )}
         >
@@ -488,7 +478,7 @@ function UserAssetCard({
             </div>
             <AssetCardMetaOverlay title={title} when={when} dense={dense} />
           </div>
-        </div>
+        </button>
       </Tooltip>
       {onDelete ? (
         <button
@@ -514,8 +504,7 @@ function UserAssetCard({
 const MemoizedUserAssetCard = memo(UserAssetCard);
 const MemoizedUserAssetCardSkeleton = memo(UserAssetCardSkeleton);
 
-// 鈹€鈹€鈹€ previews 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
+// --- previews --------------------------------------------------------------
 function ImageAssetLightbox({
   asset,
   onClose,
@@ -545,10 +534,6 @@ function ImageAssetLightbox({
   );
 }
 
-function stopBubble(e: SyntheticEvent) {
-  e.stopPropagation();
-}
-
 function AudioAssetPreview({
   open,
   src,
@@ -575,14 +560,14 @@ function AudioAssetPreview({
   return createPortal(
     <div
       className="fixed inset-0 z-[800] flex items-center justify-center bg-black/55 p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('editor.assets.preview', { defaultValue: '预览' })}
+      onClick={(e) => closePreviewOnBackdropClick(e, onClose)}
+      role="presentation"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('editor.assets.preview', { defaultValue: '预览' })}
         className="relative w-full max-w-md rounded-2xl bg-[var(--surface)] p-5 shadow-[0_18px_48px_rgba(12,12,13,0.28)] ring-1 ring-[var(--line)]"
-        onClick={stopBubble}
       >
         <button
           type="button"
@@ -600,7 +585,10 @@ function AudioAssetPreview({
             {title}
           </p>
         </div>
-        {playSrc ? <audio src={playSrc} controls autoPlay className="w-full" /> : null}
+        {playSrc ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- user asset playback, not dialogue
+          <audio src={playSrc} controls autoPlay className="w-full" />
+        ) : null}
       </div>
     </div>,
     document.body
@@ -639,10 +627,8 @@ function LottieAssetPreview({
   return createPortal(
     <div
       className="fixed inset-0 z-[800] flex items-center justify-center bg-black/45 p-6"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('editor.assets.preview', { defaultValue: '预览' })}
+      onClick={(e) => closePreviewOnBackdropClick(e, onClose)}
+      role="presentation"
     >
       <button
         type="button"
@@ -653,8 +639,10 @@ function LottieAssetPreview({
         <HiOutlineXMark className="h-5 w-5" strokeWidth={1.75} />
       </button>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('editor.assets.preview', { defaultValue: '预览' })}
         className="relative flex h-[min(72vh,560px)] w-[min(72vw,560px)] items-center justify-center overflow-hidden bg-transparent"
-        onClick={stopBubble}
       >
         <div ref={setHostEl} className="h-full w-full bg-transparent" />
       </div>

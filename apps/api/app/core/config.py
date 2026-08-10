@@ -111,11 +111,15 @@ class Settings(BaseSettings):
     # (MySQL → Sqlite → memory). Wallet hold fns stay process-local (not in state).
     design_graph_checkpoint: bool = True
     design_graph_retry_attempts: int = 3
-    # Per LLM/IO node; 0 disables node TimeoutPolicy.
+    # Per LLM/IO node (decide/memory/…); 0 disables node TimeoutPolicy.
     design_graph_node_timeout_sec: float = 180.0
-    # Per paint_ops LLM attempt (in-node); fail fast so empty-ops retries can run.
-    # Pencil/pathPressure illustration batches often need >75s on slow reasoners.
-    design_paint_attempt_timeout_sec: float = 180.0
+    # paint_ops node wall clock — must exceed attempt×retries so abandon can retry
+    # before LangGraph kills the whole node (0 = reuse design_graph_node_timeout_sec).
+    design_graph_paint_timeout_sec: float = 300.0
+    # Per paint_ops LLM attempt (in-node). Keep below paint node timeout so
+    # _await_or_abandon can fail-fast and empty-ops / hung-stream retries run.
+    # Was 180 (== node) → first hung attempt burned the node with 0 ops.
+    design_paint_attempt_timeout_sec: float = 90.0
     # Verbose [exec]/llm_step] stage timers to stdout (off by default).
     design_exec_trace: bool = False
     # Whole run_agent_graph wall clock; 0 disables.
@@ -132,8 +136,10 @@ class Settings(BaseSettings):
     design_graph_require_durable_checkpoint: bool = True
     # Post-paint structure/spatial critique in observe (SSE critique_* + optional re-paint).
     design_critique_enabled: bool = True
-    # LLM Review Agent after observe (Profile stage review; forked subagent when catalog says so).
+    # Master switch for LLM Review Agent (Profile stage still required).
     design_review_agent_enabled: bool = True
+    # When Review runs after observe: auto (sparse) | off | always. See observe._should_route_to_review.
+    design_review_mode: str = "auto"
     # Cross-worker run lease TTL (seconds). Resume steals after expiry.
     design_run_lease_ttl_sec: float = 90.0
     # Scene-feedback poll interval when waiting across workers (ms).

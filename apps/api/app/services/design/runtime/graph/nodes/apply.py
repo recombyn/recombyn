@@ -30,11 +30,10 @@ from app.services.design.runtime.graph.support import (
     _ensure_propose_choice_ui,
     _goto_cmd,
     _hydrate_log_kwargs,
-    _llm_ux_reply,
+    _emit_ux_tip,
     _ops_for_log,
     _ops_have_create_frame,
     _persist_progress,
-    _prompt_text,
     _paint_ops_for_host,
     _validate_ops_payload,
 )
@@ -87,17 +86,7 @@ async def _node_apply_confirm(state: GraphState) -> Command:
     if not step_ops:
         err = validation_failure_reason(op_errors) if op_errors else "missing_tool_ops"
         st.note_error(err)
-        msg = await _llm_ux_reply(
-            rt,
-            situation=(
-                "The confirmed plan could not be applied safely; ask the user "
-                "to rephrase or try again."
-            ),
-            facts=f"error={err[:120]}",
-        )
-        if msg:
-            st.reply = msg
-            _emit({"type": "token", "text": msg})
+        _emit_ux_tip(rt, "apply_confirm_failed", params={"error": err[:80]})
         rt.terminal = True
         return Command(update=_bump(rt), goto="__settle__")
 
@@ -169,18 +158,13 @@ async def _node_apply_confirm(state: GraphState) -> Command:
     st.applied_ops.extend(paint_ops)
     st.painted = True
     st.intent = "edit"
-    reply = await _llm_ux_reply(
-        rt,
-        situation=(
-            "User confirmed a previously proposed canvas plan; ops were just "
-            "applied successfully. Confirm briefly."
-        ),
-        facts=f"applied_ops={len(paint_ops)}",
-    )
-    if reply:
-        st.reply = reply
-        _emit({"type": "token", "text": reply})
+    if not (st.reply or "").strip():
+        _emit_ux_tip(rt, "apply_ops_applied", params={"count": len(paint_ops)})
+    else:
+        st.reply = str(st.reply).strip()[:200]
+        _emit({"type": "token", "text": st.reply})
     st.push_log(
+
         phase="action",
         ops=[str(o.get("name") or "") for o in paint_ops[:20]],
         ops_count=len(paint_ops),
@@ -242,28 +226,17 @@ async def _node_propose(state: GraphState) -> Command:
         "",
     )
     detail = (tool_ops_batch_detail(step_ops) or "").strip()
-    # Confirm copy is LLM-written; do not reuse paint-stage wording (may claim applied).
-    propose_situation = _prompt_text(
-        rt.rules, "agent.prompt.ask_propose_situation"
-    ).strip()
-    if not propose_situation:
-        raise RuntimeError(
-            "missing prompt pack: agent.prompt.ask_propose_situation "
-            "(Admin → 系统提示词 / seeds/design_prompt_packs)"
-        )
-    text = await _llm_ux_reply(
-        rt,
-        situation=propose_situation,
-        facts=(detail[:160] if detail else "propose_ops=1"),
-    )
+    # Prefer paint-stage reply; otherwise fixed Ask propose copy (no UX LLM hop).
+    text = (rt.turn.get("reply") or st.reply or "").strip()
     if not text:
         text = _ask_propose_user_text(
-            model_reply=(rt.turn.get("reply") or st.reply or "").strip(),
+            model_reply="",
             detail=detail,
         )
     if text:
         st.reply = text
     st.push_log(
+
         phase="propose",
         ops_count=len(step_ops),
         ops=[str(o.get("name") or "") for o in step_ops[:20]],
@@ -273,7 +246,7 @@ async def _node_propose(state: GraphState) -> Command:
         proposed=True,
         intent=st.intent,
         reply=(st.reply or "")[:2000] or None,
-        summary=('提议确认：' + (apply_label or f"{len(step_ops)} ops"))[:120],
+        summary=('propose confirm: ' + (apply_label or f"{len(step_ops)} ops"))[:120],
         **({"choices": list(st.choices)[:6]} if st.choices else {}),
         **({"apply_choice": st.apply_choice} if st.apply_choice else {}),
         **({"choice_ui": st.choice_ui} if st.choice_ui else {}),
@@ -358,7 +331,7 @@ async def _node_action(state: GraphState) -> Command:
     else:
         st.painted = False
         st.reply = ""
-    # Reply only after real ops were pushed — never claim「已添加」with empty ops.
+    # Reply only after real ops were pushed — never claim "added" with empty ops.
     _emit_deferred_paint_reply(st, ops_sent=ops_sent)
     st.push_log(
         phase="action",

@@ -13,6 +13,7 @@ from app.services.design.runtime.graph.support import (
     _clip_llm_raw,
     _emit,
     _emit_design_loading_artboard,
+    _emit_ux_tip,
     _goto_cmd,
 )
 from app.services.design.runtime.models_route import (
@@ -82,6 +83,14 @@ async def _node_intent_classify(state: GraphState) -> Command:
     rt = state["rt"]
     st = rt.run
     pending = _pending_proposal_flag(rt)
+    dial_lines: list[str] = []
+    for t in list(getattr(rt, "mem_short", None) or [])[-8:]:
+        if not isinstance(t, dict):
+            continue
+        role = "User" if str(t.get("role") or "") == "user" else "Assistant"
+        text = str(t.get("text") or t.get("content") or "").strip()
+        if text:
+            dial_lines.append(f"{role}: {text[:400]}")
     t_intent = time.perf_counter()
     decision = await classify_user_intent(
         prompt=rt.prompt,
@@ -91,6 +100,8 @@ async def _node_intent_classify(state: GraphState) -> Command:
         scene=rt.scene_key,
         interaction_mode=str(rt.flags.get("mode") or rt.mode or ""),
         pending_proposal=pending,
+        memory_blocks=str(getattr(rt, "mem_blocks", "") or ""),
+        recent_dialogue="\n".join(dial_lines),
     )
     intent_ms = max(0, int((time.perf_counter() - t_intent) * 1000))
     intent, paint_lane = normalize_intent_decision(
@@ -117,7 +128,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         proposal_action=action or None,
         reply=(reply[:500] if intent == "chat" or action == "dismiss" else None),
         summary=(
-            f"意图={intent}"
+            f"intent={intent}"
             + (f"/{paint_lane}" if paint_lane else "")
             + (f" · proposal={action}" if action else "")
             + (f" · {(decision.rationale or '')[:80]}" if decision.rationale else "")
@@ -159,9 +170,10 @@ async def _node_intent_classify(state: GraphState) -> Command:
 
     if action == "dismiss" and pending:
         if not reply:
-            reply = _chat_fallback_text(rt) or "已取消"
-        st.reply = reply
-        _emit({"type": "token", "text": reply})
+            _emit_ux_tip(rt, "ask_dismissed")
+        else:
+            st.reply = reply
+            _emit({"type": "token", "text": reply})
         _clear_ask_proposal_meta(str(pending.get("task_id") or ""))
         _drop_pending(rt)
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")

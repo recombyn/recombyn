@@ -83,7 +83,8 @@ def format_subagents_catalog(profile: Any | None = None) -> str:
     lines = [
         "SUBAGENTS_CATALOG (forked context — declare via need_subagents):",
         "Use need_subagents: [\"id\"] or "
-        '[{"id":"vision_scout","task":"...","background":false}].',
+        '[{"id":"review","task":"...","background":false}].',
+        "Look-at-image / brief synthesis is Decide + design_brief — not a catalog scout.",
         "Child runs with fresh system+task only (no parent chat). tool_ops stay [].",
     ]
     for sa in items:
@@ -214,36 +215,13 @@ def resolve_auto_need_subagents(
     already: list[str] | None = None,
     existing: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Merge catalog auto-triggers into need_subagents (deduped)."""
-    out = list(existing or [])
-    have = {
-        str(j.get("id") or j.get("agent_id") or "").strip()
-        for j in out
-        if str(j.get("id") or j.get("agent_id") or "").strip()
-    }
-    loaded = {str(x).strip() for x in (already or []) if str(x).strip()}
-    intent_l = str(intent or "").strip().lower() or "create"
+    """Pass-through for declared need_subagents (no auto scout/research).
 
-    def _add(aid: str) -> None:
-        if not aid or aid in have or aid in loaded:
-            return
-        if profile is None or profile.get_subagent(aid) is None:
-            return
-        out.append({"id": aid, "agent_id": aid, "task": "", "background": False})
-        have.add(aid)
-
-    # Refs attached → vision scout before paint.
-    if has_images:
-        _add("vision_scout")
-    # Text-only create/edit on empty canvas → light research.
-    if (
-        empty_canvas
-        and intent_l in ("create", "edit", "design")
-        and prompt_chars >= 8
-        and not has_images
-    ):
-        _add("research")
-    return out
+    Ref look + design_brief synthesis belong to Decide. Review is a graph fork,
+    not an auto Decide spawn. ``profile`` / canvas flags kept for call-site compat.
+    """
+    _ = (profile, has_images, empty_canvas, intent, prompt_chars, already)
+    return list(existing or [])
 
 
 def _resolve_subagent_schema(spec: SubAgentDef, *, profile: Any) -> Any | None:

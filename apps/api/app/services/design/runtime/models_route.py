@@ -206,13 +206,9 @@ def paint_ops_intent(classified: str | None, paint_lane: str | None = None) -> s
     return "create"
 
 
-def allows_skill_preload(*, intent: str) -> bool:
-    """Legacy hook — skill bodies are never preloaded; model uses catalogs + need_skills."""
-    del intent
-    return False
-
-
 def _split_list(raw: str, seps: str = "|;,") -> list[str]:
+
+
     if not raw:
         return []
     parts = re.split(f"[{re.escape(seps)}]+", raw)
@@ -280,11 +276,6 @@ def parse_model_lanes(rules: dict[str, str] | None) -> dict[str, str]:
         out.get("standard") or out.get("reasoning") or out.get("fast") or "deepseek-v4-flash",
     )
     return out
-
-
-# Back-compat alias used by older imports / Admin copy.
-def parse_model_routes(rules: dict[str, str] | None) -> dict[str, str]:
-    return parse_model_lanes(rules)
 
 
 def parse_fallback_chain(rules: dict[str, str] | None) -> list[str]:
@@ -456,12 +447,21 @@ def resolve_vision_model(rules: dict[str, str] | None) -> str:
     return _DEFAULT_VISION_FALLBACK
 
 
-def resolve_review_model(rules: dict[str, str] | None) -> tuple[str, str]:
-    """Pin Review Agent to one model — not Design Auto / user lock.
+def resolve_review_model(
+    rules: dict[str, str] | None,
+    *,
+    user_selected_model: str | None = None,
+    design_model: str | None = None,
+) -> tuple[str, str]:
+    """Pick Review model.
 
-    Order: settings.design_review_model → Admin agent.review.model → vision model.
-    Prefers a vision-capable id so canvas previews can be judged.
+    Order: user lock → settings.design_review_model → Admin agent.review.model
+    → follow this-turn design_model (Auto) → vision default.
     """
+    locked = normalize_model_ref(user_selected_model)
+    if _is_concrete(locked):
+        return locked, "review_user_lock"
+
     try:
         from app.core.config import settings
 
@@ -474,6 +474,11 @@ def resolve_review_model(rules: dict[str, str] | None) -> tuple[str, str]:
         return pinned, "review_pinned"
     if pinned:
         return pinned, "review_pinned_non_vision"
+
+    follow = normalize_model_ref(design_model)
+    if _is_concrete(follow):
+        return follow, "review_follow_design"
+
     vision = resolve_vision_model(rules)
     return vision, "review_vision_default"
 
@@ -521,6 +526,7 @@ def pin_user_locked_model_routes(
     out["precheck.model_lanes"] = out["precheck.model_threshold"]
     out["precheck.vision_model"] = mid
     out["precheck.fallback_chain"] = mid
+    out["agent.review.model"] = mid
     return out
 
 
@@ -834,6 +840,8 @@ async def classify_user_intent(
     scene: str | None = None,
     interaction_mode: str | None = None,
     pending_proposal: dict[str, Any] | None = None,
+    memory_blocks: str | None = None,
+    recent_dialogue: str | None = None,
 ) -> IntentClassifyDecision:
     """Cheap structured intent gate. Falls back to ``heuristic_user_intent`` on error.
 
@@ -866,6 +874,8 @@ async def classify_user_intent(
         if has_pending and isinstance(pending_proposal, dict)
         else ""
     )
+    mem = str(memory_blocks or "").strip()[:1800]
+    dialogue = str(recent_dialogue or "").strip()[:1600]
     user_blob = (
         f"scene={scene or 'unknown'}\n"
         f"has_images={bool(has_images)}\n"
@@ -874,7 +884,9 @@ async def classify_user_intent(
         f"has_pending_proposal={has_pending}\n"
         f"{tools_catalog}\n\n"
         f"{pending_block}"
-        f"user_prompt:\n{(prompt or '').strip()[:4000]}"
+        + (f"MEMORY:\n{mem}\n\n" if mem else "")
+        + (f"RECENT_DIALOGUE:\n{dialogue}\n\n" if dialogue else "")
+        + f"user_prompt:\n{(prompt or '').strip()[:4000]}"
     )
     try:
         from app.services.design.prompts.prompt_pack_store import render_prompt_body
@@ -951,21 +963,8 @@ async def classify_user_intent(
         return fallback
 
 
-def _prefer_canvas_op_when_overpromoted(
-    intent: str,
-    lane: str,
-    *,
-    rationale: str,
-    fallback: IntentClassifyDecision,
-    has_images: bool,
-    prompt: str,
-) -> tuple[str, str, str]:
-    """Legacy no-op — length demote removed (broke short Chinese design asks)."""
-    del fallback, has_images, prompt
-    return intent, lane, rationale
-
-
 async def classify_model_route(
+
     *,
     prompt: str,
     rules: dict[str, str] | None = None,

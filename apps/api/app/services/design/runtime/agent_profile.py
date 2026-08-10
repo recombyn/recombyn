@@ -50,6 +50,11 @@ _FLAG_RULE_KEYS = {
     "critique_enabled": "design.critique.enabled",
 }
 
+# Non-bool runtime flags → KV (values preserved as strings).
+_STRING_FLAG_RULE_KEYS = {
+    "review_mode": "design.review.mode",
+}
+
 _MEMORY_RULE_KEYS = {
     "recent_turns": "memory.dialogue.recent_turns",
     "recent_chars": "memory.dialogue.recent_chars",
@@ -113,7 +118,7 @@ class AgentProfile:
     intent_prompt: str
     # P1 policy: rule_key → value or ``$kv:other_key`` (resolved at apply time).
     policy_patches: dict[str, str] = field(default_factory=dict)
-    runtime_flags: dict[str, bool] = field(default_factory=dict)
+    runtime_flags: dict[str, Any] = field(default_factory=dict)
     # P2 topology — live LangGraph selected by template id (not Admin flow JSON).
     topology_template: str = "canvas_ops_v1"
     stages_enabled: tuple[str, ...] = ("intent", "decide", "paint", "observe")
@@ -342,9 +347,9 @@ def _policy_from_routing(routing: dict[str, Any]) -> dict[str, str]:
     return patches
 
 
-def _policy_from_runtime(runtime: dict[str, Any]) -> tuple[dict[str, str], dict[str, bool]]:
+def _policy_from_runtime(runtime: dict[str, Any]) -> tuple[dict[str, str], dict[str, Any]]:
     patches: dict[str, str] = {}
-    flags_out: dict[str, bool] = {}
+    flags_out: dict[str, Any] = {}
 
     flags = _as_map(runtime.get("flags"))
     for name, rule_key in _FLAG_RULE_KEYS.items():
@@ -355,6 +360,18 @@ def _policy_from_runtime(runtime: dict[str, Any]) -> tuple[dict[str, str], dict[
             continue
         flags_out[name] = b
         patches[rule_key] = "1" if b else "0"
+
+    for name, rule_key in _STRING_FLAG_RULE_KEYS.items():
+        if name not in flags:
+            continue
+        raw = str(flags.get(name) or "").strip().lower()
+        if name == "review_mode" and raw in ("auto", "off", "always"):
+            flags_out[name] = raw
+            patches[rule_key] = raw
+            continue
+        if raw:
+            flags_out[name] = raw
+            patches[rule_key] = raw
 
     memory = _as_map(runtime.get("memory"))
     for name, rule_key in _MEMORY_RULE_KEYS.items():

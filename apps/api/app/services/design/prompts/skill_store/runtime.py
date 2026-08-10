@@ -935,6 +935,8 @@ def resolve_triggered_skill_keys(
     prompt_text = str(prompt or "")
     if not prompt_chars and prompt_text:
         prompt_chars = len(prompt_text.strip())
+    # Ref-heavy turns: fewer playbooks so paint + vision stay within context.
+    effective_max = min(max_n, 3) if has_images else max_n
     for row in list_runtime_skills(scene=scene):
         key = str(row.get("skillKey") or "").strip().lower()
         if not key or key in loaded:
@@ -962,6 +964,6 @@ def resolve_triggered_skill_keys(
             continue
         out.append(key)
         loaded.add(key)
-        if len(out) >= max_n:
+        if len(out) >= effective_max:
             break
     return out

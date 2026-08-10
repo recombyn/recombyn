@@ -153,8 +153,8 @@ import {
   warmAgentRoutePresetRules,
   warmOpenrouterAvailability,
   loadAgentRoutePrefs,
-  AgentRoutePrefsEditor,
-} from '@/components/editor/panels/agent/AgentModelsPanel';
+} from '@/components/editor/panels/agent/agentRoutePrefs';
+import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/AgentRoutePrefsEditor';
 import { setAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
 import {
@@ -493,6 +493,81 @@ function interactionModeLabel(
   return t('agent.interactionAgent');
 }
 
+/** Hover tip when Send is blocked or models are unhealthy. */
+function composerSendDisabledReason(opts: {
+  t: (key: string) => string;
+  attachmentsUploading: boolean;
+  hasContent: boolean;
+  available: boolean | null;
+  modelsStatus: string;
+}): string | undefined {
+  const { t, attachmentsUploading, hasContent, available, modelsStatus } = opts;
+  if (attachmentsUploading) return t('agent.attachWaitUpload');
+  if (!hasContent) return t('agent.sendNeedContent');
+  if (available !== false) return undefined;
+  if (modelsStatus === 'error') return t('agent.modelsLoadFailed');
+  return t('agent.modelsUnavailable');
+}
+
+type SavedComposerChip = {
+  key: string;
+  label: string;
+  kind: string;
+  thumbUrl?: string;
+};
+
+/** Rebuild a live chip from frame:/node:/group: key against the current document. */
+function resolveComposerContextFromChipBase(
+  document: Parameters<typeof buildComposerContext>[0],
+  base: string,
+  existing: ComposerContext[]
+): ComposerContext | null {
+  if (base.startsWith('frame:')) {
+    return buildComposerContext(document, [], base.slice('frame:'.length), existing);
+  }
+  if (base.startsWith('node:')) {
+    return buildComposerContext(document, [base.slice('node:'.length)], null, existing);
+  }
+  if (!base.startsWith('group:')) return null;
+  const ids = base
+    .slice('group:'.length)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return buildComposerContext(document, ids, null, existing);
+}
+
+/** Keep prior chip preview when rebuild has no image src (shapes / groups). */
+function withPreservedChipThumb(
+  ctx: ComposerContext,
+  priorThumbUrl: string | undefined
+): ComposerContext {
+  if (!priorThumbUrl || ctx.thumbUrl) return ctx;
+  return { ...ctx, thumbUrl: priorThumbUrl };
+}
+
+function rebuildComposerChipFromSaved(
+  document: Parameters<typeof buildComposerContext>[0],
+  saved: SavedComposerChip,
+  existing: ComposerContext[]
+): ComposerContext {
+  const ctx = resolveComposerContextFromChipBase(
+    document,
+    chipBaseKey(saved.key),
+    existing
+  );
+  if (!ctx) {
+    return {
+      key: saved.key,
+      label: saved.label,
+      kind: saved.kind,
+      payload: '',
+      ...(saved.thumbUrl ? { thumbUrl: saved.thumbUrl } : {}),
+    };
+  }
+  return withPreservedChipThumb(ctx, saved.thumbUrl);
+}
+
 /** Agent panel: chat + model picker + Agent input. */
 function AgentDock({
   open,
@@ -665,6 +740,10 @@ function AgentDock({
     ...apiQuery.chatGetModels.queryOptions(),
     staleTime: 60_000,
     enabled: open,
+    // API often flaps on WatchFiles reload — keep retrying so Send does not stay dead.
+    refetchOnWindowFocus: true,
+    refetchInterval: (q) => (q.state.status === 'error' ? 5_000 : false),
+    retry: 2,
   });
 
   const designCatalogQuery = useQuery({
@@ -1927,10 +2006,17 @@ function AgentDock({
       !options.applyOps?.length;
     if (available === false && !useCodingCli) {
       message.warning(
-        '未配置 API Key。请在 apps/api/.env 中设置 DEEPSEEK_API_KEY 或 LLM_API_KEY。'
+        composerSendDisabledReason({
+          t,
+          attachmentsUploading: false,
+          hasContent: true,
+          available,
+          modelsStatus,
+        }) || t('agent.modelsUnavailable')
       );
       setInput(sendText);
       queueMicrotask(() => inputRef.current?.focus());
+      void modelsQuery.refetch();
       return;
     }
 
@@ -2657,35 +2743,7 @@ function AgentDock({
       }
       const rebuilt: ComposerContext[] = [];
       for (const c of m.contexts) {
-        const base = chipBaseKey(c.key);
-        let ctx: ComposerContext | null = null;
-        if (base.startsWith('frame:')) {
-          ctx = buildComposerContext(document, [], base.slice('frame:'.length), rebuilt);
-        } else if (base.startsWith('node:')) {
-          ctx = buildComposerContext(document, [base.slice('node:'.length)], null, rebuilt);
-        } else if (base.startsWith('group:')) {
-          const ids = base
-            .slice('group:'.length)
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean);
-          ctx = buildComposerContext(document, ids, null, rebuilt);
-        }
-        rebuilt.push(
-          ctx
-            ? {
-                ...ctx,
-                // Keep prior chip preview when rebuild has no image src (shapes / groups).
-                ...(c.thumbUrl && !ctx.thumbUrl ? { thumbUrl: c.thumbUrl } : {}),
-              }
-            : {
-                key: c.key,
-                label: c.label,
-                kind: c.kind,
-                payload: '',
-                ...(c.thumbUrl ? { thumbUrl: c.thumbUrl } : {}),
-              }
-        );
+        rebuilt.push(rebuildComposerChipFromSaved(document, c, rebuilt));
       }
       setContextChips(rebuilt);
     } else {
@@ -2934,7 +2992,7 @@ function AgentDock({
     maybeOpenComposerMentions(value);
   };
 
-  const applyInteractionMode = (mode: ComposerInteractionMode) => {
+  const applyInteractionMode = useCallback((mode: ComposerInteractionMode) => {
     setInteractionMode(mode);
     setImageModelPanelOpen(false);
     setVideoModelPanelOpen(false);
@@ -2959,12 +3017,12 @@ function AgentDock({
     }
     setComposerMode('agent');
     setModel('auto');
-  };
+  }, [canPickModel, models, model]);
 
   useEffect(() => {
     if (enabledInteractionModes.includes(interactionMode)) return;
     applyInteractionMode(enabledInteractionModes[enabledInteractionModes.length - 1] || 'image');
-  }, [enabledInteractionModes, interactionMode]);
+  }, [enabledInteractionModes, interactionMode, applyInteractionMode]);
 
   useEffect(() => {
     if (!onlyImageInteraction) return;
@@ -3026,14 +3084,7 @@ function AgentDock({
         new DOMRect(),
     });
     mentionFloating.update();
-  }, [
-    mentionPanelOpen,
-    mentionQuery,
-    input,
-    editDraft,
-    mentionFloating.refs,
-    mentionFloating.update,
-  ]);
+  }, [mentionPanelOpen, mentionQuery, input, editDraft, mentionFloating.refs, mentionFloating.update, mentionFloating]);
 
   useLayoutEffect(() => {
     if (!skillPanelOpen) return;
@@ -3048,14 +3099,7 @@ function AgentDock({
         new DOMRect(),
     });
     skillFloating.update();
-  }, [
-    skillPanelOpen,
-    skillQuery,
-    input,
-    editDraft,
-    skillFloating.refs,
-    skillFloating.update,
-  ]);
+  }, [skillPanelOpen, skillQuery, input, editDraft, skillFloating.refs, skillFloating.update, skillFloating]);
 
   if (!open) return null;
 
@@ -3125,7 +3169,6 @@ function AgentDock({
       if (next) {
         setMentionPanelOpen(false);
         setMentionQuery('');
-        setModel('auto');
       }
       setModelPanelOpen(next);
     },
@@ -3134,6 +3177,11 @@ function AgentDock({
       <AgentRoutePrefsEditor
         compact
         modeLabel={interactionModeLabel(interactionMode, t)}
+        selectedModelId={model}
+        autoOnly={!canPickModel}
+        onPickModel={(id) => {
+          setModel(id);
+        }}
       />
     ) : (
       <span className="hidden" aria-hidden />
@@ -3168,10 +3216,7 @@ function AgentDock({
         disabled={false}
         placeholder={composerPlaceholder}
         canSend={
-          !sending &&
-          !!editDraft.trim() &&
-          (available !== false || (desktopShell && engineMode === 'cli')) &&
-          !attachmentsUploading
+          !sending && !!editDraft.trim() && !attachmentsUploading
         }
         sendVariant="circle"
         sendTone="ink"
@@ -3271,9 +3316,15 @@ function AgentDock({
               canSend={
                 !sending &&
                 (!!input.trim() || contextChips.length > 0) &&
-                (available !== false || (desktopShell && engineMode === 'cli')) &&
                 !attachmentsUploading
               }
+              sendDisabledReason={composerSendDisabledReason({
+                t,
+                attachmentsUploading,
+                hasContent: Boolean(input.trim() || contextChips.length),
+                available,
+                modelsStatus,
+              })}
               sendVariant="circle"
               sendTone="ink"
               {...attachProps}

@@ -35,6 +35,64 @@ def _aspect_or_size_from_args(args: dict[str, Any]) -> str:
     return "auto"
 
 
+_PRODUCT_PLATE_CUES = (
+    "white background",
+    "solid background",
+    "clean plate",
+    "isolated product",
+    "product shot",
+    "product on",
+    "studio product",
+    "on white",
+    "transparent background",
+    "cutout",
+    "纯色底",
+    "白底",
+    "抠图",
+    "产品静物",
+    "产品图",
+    "电商主图",
+)
+
+
+def _truthy_flag(raw: Any) -> bool:
+    if raw is True or raw == 1:
+        return True
+    s = str(raw or "").strip().lower()
+    return s in ("1", "true", "yes", "y", "on", "product", "hair")
+
+
+def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
+    """When to rembg after gen — lettering overlays + product plates (no white box)."""
+    if str(args.get("letteringText") or args.get("lettering_text") or "").strip():
+        return "product"
+    mode = str(args.get("cutoutMode") or args.get("cutout_mode") or "").strip().lower()
+    if mode in ("product", "hair"):
+        return mode
+    if _truthy_flag(args.get("removeBg")) or _truthy_flag(args.get("remove_bg")):
+        return "product"
+    if _truthy_flag(args.get("cutout")):
+        return "product"
+    prompt = str(args.get("genPrompt") or args.get("prompt") or "").lower()
+    if any(c in prompt for c in _PRODUCT_PLATE_CUES):
+        return "product"
+    return None
+
+
+async def _maybe_cutout_hydrated_src(src: str, mode: str) -> tuple[str, bool]:
+    """Return (src, cutout_applied). Failures keep original URL."""
+    try:
+        from app.services.vision.remove_bg import remove_background
+
+        cut = await remove_background(src, meta={"cutoutMode": mode})
+        cut_src = str((cut or {}).get("image") or "").strip()
+        if cut_src:
+            return cut_src, True
+    except Exception:
+        pass
+    return src, False
+
+
 async def _hydrate_gen_prompt_images(
     svg: str,
     *,
@@ -162,21 +220,13 @@ async def _hydrate_tool_ops_images(
             url = None
         if url:
             src = str(url)
-            # Lettering layers must be transparent overlays; models often return opaque
-            # white plates — auto cutout so FE can composite cleanly + keep replaceText.
-            if lettering:
-                try:
-                    from app.services.vision.remove_bg import remove_background
-
-                    cut = await remove_background(
-                        src, meta={"cutoutMode": "product"}
-                    )
-                    cut_src = str((cut or {}).get("image") or "").strip()
-                    if cut_src:
-                        src = cut_src
-                        args["cutoutApplied"] = True
-                except Exception:
-                    pass
+            # Lettering + product plates → transparent overlay (models love opaque white boxes).
+            cut_mode = _cutout_mode_for_hydrate(args)
+            if cut_mode:
+                src, applied = await _maybe_cutout_hydrated_src(src, cut_mode)
+                if applied:
+                    args["cutoutApplied"] = True
+                    args["cutoutMode"] = cut_mode
             args["src"] = src
         next_op: dict[str, Any] = {"name": "create_image", "args": args}
         if op.get("op_id"):

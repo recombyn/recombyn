@@ -39,7 +39,7 @@
     "agent.flows.catalog_json": "Agent flow catalog (multi-flow table)",
     "precheck.model_threshold": "Standard Auto lane models (fast/standard/reasoning)",
     "precheck.vision_model": "Standard vision model",
-    "agent.review.model": "Review Agent pinned model (vision; independent of Design Auto)",
+    "agent.review.model": "Review model when Auto (overridden by user lock / single-model)",
     "precheck.fallback_chain": "Standard model fallback chain",
     "precheck.router_model": "Lane classifier model (cheap)",
     "assets.image_default_model": "Standard default image-gen model",
