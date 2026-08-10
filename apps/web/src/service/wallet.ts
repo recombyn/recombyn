@@ -96,7 +96,14 @@ export function useBillingEnabled(): boolean {
 
 /** Convenience snapshot for chips / plans / ledger header. */
 export function useWalletSnapshot(): WalletSnapshot {
-  const billingEnabled = useBillingEnabled();
-  const walletQuery = useWalletMeQuery();
+  const authed = Boolean(getToken());
+  const configQuery = useAuthBillingConfigQuery();
+  // Single wallet query — avoid nested useBillingEnabled() which also subscribed to wallet.
+  const walletQuery = useWalletMeQuery(authed);
+  const fromWallet = (walletQuery.data as WalletDto | undefined)?.billingEnabled;
+  const billingEnabled =
+    typeof fromWallet === 'boolean'
+      ? fromWallet
+      : Boolean((configQuery.data as { billingEnabled?: boolean } | undefined)?.billingEnabled);
   return walletDtoToSnapshot(walletQuery.data as WalletDto | undefined, billingEnabled);
 }
