@@ -71,7 +71,7 @@ export type DesignJobEvent =
       free_daily?: boolean;
     }
   | { type: 'thinking'; text: string; replace?: boolean }
-  | { type: 'token'; text: string }
+  | { type: 'token'; text?: string; code?: string; params?: Record<string, string> }
   | { type: 'chat_done' }
   | {
       type: 'skill_start';
@@ -131,6 +131,8 @@ export type DesignJobEvent =
       durationSec?: number;
       index?: number;
       stage?: string;
+      /** Stable kernel code for FE i18n (e.g. ops_validate_failed). */
+      code?: string;
       /** Nested Explored line. */
       item?: { id?: string; name?: string; summary?: string };
       /** Markdown body for expandable Explored (diagrams / notes). */

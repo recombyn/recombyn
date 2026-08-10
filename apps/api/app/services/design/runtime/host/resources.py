@@ -303,7 +303,7 @@ async def load_deferred_resources(
     need_subagents = parse_need_subagents(
         turn.get("need_subagents") or turn.get("needSubagents")
     )
-    # Auto-merge catalog subagents (vision_scout on refs; research on empty create).
+    # Pass-through only — no auto vision_scout / research.
     intent_l = str(turn.get("intent") or st.intent or "").strip() or "create"
     need_subagents = resolve_auto_need_subagents(
         profile=get_active_agent_profile(),

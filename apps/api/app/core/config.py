@@ -132,8 +132,10 @@ class Settings(BaseSettings):
     design_graph_require_durable_checkpoint: bool = True
     # Post-paint structure/spatial critique in observe (SSE critique_* + optional re-paint).
     design_critique_enabled: bool = True
-    # LLM Review Agent after observe (Profile stage review; forked subagent when catalog says so).
+    # Master switch for LLM Review Agent (Profile stage still required).
     design_review_agent_enabled: bool = True
+    # When Review runs after observe: auto (sparse) | off | always. See observe._should_route_to_review.
+    design_review_mode: str = "auto"
     # Cross-worker run lease TTL (seconds). Resume steals after expiry.
     design_run_lease_ttl_sec: float = 90.0
     # Scene-feedback poll interval when waiting across workers (ms).

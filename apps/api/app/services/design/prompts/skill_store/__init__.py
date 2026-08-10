@@ -1,7 +1,7 @@
 """Runtime skills for lc_design — pluggable catalog + need_skills + triggers + files.
 
 Namespaces (conflict isolation):
-  - core  — system seed skills (source=seed); bare keys kept for BC
+  - core  — legacy SOURCE_SEED only (no longer shipped); bare keys stay BC aliases
   - ext   — file packs under ``.agents/skills`` + seeds/design_skills (source=file)
   - user  — admin / user-extension skills (source=admin); keys use ``user.<local>``
 
@@ -9,7 +9,7 @@ Also:
   - ACL: preferred_tools + allowed_resources; user skills never reopen unrestricted surface
   - I/O: pack/admin meta validation; need_skills pin/args vs input_schema; ops vs output_schema
   - Version: integer bump + pack_version + design_skill_revision snapshots; pin via ``key@N``
-  - Hot reload: optional mtime watcher on seed JSON + file packs
+  - Hot reload: optional mtime watcher on file packs
   - Formats: product ``_meta.json``+``SKILL.md``, or ``SKILL.md`` with YAML frontmatter
 """
 from __future__ import annotations
@@ -38,10 +38,7 @@ from .constants import (
     _ZIP_LOGO_EXTS,
 )
 from .ensure import (
-    _SEED_SKILL_BODY_MARKERS,
     _allowed_resources_json,
-    _bump_unchanged_seed_skill_bodies,
-    _norm_skill_body,
     _preferred_json,
     _schema_json,
     _skills_disk_signature,
@@ -70,7 +67,6 @@ from .pack_io import (
     _file_skills_dirs,
     _load_file_skills,
     _load_pack_dir,
-    _load_skills_seed,
     _locale_pick,
     _meta_from_agent_skill_frontmatter,
     _pack_has_product_meta,
@@ -80,7 +76,6 @@ from .pack_io import (
     _resolve_pack_logo,
     _skill_item_from_parts,
     _skill_md_path,
-    _skills_seed_path,
     _split_skill_md_frontmatter,
     _unquote_yaml_scalar,
 )
@@ -193,13 +188,11 @@ __all__ = [
     "_CORE_RESERVED_KEYS",
     "_load_file_skills",
     "_load_pack_dir",
-    "_load_skills_seed",
     "_parse_pack_version",
     "_meta_from_agent_skill_frontmatter",
     "_split_skill_md_frontmatter",
     "_skill_md_path",
     "_unquote_yaml_scalar",
-    "_skills_seed_path",
     "_repo_root",
     "_agents_skills_dir",
     "_file_skills_dir",
@@ -246,9 +239,6 @@ __all__ = [
     "reload_skills_if_disk_changed",
     "_upsert_owned_skill",
     "_skills_disk_signature",
-    "_SEED_SKILL_BODY_MARKERS",
-    "_norm_skill_body",
-    "_bump_unchanged_seed_skill_bodies",
     "_triggers_json",
     "_preferred_json",
     "_allowed_resources_json",

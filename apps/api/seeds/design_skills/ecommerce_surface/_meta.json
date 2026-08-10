@@ -36,7 +36,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not invent prices/discounts/SKU; do not bury the product under chrome; do not turn PDP into a festive poster with no modules.",
+  "prompt_negative": "Do not invent prices/discounts/SKU; do not bury the product under chrome; do not turn PDP into a festive poster with no modules; never leave uncut white product plates on the board.",
   "locales": {
     "zh-CN": {
       "displayName": "电商表面",

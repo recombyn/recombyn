@@ -11,32 +11,27 @@ def test_seed_prompt_overlay_nodes_empty():
     assert nodes == []
 
 
-def test_methodology_lives_in_skills():
+
+def test_playbooks_live_in_design_skills_packs():
     from app.services.design.prompts.skill_store import (
         _SEED as _SKILL_SEED,
+        _load_file_skills,
         ensure_design_skills,
         reset_skills_ready_for_tests,
     )
 
     reset_skills_ready_for_tests()
     ensure_design_skills(force=True)
-    details = format_skills_details(keys=["design_methodology"], scene="website")
-    assert "create_shape" in details and "create_text" in details
-    assert "skill: design_methodology" in details or "design_methodology" in details
-    seed_pos = next(
-        (
-            str(it.get("prompt_positive") or "")
-            for it in _SKILL_SEED
-            if it.get("skill_key") == "design_methodology"
-        ),
-        "",
-    )
-    assert (
-        "brief → 结构" in seed_pos
-        or "brief → structure" in seed_pos
-        or "自检" in seed_pos
-        or "self-check" in seed_pos
-    )
+    assert _SKILL_SEED == []
+    keys = {str(p.get("skill_key") or "") for p in _load_file_skills()}
+    assert "poster_craft" in keys
+    assert "image_gen" in keys
+    assert "vision_extract" not in keys
+    assert "canvas_edit" not in keys
+    assert "frontend_ui" not in keys
+    details = format_skills_details(keys=["poster_craft", "image_gen"], scene="website")
+    assert "skill: poster_craft" in details or "poster_craft" in details
+
 
 
 def test_list_prompt_nodes_from_explicit_graph():

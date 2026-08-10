@@ -1,0 +1,45 @@
+{
+  "skill_key": "icon_set",
+  "name": "icon_set",
+  "displayName": "Icon / mark set",
+  "description": "Consistent vector icon grids: shared stroke, grid, optical balance",
+  "when_to_use": "Icon / 图标 / icon set / 图标组 / app icon / favicon / UI glyph / symbol mark — static vector marks (not Lottie, not illustrated poster hero)",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 74,
+  "version": "1.0.0",
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_svg",
+    "create_text",
+    "update_node"
+  ],
+  "allowed_resources": ["tools"],
+  "triggers": [
+    {
+      "intent_in": ["create"],
+      "prompt_includes_any": [
+        "图标",
+        "icon",
+        "icon set",
+        "favicon",
+        "glyph",
+        "符号",
+        "icon grid"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Do not use emoji as icons; do not substitute Lottie for static marks; do not invent brand logos; do not mix outline and filled weights in one set.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "图标 / 符号组",
+      "description": "统一线宽与网格的矢量图标组"
+    },
+    "en": {
+      "displayName": "Icon / mark set",
+      "description": "Consistent vector icon grids"
+    }
+  }
+}

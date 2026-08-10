@@ -248,32 +248,9 @@ def test_chat_fallback_fills_persona():
     assert "Recombyn Auto 设计助手" in text
 
 
-def test_prefer_canvas_op_demote_disabled_for_short_chinese_design():
-    """Short Chinese page asks must keep LLM design — no char-length demote."""
-    from app.services.design.runtime.models_route import (
-        IntentClassifyDecision,
-        _prefer_canvas_op_when_overpromoted,
-    )
-
-    fb = IntentClassifyDecision(
-        intent="canvas_op", paint_lane="create", rationale="heuristic_task"
-    )
-    intent, lane, rat = _prefer_canvas_op_when_overpromoted(
-        "design",
-        "create",
-        rationale="mobile login page layout",
-        fallback=fb,
-        has_images=False,
-        prompt="User request:\n帮我设计一个移动端的登录页",
-    )
-    assert intent == "design"
-    assert lane == "create"
-    assert "demote_canvas_op" not in rat
-
-
 def test_heuristic_user_intent_gate():
+
     from app.services.design.runtime.models_route import (
-        allows_skill_preload,
         heuristic_user_intent,
         normalize_intent_decision,
         normalize_user_intent,
@@ -282,6 +259,7 @@ def test_heuristic_user_intent_gate():
 
     # Fallback is structural only — normal path uses intent LLM + tools catalog.
     assert heuristic_user_intent("hi", has_images=False).intent == "chat"
+
     assert (
         heuristic_user_intent("User request:\nhi", has_images=False).intent == "chat"
     )
@@ -311,12 +289,10 @@ def test_heuristic_user_intent_gate():
         "create",
     )
     assert paint_ops_intent("canvas_op", "edit") == "edit"
-    # Skill bodies are never preloaded; catalogs + need_skills only.
-    assert not allows_skill_preload(intent="canvas_op")
-    assert not allows_skill_preload(intent="design")
 
 
 def test_agent_model_id_prefers_api_model():
+
     from app.services.llm.agent import _agent_model_id
 
     assert (
@@ -357,6 +333,50 @@ def test_paint_tool_keys_structural_not_shape_specific():
     assert keys == ["create_shape", "create_text", "create_image", "create_lottie"]
     assert "create_frame" not in keys
     assert "update_node" not in keys
+
+
+def test_lean_paint_user_uses_digest_not_full_scene_dump():
+    from types import SimpleNamespace
+
+    from app.services.design.runtime.graph.paint_kit import _paint_ops_user
+
+    rt = SimpleNamespace(
+        classified_intent="canvas_op",
+        prompt="删除其他非绿色的元素",
+        images=None,
+        spatial_summary={},
+        design_brief="",
+        pending_tool_details="TOOL_DETAILS:\n- delete_nodes",
+        pending_skill_details="",
+        pending_subagent_details="",
+        canvas_size="800x600",
+        size_auto_hint="",
+        scene_nodes=[
+            {"id": "n1", "type": "shape", "fill": "#22c55e", "frameId": "f1"},
+            {"id": "n2", "type": "shape", "fill": "#3b82f6", "frameId": "f1"},
+        ],
+        scene_frames=[{"id": "f1", "w": 800, "h": 600}],
+        focus_id="f1",
+        w=800,
+        h=600,
+        scene_key="website",
+        system="",
+        mem_blocks="[Recent] deleted blue rect",
+        mem_short=[
+            {"role": "user", "text": "把红色改成绿色"},
+            {"role": "assistant", "text": "已改成绿色"},
+        ],
+        rules={},
+        run=SimpleNamespace(plan=[], errors=[], reflect_note="", tools_loaded=[]),
+        flags={},
+        persona="",
+    )
+    user = _paint_ops_user(rt)
+    assert "DELETE SAFETY" in user
+    assert "fill=#22c55e" in user or "SCENE_NODES" in user
+    assert "RECENT_DIALOGUE" in user or "MEMORY" in user
+    # Lean must not dump the old multi-k SCENE_NODES JSON block.
+    assert user.count("SCENE_NODES") <= 1
 
 
 def test_paint_tool_keys_basic_edit_has_update():

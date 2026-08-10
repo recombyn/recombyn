@@ -133,11 +133,6 @@ def _meta_from_agent_skill_frontmatter(
         },
     }
 
-def _skills_seed_path() -> Path:
-    from app.core.config import resolve_seed_file
-
-    return resolve_seed_file("design_skills_seed.json")
-
 def _repo_root() -> Path:
     """``apps/api`` → repository root."""
     from app.core.config import _API_ROOT
@@ -178,24 +173,10 @@ def _file_skills_dirs() -> list[Path]:
 def _pack_has_product_meta(pack_dir: Path) -> bool:
     return any((pack_dir / name).is_file() for name in _META_NAMES)
 
-def _load_skills_seed() -> list[dict[str, Any]]:
-    path = _skills_seed_path()
-    try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(parsed, dict):
-        return []
-    items = parsed.get("items") or []
-    if not isinstance(items, list):
-        return []
-    return [x for x in items if isinstance(x, dict) and str(x.get("skill_key") or "").strip()]
-
-_SEED = _load_skills_seed()
-_SEED_BY_KEY: dict[str, dict[str, Any]] = {
-    str(item.get("skill_key") or "").strip(): item for item in _SEED
-}
-_CORE_RESERVED_KEYS = frozenset(_SEED_BY_KEY.keys())
+# Legacy SOURCE_SEED / core-reserved path removed — skills ship as file packs only.
+_SEED: list[dict[str, Any]] = []
+_SEED_BY_KEY: dict[str, dict[str, Any]] = {}
+_CORE_RESERVED_KEYS: frozenset[str] = frozenset()
 
 def _parse_pack_version(raw: Any) -> tuple[str, int]:
     """Return (label, sortable int). Accepts 1 / '1' / '1.0.0'."""
