@@ -83,6 +83,7 @@ import EditorOnboardingTour from '@/components/editor/chrome/EditorOnboardingTou
 import EditorTopChrome, { flushAndGoHome } from '@/components/editor/page/EditorTopChrome';
 import EditorToolDocks from '@/components/editor/page/EditorToolDocks';
 import EditorBottomHud, { isThemeFollowCanvasBg } from '@/components/editor/page/EditorBottomHud';
+import { loadFontCatalog } from '@/components/rcb/scene/document/fontCatalog';
 import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
 
 const BOOT_MIN_MS = 520;
@@ -529,6 +530,10 @@ function EditorPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
+  // Defer font catalog off home cold path (was eager in main.tsx).
+  useEffect(() => {
+    void loadFontCatalog();
+  }, []);
   const [camera, setCamera] = useState<CanvasCamera>(DEFAULT_CAMERA);
   const [agentOpen, setAgentOpen] = useState(true);
   /** Bumps AgentDock hydrate (catalog/models) 鈥?first enter starts at 1; reopen via openAgentPanel. */
