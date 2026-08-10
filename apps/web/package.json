@@ -9,6 +9,7 @@
     "@floating-ui/react": "^0.27.20",
     "@headlessui/react": "^2.2.10",
     "@lexical/react": "^0.49.0",
+    "@lobehub/icons-static-svg": "^1.94.0",
     "@monaco-editor/react": "^4.7.0",
     "@orpc/client": "^1.15.0",
     "@orpc/contract": "^1.15.0",
