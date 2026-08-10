@@ -6,12 +6,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect, type Page, type Request } from '@playwright/test';
+import { E2E_TOKEN_SKIP_REASON, resolveE2EToken } from './e2eAuth';
 
 const ROOT = path.resolve(__dirname, '../..');
 const OUT = path.join(ROOT, '.tmp-e2e-network');
-const TOKEN =
-  (process.env.E2E_TOKEN || '').trim() ||
-  fs.readFileSync(path.join(ROOT, '.tmp-token.txt'), 'utf8').trim();
+const TOKEN = resolveE2EToken(ROOT);
 
 test.setTimeout(8 * 60_000);
 
@@ -146,6 +145,7 @@ function summarize(hits: NetHit[]) {
 }
 
 test.describe('home/editor network + tabs', () => {
+  test.skip(!TOKEN, E2E_TOKEN_SKIP_REASON);
   test('nav tabs, inspiration tabs, editor open — capture APIs', async ({ page }) => {
     fs.mkdirSync(OUT, { recursive: true });
     const hits: NetHit[] = [];
