@@ -37,10 +37,11 @@ def _bind_host_artboard_focus(rt: Any, frame_id: str) -> None:
 
 
 def _should_early_open_artboard(rt: Any) -> bool:
-    """Open shimmer before paint only for fixed-size design create.
+    """Open shimmer loading plate after intent=design create (before paint).
 
-    Free-canvas Auto / canvas_op (add rect, edit text…): never invent a plate here —
-    wait for paint ``create_frame`` (or none). User @ a board: no sibling plate.
+    Chat / canvas_op / Ask / user @ board: never invent a sibling plate.
+    Client size chip preferred; otherwise prompt WxH or scene stock — so Auto
+    still gets a skeleton instead of a blank canvas until paint finishes.
     """
     if str(rt.flags.get("mode") or "") == "ask":
         return False
@@ -62,11 +63,29 @@ def _should_early_open_artboard(rt: Any) -> bool:
     want = paint_ops_intent(classified, lane)
     if want != "create":
         return False
-    return explicit_canvas_size(getattr(rt, "canvas_size", None))
+    if explicit_canvas_size(getattr(rt, "canvas_size", None)):
+        return True
+    ow, oh = _resolve_loading_wh(rt)
+    return ow > 0 and oh > 0
+
+
+def _wh_from_user_prompt(prompt: str | None) -> tuple[int, int]:
+    """First explicit WxH in the user prompt (e.g. 390x844 / 1080×1920)."""
+    import re
+
+    text = str(prompt or "")
+    for m in re.finditer(r"(?<!\d)(\d{2,4})\s*[x×*]\s*(\d{2,4})(?!\d)", text, re.I):
+        try:
+            w, h = int(m.group(1)), int(m.group(2))
+        except (TypeError, ValueError):
+            continue
+        if 64 <= w <= 8000 and 64 <= h <= 8000:
+            return w, h
+    return 0, 0
 
 
 def _resolve_loading_wh(rt: Any) -> tuple[int, int]:
-    """Concrete WxH for early loading plate (client lock or scene stock default)."""
+    """Concrete WxH for early loading plate (chip → prompt → scene stock)."""
     from app.services.design.runtime.graph.scene_log import _resolve_wh
     try:
         ow, oh = int(rt.w or 0), int(rt.h or 0)
@@ -74,6 +93,17 @@ def _resolve_loading_wh(rt: Any) -> tuple[int, int]:
         ow, oh = 0, 0
     if ow > 0 and oh > 0:
         return ow, oh
+    if explicit_canvas_size(getattr(rt, "canvas_size", None)):
+        return _resolve_wh(
+            canvas_size=rt.canvas_size,
+            scene_key=str(rt.scene_key or ""),
+            rules=rt.rules or {},
+            scene_frames=list(rt.scene_frames or []),
+            focus_id=str(rt.focus_id or ""),
+        )
+    pw, ph = _wh_from_user_prompt(getattr(rt, "prompt", None))
+    if pw > 0 and ph > 0:
+        return pw, ph
     return _resolve_wh(
         canvas_size=rt.canvas_size,
         scene_key=str(rt.scene_key or ""),

@@ -330,7 +330,14 @@ def test_paint_tool_keys_structural_not_shape_specific():
     assert _is_lean_paint_turn(rt) is True
     keys = _paint_tool_keys_for_turn(rt)
     # create_image / create_lottie exposed on create turns (no attachment required)
-    assert keys == ["create_shape", "create_text", "create_image", "create_lottie"]
+    assert keys == [
+        "create_shape",
+        "create_text",
+        "create_icon",
+        "create_svg",
+        "create_image",
+        "create_lottie",
+    ]
     assert "create_frame" not in keys
     assert "update_node" not in keys
 

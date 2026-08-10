@@ -326,12 +326,16 @@ _DEFAULT_PAINT_CREATE_TOOLS = (
     "create_frame",
     "create_shape",
     "create_text",
+    "create_icon",
+    "create_svg",
     "create_image",
     "create_lottie",
 )
 _DEFAULT_PAINT_EDIT_TOOLS = (
     "create_shape",
     "create_text",
+    "create_icon",
+    "create_svg",
     "create_image",
     "create_lottie",
     "update_node",

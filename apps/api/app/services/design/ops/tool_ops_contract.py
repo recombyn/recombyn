@@ -310,7 +310,7 @@ def _max_ops_per_step(rules: dict[str, str] | None) -> int:
     Empty / invalid max_per_step → code default (P0 zero-base Admin).
     Empty hard_max → no code clamp.
     """
-    _DEFAULT_MAX = 32
+    _DEFAULT_MAX = 48
     rules = rules or {}
     raw = str(rules.get("tool_ops.max_per_step") or "").strip()
     if not raw:

@@ -26,7 +26,7 @@ Playbook for **落地页 / 官网 / landing** — one thesis, clear section rhyt
 |-------|-------|
 | Nav | Logo mark + 3–6 links; quiet surface |
 | Hero | Image or display type + CTA |
-| Benefits | 3 equal cards/rows; shared radius; short titles |
+| Benefits | 3 equal cards/rows; shared radius; short titles; real vector marks — never emoji |
 | Proof | Logos/quotes **only if provided** |
 | CTA band | High contrast; single verb from user copy |
 | Footer | Muted; links + legal short |
