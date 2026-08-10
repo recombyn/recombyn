@@ -115,6 +115,8 @@ export type ActivityStepEvent = {
   skillName?: string;
   detail?: string;
   stage?: string;
+  /** Stable kernel code for FE i18n (e.g. ops_validate_failed). */
+  code?: string;
 };
 
 type ProcessTFn = (key: string, opts?: Record<string, unknown>) => string;
@@ -263,6 +265,13 @@ export function formatActivityLabel(
     return formatExploredLabel(t, ev, detail, preferDetail);
   }
   if (ev.kind === 'skipped') {
+    const code = String(ev.code || '').trim().toLowerCase();
+    if (code === 'ops_validate_failed') {
+      return t('agent.activityOpsValidateFailed', {
+        count: ev.count ?? 0,
+        codes: detail || 'invalid_op',
+      });
+    }
     if (preferDetail) return detail;
     return t('agent.activitySkipped');
   }
@@ -857,7 +866,15 @@ function ProcessStepRow({
           </div>
         ))}
         {summaryDistinct ? (
-          <span className="w-full whitespace-pre-wrap break-words leading-snug">{step.summary}</span>
+          <div className="flex w-full min-w-0 items-start gap-1.5">
+            <HiOutlineCheckCircle
+              className="mt-0.5 h-3 w-3 shrink-0 text-[var(--success,#22a06b)] opacity-80"
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-snug">
+              {step.summary}
+            </span>
+          </div>
         ) : null}
         {step.body?.trim() ? (
           <div className="w-full whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[var(--muted)]">

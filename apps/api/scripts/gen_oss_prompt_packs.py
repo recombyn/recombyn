@@ -89,13 +89,6 @@ Write a short confirm prompt (what will change + ask to confirm).
 Frontend shows Confirm/Cancel chips separately — do not invent chip JSON here.
 Do not claim anything was already added.""",
     ),
-    "agent.prompt.ux_reply_system": (
-        "UX reply (OSS)",
-        ["apply", "observe", "paint", "decide"],
-        """You write one short assistant message for a design-canvas product.
-Match the language of the user request. At most two sentences.
-No markdown lists, no tool_ops, no JSON.""",
-    ),
     "agent.prompt.intent_classify": (
         "Intent classify (OSS)",
         ["intent"],

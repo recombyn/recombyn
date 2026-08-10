@@ -150,7 +150,7 @@ async def _hydrate_pinned_skills(rt: AgentRuntime) -> None:
         phase="skill_pin",
         need_skills=list(keys),
         detail_chars=len(details or ""),
-        summary="用户选定 skill：" + "、".join(keys),
+        summary="user pinned skills: " + ", ".join(keys),
     )
     _emit(
         {
@@ -173,9 +173,7 @@ def _apply_task_route_flags(rt: AgentRuntime) -> None:
         ),
         enabled_tiers(rt.rules),
     )
-    tier_label = {"simple": "简单", "medium": "中等", "complex": "复杂"}.get(
-        st.task_tier, st.task_tier or "-"
-    )
+    tier_label = st.task_tier or "-"
     # Do not set vision_used here — only after pixels are actually sent to the LLM.
     st.push_log(
         phase="route",
@@ -187,9 +185,9 @@ def _apply_task_route_flags(rt: AgentRuntime) -> None:
         llm_image_urls=_clip_urls(rt.images) if rt.images else None,
         llm_user=_clip_llm_raw(rt.prompt, limit=4000),
         summary=(
-            f"任务类型 {tier_label}"
-            + (" · 含附图" if rt.images else "")
-            + f" · 模式 {rt.mode}"
+            f"task_tier={tier_label}"
+            + (" · images" if rt.images else "")
+            + f" · mode={rt.mode}"
         ),
     )
     if _as_text(rt.flags.get("mode")).strip().lower() not in ("agent", "ask"):

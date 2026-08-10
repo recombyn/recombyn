@@ -31,6 +31,7 @@
     "test:api:integration": "cd apps/api && python -m pytest tests/integration_tests",
     "test:api:coverage": "cd apps/api && python -m pytest --cov=api --cov=services --cov-report=term-missing",
     "test:e2e": "npm run test --prefix e2e",
+    "stress:agent": "node scripts/design-agent-stress.mjs",
     "install:api": "cd apps/api && pip install -e \".[dev]\""
   }
 }

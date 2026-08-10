@@ -14,6 +14,7 @@ import {
 import {
   type AgentStepEvent,
 } from '@/components/editor/panels/agent/runDesignAgent';
+import type { DesignSendMutable } from '@/components/editor/panels/agent/agentSendPath';
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -206,6 +207,18 @@ const DESIGN_ERROR_I18N: Record<string, string> = {
   design_failed: 'agent.requestFailed',
 };
 
+/** Fixed UX tips from kernel (`token.code`) → FE i18n. */
+const DESIGN_UX_TIP_I18N: Record<string, string> = {
+  decide_failed: 'agent.uxTipDecideFailed',
+  paint_failed: 'agent.uxTipPaintFailed',
+  observe_ops_failed: 'agent.uxTipObserveOpsFailed',
+  apply_confirm_failed: 'agent.uxTipApplyConfirmFailed',
+  observe_critique_failed: 'agent.uxTipObserveCritiqueFailed',
+  review_must_fix: 'agent.uxTipReviewMustFix',
+  apply_ops_applied: 'agent.uxTipApplyOpsApplied',
+  ask_dismissed: 'agent.uxTipAskDismissed',
+};
+
 export function humanizeDesignError(
   t: (key: string, opts?: Record<string, unknown>) => string,
   code?: string | null
@@ -213,6 +226,24 @@ export function humanizeDesignError(
   const codeKey = String(code || '').trim().toLowerCase();
   const i18nKey = codeKey ? DESIGN_ERROR_I18N[codeKey] : undefined;
   return t(i18nKey || 'agent.requestFailed');
+}
+
+export function humanizeDesignUxTip(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  code?: string | null,
+  params?: Record<string, string> | null,
+  fallbackText?: string | null
+): string {
+  const codeKey = String(code || '').trim().toLowerCase();
+  const i18nKey = codeKey ? DESIGN_UX_TIP_I18N[codeKey] : undefined;
+  if (i18nKey) {
+    try {
+      return String(t(i18nKey, { ...(params || {}) }));
+    } catch {
+      /* fall through */
+    }
+  }
+  return String(fallbackText || '').trim() || t('agent.requestFailed');
 }
 
 export function assistantDurationMs(
@@ -224,11 +255,7 @@ export function assistantDurationMs(
   return m.durationMs;
 }
 
-export type DesignSendMutable = {
-  designStarted: boolean;
-  canvasMutated: boolean;
-  nodesPainted: boolean;
-};
+export type { DesignSendMutable };
 
 export function createDesignAgentEventRouter(opts: {
   t: TFn;
@@ -265,12 +292,20 @@ export function createDesignAgentEventRouter(opts: {
 
   const handleUiToken = (ev: Extract<AgentStepEvent, { type: 'token' }>) => {
     opts.mutable.designStarted = false;
+    const piece = humanizeDesignUxTip(
+      opts.t,
+      ev.code,
+      ev.params,
+      ev.text
+    );
+    if (!piece) return;
     opts.setMessages((prev) =>
       prev.map((m) =>
         m.id === opts.assistantId
           ? {
               ...m,
-              content: (m.content || '') + (ev.text || ''),
+              // Tip codes replace; model stream tokens still append.
+              content: ev.code ? piece : (m.content || '') + piece,
               intent: undefined,
               thinking: undefined,
             }
@@ -342,6 +377,7 @@ export function createDesignAgentEventRouter(opts: {
       skillName: ev.skillName,
       detail: ev.detail,
       stage: ev.stage,
+      code: ev.code,
     });
     if (!label) return;
     const detailText = (ev.detail || '').trim();

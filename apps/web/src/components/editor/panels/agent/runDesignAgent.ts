@@ -39,6 +39,7 @@ import {
   executeDesignTool,
   executeDesignToolAsync,
   nextArtboardOrigin,
+  nodeIdsInsideFrame,
   type CanvasUiBridge,
 } from '@/components/editor/panels/agent/designTools';
 import {
@@ -197,30 +198,8 @@ export function resolveDesignTargetFrame(
   };
 }
 
-/** Scene node ids that mostly overlap a frame. */
-export function nodeIdsInsideFrame(doc: SceneDocument, frameId: string | null | undefined): string[] {
-  if (!doc || !frameId) return [];
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const frame = frames.find((f: any) => f?.id === frameId);
-  if (!frame) return [];
-  const fx = Number(frame.x) || 0;
-  const fy = Number(frame.y) || 0;
-  const fw = Math.max(1, Number(frame.width) || 1);
-  const fh = Math.max(1, Number(frame.height) || 1);
-  const rootChildren: string[] = doc?.deltaSetLike?.ROOT?.children || [];
-  const out: string[] = [];
-  for (const id of rootChildren) {
-    const node = doc?.deltaSetLike?.[id];
-    if (!node || !id) continue;
-    const { left, top } = nodeLeftTop(doc, node);
-    const nw = Math.max(1, Number(node.width) || 1);
-    const nh = Math.max(1, Number(node.height) || 1);
-    const ow = Math.max(0, Math.min(left + nw, fx + fw) - Math.max(left, fx));
-    const oh = Math.max(0, Math.min(top + nh, fy + fh) - Math.max(top, fy));
-    if (ow * oh >= nw * nh * 0.35) out.push(id);
-  }
-  return out;
-}
+/** Scene node ids that mostly overlap a frame — re-export for AgentDock / send path. */
+export { nodeIdsInsideFrame } from '@/components/editor/panels/agent/designTools';
 
 /** Frame that mostly contains a node, or null for free-canvas shapes. */
 export function frameIdContainingNode(
@@ -253,75 +232,6 @@ export function frameIdContainingNode(
   }
   if (!bestId || bestArea < nw * nh * 0.35) return null;
   return bestId;
-}
-
-/**
- * Lightweight SVG snapshot of a frame for edit-in-place when the last agent SVG
- * is unavailable (e.g. page refresh). Includes size + visible text + big fills.
- */
-export function buildEditContextSvg(doc: SceneDocument, frameId: string | null | undefined): string {
-  if (!doc || !frameId) return '';
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const frame = frames.find((f: any) => f?.id === frameId);
-  if (!frame) return '';
-  const w = Math.max(64, Math.round(Number(frame.width) || 1080));
-  const h = Math.max(64, Math.round(Number(frame.height) || 1920));
-  const fx = Number(frame.x) || 0;
-  const fy = Number(frame.y) || 0;
-  const ids = nodeIdsInsideFrame(doc, frameId);
-  const parts: string[] = [
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
-  ];
-  let i = 0;
-  for (const id of ids) {
-    const node = doc?.deltaSetLike?.[id];
-    if (!node) continue;
-    const { left, top } = nodeLeftTop(doc, node);
-    const lx = Math.round(left - fx);
-    const ly = Math.round(top - fy);
-    const nw = Math.max(1, Math.round(Number(node.width) || 1));
-    const nh = Math.max(1, Math.round(Number(node.height) || 1));
-    const fill = String(node.attrs?.['fill-color'] || node.attrs?.fill || '').trim();
-    const stroke = String(node.attrs?.stroke || node.attrs?.['stroke-color'] || '').trim();
-    const key = String(node.key || node.attrs?.shapeType || '').toLowerCase();
-    const text = parseNodeText(node.attrs || {}).trim();
-    const lid = `layer-${key || 'node'}-${i++}`;
-    const pathD = String(node.attrs?.path || node.attrs?.d || '').trim();
-    const imgSrc = String(
-      node.attrs?.src || node.attrs?.href || node.attrs?.url || ''
-    ).trim();
-    if (text) {
-      const esc = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      parts.push(
-        `<text id="${lid}" x="${lx}" y="${ly + Math.min(nh, 48)}" fill="${fill || '#111'}" font-size="${Math.min(nh, 64)}">${esc}</text>`
-      );
-    } else if (key.includes('image') && imgSrc) {
-      const esc = imgSrc
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;');
-      parts.push(
-        `<image id="${lid}" x="${lx}" y="${ly}" width="${nw}" height="${nh}" href="${esc}" xlink:href="${esc}" preserveAspectRatio="xMidYMid slice"/>`
-      );
-    } else if (pathD) {
-      const esc = pathD.replace(/"/g, '');
-      parts.push(
-        `<path id="${lid}" transform="translate(${lx},${ly})" d="${esc}" fill="${fill || 'none'}" stroke="${stroke || 'none'}"/>`
-      );
-    } else if (key.includes('circle') || key.includes('ellipse')) {
-      parts.push(
-        `<ellipse id="${lid}" cx="${lx + nw / 2}" cy="${ly + nh / 2}" rx="${nw / 2}" ry="${nh / 2}" fill="${fill || '#ccc'}" stroke="${stroke || 'none'}"/>`
-      );
-    } else if (fill || stroke) {
-      parts.push(
-        `<rect id="${lid}" x="${lx}" y="${ly}" width="${nw}" height="${nh}" fill="${fill || 'none'}" stroke="${stroke || 'none'}"/>`
-      );
-    }
-  }
-  parts.push('</svg>');
-  return parts.join('');
 }
 
 export type SceneNodeInventoryItem = {
@@ -2126,7 +2036,7 @@ export type AgentStepEvent =
       free_daily?: boolean;
     }
   | { type: 'thinking'; text: string; replace?: boolean }
-  | { type: 'token'; text: string }
+  | { type: 'token'; text?: string; code?: string; params?: Record<string, string> }
   | { type: 'chat' }
   | { type: 'phase'; progress: PipelineProgress }
   | { type: 'analysis'; text: string }
@@ -2140,11 +2050,13 @@ export type AgentStepEvent =
       durationSec?: number;
       count?: number;
       skillName?: string;
-      /** Human-readable what happened (e.g. 娣诲姞鏂囧瓧銆屼腑绉嬨€?. */
+      /** Human-readable what happened (or machine codes when `code` is set). */
       detail?: string;
       /** Expandable secondary copy (kept out of the capsule/row label). */
       summary?: string;
       stage?: string;
+      /** Stable kernel code for FE i18n (e.g. ops_validate_failed). */
+      code?: string;
       item?: { id?: string; name?: string; summary?: string };
       body?: string;
     }
@@ -2993,6 +2905,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       skillName: ev.skillName || ev.skill_name || undefined,
       durationSec: typeof ev.durationSec === 'number' ? ev.durationSec : undefined,
       stage: stage || undefined,
+      code: ev.code ? String(ev.code) : undefined,
       item: activityItemPayload(ev.item),
       body: activityBody || undefined,
     });
@@ -3344,7 +3257,16 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           }
           return;
         case 'token':
-          if (ev.text) params.onEvent({ type: 'token', text: ev.text });
+          if (ev.code || ev.text) {
+            params.onEvent({
+              type: 'token',
+              ...(ev.text ? { text: ev.text } : {}),
+              ...(ev.code ? { code: String(ev.code) } : {}),
+              ...(ev.params && typeof ev.params === 'object'
+                ? { params: ev.params as Record<string, string> }
+                : {}),
+            });
+          }
           return;
         case 'chat_done': {
           // Ask proposals also finish without paint — do NOT wipe proposedOps / choices.

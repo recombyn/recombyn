@@ -22,10 +22,10 @@ def test_parse_need_tools_in_turn():
 
 def test_parse_need_skills_still_works():
     turn = _parse_agent_turn(
-        '{"thought":"配色","intent":"create","need_skills":["design_methodology"],'
+        '{"thought":"配色","intent":"create","need_skills":["poster_craft"],'
         '"tool_ops":[],"done":false}'
     )
-    assert turn["need_skills"] == ["design_methodology"]
+    assert turn["need_skills"] == ["poster_craft"]
 
 
 def test_parse_need_subagents_in_turn():

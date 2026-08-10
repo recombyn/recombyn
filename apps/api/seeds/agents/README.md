@@ -11,4 +11,4 @@ Resolve order and live graph: **[docs/agent-profile.md](../../../../docs/agent-p
 
 Override active id：`AGENT_PROFILE_ID`（见 `apps/api/.env.example`）。
 
-Shipped profile：`profiles/design.canvas.yaml`（`canvas_ops_v1` + review / vision_scout / research）。
+Shipped profile：`profiles/design.canvas.yaml`（`canvas_ops_v1` + Review fork）。

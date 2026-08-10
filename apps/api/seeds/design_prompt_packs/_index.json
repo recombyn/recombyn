@@ -4,13 +4,10 @@
     "agent.prompt.need_tools_overlay": "Decide resource protocol (shared)",
     "agent.prompt.paint_system": "Paint stage system",
     "agent.prompt.review_system": "Review stage system",
-    "agent.prompt.vision_scout_system": "Vision Scout system",
-    "agent.prompt.research_system": "Research system",
     "agent.prompt.ask_system": "Ask mode rules",
     "agent.prompt.agent_system": "Agent mode rules",
     "agent.prompt.paint_retry": "Paint retry hint",
     "agent.prompt.ask_propose_situation": "Ask propose confirm copy",
-    "agent.prompt.ux_reply_system": "Short UX reply system",
     "agent.prompt.intent_classify": "Intent classifier",
     "agent.prompt.lc_tools_overlay": "LangChain structured overlay",
     "agent.prompt.react_system": "Main decide system",
@@ -334,36 +331,6 @@
       "sort_order": 21,
       "when_to_use": "Review: pass/issues only; no tool_ops",
       "file": "stages/review.md"
-    },
-    {
-      "kind": "agent.prompt.vision_scout_system",
-      "title": "Vision Scout system",
-      "type": "system",
-      "group": "oss_baseline",
-      "usedBy": [
-        "subagent",
-        "vision_scout"
-      ],
-      "scenes": "all",
-      "selectable": false,
-      "sort_order": 22,
-      "when_to_use": "Vision Scout: subjects/palette/layout; no tool_ops",
-      "file": "stages/subagents.md"
-    },
-    {
-      "kind": "agent.prompt.research_system",
-      "title": "Research system",
-      "type": "system",
-      "group": "oss_baseline",
-      "usedBy": [
-        "subagent",
-        "research"
-      ],
-      "scenes": "all",
-      "selectable": false,
-      "sort_order": 23,
-      "when_to_use": "Research: audience/tone/copy; no tool_ops",
-      "file": "stages/subagents.md"
     },
     {
       "kind": "agent.prompt.partial_system",
@@ -717,23 +684,6 @@
       "selectable": false,
       "sort_order": 160,
       "when_to_use": "Unsafe ops need confirm before apply",
-      "file": "stages/apply_ux.md"
-    },
-    {
-      "kind": "agent.prompt.ux_reply_system",
-      "scenes": "all",
-      "selectable": false,
-      "group": "agent_prompt",
-      "type": "system",
-      "title": "Short UX reply system",
-      "when_to_use": "Short UX reply system",
-      "sort_order": 312,
-      "usedBy": [
-        "apply",
-        "observe",
-        "paint",
-        "decide"
-      ],
       "file": "stages/apply_ux.md"
     },
     {

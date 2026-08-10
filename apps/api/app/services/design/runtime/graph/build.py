@@ -48,8 +48,8 @@ from app.services.design.runtime.agent_profile import resolve_tool_host
 from app.services.design.runtime.pipeline_support import _normalize_ref_images, _user_facing_run_error
 from app.services.design.prompts.rules_text import _as_text
 from app.services.design.prompts.skill_store import format_skills_catalog
-from app.services.fonts_store import format_fonts_catalog
 from app.services.design.admin.task_store import (
+
     STATUS_CANCELLED,
     STATUS_ERROR,
     STATUS_PAUSED,
@@ -577,9 +577,9 @@ async def _cleanup_design_thread(graph: Any, thread_id: str) -> None:
 
 
 def _build_lc_design_graph():
-    """canvas_ops_v1 — … → paint → action → observe → review → settle.
+    """canvas_ops_v1 — … → paint → action → observe → [review auto] → settle.
 
-    Review may loop back to paint_ops on must_fix (Profile topology.loops).
+    Review is optional (Profile ``review_mode`` / settings); may loop paint on must_fix.
     """
     from app.core.config import settings
 
@@ -868,42 +868,41 @@ async def run_agent_graph(
     )
 
     tools_host = resolve_tool_host()
-    tools_block = tools_host.format_full(rules)
+    # Defer path only needs the short catalog — skip building full tool bodies.
+    defer_tools = S._flag_on(rules, "agent.react.defer_tools", "1")
     tools_catalog = tools_host.format_catalog(rules)
+    tools_block = "" if defer_tools else tools_host.format_full(rules)
     scene_for_cat = scene_key or "website"
     from app.services.design.runtime.agent_profile import get_active_agent_profile
     from app.services.design.runtime.subagent import format_subagents_catalog
 
     skill_namespaces = tuple(get_active_agent_profile().skills_namespaces or ())
-    skills_catalog, fonts_catalog = (
-        await asyncio.gather(
-            asyncio.to_thread(
-                format_skills_catalog,
-                scene=scene_for_cat,
-                user_id=user_id,
-                namespaces=skill_namespaces or None,
-            ),
-            asyncio.to_thread(format_fonts_catalog),
-        )
+    # Decide: skills catalog only — fonts belong on Paint; skip parallel font fetch.
+    skills_catalog = await asyncio.to_thread(
+        format_skills_catalog,
+        scene=scene_for_cat,
+        user_id=user_id,
+        namespaces=skill_namespaces or None,
     )
-    defer_tools = S._flag_on(rules, "agent.react.defer_tools", "1")
     persona = S._resolve_agent_persona(rules, user_selected_model)
     size_auto_hint = S._prompt_text(rules, "agent.prompt.size_auto")
     chat_fallback_tmpl = S._prompt_text(rules, "agent.prompt.chat_fallback")
     subagents_catalog = format_subagents_catalog(get_active_agent_profile())
     # Decide-stage packs + catalogs (full tool/skill bodies arrive via need_*).
+    decide_catalogs = [
+        tools_catalog if defer_tools else tools_block,
+        skills_catalog,
+    ]
+    if str(subagents_catalog or "").strip():
+        decide_catalogs.append(subagents_catalog)
     system = assemble_stage_system(
         rules,
         stage="decide",
         ask_mode=(ui_mode == "ask"),
         persona=persona,
-        catalog_blocks=[
-            tools_catalog if defer_tools else tools_block,
-            skills_catalog,
-            fonts_catalog,
-            subagents_catalog,
-        ],
+        catalog_blocks=decide_catalogs,
     )
+
 
     rt = AgentRuntime(
         user_id=user_id,

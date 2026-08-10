@@ -447,15 +447,18 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
         prompt_key="agent.prompt.pending_subagents",
     )
     pending_blocks = ("\n\n".join(pending_parts) + "\n\n") if pending_parts else ""
+    # Decide thought budget — paint reloads TOOL_DETAILS; keep skill essays bounded.
+    if len(pending_blocks) > 6_000:
+        pending_blocks = pending_blocks[:6_000] + "\n…(pending truncated)\n\n"
 
     plan_block = ""
     if st.plan:
         plan_block = (
             "PLAN:\n"
-            + "\n".join(f"{i+1}. {s}" for i, s in enumerate(st.plan))
+            + "\n".join(f"{i+1}. {s}" for i, s in enumerate(st.plan[:12]))
             + "\n\n"
         )
-    memory_block = f"MEMORY:\n{rt.mem_blocks[:4000]}\n\n" if rt.mem_blocks else ""
+    memory_block = f"MEMORY:\n{rt.mem_blocks[:2500]}\n\n" if rt.mem_blocks else ""
     recent_dialogue = ""
     if rt.mem_short:
         dial_lines: list[str] = []
@@ -482,13 +485,24 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
     error_block = ("\n\n".join(error_parts) + "\n\n") if error_parts else ""
 
     edit_context = ""
-    if rt.scene_nodes or rt.scene_frames:
+    # Compact only — full SCENE JSON is redundant with scene_digest (fills included).
+    # Skip on lean turns: paint_kit lean path never reads edit_context.
+    try:
+        from app.services.design.runtime.graph.paint_kit import _is_lean_paint_turn
+
+        lean_turn = _is_lean_paint_turn(rt)
+    except Exception:
+        lean_turn = False
+    if not lean_turn and (rt.scene_nodes or rt.scene_frames):
         edit_context = _edit_context_block(
             rt.rules,
             "",
             include_full_svg=False,
             scene_nodes=rt.scene_nodes,
         )
+        if len(edit_context) > 2500:
+            edit_context = edit_context[:2500] + "\n…(edit_context truncated)"
+
 
     try:
         fw = int(rt.w or 0)

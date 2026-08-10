@@ -22,5 +22,5 @@ def seed_design_catalog_if_empty() -> None:
     if n <= 0:
         logger.warning(
             "design_skill is empty before ensure_design_skills — "
-            "will seed from design_skills_seed.json on catalog boot."
+            "will load file packs from seeds/design_skills on catalog boot."
         )

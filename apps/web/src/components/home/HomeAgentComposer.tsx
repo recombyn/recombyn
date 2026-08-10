@@ -51,11 +51,11 @@ import ModelPickerPanel, {
   type ModelPickerTab,
 } from '@/components/editor/panels/agent/ModelPickerPanel';
 import {
-  AgentRoutePrefsEditor,
   loadAgentRoutePrefs,
   warmOpenrouterAvailability,
   routeOverridesForApi,
-} from '@/components/editor/panels/agent/AgentModelsPanel';
+} from '@/components/editor/panels/agent/agentRoutePrefs';
+import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/AgentRoutePrefsEditor';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import { cn } from '@/utils/classnames';
 import { useWalletSnapshot } from '@/service/wallet';
@@ -1027,15 +1027,23 @@ function HomeAgentComposer({
             if (next) {
               setMentionPanelOpen(false);
               setMentionQuery('');
-              // Same as editor AgentDock: open route prefs, not a forked image list.
-              setModelId('auto');
               setModelTab('design');
+              void ensureModelsLoaded();
             }
             setModelOpen(next);
           },
           // Dropdown keeps portal mounted when closed 鈥?only mount prefs (catalog/models) when open.
           panel: modelOpen ? (
-            <AgentRoutePrefsEditor compact modeLabel={t('agent.interactionAgent')} />
+            <AgentRoutePrefsEditor
+              compact
+              modeLabel={t('agent.interactionAgent')}
+              selectedModelId={modelId}
+              autoOnly={!canPickModel}
+              onPickModel={(id) => {
+                setModelId(id);
+                setModelTab('design');
+              }}
+            />
           ) : (
             <span className="hidden" aria-hidden />
           ),

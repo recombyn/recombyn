@@ -14,7 +14,6 @@ from app.core import db as core_db
 
 from . import constants as _c
 from .constants import (
-    NS_CORE,
     SOURCE_ADMIN,
     SOURCE_FILE,
     SOURCE_SEED,
@@ -23,17 +22,14 @@ from .constants import (
     _HOT_RELOAD_THREAD,
     _META_NAMES,
     _PROTECTED_FROM_FILE,
-    _PROTECTED_FROM_SEED,
     _SKILLS_LOCK,
     _SKILLS_READY,
 )
 from .keys import _normalize_namespace, _normalize_source
 from .pack_io import (
-    _SEED,
     _file_skills_dirs,
     _load_file_skills,
     _skill_md_path,
-    _skills_seed_path,
 )
 from .runtime import (
     _parse_allowed_resources,
@@ -46,6 +42,99 @@ from .runtime import (
 from .schema import validate_skill_io_schema, validate_skill_meta
 
 logger = logging.getLogger(__name__)
+
+# System-level capabilities that must not live as loadable skills.
+# Bare keys + common user.* aliases — hard-deleted from DB on ensure.
+_SYSTEM_SKILL_DENYLIST: frozenset[str] = frozenset(
+    {
+        "vision_extract",
+        "canvas_edit",
+        "frontend_ui",
+        "ui_ux_pro_max",
+        "brief_intake",
+        "layout_ops",
+        "visual_system",
+        "ux_ia",
+        "export_ready",
+        "user.vision_extract",
+        "user.canvas_edit",
+        "user.frontend_ui",
+        "user.brief_intake",
+        "user.layout_ops",
+        "user.visual_system",
+        "user.ux_ia",
+        "user.export_ready",
+    }
+)
+
+
+def _denylist_bare_keys() -> frozenset[str]:
+    return frozenset(k.split(".", 1)[-1].lower() for k in _SYSTEM_SKILL_DENYLIST)
+
+
+def _skill_key_is_denied(key: str) -> bool:
+    k = str(key or "").strip().lower()
+    if not k:
+        return False
+    if k in _SYSTEM_SKILL_DENYLIST:
+        return True
+    return k.split(".", 1)[-1] in _denylist_bare_keys()
+
+
+def _purge_system_skill_denylist(session: Session) -> None:
+    """Hard-delete denylisted system-capability skills + revisions + user prefs."""
+    from sqlmodel import col, select
+
+    from app.models import DesignSkill, DesignSkillRevision, DesignUserSkillPref
+
+    bare = _denylist_bare_keys()
+    rows = list(session.exec(select(DesignSkill)).all())
+    deleted_keys: list[str] = []
+    deleted_ids: list[int] = []
+    for row in rows:
+        key = str(_row_get(row, "skill_key") or "").strip()
+        if not _skill_key_is_denied(key):
+            continue
+        sid = int(_row_get(row, "id") or 0)
+        if sid:
+            deleted_ids.append(sid)
+        deleted_keys.append(key)
+        session.delete(row)
+
+    if not deleted_keys and not deleted_ids:
+        # Still scrub prefs/revisions for bare keys that may linger after a prior disable.
+        keys_to_scrub = sorted(_SYSTEM_SKILL_DENYLIST | bare)
+    else:
+        keys_to_scrub = sorted(
+            {k.lower() for k in deleted_keys}
+            | {k.split(".", 1)[-1].lower() for k in deleted_keys}
+            | set(_SYSTEM_SKILL_DENYLIST)
+            | set(bare)
+        )
+
+    if deleted_ids:
+        for rev in session.exec(
+            select(DesignSkillRevision).where(
+                col(DesignSkillRevision.skill_id).in_(deleted_ids)
+            )
+        ).all():
+            session.delete(rev)
+    if keys_to_scrub:
+        for rev in session.exec(
+            select(DesignSkillRevision).where(
+                col(DesignSkillRevision.skill_key).in_(keys_to_scrub)
+            )
+        ).all():
+            session.delete(rev)
+        for pref in session.exec(
+            select(DesignUserSkillPref).where(
+                col(DesignUserSkillPref.skill_key).in_(keys_to_scrub)
+            )
+        ).all():
+            session.delete(pref)
+
+    for key in deleted_keys:
+        logger.info("purged system-capability skill %s (not a playbook)", key)
 
 
 def _triggers_json(item: dict[str, Any]) -> str:
@@ -126,7 +215,7 @@ def _upsert_owned_skill(
     next_ver = version
     if row:
         src = _normalize_source(_row_get(row, "source"), default=source)
-        # Community seed is cold-start only: never update / never reclaim admin rows.
+        # SOURCE_SEED is legacy-only; never upsert from that source path.
         if source == SOURCE_SEED:
             return
         if src in skip_sources:
@@ -241,13 +330,6 @@ def _upsert_owned_skill(
 
 def _skills_disk_signature() -> str:
     parts: list[str] = []
-    try:
-        seed_path = _skills_seed_path()
-        if seed_path.is_file():
-            st = seed_path.stat()
-            parts.append(f"seed:{st.st_mtime_ns}:{st.st_size}")
-    except Exception:
-        parts.append("seed:missing")
     for root in _file_skills_dirs():
         for pack in sorted(p for p in root.iterdir() if p.is_dir()):
             try:
@@ -266,8 +348,42 @@ def _skills_disk_signature() -> str:
                 parts.append(f"{root.name}/{pack.name}:err")
     return "|".join(parts)
 
+def _prune_legacy_seed_skills(session: Session) -> None:
+    """Drop leftover SOURCE_SEED rows — playbooks live under ``seeds/design_skills/``."""
+    from sqlmodel import select
+
+    from app.models import DesignSkill
+
+    for row in session.exec(select(DesignSkill)).all():
+        key = str(_row_get(row, "skill_key") or "").strip()
+        src = _normalize_source(_row_get(row, "source"), default=SOURCE_SEED)
+        if src != SOURCE_SEED or not key:
+            continue
+        session.delete(row)
+        logger.info("pruned legacy seed skill %s (file packs only)", key)
+
+
+def _prune_missing_file_skills(
+    session: Session, *, file_keys: set[str]
+) -> None:
+    """Drop SOURCE_FILE rows whose pack folder is gone from disk."""
+    from sqlmodel import select
+
+    from app.models import DesignSkill
+
+    for row in session.exec(select(DesignSkill)).all():
+        key = str(_row_get(row, "skill_key") or "").strip()
+        src = _normalize_source(_row_get(row, "source"), default=SOURCE_FILE)
+        if src != SOURCE_FILE or not key:
+            continue
+        if key in file_keys:
+            continue
+        session.delete(row)
+        logger.info("pruned missing file skill %s (pack removed from disk)", key)
+
+
 def ensure_design_skills(*, force: bool = False) -> None:
-    """Upsert seed + file skills; never overwrite admin."""
+    """Upsert file-pack skills; never overwrite admin."""
     if _c._SKILLS_READY and not force:
         return
     with _c._SKILLS_LOCK:
@@ -279,22 +395,17 @@ def ensure_design_skills(*, force: bool = False) -> None:
 
         init_schema()
         ensure_design_tables_boot()
+        file_items = _load_file_skills()
+        file_keys = {
+            str(it.get("skill_key") or "").strip()
+            for it in file_items
+            if str(it.get("skill_key") or "").strip()
+        }
         with Session(core_db.engine) as session:
-            for item in _SEED:
-                seeded = dict(item)
-                seeded.setdefault("namespace", NS_CORE)
-                seeded.setdefault(
-                    "allowed_resources",
-                    ["tools"],
-                )
-                _upsert_owned_skill(
-                    session,
-                    seeded,
-                    source=SOURCE_SEED,
-                    now=now,
-                    skip_sources=_PROTECTED_FROM_SEED,
-                )
-            for item in _load_file_skills():
+            _prune_legacy_seed_skills(session)
+            _prune_missing_file_skills(session, file_keys=file_keys)
+            _purge_system_skill_denylist(session)
+            for item in file_items:
                 _upsert_owned_skill(
                     session,
                     item,
@@ -302,113 +413,11 @@ def ensure_design_skills(*, force: bool = False) -> None:
                     now=now,
                     skip_sources=_PROTECTED_FROM_FILE,
                 )
-            _bump_unchanged_seed_skill_bodies(session, now=now)
             session.commit()
         invalidate_skill_key_cache()
         _c._DISK_SIGNATURE = _skills_disk_signature()
         _c._SKILLS_READY = True
 
-
-# Short phrases that must appear in the current seed body for each skill.
-# SOURCE_SEED rows missing any listed marker (that exists in seed) get replaced.
-# Prefer bumping ``version`` in design_skills_seed.json; markers catch same-version drift.
-# Do not hardcode prior full bodies here.
-_SEED_SKILL_BODY_MARKERS: dict[str, tuple[str, ...]] = {
-    "canvas_edit": (
-        "boolean_op",
-        "brush_ops",
-        "motion_lottie",
-        "Clear / wipe board",
-        "Surgical changes",
-        "Decision",
-    ),
-    "design_methodology": (
-        "Prefer **1–3** tightly matched",
-        "motion_lottie",
-        "brush_ops",
-        "MUST `create_frame`",
-        "Exception only if the user refuses",
-        "Direction (commit once)",
-        "Self-check (before done)",
-        "poster_craft",
-        "resume_layout",
-        "ecommerce_surface",
-        "landing_page",
-    ),
-    "vision_extract": (
-        "Finished poster/design",
-        "letteringText",
-        "~≥90%",
-        "Transfer mode",
-        "style-only",
-    ),
-    "image_gen": (
-        "Available fonts",
-        "Poster / festive / illustrated hero",
-        "Typography gate (~90%)",
-        "genPrompt recipe",
-    ),
-}
-
-def _norm_skill_body(text: str) -> str:
-    return str(text or "").replace("\r\n", "\n").strip()
-
-def _bump_unchanged_seed_skill_bodies(session: Any, *, now: float) -> None:
-    """Sync SOURCE_SEED skill bodies/meta from git seed (seed wins)."""
-    seed_by_key = {
-        str(it.get("skill_key") or "").strip(): it
-        for it in _SEED
-        if isinstance(it, dict) and str(it.get("skill_key") or "").strip()
-    }
-    for key, seed_item in seed_by_key.items():
-        new_pos = str(seed_item.get("prompt_positive") or "").strip()
-        new_neg = str(seed_item.get("prompt_negative") or "")
-        if not new_pos:
-            continue
-        row = crud.get_design_skill_by_key(session=session, skill_key=key)
-        if not row:
-            continue
-        src = _normalize_source(_row_get(row, "source"), default=SOURCE_SEED)
-        if src != SOURCE_SEED:
-            continue
-        try:
-            seed_ver = int(seed_item.get("version") or 0)
-            cur_ver = int(_row_get(row, "version") or 0)
-        except (TypeError, ValueError):
-            seed_ver, cur_ver = 0, 0
-        cur = _norm_skill_body(str(_row_get(row, "prompt_positive") or ""))
-        new_norm = _norm_skill_body(new_pos)
-        want_when = str(
-            seed_item.get("when_to_use") or seed_item.get("whenToUse") or ""
-        ).strip()
-        cur_when = str(_row_get(row, "when_to_use") or "").strip()
-        want_name = str(seed_item.get("name") or key).strip() or key
-        cur_name = str(_row_get(row, "name") or "").strip()
-        preferred_json = _preferred_json(seed_item)
-        cur_prefs = str(_row_get(row, "preferred_tools") or "").strip()
-        markers = tuple(
-            m for m in (_SEED_SKILL_BODY_MARKERS.get(key) or ()) if m in new_norm
-        )
-        missing_marker = bool(markers) and any(m not in cur for m in markers)
-        changed = False
-        if cur != new_norm or missing_marker:
-            row.prompt_positive = new_pos
-            if new_neg:
-                row.prompt_negative = new_neg
-            changed = True
-        if want_when and cur_when != want_when:
-            row.when_to_use = want_when
-            changed = True
-        if want_name and cur_name != want_name:
-            row.name = want_name
-            changed = True
-        if preferred_json and preferred_json != cur_prefs:
-            row.preferred_tools = preferred_json
-            changed = True
-        if changed or seed_ver > cur_ver:
-            row.version = max(cur_ver, seed_ver)
-            row.updated_at = now
-            session.add(row)
 
 def stop_skills_hot_reload() -> None:
     _c._HOT_RELOAD_STOP.set()
@@ -422,7 +431,7 @@ def stop_skills_hot_reload() -> None:
 
 
 def start_skills_hot_reload() -> bool:
-    """Poll seed + file-pack mtimes and force-resync when they change."""
+    """Poll file-pack mtimes and force-resync when they change."""
     try:
         from app.core.config import settings
 

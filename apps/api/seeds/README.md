@@ -12,12 +12,31 @@ Owner docs: [self-hosting.md](../../../docs/self-hosting.md) · AgentProfile: [a
 | `agents/bindings.yaml`                                                   | product/surface → Profile id                      |
 | `agents/profiles/*.yaml`                                                 | AgentProfile YAML (`design.canvas`)               |
 | `design_prompt_packs/`                                                   | `_index.json` + `stages/*.md` + `snippets.md` (pack sections) |
-| `design_skills_seed.json`                                                | Core skill playbooks                              |
-| `design_skills/<key>/`                                                   | Ext skill packs (`_meta.json` + `SKILL.md`) — e.g. brush, motion, poster, resume, ecommerce, landing, frontend_ui, dashboard_ui, mobile_app_ui |
+| `design_skills/<key>/`                                                   | All design skill packs (`_meta.json` + `SKILL.md`) — vision, edit, image, brush, motion, poster, resume, ecommerce, landing, UI, … |
 | `canvas_actions_seed.json`                                               | Canvas tool registry                              |
+| `design_agent_stress_suite.json`                                         | Agent SSE / browser stress cases (not loaded at runtime) |
 | `fonts_seed.json` · `design_tokens_seed.json` · `design_dicts_seed.json` | Fonts / tokens / dicts                            |
 | `llm_models_seed.json`                                                   | Model catalog seed                                |
 | `stage_rule_defaults.json` · `progress_stages.json`                      | Platform KV defaults / progress labels            |
+
+### Design Agent stress suite
+
+`design_agent_stress_suite.json` is an **eval seed**, not a prompt pack:
+
+| Pool | Purpose | Failures usually mean |
+|------|---------|------------------------|
+| `cases` | Category craft (poster / banner / …) + `skill_expect` | Skills |
+| `system_cases` | Vague / contradict / stop / tiny edit | Prompt packs / kernel routing |
+
+Runner (API must be up; token via `STRESS_TOKEN` or repo-root `.tmp-token.txt`):
+
+```bash
+npm run stress:agent                 # all category cases
+npm run stress:agent -- poster       # subset
+npm run stress:agent -- --system     # system_cases pool
+```
+
+Writes `.tmp-design-agent-stress-result.json` (gitignored).
 
 
 Helpers in code: `resolve_seed_dir` / `resolve_seed_file` / `api_seeds_dir`（原 `data/` 已迁到 `seeds/`）。

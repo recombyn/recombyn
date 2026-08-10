@@ -1,0 +1,45 @@
+{
+  "skill_key": "image_gen",
+  "name": "image_gen",
+  "displayName": "Image generation",
+  "description": "Bitmap heroes, atmosphere plates, materials, and stylized lettering — with typography gate for overlay copy",
+  "when_to_use": "Poster/hero bitmap, generated backgrounds, materials, or stylized lettering as image",
+  "category": "image",
+  "scenes": "all",
+  "sort_weight": 88,
+  "version": "2.0.0",
+  "preferred_tools": [
+    "create_image",
+    "create_frame",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "empty_canvas": true,
+      "intent_in": [
+        "create"
+      ]
+    },
+    {
+      "intent_in": [
+        "create"
+      ],
+      "min_prompt_chars": 8
+    }
+  ],
+  "mutex_group": "image",
+  "prompt_negative": "If the user forbids image gen, skip bitmap heroes; do not invent fontFamily; do not ship poster/festive work as shape-only geometry; do not bake titles into atmosphere heroes; do not leave white product plates uncut.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "图像生成",
+      "description": "英雄图 / 氛围底板 / 材质 / 艺术字；可改字标题不进图"
+    },
+    "en": {
+      "displayName": "Image generation",
+      "description": "Bitmap heroes, atmosphere plates, materials, stylized lettering"
+    }
+  }
+}
