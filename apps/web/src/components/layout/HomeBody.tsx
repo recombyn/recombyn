@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode, memo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { parseAsString, parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useDispatch, useSelector } from 'react-redux';
@@ -430,6 +430,9 @@ function HomeTemplateList({
   const authed = Boolean(userId && getToken());
   const [meMountKey, setMeMountKey] = useState(0);
   const [skillsMountKey, setSkillsMountKey] = useState(0);
+  /** Tracks Home/Projects surface enter/leave so we don't double-fetch on cold mount. */
+  const onProjectsSurfaceRef = useRef(false);
+  const skippedInitialProjectsRefreshRef = useRef(false);
 
   /** Guest must not stay on Projects / Me — bounce home + open login. */
   useEffect(() => {
@@ -476,19 +479,28 @@ function HomeTemplateList({
     Boolean(projectsQuery.data) ||
     !projectsQuery.isPending;
 
-  const refreshProjectsList = useCallback(async () => {
+  const refreshProjectsList = useCallback(async (opts?: { flush?: boolean }) => {
     if (!authed) return;
-    try {
-      await flushCurrentProjectNow({ force: true });
-    } catch {
-      /* list anyway */
+    if (opts?.flush !== false) {
+      try {
+        await flushCurrentProjectNow({ force: true });
+      } catch {
+        /* list anyway */
+      }
     }
     await refetchProjects();
   }, [authed, refetchProjects]);
 
+  /** Same-tab Home/Projects click — refresh only when the Query cache is stale. */
+  const softRefreshProjectsList = useCallback(async () => {
+    if (!authed) return;
+    if (!projectsQuery.isStale && projectsQuery.data) return;
+    await refetchProjects();
+  }, [authed, projectsQuery.data, projectsQuery.isStale, refetchProjects]);
+
   useEffect(() => {
     openProjectsListHandler = () => {
-      refreshProjectsList();
+      void softRefreshProjectsList();
     };
     remountMeHandler = () => setMeMountKey((k) => k + 1);
     remountSkillsHandler = () => setSkillsMountKey((k) => k + 1);
@@ -497,17 +509,33 @@ function HomeTemplateList({
       remountMeHandler = null;
       remountSkillsHandler = null;
     };
-  }, [refreshProjectsList]);
+  }, [softRefreshProjectsList]);
 
   useEffect(() => {
     if (!authed) {
       dispatch(clearProjectsLibrary());
       clearProjectsListCache();
+      onProjectsSurfaceRef.current = false;
+      skippedInitialProjectsRefreshRef.current = false;
       return;
     }
-    if (!showHome && !showMine) return;
-    refreshProjectsList();
-    // Intentionally keyed by tab visibility — re-enter Home/Projects always refreshes.
+    const onSurface = showHome || showMine;
+    if (!onSurface) {
+      onProjectsSurfaceRef.current = false;
+      return;
+    }
+    const entering = !onProjectsSurfaceRef.current;
+    onProjectsSurfaceRef.current = true;
+    // Stay on list surface (Home ↔ Projects): keep Query cache — no extra list GET.
+    if (!entering) return;
+    // Cold first enter: `useInfiniteQuery` `enabled` already fetches — skip effect refresh.
+    if (!skippedInitialProjectsRefreshRef.current) {
+      skippedInitialProjectsRefreshRef.current = true;
+      return;
+    }
+    // Re-enter from Skills / Me — force refresh (staleTime may still be warm).
+    void refreshProjectsList({ flush: false });
+    // Intentionally keyed by tab visibility.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshProjectsList stable via refetch
   }, [authed, dispatch, showHome, showMine]);
 

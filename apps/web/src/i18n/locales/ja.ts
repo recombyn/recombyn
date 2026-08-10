@@ -1525,6 +1525,13 @@ const ja = {
     providerPlatformModelNameRequired: 'モデル名を入力してください',
     providerModelIcon: 'アイコン',
     providerModelIconRequired: 'アイコンを選択してください',
+    providerModelIconUpload: 'アイコンをアップロード',
+    providerModelIconThemeChat: '対話',
+    providerModelIconThemeChina: '中国',
+    providerModelIconThemeImage: '画像',
+    providerModelIconThemeVideo: '動画',
+    providerModelIconThemeAudio: '音声',
+    providerModelIconThemePlatform: 'プラットフォーム',
     providerPlatformModelKindHint: '分類：対話 / 画像 / 動画 / マルチモーダル',
     providerPlatformModelFailed: '追加に失敗しました。先にプラットフォームの API キーを保存してください。',
     providerModelKindHint:
