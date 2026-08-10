@@ -28,6 +28,7 @@ _KIND_CREDIT_COST: dict[str, int] = {
     "expand": 30,
     "editText": 0,
     "editElements": 0,
+    "detectRegions": 0,
     "replaceText": 30,
     "vector": 20,
     "adjust": 0,  # FE uses CSS filters; API adjust is legacy / unused

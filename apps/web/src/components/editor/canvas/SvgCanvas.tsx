@@ -308,7 +308,8 @@ function SvgCanvas({
     imageToolPanelKind === 'eraser' ||
     imageToolPanelKind === 'replaceText' ||
     imageToolPanelKind === 'multiAngle' ||
-    imageToolPanelKind === 'adjust';
+    imageToolPanelKind === 'adjust' ||
+    imageToolPanelKind === 'mark';
   const videoToolPanelKind = useSelector(
     (s: any) => s.editor.videoToolPanel?.kind as string | undefined
   );

@@ -436,6 +436,16 @@ export function collectSendChipContext(chips: ComposerContext[]): SendChipContex
         .filter(Boolean)
     ),
   ];
+  // Mark chips: `mark:{nodeId}:{regionId}` → treat parent image as @ target.
+  const markNodeIds = [
+    ...new Set(
+      chips
+        .map((c) => chipBaseKey(c.key))
+        .filter((k) => k.startsWith('mark:'))
+        .map((k) => k.slice('mark:'.length).split(':')[0]?.trim() || '')
+        .filter(Boolean)
+    ),
+  ];
   const groupChip = chips.find((c) => c.kind === 'group' || c.kind === 'multi');
   const groupMemberIds = groupChip
     ? chipBaseKey(groupChip.key)
@@ -444,7 +454,11 @@ export function collectSendChipContext(chips: ComposerContext[]): SendChipContex
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
-  const mentionNodeIds = nodeChipIds.length ? nodeChipIds : groupMemberIds;
+  const mentionNodeIds = nodeChipIds.length
+    ? [...new Set([...nodeChipIds, ...markNodeIds])]
+    : markNodeIds.length
+      ? markNodeIds
+      : groupMemberIds;
   const attachedImages = chips
     .filter((c) => c.kind === 'attachment' && c.dataUrl)
     .map((c) => String(c.dataUrl))

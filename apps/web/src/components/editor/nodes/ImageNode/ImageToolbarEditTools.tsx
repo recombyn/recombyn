@@ -1,7 +1,7 @@
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineCube, HiOutlineLanguage, HiOutlineSquare2Stack } from 'react-icons/hi2';
-import { LuEraser } from 'react-icons/lu';
+import { LuCrosshair, LuEraser } from 'react-icons/lu';
 import { cn } from '@/utils/classnames';
 import ImageUpscaleMenu, { type UpscalePreset } from './ImageUpscaleMenu';
 import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
@@ -37,6 +37,7 @@ function ImageToolbarEditTools({
   onUpscale,
   onRemoveBg,
   onEraser,
+  onMark,
   onReplaceText,
   onEditElements,
   onMultiAngle,
@@ -46,6 +47,7 @@ function ImageToolbarEditTools({
   onUpscale: (preset: UpscalePreset) => void;
   onRemoveBg: (mode: RemoveBgMode) => void;
   onEraser: () => void;
+  onMark?: () => void;
   onReplaceText?: () => void;
   onEditElements?: () => void;
   onMultiAngle: () => void;
@@ -61,6 +63,11 @@ function ImageToolbarEditTools({
       <Tool label={t('editor.imageToolbar.eraser')} onClick={onEraser}>
         <LuEraser className="h-4 w-4" />
       </Tool>
+      {onMark ? (
+        <Tool label={t('editor.imageToolbar.mark')} onClick={onMark}>
+          <LuCrosshair className="h-4 w-4" strokeWidth={2} />
+        </Tool>
+      ) : null}
       {onReplaceText ? (
         <Tool label={t('editor.imageToolbar.replaceText')} onClick={onReplaceText}>
           <HiOutlineLanguage className="h-4 w-4" />
