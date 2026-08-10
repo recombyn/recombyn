@@ -1,7 +1,7 @@
 /**
  * Shared user AI-asset card — Me profile Assets tab + editor Assets dock.
  * Natural aspect (plaza-style waterfall); title + time on the card; Tooltip
- * shows the full title when truncated.
+ * on the title line shows the full name when truncated (not above the whole card).
  *
  * Structure: top-of-file helpers + named subcomponents (no satellite modules).
  */
@@ -327,14 +327,23 @@ function AssetCardMetaOverlay({
         dense ? 'px-1.5 pb-1.5 pt-6' : 'px-2 pb-2 pt-8'
       )}
     >
-      <p
-        className={cn(
-          'truncate font-medium leading-snug text-white',
-          dense ? 'text-[11px]' : 'text-[12px]'
-        )}
+      {/* Tip anchors to the title line — not the whole card. */}
+      <Tooltip
+        tip={title}
+        placement="top"
+        asChild={false}
+        triggerClassName="pointer-events-auto block max-w-full"
+        popupClassName="!h-auto !max-w-[14rem] !whitespace-normal !break-words !rounded-md !py-1.5 !leading-snug !items-start !justify-start text-left"
       >
-        {title}
-      </p>
+        <p
+          className={cn(
+            'truncate font-medium leading-snug text-white',
+            dense ? 'text-[11px]' : 'text-[12px]'
+          )}
+        >
+          {title}
+        </p>
+      </Tooltip>
       {when ? (
         <p
           className={cn(
@@ -453,33 +462,24 @@ function UserAssetCard({
         // Do NOT set pointer-events-none while dragging — that cancels HTML5 drag.
       )}
     >
-      <Tooltip
-        tip={title}
-        placement="top"
-        asChild={false}
-        triggerClassName="block w-full"
-        // Long prompt tips: wrap + modest radius (base Tooltip is single-line pill).
-        popupClassName="!h-auto !max-w-[14rem] !whitespace-normal !break-words !rounded-md !py-1.5 !leading-snug !items-start !justify-start text-left"
+      <button
+        type="button"
+        draggable={canDrag}
+        onDragStart={canDrag ? onBodyDragStart : undefined}
+        onDragEnd={onBodyDragEnd}
+        onClick={() => handleAssetCardActivate(asset, url, onActivate)}
+        className={cn(
+          'relative block w-full appearance-none border-0 bg-transparent p-0 text-left',
+          canDrag && 'cursor-grab active:cursor-grabbing'
+        )}
       >
-        <button
-          type="button"
-          draggable={canDrag}
-          onDragStart={canDrag ? onBodyDragStart : undefined}
-          onDragEnd={onBodyDragEnd}
-          onClick={() => handleAssetCardActivate(asset, url, onActivate)}
-          className={cn(
-            'relative block w-full appearance-none border-0 bg-transparent p-0 text-left',
-            canDrag && 'cursor-grab active:cursor-grabbing'
-          )}
-        >
-          <div className="relative w-full overflow-hidden bg-[var(--canvas)]" style={frameStyle}>
-            <div className="absolute inset-0">
-              <UserAssetThumb asset={asset} onNaturalAspect={setNaturalAspect} />
-            </div>
-            <AssetCardMetaOverlay title={title} when={when} dense={dense} />
+        <div className="relative w-full overflow-hidden bg-[var(--canvas)]" style={frameStyle}>
+          <div className="absolute inset-0">
+            <UserAssetThumb asset={asset} onNaturalAspect={setNaturalAspect} />
           </div>
-        </button>
-      </Tooltip>
+          <AssetCardMetaOverlay title={title} when={when} dense={dense} />
+        </div>
+      </button>
       {onDelete ? (
         <button
           type="button"

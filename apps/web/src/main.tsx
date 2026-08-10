@@ -11,11 +11,10 @@ import '@/styles/index.css';
 import App from '@/App';
 import { store } from '@/store';
 import { MessageContainer } from '@/components/base';
-import { loadFontCatalog } from '@/components/rcb/scene/document/fontCatalog';
 import { queryClient } from '@/service/client';
 
 applyTheme(getStoredThemeMode());
-void loadFontCatalog();
+// Font catalog is editor-only — load in EditorPage (not home/plaza cold path).
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

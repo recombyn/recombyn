@@ -34,10 +34,7 @@ import {
   type CustomLlmProvider,
   type CustomModelKind,
 } from './customLlmProviders';
-import {
-  CUSTOM_MODEL_ICON_OPTIONS,
-  ModelBrandIcon,
-} from './ModelPickerPanel';
+import { CUSTOM_MODEL_ICON_OPTIONS, ModelBrandIcon } from './ModelPickerPanel';
 import {
   cachePresetRules,
   getCachedOpenrouterAvailability,
