@@ -155,7 +155,8 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
       panel.kind === 'expand' ||
       panel.kind === 'flipRotate' ||
       panel.kind === 'quickEdit' ||
-      panel.kind === 'lottieEdit'
+      panel.kind === 'lottieEdit' ||
+      panel.kind === 'mark'
     ) {
       return;
     }
@@ -217,7 +218,8 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
     panel.kind === 'quickEdit' ||
     panel.kind === 'lottieEdit' ||
     panel.kind === 'crop' ||
-    panel.kind === 'expand'
+    panel.kind === 'expand' ||
+    panel.kind === 'mark'
   ) {
     return null;
   }

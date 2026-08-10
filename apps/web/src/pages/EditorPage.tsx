@@ -983,6 +983,15 @@ function EditorPage() {
     if (opts?.prompt) setAgentDraft(opts.prompt);
   }, []);
 
+  const agentOpenNonce = useSelector((s: any) => Number(s.editor.agentOpenNonce) || 0);
+  const agentOpenNonceSeenRef = useRef(agentOpenNonce);
+  useEffect(() => {
+    if (agentOpenNonce <= agentOpenNonceSeenRef.current) return;
+    agentOpenNonceSeenRef.current = agentOpenNonce;
+    if (workspaceMode === 'dev') return;
+    openAgentPanel();
+  }, [agentOpenNonce, openAgentPanel, workspaceMode]);
+
   const closeAgentPanel = useCallback(() => {
     if (!isMobileViewport) setAgentOpen(false);
   }, [isMobileViewport]);
