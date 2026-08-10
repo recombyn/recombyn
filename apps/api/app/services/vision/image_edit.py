@@ -625,3 +625,85 @@ async def decompose_image(
         "engines": engines,
         "warnings": warnings,
     }
+
+
+async def detect_regions(*, image: str) -> dict[str, Any]:
+    """
+    Propose subject / text boxes for the Mark tool — no inpaint, no layer crops.
+
+    Returns ``{ image, layers, kind, width, height, engines, warnings }`` where
+    ``layers`` are boxes in source-pixel coords (type image|text).
+    """
+    bgr = await _load_bgr(image)
+    h, w = bgr.shape[:2]
+    warnings: list[str] = []
+    engines: list[str] = []
+    layers: list[dict[str, Any]] = []
+    texts_raw: list[dict[str, Any]] = []
+    mixed: list[dict[str, Any]] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "src.png"
+        write_temp_png(bgr, path)
+
+        if ocr_available():
+            try:
+                mixed, engine = _collect_text_blocks(path)
+                engines.append(engine)
+                texts_raw = [b for b in mixed if str(b.get("type") or "") == "text"]
+                for i, item in enumerate(_enrich_texts(bgr, texts_raw)):
+                    layers.append(
+                        {
+                            "type": "text",
+                            "text": item.get("text"),
+                            "x": item["x"],
+                            "y": item["y"],
+                            "width": item["width"],
+                            "height": item["height"],
+                            "name": str(item.get("name") or f"文字 {i + 1}"),
+                        }
+                    )
+            except Exception:
+                warnings.append("文字识别失败")
+        else:
+            warnings.append("OCR unavailable")
+
+        try:
+            subjects = _collect_subjects(bgr, path, texts_raw, mixed)
+            for i, region in enumerate(subjects):
+                layers.append(
+                    {
+                        "type": "image",
+                        "x": _num(region.get("x")),
+                        "y": _num(region.get("y")),
+                        "width": max(1.0, _num(region.get("width"), 1)),
+                        "height": max(1.0, _num(region.get("height"), 1)),
+                        "name": str(region.get("name") or f"区域 {i + 1}"),
+                    }
+                )
+            if subjects:
+                engines.append("subjects")
+                sources = sorted(
+                    {
+                        str(r.get("source") or "")
+                        for r in subjects
+                        if str(r.get("source") or "")
+                    }
+                )
+                if sources:
+                    engines.append("subjects:" + "+".join(sources))
+        except Exception:
+            warnings.append("主体识别失败")
+
+    if not layers:
+        warnings.append("未识别到可标记区域，可手动框选")
+
+    return {
+        "image": (image or "").strip(),
+        "layers": layers,
+        "kind": "detectRegions",
+        "width": w,
+        "height": h,
+        "engines": engines,
+        "warnings": warnings,
+    }

@@ -12,6 +12,7 @@ export type ImageProcessKindApi =
   | 'expand'
   | 'editText'
   | 'editElements'
+  | 'detectRegions'
   | 'replaceText'
   | 'vector'
   | 'adjust';

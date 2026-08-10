@@ -45,6 +45,7 @@ import {
   startCanvasAttachPick,
   clearCanvasAttachPick,
   consumePendingCanvasAttach,
+  consumePendingAgentContexts,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
 import MentionAttachPanel, {
@@ -1199,6 +1200,42 @@ function AgentDock({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, pendingCanvasAttach, document, dispatch, interactionMode, composerMode, model, models]);
+
+  /** Mark tool selections → insert @ chips into the composer. */
+  const pendingAgentContexts = useSelector(
+    (s: any) =>
+      (s.editor.pendingAgentContexts || []) as Array<{
+        key: string;
+        label: string;
+        kind: string;
+        payload: string;
+        dataUrl?: string;
+        thumbUrl?: string;
+      }>
+  );
+  const pendingAgentContextsLockRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open || !pendingAgentContexts.length) {
+      if (!pendingAgentContexts.length) pendingAgentContextsLockRef.current = null;
+      return;
+    }
+    const token = pendingAgentContexts.map((c) => c.key).join('|');
+    if (pendingAgentContextsLockRef.current === token) {
+      dispatch(consumePendingAgentContexts());
+      return;
+    }
+    pendingAgentContextsLockRef.current = token;
+    const list = pendingAgentContexts.slice();
+    dispatch(consumePendingAgentContexts());
+    queueMicrotask(() => {
+      for (const ctx of list) {
+        pinnedContextKeysRef.current.add(ctx.key);
+        contextDismissedKeyRef.current = null;
+        inputRef.current?.insertContextAtCaret(ctx);
+      }
+      inputRef.current?.focusEnd();
+    });
+  }, [open, pendingAgentContexts, dispatch]);
 
   useEffect(() => {
     listRef.current?.scrollToBottom();
