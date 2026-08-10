@@ -202,11 +202,12 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
 
     - Always: create_shape + create_text.
     - create_frame: design-grade create on empty / no artboard — not canvas_op adds.
+    - create_icon / create_svg: UI glyphs & marks (else models fake icons with emoji text).
     - create_image: attachments **or** create/design turns (genPrompt hero / lettering).
     - create_lottie: create/design turns (motion / looping UI icons) — must be in TOOL_DETAILS
       or the model silently falls back to create_image.
     - update/delete when paint_lane=edit and scene has nodes.
-    - Plus any tools already requested via need_tools.
+    - Plus preferred_tools from loaded skills and any tools already in tools_loaded.
     """
     from app.services.design.runtime.graph.turns import _resolve_paint_want
     st = rt.run
@@ -226,6 +227,11 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
     allow_frame = classified == "design" and want == "create"
     if allow_frame:
         keys.insert(0, "create_frame")
+    # Glyph tools must be visible or paint substitutes emoji / multi-shape decoys.
+    if want in ("create", "edit"):
+        for k in ("create_icon", "create_svg"):
+            if k not in keys:
+                keys.append(k)
     # Without this, no-ref poster create never sees create_image in TOOL_DETAILS
     # and falls back to shape-only "programmer art".
     if has_images or want == "create":
@@ -238,11 +244,27 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
             if k not in keys:
                 keys.append(k)
 
+    # Loaded skill preferred_tools → TOOL_DETAILS (icon_set / mobile_app_ui / …).
+    skill_keys = [str(k).strip() for k in (st.skills_loaded or []) if str(k).strip()]
+    if skill_keys:
+        try:
+            from app.services.design.prompts.skill_store import preferred_tools_allowlist
+
+            allow = preferred_tools_allowlist(
+                skill_keys, scene=str(getattr(rt, "scene_key", None) or "website")
+            )
+            if allow:
+                for k in sorted(allow):
+                    if k and k not in keys:
+                        keys.append(k)
+        except Exception:
+            _log.debug("preferred_tools merge skipped", exc_info=True)
+
     for raw in st.tools_loaded or []:
         k = str(raw or "").strip()
         if k and k not in keys:
             keys.append(k)
-    return keys[:10]
+    return keys[:14]
 
 def _ensure_paint_tool_details(rt: Any) -> None:
     """Guarantee TOOL_DETAILS before the paint stage (no narrate-only escape)."""

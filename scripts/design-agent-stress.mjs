@@ -132,6 +132,42 @@ function summarizeOps(ops) {
   });
 }
 
+/** Soft craft signals for skill regressions (do not replace hard ok). */
+function craftFlags(c, opsAll) {
+  const flags = [];
+  const ops = opsAll || [];
+  const names = ops.map((o) => String(o.name || ''));
+  const emojiRe =
+    /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+  let emojiText = 0;
+  let iconOps = 0;
+  let iconMissingSvg = 0;
+  for (const o of ops) {
+    const n = String(o.name || '');
+    const a = o.args || {};
+    if (n === 'create_icon' || n === 'create_svg') {
+      iconOps += 1;
+      if (n === 'create_icon' && !String(a.svg || '').trim()) iconMissingSvg += 1;
+    }
+    if (n === 'create_shape' && (a.path || a.d || String(a.shapeType || '') === 'path')) {
+      iconOps += 1;
+    }
+    if (n === 'create_text' && emojiRe.test(String(a.text || ''))) emojiText += 1;
+  }
+  if (emojiText > 0) flags.push(`emoji_text_ops:${emojiText}`);
+  if (iconMissingSvg > 0) flags.push(`create_icon_empty_svg:${iconMissingSvg}`);
+  const wantsIcons = (c.skill_expect || []).some((k) =>
+    ['icon_set', 'mobile_app_ui', 'dashboard_ui'].includes(k)
+  );
+  if (wantsIcons && iconOps === 0 && ops.length > 0) {
+    flags.push('no_vector_icon_ops');
+  }
+  if ((c.id === 'icon_set' || (c.skill_expect || []).includes('icon_set')) && iconOps < 4) {
+    flags.push(`few_icon_marks:${iconOps}`);
+  }
+  return { flags, iconOps, emojiText, names: [...new Set(names)].slice(0, 24) };
+}
+
 function caseOk(c, { lastError, finished, opsAll, tokens, events }) {
   if (lastError) return false;
   const types = new Set((events || []).map((e) => e.type));
@@ -207,15 +243,15 @@ async function runCase(c) {
       if (k) skills.add(String(k));
     }
     if (type === 'activity') {
+      const detail = String(ev.detail || ev.summary || '').slice(0, 160);
       activity.push({
         id: ev.id,
         kind: ev.kind,
         status: ev.status,
-        detail: String(ev.detail || '').slice(0, 160),
+        detail,
       });
-      const d = String(ev.detail || '');
       for (const expect of c.skill_expect || []) {
-        if (d.includes(expect)) skills.add(expect);
+        if (detail.includes(expect)) skills.add(expect);
       }
     }
     if (type === 'tool_ops') {
@@ -334,6 +370,7 @@ async function runCase(c) {
   const skillList = [...skills];
   const missingSkills = (c.skill_expect || []).filter((k) => !skillList.some((s) => s.includes(k)));
   const ok = caseOk(c, { lastError, finished, opsAll, tokens, events });
+  const craft = craftFlags(c, opsAll);
   return {
     id: c.id,
     ok,
@@ -344,6 +381,10 @@ async function runCase(c) {
     missingSkills,
     opsCount: opsAll.length,
     opsSummary: summarizeOps(opsAll).slice(0, 40),
+    craftFlags: craft.flags,
+    iconOps: craft.iconOps,
+    emojiTextOps: craft.emojiText,
+    opNames: craft.names,
     review,
     activityTail: activity.slice(-12),
     replyPreview: tokens.slice(0, 240),
@@ -367,6 +408,8 @@ function logCaseRow(row) {
         ops: row.opsCount,
         skills: row.skills,
         missing: row.missingSkills,
+        craft: row.craftFlags,
+        icons: row.iconOps,
         review: row.review?.ok,
         error: row.error,
       },

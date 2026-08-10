@@ -468,6 +468,18 @@ def _design_graph_node_timeout() -> TimeoutPolicy | None:
     return TimeoutPolicy(run_timeout=sec)
 
 
+def _design_graph_paint_timeout() -> TimeoutPolicy | None:
+    """paint_ops may run several in-node attempts; allow a longer wall clock."""
+    from app.core.config import settings
+
+    sec = float(getattr(settings, "design_graph_paint_timeout_sec", 0.0) or 0.0)
+    if sec <= 0:
+        sec = float(getattr(settings, "design_graph_node_timeout_sec", 180.0) or 0.0)
+    if sec <= 0:
+        return None
+    return TimeoutPolicy(run_timeout=sec)
+
+
 def _get_design_graph_checkpointer() -> Any:
     """Shared durable checkpointer (MySQL 8+ → Sqlite+async-bridge → memory).
 
@@ -600,8 +612,9 @@ def _build_lc_design_graph():
     )
     retry = _design_graph_retry_policy()
     node_timeout = _design_graph_node_timeout()
+    paint_timeout = _design_graph_paint_timeout()
     # paint_ops already retries empty/invalid ops in-node — do NOT also retry the
-    # whole node on 180s timeout (that alone made "add a rect" take ~7 minutes).
+    # whole node on timeout (that alone made "add a rect" take ~7 minutes).
     io_kw: dict[str, Any] = {"destinations": dest, "retry_policy": retry}
     if node_timeout is not None:
         io_kw["timeout"] = node_timeout
@@ -614,8 +627,8 @@ def _build_lc_design_graph():
             max_interval=8.0,
         ),
     }
-    if node_timeout is not None:
-        paint_kw["timeout"] = node_timeout
+    if paint_timeout is not None:
+        paint_kw["timeout"] = paint_timeout
     # observe / review: no whole-node graph retry (LLM has in-node fail-open).
     once_kw: dict[str, Any] = {
         "destinations": dest,

@@ -56,12 +56,12 @@ Playbook for **后台 / dashboard / console** — scannable density, clear IA, h
 
 ## Do not
 - Marketing hero / festive illustration as the whole board
-- Five equal CTAs; rainbow accents; emoji as nav icons
+- Five equal CTAs; rainbow accents; emoji / pictograph text as nav or KPI icons (draw real vector glyphs instead)
 - Invent analytics facts or “sample” revenue
 - Desktop-density tables as the default on phone frames
 
 ## Related
-`shadcn_ui` (controls), `mobile_app_ui` (if phone console).
+`shadcn_ui` (controls), `icon_set` (glyph systems), `mobile_app_ui` (if phone console).
 
 ## Done when
 Nav + KPIs + main content readable in ~2s; alignment crisp; roles consistent; no invented metrics.
