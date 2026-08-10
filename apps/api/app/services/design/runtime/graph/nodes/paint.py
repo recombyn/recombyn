@@ -32,7 +32,7 @@ from app.services.design.runtime.graph.support import (
     _goto_cmd,
     _is_lean_paint_turn,
     _llm_io_fields,
-    _llm_ux_reply,
+    _emit_ux_tip,
     _op_errors_for_log,
     _paint_ops_system,
     _paint_ops_user,
@@ -51,7 +51,7 @@ _log = logging.getLogger(__name__)
 async def _await_or_abandon(coro: Any, *, timeout_sec: float, label: str) -> Any:
     """Wait for an LLM call; abandon if it ignores CancelledError.
 
-    ``asyncio.wait_for`` cancels then *awaits* cleanup. LangChain OpenAI streams
+    ``asyncio.wait_for`` cancels then *awaits* cleanup. Some provider streams
     often ignore cancel until ``stream_chunk_timeout`` (default 120s), so a
     nominal 75s paint budget still burned ~120–180s. ``asyncio.wait`` + cancel
     without awaiting unblocks the paint retry loop immediately.
@@ -244,7 +244,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
             st.push_log(
                 phase="paint_ops",
                 error=str(err)[:200],
-                summary="落层回合失败",
+                summary="paint turn failed",
                 attempt=attempt,
                 duration_ms=max(0, int((time.perf_counter() - t_llm) * 1000)),
                 model=st.family,
@@ -265,7 +265,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
         step_ops: list[dict[str, Any]] = []
         op_errors: list[str] = []
         if ops_raw:
-            # 验票：合同 + placement（不改写意图）— via Profile ToolHost
+            # Validate: contract + placement (do not rewrite intent) — via Profile ToolHost
             step_ops, op_errors = resolve_tool_host().validate_ops(
                 ops_raw,
                 scene_nodes=rt.scene_nodes,
@@ -288,7 +288,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
         st.push_log(
             phase="paint_ops",
             intent=intent,
-            summary=f"落层 attempt={attempt + 1} ops={len(step_ops)}",
+            summary=f"paint attempt={attempt + 1} ops={len(step_ops)}",
             model=st.family,
             reply=(reply[:200] if reply else None),
             tokens=used_hint,
@@ -338,17 +338,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
         st.round = round_i + 1
 
     st.note_error("paint_ops: retries_exhausted")
-    fail = await _llm_ux_reply(
-        rt,
-        situation=(
-            "Paint stage could not produce valid canvas tool_ops after retries; "
-            "ask the user to specify a concrete edit."
-        ),
-        facts="error=missing_or_invalid_tool_ops",
-    )
-    if fail:
-        st.reply = fail
-        _emit({"type": "token", "text": fail})
+    _emit_ux_tip(rt, "paint_failed")
     rt.flags["await_user"] = True
     rt.terminal = True
     return Command(update=_bump(rt), goto="__settle__")

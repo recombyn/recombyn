@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BiMessageSquareAdd, BiTimeFive } from 'react-icons/bi';
 import { LuPanelRight } from 'react-icons/lu';
-import Tooltip from '@/components/base/tooltip';
+import { SegmentedControl, Tooltip } from '@/components/base';
 import { cn } from '@/utils/classnames';
 
 export type AgentEngineMode = 'agent' | 'cli';
@@ -56,46 +56,31 @@ function AgentDockHeader({
         <span className="min-w-0 truncate text-[15px] font-semibold text-[var(--ink)]">
           {historyOpen ? t('agent.history') : title}
         </span>
-        {showEngine && !historyOpen ? (
-          <div className="flex shrink-0 items-center gap-1">
-            <div
-              className="inline-flex h-7 items-center rounded-md border border-[var(--line)] bg-[var(--surface)] p-0.5"
-              role="group"
+        {showEngine && !historyOpen && engineMode && onEngineModeChange ? (
+          <div className="flex shrink-0 items-center gap-1.5">
+            <SegmentedControl
+              size="xs"
+              radius="full"
               aria-label="Agent engine"
-            >
-              <Tooltip tip={t('agent.engineAgentTip')} placement="bottom">
-                <button
-                  type="button"
-                  className={cn(
-                    'h-6 rounded px-2 text-[11px] font-medium transition-colors',
-                    engineMode === 'agent'
-                      ? 'bg-[var(--ink)] text-[var(--on-brand)]'
-                      : 'text-[var(--muted)] hover:text-[var(--ink)]'
-                  )}
-                  onClick={() => onEngineModeChange?.('agent')}
-                >
-                  {t('agent.engineAgent')}
-                </button>
-              </Tooltip>
-              <Tooltip tip={t('agent.engineCliTip')} placement="bottom">
-                <button
-                  type="button"
-                  className={cn(
-                    'h-6 rounded px-2 text-[11px] font-medium transition-colors',
-                    engineMode === 'cli'
-                      ? 'bg-[var(--ink)] text-[var(--on-brand)]'
-                      : 'text-[var(--muted)] hover:text-[var(--ink)]'
-                  )}
-                  onClick={() => onEngineModeChange?.('cli')}
-                >
-                  {t('agent.engineCli')}
-                </button>
-              </Tooltip>
-            </div>
+              value={engineMode}
+              onChange={onEngineModeChange}
+              options={[
+                {
+                  value: 'agent',
+                  label: t('agent.engineAgent'),
+                  title: t('agent.engineAgentTip'),
+                },
+                {
+                  value: 'cli',
+                  label: t('agent.engineCli'),
+                  title: t('agent.engineCliTip'),
+                },
+              ]}
+            />
             {engineMode === 'cli' && onCodingCliChange ? (
               <select
                 aria-label={t('agent.engineCliPick')}
-                className="h-7 max-w-[9rem] truncate rounded-md border border-[var(--line)] bg-[var(--surface)] px-1.5 text-[11px] text-[var(--ink)] outline-none"
+                className="h-[26px] max-w-[9rem] truncate rounded-full border border-[var(--line)] bg-[var(--surface)] px-2 text-[11px] text-[var(--ink)] outline-none"
                 value={codingCliId || ''}
                 onChange={(e) => onCodingCliChange(e.target.value)}
               >

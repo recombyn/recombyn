@@ -16,7 +16,7 @@
 - edit: primarily changing existing nodes (update_*/delete_*); use when a Target element / pinned node is being modified
 
 # Rules
-- Decide from the tools catalog + user prompt + scene facts.
+- Decide from the tools catalog + user prompt + scene facts + RECENT_DIALOGUE/MEMORY when present.
 - If catalog tools can do it → canvas_op.
 - If it needs layout/composition/creative judgment beyond catalog ops → design.
 - Attached reference image used as style/layout source for a full piece → usually design.
@@ -24,6 +24,10 @@
 - Prior chat in history does NOT turn a canvas request into chat.
 - intent=chat → short reply in the user's language; paint_lane=""
 - intent≠chat → reply must be empty; rationale should mention which catalog tools apply when canvas_op
+- When intent=chat and the user asks about prior canvas work / "记得吗" / "你怎么删了":
+  use RECENT_DIALOGUE + MEMORY. If canvas_node_count is 0 after deletes, acknowledge that
+  earlier turns removed nodes — do NOT pretend you never touched the canvas or invent that
+  nothing happened. Empty board ≠ amnesia.
 
 # proposal_action (only when PENDING_PROPOSAL is in the user message)
 - apply — user confirms held ops (ok / yes / confirm / apply / Chinese equivalents)

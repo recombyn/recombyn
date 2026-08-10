@@ -191,7 +191,11 @@ def _is_lean_paint_turn(rt: Any) -> bool:
         return False
     if normalize_user_intent(getattr(rt, "classified_intent", None)) == "canvas_op":
         return True
-    return _prompt_compact_len(getattr(rt, "prompt", None)) <= _LEAN_PAINT_PROMPT_CHARS
+    prompt = getattr(rt, "prompt", None)
+    # Missing/empty prompt is not lean — avoid skipping Review on bare mocks/hosts.
+    if not str(prompt or "").strip():
+        return False
+    return _prompt_compact_len(prompt) <= _LEAN_PAINT_PROMPT_CHARS
 
 def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
     """Structural paint tool kit — not hard-coded to one shape type.
@@ -259,18 +263,33 @@ def _ensure_paint_tool_details(rt: Any) -> None:
             st.tools_loaded.append(k)
 
 def _paint_ops_system(rt: Any) -> str:
-    """Paint stage system via assemble_stage_system (pack-only)."""
+    """Paint stage system via assemble_stage_system (pack-only).
+
+    Fonts catalog only when create_text / create path may need typefaces —
+    Decide never gets fonts (keeps decide tokens lean).
+    """
     flags = getattr(rt, "flags", None)
     if not isinstance(flags, dict):
         flags = {}
     ask_mode = str(flags.get("mode") or "").strip().lower() == "ask"
     fonts_block = ""
+    want_fonts = True
     try:
-        from app.services.fonts_store import format_fonts_catalog
+        from app.services.design.runtime.graph.turns import _resolve_paint_want
 
-        fonts_block = format_fonts_catalog()
+        want = _resolve_paint_want(rt)
+        lean = _is_lean_paint_turn(rt)
+        # Lean canvas_op rarely needs font catalog; skip when edit-only short ops.
+        want_fonts = not lean or want == "create"
     except Exception:
-        fonts_block = ""
+        want_fonts = True
+    if want_fonts:
+        try:
+            from app.services.fonts_store import format_fonts_catalog
+
+            fonts_block = format_fonts_catalog()
+        except Exception:
+            fonts_block = ""
     return assemble_stage_system(
         rt.rules,
         stage="paint",
@@ -278,6 +297,7 @@ def _paint_ops_system(rt: Any) -> str:
         persona=str(getattr(rt, "persona", "") or ""),
         catalog_blocks=[fonts_block] if fonts_block else None,
     )
+
 
 def _paint_ops_user(rt: Any) -> str:
     from app.services.design.runtime.graph.turns import _thought_prompt_variables
@@ -290,9 +310,11 @@ def _paint_ops_user(rt: Any) -> str:
     focus_frame = _focus_frame_from_rt(rt)
     spatial_hint = _format_spatial_placement(spatial, focus_frame=focus_frame)
     lean = _is_lean_paint_turn(rt)
-    # Lean: tools + scene only — drop long skill essays for short adds.
+    # Lean: tools + scene digest only — drop full SCENE_NODES JSON dump.
     if lean:
         pending = str(getattr(rt, "pending_tool_details", "") or "").strip()
+        if len(pending) > 4_000:
+            pending = pending[:4_000] + "\n…(tools truncated)"
     else:
         pending = vars_["pending_blocks"]
     parts = [
@@ -303,9 +325,36 @@ def _paint_ops_user(rt: Any) -> str:
         spatial_hint,
         pending,
     ]
+    brief = str(getattr(rt, "design_brief", "") or "").strip()
+    if brief and not lean:
+        parts.append(
+            "DESIGN_BRIEF (authoritative — execute this; genPrompt must match):\n"
+            + brief[:3000]
+        )
     if not lean:
         parts.append(vars_["plan_block"])
-        parts.append(vars_["edit_context"])
+        # Cap edit dump — digest already lists nodes; avoid 16k double SCENE.
+        edit_ctx = str(vars_.get("edit_context") or "").strip()
+        if edit_ctx:
+            parts.append(edit_ctx[:2500])
+    else:
+        prompt_l = str(getattr(rt, "prompt", "") or "").lower()
+        need_color_ctx = any(
+            k in prompt_l
+            for k in ("色", "绿", "红", "蓝", "color", "delete", "删", "去掉", "移除")
+        )
+        reflecting = bool(str(getattr(rt.run, "reflect_note", "") or "").strip())
+        if need_color_ctx or reflecting:
+            mem = str(vars_.get("memory_block") or "").strip()
+            if mem:
+                parts.append(mem[:1500])
+            dial = str(vars_.get("recent_dialogue") or "").strip()
+            if dial:
+                parts.append(dial[:1200])
+        parts.append(
+            "DELETE SAFETY: never delete_nodes an artboard/frame id "
+            "(use delete_frame). COLOR: match user color intent via SCENE fill/stroke."
+        )
     parts.append(vars_["error_block"])
     parts.append("Emit PaintOpsSchema now: non-empty tool_ops first.")
     return "\n\n".join(p for p in parts if str(p or "").strip())

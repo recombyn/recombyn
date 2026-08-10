@@ -44,8 +44,8 @@ async def _node_memory(state: GraphState) -> Command:
             detail_chars=len(rt.mem_blocks or ""),
             short_turns=len(rt.mem_short or []),
             summary=(
-                f"注入记忆 {len(rt.mem_blocks or '')} 字"
-                f" / 短记 {len(rt.mem_short or [])}"
+                f"memory injected chars={len(rt.mem_blocks or '')}"
+                f" / short={len(rt.mem_short or [])}"
             ),
             llm_user=_clip_llm_raw(rt.mem_blocks or "", limit=6000),
             llm_raw=_clip_llm_raw(

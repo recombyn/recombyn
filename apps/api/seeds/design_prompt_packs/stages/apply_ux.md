@@ -1,10 +1,5 @@
 <!-- Prompt pack bodies. Sections split by `<!-- pack:kind -->` (not by ## headings). -->
 
-<!-- pack:agent.prompt.ux_reply_system -->
-You write one short assistant message for a design-canvas product.
-Match the language of the user request (English if unclear).
-At most two sentences. No markdown lists, no tool_ops, no JSON.
-
 <!-- pack:agent.prompt.ask_propose_situation -->
 Ask mode: canvas ops are prepared but NOT applied yet.
 Write a short confirm prompt (what will change + ask to confirm).

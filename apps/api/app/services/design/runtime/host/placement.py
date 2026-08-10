@@ -273,13 +273,29 @@ def _create_op_placement_fields(op: dict[str, Any]) -> tuple[Any, Any, str]:
     return src.get("x"), src.get("y"), str(src.get("frameId") or src.get("frame_id") or "").strip()
 
 
+def _batch_opens_new_frame(ops: list[dict[str, Any]]) -> bool:
+    """True when this paint batch creates a new artboard (camera check N/A yet)."""
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        name = str(op.get("name") or op.get("op_key") or "").strip()
+        if name in ("create_frame", "ensure_frame"):
+            return True
+    return False
+
+
 def _placement_errors_for_free_creates(rt: Any, ops: list[dict[str, Any]]) -> list[str]:
     """Reject free-canvas creates outside the camera; teach via suggested_place_world.
 
     Does not mutate ops. Frame-scoped creates (frameId set) are skipped.
+    Batches that include create_frame/ensure_frame are skipped entirely — Host
+    opens+binds that plate first; rejecting free x/y here would also drop the
+    create_frame (ops_gate returns [] on any placement error).
     create_frame is a paint/LLM choice (user may opt out) — not enforced here.
     """
     if not ops:
+        return []
+    if _batch_opens_new_frame(ops):
         return []
     spatial = (
         getattr(rt, "spatial_summary", None)

@@ -39,7 +39,7 @@ def _bind_host_artboard_focus(rt: Any, frame_id: str) -> None:
 def _should_early_open_artboard(rt: Any) -> bool:
     """Open shimmer before paint only for fixed-size design create.
 
-    Free-canvas Auto / canvas_op (加矩形、改字…): never invent a plate here —
+    Free-canvas Auto / canvas_op (add rect, edit text…): never invent a plate here —
     wait for paint ``create_frame`` (or none). User @ a board: no sibling plate.
     """
     if str(rt.flags.get("mode") or "") == "ask":
@@ -91,7 +91,7 @@ def _emit_canvas_size_step(
     design_loading: bool = True,
     reason: str = "size",
 ) -> bool:
-    """SSE: open loading plate + process row「画布尺寸」so shimmer can start early."""
+    """SSE: open loading plate + process row (canvas size) so shimmer can start early."""
     if ow <= 0 or oh <= 0:
         return False
     if str(rt.flags.get("mode") or "") == "ask":
@@ -212,11 +212,7 @@ def _emit_tool_ops_validation_ui(
     if not errs:
         return
     codes = _op_error_codes(errs)
-    code_hint = "、".join(codes[:3]) if codes else "invalid_op"
-    if kept > 0:
-        detail = f"{len(errs)} 条操作校验失败（已应用 {kept}）：{code_hint}"
-    else:
-        detail = f"{len(errs)} 条操作校验失败：{code_hint}"
+    code_hint = ", ".join(codes[:3]) if codes else "invalid_op"
     st = rt.run
     _emit(
         {
@@ -226,8 +222,13 @@ def _emit_tool_ops_validation_ui(
             "status": "error",
             "stage": "validate",
             "count": len(errs),
-            "detail": detail[:240],
-            "summary": "; ".join(errs[:6])[:800],
+            "code": "ops_validate_failed",
+            # Machine codes only — FE i18n builds the user label.
+            "detail": code_hint[:240],
+            "summary": (
+                f"kept {kept}; " if kept > 0 else ""
+            )
+            + "; ".join(errs[:6])[:800],
         }
     )
 

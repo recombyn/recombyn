@@ -2,8 +2,6 @@
 
 Playbook for **简历 / resume / CV** — scannable professional document, not a festive poster.
 
-Mature craft (recruiter scan path + ATS-friendly clarity + Swiss document hierarchy): honest facts, clear columns, restrained type — via frames, text, and hairlines.
-
 ## Principles
 1. **Scan path first** — name → contact → latest role → skills in seconds.
 2. **Honesty** — never invent employers, dates, GPAs, phones, or titles; ask or leave gaps.
@@ -12,36 +10,35 @@ Mature craft (recruiter scan path + ATS-friendly clarity + Swiss document hierar
 5. **One accent** — name or section rules only; rest neutral.
 
 ## Workflow
-1. Size: A4-ish (e.g. 794×1123 @96dpi feel) or user WxH. `create_frame` first.
+1. Size: A4-ish (e.g. 794×1123 @96dpi feel) or user WxH. Lock artboard first.
 2. Pick structure: **single column** or **sidebar + main** (≤2 columns).
 3. Inventory user facts; mark missing slots — do not invent.
 4. Type: restrained document faces from Available fonts; one display weight for **name only**.
 5. Place sections; self-check scan path and overflow.
-6. Edit with `move_nodes` / `update_node` — preserve column edges.
+6. Edit in place — preserve column edges.
 
 ## Structure recipes
-| Pattern | Use when | Ops sketch |
-|---------|----------|------------|
-| Single column | Dense content, ATS-like clarity | Stack section titles + body text |
-| Left sidebar | Skills/languages/contact rail | Narrow sidebar shape + main column |
+| Pattern | Use when | Notes |
+|---------|----------|-------|
+| Single column | Dense content, ATS-like clarity | Stack section titles + body |
+| Left sidebar | Skills/languages/contact rail | Narrow sidebar + main column |
 | Top header band | Strong name block | Header surface + contacts row; body below |
 
 ## Section order (default)
-Name / title → contacts → summary (optional, ≤3 lines) → experience → education → skills → extras (certs/projects).
+Name / title → contacts → summary (optional, ≤3 lines) → experience → education → skills → extras.
 
 ## Type roles
 | Role | Feel |
 |------|------|
 | Name | Largest; one accent color allowed |
 | Section title | Consistent size/weight; optional hairline |
-| Body | ~10–12px-equivalent; comfortable measure |
+| Body | Comfortable measure |
 | Meta | Dates, locations — smaller / muted |
 
 ## Canvas craft
-- Section titles: consistent; optional hairline or muted bar — not heavy chrome.
+- Section titles: consistent; optional hairline — not heavy chrome.
 - Spacing: base 8; section gaps > item gaps.
-- Photo (only if user wants): small circle/rect in header/sidebar; never dominate.
-- Columns: shared left edges; no 1–2px almost-misses.
+- Photo (only if user wants): small; never dominate.
 - Experience items: role + employer + dates + 2–4 bullets max unless user provided more.
 
 ## Missing content protocol
@@ -59,7 +56,7 @@ Name / title → contacts → summary (optional, ≤3 lines) → experience → 
 - Turn CV into a marketing landing or poster
 
 ## Related
-`frontend_ui` only if the brief is a resume **builder UI**, not the CV document itself. `ui_ux_pro_max` for overflow/contrast gate.
+`shadcn_ui` only if the brief is a resume **builder UI**, not the CV document itself.
 
 ## Done when
-Recruiter can scan name, latest role, and skills in seconds; margins even; no overflow; language matches user; SCENE ids only.
+Recruiter can scan name, latest role, and skills in seconds; margins even; no overflow; language matches user.
