@@ -7,11 +7,12 @@
   "category": "deliverable",
   "scenes": "all",
   "sort_weight": 74,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "preferred_tools": [
     "create_frame",
-    "create_shape",
+    "create_icon",
     "create_svg",
+    "create_shape",
     "create_text",
     "update_node"
   ],
@@ -26,12 +27,14 @@
         "favicon",
         "glyph",
         "符号",
-        "icon grid"
+        "icon grid",
+        "线性图标",
+        "图标组"
       ]
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not use emoji as icons; do not substitute Lottie for static marks; do not invent brand logos; do not mix outline and filled weights in one set.",
+  "prompt_negative": "Never use emoji or pictograph text as icons. Every mark must be real vector geometry. Do not substitute motion/Lottie for static marks; do not invent brand logos; do not mix outline and filled weights in one set.",
   "locales": {
     "zh-CN": {
       "displayName": "图标 / 符号组",

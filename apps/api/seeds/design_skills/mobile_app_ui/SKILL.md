@@ -8,13 +8,23 @@ Playbook for **手机 / H5 / App** screens — single column, thumb-first, hones
 3. **Honest chrome** — do not invent OS battery/wifi glyphs unless asked.
 4. **Hit targets** — generous tap height; do not rely on hover.
 5. **Shared tokens across screens** — multi-board flows keep one type/color language.
+6. **Real nav / list icons** — tabs, lists, and action marks are drawn vector glyphs (shared stroke). Never use emoji or a single pictograph character as an icon — including greetings and card titles.
 
 ## Workflow
 1. Phone-ish size (e.g. 390×844) or user WxH. Multi-screen → one artboard per screen (cap ~8).
-2. Pair with `shadcn_ui` for controls when needed.
-3. Build: top bar → content → bottom nav **or** sticky CTA.
+2. Pair with `shadcn_ui` for controls when needed; pair with `icon_set` when many glyphs share one stroke system.
+3. Build: top bar → content → bottom nav **or** sticky CTA. Each bottom-nav item = vector mark + short plain label.
 4. Apply safe insets; check tap sizes.
 5. Far check at phone scale; near check overflow and contrast.
+
+## Marks & labels
+| Role | Craft |
+|------|-------|
+| Tab / list / KPI mark | One compact vector glyph per mark — not emoji, not a letter pretending to be an icon |
+| Label | Short plain words only under/beside the mark |
+| Bottom nav | Mark first, then label; 3–5 items max |
+
+Keep the screen lean: do not explode each icon into many overlapping shapes; leave room for chrome and content.
 
 ## Safe area & insets
 | Region | Cue |
@@ -58,9 +68,10 @@ Playbook for **手机 / H5 / App** screens — single column, thumb-first, hones
 - Tiny tap targets; CTA only in the top corner
 - Festive poster decoration on product chrome
 - Five bottom-nav items of equal “primary” weight
+- Emoji / pictograph text in greetings, cards, or nav (use vector marks + plain labels)
 
 ## Related
-`shadcn_ui` for controls when needed; `motion_lottie` only for explicit micro-motion.
+`shadcn_ui` for controls when needed; `icon_set` for glyph systems; `motion_lottie` only for explicit micro-motion.
 
 ## Done when
-Readable at phone scale; primary action easy to reach; safe margins; hierarchy clear; tokens consistent across screens.
+Readable at phone scale; primary action easy to reach; safe margins; hierarchy clear; tokens consistent across screens; every tab/list mark is a real vector glyph.

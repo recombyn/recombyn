@@ -167,7 +167,7 @@
       "kind": "create",
       "label": "Create icon",
       "sort_order": 55,
-      "model_hint": "Compact SVG mark (same as create_svg). Prefer viewBox 0 0 24 24; valid path d only. For icons that need cutouts/combines, prefer create_shape + boolean_op or pen instead of one giant path.",
+      "model_hint": "Compact SVG mark (same as create_svg). REQUIRED: non-empty svg string with <svg viewBox=\"0 0 24 24\"> and at least one <path d=\"…\"> (or simple shapes). Prefer viewBox 0 0 24 24; valid path d only. NEVER use emoji/text as the mark — that is create_text, not create_icon. Empty svg is rejected. For icons that need cutouts/combines, prefer create_shape + boolean_op or pen instead of one giant path.",
       "args_schema": {
         "svg": "string (SVG markup, viewBox 0 0 24 24 preferred)",
         "x": "number",

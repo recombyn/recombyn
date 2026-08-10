@@ -7,7 +7,7 @@
   "category": "style",
   "scenes": "all",
   "sort_weight": 82,
-  "version": "1.3.0",
+  "version": "1.4.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -21,20 +21,26 @@
   ],
   "triggers": [
     {
-      "empty_canvas": true,
-      "intent_in": [
-        "create"
+      "intent_in": ["create", "edit"],
+      "prompt_includes_any": [
+        "调性",
+        "氛围感",
+        "视觉方向",
+        "审美方向",
+        "海报风",
+        "节日氛围",
+        "插画风",
+        "garden style",
+        "aesthetic direction",
+        "style direction",
+        "visual direction",
+        "festive",
+        "editorial look"
       ]
-    },
-    {
-      "intent_in": [
-        "create"
-      ],
-      "min_prompt_chars": 8
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "禁止套用紫渐变白底、Inter/Roboto 默认栈、无意义发光与满屏圆角胶囊；勿复制参考图 Logo/二维码/价格；禁止 UI 图标当节日装饰；禁止标题裁切与低对比文案。",
+  "prompt_negative": "禁止套用紫渐变白底、Inter/Roboto 默认栈、无意义发光与满屏圆角胶囊；勿复制参考图 Logo/二维码/价格；禁止用 emoji/ pictograph 文字冒充图标；禁止 UI 产品界面默认套用节日海报装饰；禁止标题裁切与低对比文案。",
   "locales": {
     "zh-CN": {
       "displayName": "Garden 风格配方",

@@ -7,10 +7,12 @@
   "category": "ui",
   "scenes": "all",
   "sort_weight": 82,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
+    "create_icon",
+    "create_svg",
     "create_text",
     "create_image",
     "update_node"
@@ -38,7 +40,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not use desktop sidebar layouts on mobile; do not invent OS status icons clutter; do not place primary CTA outside the thumb zone without reason.",
+  "prompt_negative": "Do not use desktop sidebar layouts on mobile; do not invent OS status icons clutter; do not place primary CTA outside the thumb zone without reason; never use emoji or pictograph text as tab/list icons — draw real vector glyphs plus plain labels.",
   "locales": {
     "zh-CN": {
       "displayName": "移动 / H5 UI",
