@@ -194,7 +194,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
       imageToolPanel?.kind === 'opacity' ||
       imageToolPanel?.kind === 'replaceText' ||
       imageToolPanel?.kind === 'multiAngle' ||
-      imageToolPanel?.kind === 'adjust');
+      imageToolPanel?.kind === 'adjust' ||
+      imageToolPanel?.kind === 'mark');
   const [mdOpen, setMdOpen] = useState(false);
   const [fontCatalogTick, setFontCatalogTick] = useState(0);
   const style = useMemo(
@@ -633,6 +634,9 @@ function SelectionContextToolbar(props: Props): ReactNode {
                   }
                   onEraser={() =>
                     dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))
+                  }
+                  onMark={() =>
+                    dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))
                   }
                   onReplaceText={
                     String(node?.attrs?.letteringText || '').trim()

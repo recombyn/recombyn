@@ -6,12 +6,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect, type Page, type Locator } from '@playwright/test';
+import { E2E_TOKEN_SKIP_REASON, resolveE2EToken } from './e2eAuth';
 
 const ROOT = path.resolve(__dirname, '../..');
 const OUT = path.join(ROOT, '.tmp-e2e-journey');
-const TOKEN =
-  (process.env.E2E_TOKEN || '').trim() ||
-  fs.readFileSync(path.join(ROOT, '.tmp-token.txt'), 'utf8').trim();
+const TOKEN = resolveE2EToken(ROOT);
 
 test.setTimeout(12 * 60_000);
 
@@ -223,6 +222,7 @@ async function waitAgentIdle(page: Page, maxMs = 240_000) {
 }
 
 test.describe('home → editor journey', () => {
+  test.skip(!TOKEN, E2E_TOKEN_SKIP_REASON);
   test.beforeAll(() => {
     fs.mkdirSync(OUT, { recursive: true });
   });

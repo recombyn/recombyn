@@ -25,6 +25,7 @@ export const IMAGE_TOOL_TOKEN_COST = {
   expand: 30,
   editText: 0,
   editElements: 0,
+  detectRegions: 0,
   replaceText: 30,
   vector: 20,
   adjust: 0,
