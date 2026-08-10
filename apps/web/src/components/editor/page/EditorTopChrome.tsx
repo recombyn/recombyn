@@ -196,7 +196,13 @@ function EditorTopChrome({
 
 export async function flushAndGoHome(navigate: (path: string) => void) {
   try {
-    await flushCurrentProjectNow({ force: true });
+    // Cover flush can hang on large multi-artboard projects — don't block leaving.
+    await Promise.race([
+      flushCurrentProjectNow({ force: true }),
+      new Promise<void>((_, reject) => {
+        window.setTimeout(() => reject(new Error('flush_home_timeout')), 8_000);
+      }),
+    ]);
   } catch {
     /* still navigate — local draft already holds bytes */
   }
