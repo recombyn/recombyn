@@ -169,7 +169,7 @@ async def _stream_llm_text(
                     "switch_kind": "vision_failed",
                     "images_skipped": True,
                     "error": str(piece),
-                    "summary": "看图不可用，降级为纯文本"
+                    "summary": "vision unavailable; text-only fallback"
                 }
             )
             continue
@@ -263,13 +263,13 @@ def _resolve_and_log_model(
         summary=(
             f"{prev} → {family}"
             if changed
-            else f"选用 {family}"
+            else f"using {family}"
         ),
     )
     return family, reason
 
 def _clip_llm_raw(raw: str | None, *, limit: int = 12000) -> str | None:
-    """Full model return text for Admin 运行复盘 (vision / ReAct / plan / …)."""
+    """Full model return text for Admin run replay (vision / ReAct / plan / …)."""
     t = (raw or "").strip()
     if not t:
         return None
@@ -297,7 +297,7 @@ def _llm_io_fields(
     system_limit: int = 10000,
     user_limit: int = 20000,
 ) -> dict[str, Any]:
-    """Fields for Admin 复盘: everything sent to the LLM this call."""
+    """Fields for Admin run replay: everything sent to the LLM this call."""
     out: dict[str, Any] = {}
     sys_t = _clip_llm_raw(system, limit=system_limit)
     if sys_t:
@@ -322,49 +322,50 @@ def _int_rule(rules: dict[str, str], key: str, default: int) -> int:
     except ValueError:
         return default
 
-async def _llm_ux_reply(
+
+# Stable tip codes → FE i18n (`agent.uxTip*`). English fallback for logs / old clients.
+_UX_TIP_FALLBACK: dict[str, str] = {
+    "decide_failed": "Decision failed. Please try again.",
+    "paint_failed": "Could not produce valid canvas ops. Please describe a more specific edit.",
+    "observe_ops_failed": "Some ops failed to apply ({count}): {notes}. Retry on a specific element.",
+    "apply_confirm_failed": "Confirmed plan could not be applied safely ({error}). Rephrase or retry.",
+    "observe_critique_failed": "Canvas structure check failed: {issues}",
+    "review_must_fix": "Review did not pass: {issues}",
+    "apply_ops_applied": "Applied {count} canvas change(s).",
+    "ask_dismissed": "Cancelled.",
+}
+
+
+def _emit_ux_tip(
     rt: Any,
+    code: str,
     *,
-    situation: str,
-    facts: str = "",
-    max_tokens: int = 120,
+    params: dict[str, Any] | None = None,
 ) -> str:
-    """Short assistant copy from Admin packs — never hardcode locale/policy strings."""
-    prompt = _as_text(getattr(rt, "prompt", "") or "").strip()[:1200]
-    system = _prompt_text(getattr(rt, "rules", None) or {}, "agent.prompt.ux_reply_system").strip()
-    if not system:
-        raise RuntimeError(
-            "missing prompt pack: agent.prompt.ux_reply_system "
-            "(Admin → 系统提示词 / seeds/design_prompt_packs)"
-        )
-    user = (
-        f"Situation: {situation}\n"
-        f"Facts: {(facts or '(none)').strip()[:800]}\n"
-        f"User request:\n{prompt or '(empty)'}\n"
-        "Write only the assistant reply."
-    )
+    """Emit a fixed UX tip for FE i18n (token.code); set st.reply to English fallback."""
+    from app.services.design.runtime.graph.emit_sse import _emit
+
+    key = str(code or "").strip().lower()
+    clean: dict[str, Any] = {}
+    for k, v in dict(params or {}).items():
+        s = str(v if v is not None else "").strip()
+        if s:
+            clean[str(k)[:48]] = s[:200]
+    tmpl = _UX_TIP_FALLBACK.get(key) or "Something went wrong. Please retry."
     try:
-        _fam, content, used, _host, _think = await _stream_llm_text(
-            model_family=router_model_id(getattr(rt, "rules", None) or {}),
-            system=system,
-            user=user,
-            rules=getattr(rt, "rules", None) or {},
-            max_tokens=max_tokens,
-            live_emit=False,
-        )
-        st = getattr(rt, "run", None)
-        if st is not None and used:
-            try:
-                st.total_tokens += int(used)
-            except Exception:
-                pass
-        text = (content or "").strip()
-        if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'“”":
-            text = text[1:-1].strip()
-        return text[:500]
+        text = render_prompt_template(tmpl, **clean).strip()
     except Exception:
-        _log.exception("llm ux reply failed")
-        return ""
+        text = tmpl
+    text = " ".join(text.split())[:160] or tmpl
+    payload: dict[str, Any] = {"type": "token", "code": key, "text": text}
+    if clean:
+        payload["params"] = {k: str(v) for k, v in clean.items()}
+    _emit(payload)
+    st = getattr(rt, "run", None)
+    if st is not None:
+        st.reply = text
+    return text
+
 
 __all__ = [
     '_prompt_text',
@@ -380,7 +381,7 @@ __all__ = [
     '_clip_urls',
     '_llm_io_fields',
     '_int_rule',
-    '_llm_ux_reply',
+    '_emit_ux_tip',
     '_interaction_mode_rules_pack',
     '_require_prompt_pack',
 ]

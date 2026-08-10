@@ -326,12 +326,16 @@ _DEFAULT_PAINT_CREATE_TOOLS = (
     "create_frame",
     "create_shape",
     "create_text",
+    "create_icon",
+    "create_svg",
     "create_image",
     "create_lottie",
 )
 _DEFAULT_PAINT_EDIT_TOOLS = (
     "create_shape",
     "create_text",
+    "create_icon",
+    "create_svg",
     "create_image",
     "create_lottie",
     "update_node",
@@ -363,11 +367,11 @@ def _thought_chat_prompt():
                 "{pending_blocks}"
                 "{plan_block}"
                 "{memory_block}"
-                "{error_block}"
-                "{edit_context}",
+                "{error_block}",
             ),
         ]
     )
+
 
 
 @dataclass
@@ -414,7 +418,7 @@ class AgentRunState:
     skills_loaded: list[str] = field(default_factory=list)
     # Forked subagents already spawned this run (auto-trigger dedupe).
     subagents_loaded: list[str] = field(default_factory=list)
-    # Published Admin flow identity (for 运行复盘).
+    # Published Admin flow identity (for run replay).
     flow_id: str = ""
     flow_version: int = 0
     current_node_id: str = ""
@@ -590,6 +594,8 @@ class AgentRuntime:
     classified_intent: str = ""
     classified_paint_lane: str = ""
     classified_reply: str = ""
+    # Decide → paint/review execution contract (not craft curricula).
+    design_brief: str = ""
     # FE dual-context map (empty_rects / suggested_place / viewport).
     spatial_summary: dict[str, Any] | None = None
 

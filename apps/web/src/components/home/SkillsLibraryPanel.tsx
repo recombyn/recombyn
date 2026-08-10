@@ -289,7 +289,8 @@ function SkillsLibraryPanel(): ReactNode {
     ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items || []) as DesignSkillCard[];
   const mine = items.filter((x) => x.mine);
   const official = items.filter((x) => !x.mine);
-  const loading = skillsQuery.isPending;
+  const loading =
+    skillsQuery.isPending || (skillsQuery.isFetching && items.length === 0);
 
   const skillsPickerQueryKey = apiQuery.designDesignSkillsPicker.queryKey({
     input: SKILLS_PICKER_INPUT,

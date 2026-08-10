@@ -372,8 +372,25 @@ def update_dialogue_after_run(
     ar = assistant_facing_text(assistant_reply or "", max_chars=per)
     if ar:
         incoming.extend(extract_facts_from_text(role="assistant", text=ar))
-    if tool_ops_applied and intent in ("edit", "create"):
-        incoming.append({"kind": "decision", "text": f"本轮已落笔（intent={intent})"[:80]})
+    if tool_ops_applied and intent in ("edit", "create", "canvas_op", "design"):
+        ops_hint = ""
+        if isinstance(tool_ops_applied, list) and tool_ops_applied:
+            names: list[str] = []
+            for op in tool_ops_applied[:6]:
+                if isinstance(op, dict):
+                    n = str(op.get("name") or op.get("op") or "").strip()
+                    if n:
+                        names.append(n)
+                elif isinstance(op, str) and op.strip():
+                    names.append(op.strip())
+            if names:
+                ops_hint = "：" + ",".join(names[:6])
+        incoming.append(
+            {
+                "kind": "decision",
+                "text": f"本轮已落笔（intent={intent}{ops_hint})"[:120],
+            }
+        )
 
     state = fold_turns_into_dialogue(
         dialogue,

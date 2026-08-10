@@ -44,28 +44,32 @@ def _normalize_ref_images(
     """Keep valid data-URL / https reference images; drop oversized payloads.
 
     Limits come from Admin ``agent.attach.max_images`` /
-    ``agent.attach.max_data_url_chars`` (or explicit kwargs). Empty Admin → 0
-    (no images / reject data-URLs) — no code defaults.
+    ``agent.attach.max_data_url_chars`` (or explicit kwargs).
+    Missing Admin keys fall back to seed defaults (4 / 2.5M) — empty used to
+    mean 0 and silently stripped every attachment (ref-UI paint saw no pixels).
     """
+    # Match apps/api/seeds/stage_rule_defaults.json
+    _FALLBACK_MAX_IMAGES = 4
+    _FALLBACK_MAX_DATA_URL_CHARS = 2_500_000
     rules = rules or {}
     if limit is None:
         raw_lim = str(rules.get("agent.attach.max_images") or "").strip()
         if not raw_lim:
-            limit = 0
+            limit = _FALLBACK_MAX_IMAGES
         else:
             try:
                 limit = max(0, int(raw_lim))
             except ValueError:
-                limit = 0
+                limit = _FALLBACK_MAX_IMAGES
     if max_data_url_chars is None:
         raw_chars = str(rules.get("agent.attach.max_data_url_chars") or "").strip()
         if not raw_chars:
-            max_data_url_chars = 0
+            max_data_url_chars = _FALLBACK_MAX_DATA_URL_CHARS
         else:
             try:
                 max_data_url_chars = max(0, int(raw_chars))
             except ValueError:
-                max_data_url_chars = 0
+                max_data_url_chars = _FALLBACK_MAX_DATA_URL_CHARS
     out: list[str] = []
     for img in images or []:
         if not isinstance(img, str):
@@ -79,9 +83,9 @@ def _normalize_ref_images(
             out.append(s)
         elif s.startswith("https://") or s.startswith("http://"):
             out.append(s)
-        if len(out) >= max(0, int(limit or 0)):
+        if limit > 0 and len(out) >= limit:
             break
-    return out
+    return out[:limit] if limit > 0 else []
 
 
 def _attached_images_prompt_note(

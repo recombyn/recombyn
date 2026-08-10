@@ -113,17 +113,19 @@
       "kind": "create",
       "label": "Create image",
       "sort_order": 40,
-      "model_hint": "Add an image node. Args: src|url or attachmentIndex (user attach), x,y,width,height. Or genPrompt for AI image hydrate. Optional letteringText=visible text in the image (helps later replaceText). Finished poster refs with baked text: STYLE only — prefer genPrompt clean bg, not full-bleed attachmentIndex. Lettering gate: use create_text+fontFamily only if Available fonts match the needed look ~≥90%; otherwise (esp. hero/main title) genPrompt + letteringText. Do not hardcode brush/calligraphy mood → catalog calligraphy font.",
+      "model_hint": "Add an image node. Args: src|url or attachmentIndex (user attach), x,y,width,height. Or genPrompt for AI image hydrate. Optional letteringText=visible text in the image (helps later replaceText). Optional removeBg=true|cutoutMode=product|hair — host auto-cutouts after gen (required for ecommerce product plates so no white box remains). Atmosphere/poster heroes: genPrompt must be SCENE ONLY — no baked titles/dates/logos; put copy in create_text. Finished poster refs with baked text: STYLE only — prefer genPrompt clean bg, not full-bleed attachmentIndex. Lettering gate: use create_text+fontFamily only if Available fonts match the needed look ~≥90%; otherwise (esp. hero/main title) genPrompt + letteringText. Do not hardcode brush/calligraphy mood → catalog calligraphy font.",
       "args_schema": {
         "src": "string?",
         "attachmentIndex": "number?",
         "genPrompt": "string?",
         "letteringText": "string?",
+        "removeBg": "boolean?",
+        "cutoutMode": "product|hair?",
         "x": "number",
         "y": "number",
         "width": "number",
         "height": "number",
-        "_rev": "image-lettering-90pct-1"
+        "_rev": "image-cutout-product-1"
       }
     },
     {
@@ -165,7 +167,7 @@
       "kind": "create",
       "label": "Create icon",
       "sort_order": 55,
-      "model_hint": "Compact SVG mark (same as create_svg). Prefer viewBox 0 0 24 24; valid path d only. For icons that need cutouts/combines, prefer create_shape + boolean_op or pen instead of one giant path.",
+      "model_hint": "Compact SVG mark (same as create_svg). REQUIRED: non-empty svg string with <svg viewBox=\"0 0 24 24\"> and at least one <path d=\"…\"> (or simple shapes). Prefer viewBox 0 0 24 24; valid path d only. NEVER use emoji/text as the mark — that is create_text, not create_icon. Empty svg is rejected. For icons that need cutouts/combines, prefer create_shape + boolean_op or pen instead of one giant path.",
       "args_schema": {
         "svg": "string (SVG markup, viewBox 0 0 24 24 preferred)",
         "x": "number",
@@ -408,12 +410,14 @@
     },
     "create_image": {
       "must_contain": [
-        "image-lettering-90pct-1",
+        "image-cutout-product-1",
         "~≥90%",
-        "letteringText"
+        "letteringText",
+        "removeBg"
       ],
       "stale_if_contains": [
-        "ONLY when Needed style is NOT in Available fonts"
+        "ONLY when Needed style is NOT in Available fonts",
+        "image-lettering-90pct-1"
       ]
     },
     "create_icon": {

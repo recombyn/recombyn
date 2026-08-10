@@ -191,18 +191,23 @@ def _is_lean_paint_turn(rt: Any) -> bool:
         return False
     if normalize_user_intent(getattr(rt, "classified_intent", None)) == "canvas_op":
         return True
-    return _prompt_compact_len(getattr(rt, "prompt", None)) <= _LEAN_PAINT_PROMPT_CHARS
+    prompt = getattr(rt, "prompt", None)
+    # Missing/empty prompt is not lean — avoid skipping Review on bare mocks/hosts.
+    if not str(prompt or "").strip():
+        return False
+    return _prompt_compact_len(prompt) <= _LEAN_PAINT_PROMPT_CHARS
 
 def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
     """Structural paint tool kit — not hard-coded to one shape type.
 
     - Always: create_shape + create_text.
     - create_frame: design-grade create on empty / no artboard — not canvas_op adds.
+    - create_icon / create_svg: UI glyphs & marks (else models fake icons with emoji text).
     - create_image: attachments **or** create/design turns (genPrompt hero / lettering).
     - create_lottie: create/design turns (motion / looping UI icons) — must be in TOOL_DETAILS
       or the model silently falls back to create_image.
     - update/delete when paint_lane=edit and scene has nodes.
-    - Plus any tools already requested via need_tools.
+    - Plus preferred_tools from loaded skills and any tools already in tools_loaded.
     """
     from app.services.design.runtime.graph.turns import _resolve_paint_want
     st = rt.run
@@ -222,6 +227,11 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
     allow_frame = classified == "design" and want == "create"
     if allow_frame:
         keys.insert(0, "create_frame")
+    # Glyph tools must be visible or paint substitutes emoji / multi-shape decoys.
+    if want in ("create", "edit"):
+        for k in ("create_icon", "create_svg"):
+            if k not in keys:
+                keys.append(k)
     # Without this, no-ref poster create never sees create_image in TOOL_DETAILS
     # and falls back to shape-only "programmer art".
     if has_images or want == "create":
@@ -234,11 +244,27 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
             if k not in keys:
                 keys.append(k)
 
+    # Loaded skill preferred_tools → TOOL_DETAILS (icon_set / mobile_app_ui / …).
+    skill_keys = [str(k).strip() for k in (st.skills_loaded or []) if str(k).strip()]
+    if skill_keys:
+        try:
+            from app.services.design.prompts.skill_store import preferred_tools_allowlist
+
+            allow = preferred_tools_allowlist(
+                skill_keys, scene=str(getattr(rt, "scene_key", None) or "website")
+            )
+            if allow:
+                for k in sorted(allow):
+                    if k and k not in keys:
+                        keys.append(k)
+        except Exception:
+            _log.debug("preferred_tools merge skipped", exc_info=True)
+
     for raw in st.tools_loaded or []:
         k = str(raw or "").strip()
         if k and k not in keys:
             keys.append(k)
-    return keys[:10]
+    return keys[:14]
 
 def _ensure_paint_tool_details(rt: Any) -> None:
     """Guarantee TOOL_DETAILS before the paint stage (no narrate-only escape)."""
@@ -259,18 +285,33 @@ def _ensure_paint_tool_details(rt: Any) -> None:
             st.tools_loaded.append(k)
 
 def _paint_ops_system(rt: Any) -> str:
-    """Paint stage system via assemble_stage_system (pack-only)."""
+    """Paint stage system via assemble_stage_system (pack-only).
+
+    Fonts catalog only when create_text / create path may need typefaces —
+    Decide never gets fonts (keeps decide tokens lean).
+    """
     flags = getattr(rt, "flags", None)
     if not isinstance(flags, dict):
         flags = {}
     ask_mode = str(flags.get("mode") or "").strip().lower() == "ask"
     fonts_block = ""
+    want_fonts = True
     try:
-        from app.services.fonts_store import format_fonts_catalog
+        from app.services.design.runtime.graph.turns import _resolve_paint_want
 
-        fonts_block = format_fonts_catalog()
+        want = _resolve_paint_want(rt)
+        lean = _is_lean_paint_turn(rt)
+        # Lean canvas_op rarely needs font catalog; skip when edit-only short ops.
+        want_fonts = not lean or want == "create"
     except Exception:
-        fonts_block = ""
+        want_fonts = True
+    if want_fonts:
+        try:
+            from app.services.fonts_store import format_fonts_catalog
+
+            fonts_block = format_fonts_catalog()
+        except Exception:
+            fonts_block = ""
     return assemble_stage_system(
         rt.rules,
         stage="paint",
@@ -278,6 +319,7 @@ def _paint_ops_system(rt: Any) -> str:
         persona=str(getattr(rt, "persona", "") or ""),
         catalog_blocks=[fonts_block] if fonts_block else None,
     )
+
 
 def _paint_ops_user(rt: Any) -> str:
     from app.services.design.runtime.graph.turns import _thought_prompt_variables
@@ -290,9 +332,11 @@ def _paint_ops_user(rt: Any) -> str:
     focus_frame = _focus_frame_from_rt(rt)
     spatial_hint = _format_spatial_placement(spatial, focus_frame=focus_frame)
     lean = _is_lean_paint_turn(rt)
-    # Lean: tools + scene only — drop long skill essays for short adds.
+    # Lean: tools + scene digest only — drop full SCENE_NODES JSON dump.
     if lean:
         pending = str(getattr(rt, "pending_tool_details", "") or "").strip()
+        if len(pending) > 4_000:
+            pending = pending[:4_000] + "\n…(tools truncated)"
     else:
         pending = vars_["pending_blocks"]
     parts = [
@@ -303,9 +347,36 @@ def _paint_ops_user(rt: Any) -> str:
         spatial_hint,
         pending,
     ]
+    brief = str(getattr(rt, "design_brief", "") or "").strip()
+    if brief and not lean:
+        parts.append(
+            "DESIGN_BRIEF (authoritative — execute this; genPrompt must match):\n"
+            + brief[:3000]
+        )
     if not lean:
         parts.append(vars_["plan_block"])
-        parts.append(vars_["edit_context"])
+        # Cap edit dump — digest already lists nodes; avoid 16k double SCENE.
+        edit_ctx = str(vars_.get("edit_context") or "").strip()
+        if edit_ctx:
+            parts.append(edit_ctx[:2500])
+    else:
+        prompt_l = str(getattr(rt, "prompt", "") or "").lower()
+        need_color_ctx = any(
+            k in prompt_l
+            for k in ("色", "绿", "红", "蓝", "color", "delete", "删", "去掉", "移除")
+        )
+        reflecting = bool(str(getattr(rt.run, "reflect_note", "") or "").strip())
+        if need_color_ctx or reflecting:
+            mem = str(vars_.get("memory_block") or "").strip()
+            if mem:
+                parts.append(mem[:1500])
+            dial = str(vars_.get("recent_dialogue") or "").strip()
+            if dial:
+                parts.append(dial[:1200])
+        parts.append(
+            "DELETE SAFETY: never delete_nodes an artboard/frame id "
+            "(use delete_frame). COLOR: match user color intent via SCENE fill/stroke."
+        )
     parts.append(vars_["error_block"])
     parts.append("Emit PaintOpsSchema now: non-empty tool_ops first.")
     return "\n\n".join(p for p in parts if str(p or "").strip())

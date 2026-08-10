@@ -100,19 +100,6 @@ def _wallet_and_fast_observe(monkeypatch):
         0.05,
     )
 
-    async def _ux(_rt: Any, **_k: Any) -> str:
-        return "ok"
-
-    monkeypatch.setattr(
-        "app.services.design.runtime.graph.nodes.apply._llm_ux_reply",
-        _ux,
-    )
-    monkeypatch.setattr(
-        "app.services.design.runtime.graph.llm_io._llm_ux_reply",
-        _ux,
-        raising=False,
-    )
-
 
 def _agent(**kwargs: Any) -> list[dict[str, Any]]:
     return asyncio.run(

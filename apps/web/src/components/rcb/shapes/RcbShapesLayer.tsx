@@ -17,6 +17,7 @@ import {
 import { nodeLeftTop, sceneSurfaceSvgProps } from '@/components/rcb/scene/paint/sceneToSvg';
 import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import { parseSimplePathPoints } from '@/components/rcb/tools/pencilBrushes';
 import RcbShapeHost from './RcbShapeHost';
 
 type Props = {
@@ -56,6 +57,27 @@ const MAX_PROXY_PAINT = 4096;
 /** Below this zoom, prefer proxies for most on-screen nodes. */
 const LOD_ZOOM_FAR = 0.42;
 
+/** Cap centerline samples when stroking a dense pencil path as LOD ink. */
+const LOD_STROKE_MAX_PTS = 64;
+
+function isTransparentPaint(v: unknown): boolean {
+  const s = String(v ?? '')
+    .trim()
+    .toLowerCase();
+  return !s || s === 'none' || s === 'transparent' || s === 'rgba(0,0,0,0)';
+}
+
+/** Pencil / open strokes must never become solid AABB 色块 at far zoom. */
+export function lodProxyIsStrokeOnly(node: SceneNodeInput): boolean {
+  const a = node?.attrs || {};
+  const t = String(a.shapeType || '');
+  if (t === 'pencil' || t === 'pen' || t === 'line' || t === 'arrow') return true;
+  if (t === 'path' || String(node?.key || '') === 'path') {
+    return isTransparentPaint(a['fill-color'] ?? a.fill);
+  }
+  return false;
+}
+
 function nodeProxyFill(node: SceneNodeInput): string {
   const a = node?.attrs || {};
   for (const k of ['fill-color', 'fill', 'color', 'border-color', 'stroke'] as const) {
@@ -63,6 +85,47 @@ function nodeProxyFill(node: SceneNodeInput): string {
     if (typeof v === 'string' && v && v !== 'none' && v !== 'transparent') return v;
   }
   return '#94a3b8';
+}
+
+function nodeProxyStrokeWidth(node: SceneNodeInput, zoom: number): number {
+  const a = node?.attrs || {};
+  const raw = Number(a['stroke-width'] ?? a.strokeWidth ?? a.borderWidth ?? 2);
+  const w = Number.isFinite(raw) && raw > 0 ? raw : 2;
+  // Keep far-zoom ink visible but thin — avoid fat AABB slabs.
+  return Math.max(0.75, Math.min(6, w * Math.max(0.35, zoom || 1)));
+}
+
+/**
+ * Subsample path centerline into ctx stroke. Returns false if path unusable
+ * (caller may skip rather than fillRect a scribble AABB).
+ */
+function strokeLodCenterline(
+  ctx: CanvasRenderingContext2D,
+  d: string,
+  maxPts = LOD_STROKE_MAX_PTS
+): boolean {
+  const trimmed = String(d || '').trim();
+  if (!trimmed) return false;
+  // Dense freehand: subsample centerline (avoid parsing megabyte paths every frame).
+  const pts = parseSimplePathPoints(trimmed);
+  if (pts.length < 2) return false;
+  const step = Math.max(1, Math.ceil(pts.length / maxPts));
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < pts.length; i += step) {
+    const p = pts[i];
+    if (!p) continue;
+    if (!started) {
+      ctx.moveTo(p.x, p.y);
+      started = true;
+    } else {
+      ctx.lineTo(p.x, p.y);
+    }
+  }
+  const last = pts[pts.length - 1];
+  if (last && started) ctx.lineTo(last.x, last.y);
+  ctx.stroke();
+  return started;
 }
 
 function isHeavyPathNode(node: SceneNodeInput): boolean {
@@ -84,7 +147,8 @@ function hostBudget(opts: {
 }): number {
   const { zoom, moving, visibleCount } = opts;
   const far = zoom < LOD_ZOOM_FAR;
-  if (far) return Math.min(MAX_FULL_HOSTS, 40);
+  // Far zoom: prefer Canvas2D stroke/fill proxies over many SVG hosts.
+  if (far) return Math.min(MAX_FULL_HOSTS, 24);
   if (moving && visibleCount >= EFFICIENT_ZOOM_SHAPE_THRESHOLD) {
     return Math.min(MAX_FULL_HOSTS, 56);
   }
@@ -163,14 +227,20 @@ export function pickFullAndProxyIds(opts: {
   return { fullIds, proxyIds };
 }
 
+/**
+ * Far zoom / dense views: one Canvas2D LOD batch — stroke centerlines for
+ * pencil/pen/path, AABB fill only for true filled shapes (no scribble 色块).
+ * z-index comes from document order among proxyIds.
+ */
 function paintLodProxiesCanvas(opts: {
   canvas: HTMLCanvasElement;
   document: SceneDocument;
   proxyIds: string[];
   hiddenNodeId: string | null;
   view: { minX: number; minY: number; w: number; h: number };
+  zoom: number;
 }) {
-  const { canvas, document: sceneDoc, proxyIds, hiddenNodeId, view } = opts;
+  const { canvas, document: sceneDoc, proxyIds, hiddenNodeId, view, zoom } = opts;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const dpr = Math.max(1, Math.min(3, globalThis.devicePixelRatio || 1));
@@ -186,6 +256,8 @@ function paintLodProxiesCanvas(opts: {
   ctx.clearRect(0, 0, cssW, cssH);
   ctx.save();
   ctx.translate(-view.minX, -view.minY);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   for (const id of proxyIds) {
     const node = sceneDoc?.deltaSetLike?.[id];
     if (!node || isNodeHidden(node) || hiddenNodeId === id) continue;
@@ -195,16 +267,42 @@ function paintLodProxiesCanvas(opts: {
     const angle = Number(node.attrs?.angle) || 0;
     const fill = nodeProxyFill(node);
     const opacity = Math.min(1, Math.max(0.15, Number(node.attrs?.opacity) || 1));
+    const strokeOnly = lodProxyIsStrokeOnly(node);
+    const pathD = String(node.attrs?.path || node.attrs?.d || '');
     ctx.save();
     ctx.globalAlpha = opacity;
-    ctx.fillStyle = fill;
     if (Math.abs(angle) > 0.5) {
       const cx = left + w / 2;
       const cy = top + h / 2;
       ctx.translate(cx, cy);
       ctx.rotate((angle * Math.PI) / 180);
-      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.translate(-w / 2, -h / 2);
+      if (strokeOnly) {
+        ctx.strokeStyle = fill;
+        ctx.lineWidth = nodeProxyStrokeWidth(node, zoom);
+        if (!strokeLodCenterline(ctx, pathD)) {
+          // Unparseable stroke — thin line on long axis, never a filled AABB.
+          ctx.beginPath();
+          ctx.moveTo(0, h / 2);
+          ctx.lineTo(w, h / 2);
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = fill;
+        ctx.fillRect(0, 0, w, h);
+      }
+    } else if (strokeOnly) {
+      ctx.translate(left, top);
+      ctx.strokeStyle = fill;
+      ctx.lineWidth = nodeProxyStrokeWidth(node, zoom);
+      if (!strokeLodCenterline(ctx, pathD)) {
+        ctx.beginPath();
+        ctx.moveTo(0, h / 2);
+        ctx.lineTo(w, h / 2);
+        ctx.stroke();
+      }
     } else {
+      ctx.fillStyle = fill;
       ctx.fillRect(left, top, w, h);
     }
     ctx.restore();
@@ -216,7 +314,7 @@ function paintLodProxiesCanvas(opts: {
  * Renders each ROOT child as its own SVG shape host (sharp under CSS camera zoom).
  * Canvas Path2D is only used by selection indicators / draw-tool overlays.
  * Off-viewport nodes are not mounted (lazy paint); selected/editing stay alive.
- * Far zoom / dense views: one Canvas2D AABB proxy batch (capped).
+ * Far zoom / dense views: one Canvas2D LOD batch (stroke for pencil; AABB for fills).
  * z-index comes from document.stackOrder so shapes can interleave with artboards.
  */
 function RcbShapesLayer({
@@ -390,8 +488,9 @@ function RcbShapesLayer({
       proxyIds,
       hiddenNodeId,
       view: lodViewport,
+      zoom: camera.zoom,
     });
-  }, [document, proxyIds, hiddenNodeId, lodViewport]);
+  }, [document, proxyIds, hiddenNodeId, lodViewport, camera.zoom]);
 
   if (!document || !visibleIds.length) return null;
 

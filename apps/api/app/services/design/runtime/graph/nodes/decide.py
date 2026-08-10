@@ -21,12 +21,12 @@ from app.services.design.runtime.graph.support import (
     _clip_llm_raw,
     _commit,
     _emit,
+    _emit_ux_tip,
     _flush_host_events,
     _format_thought_messages,
     _goto_cmd,
     _interaction_mode_rules_pack,
     _llm_io_fields,
-    _llm_ux_reply,
     _parse_agent_turn,
     _persist_progress,
     _resolve_and_log_model,
@@ -41,6 +41,63 @@ from app.services.design.runtime.graph.support import (
 from app.services.design.runtime.host import assemble_stage_system
 from app.services.design.runtime.host.resources import load_deferred_resources
 from app.services.design.runtime.agent_profile import resolve_contract_schema
+
+
+def _extract_design_brief(turn: dict[str, Any] | None, rt: AgentRuntime) -> str:
+    t = turn if isinstance(turn, dict) else {}
+    brief = str(
+        t.get("design_brief") or t.get("designBrief") or getattr(rt, "design_brief", "") or ""
+    ).strip()
+    return brief[:4000]
+
+
+def _requires_design_brief(rt: AgentRuntime, intent: str) -> bool:
+    """Create / design always; complex edit when scout/skills/refs informed the turn."""
+    intent_l = str(intent or "").strip().lower()
+    if intent_l in ("chat", "ask", "done", ""):
+        return False
+    if intent_l in ("create", "design"):
+        return True
+    if intent_l != "edit":
+        return False
+    try:
+        from app.services.design.runtime.graph.paint_kit import _is_lean_paint_turn
+
+        if _is_lean_paint_turn(rt):
+            return False
+    except Exception:
+        pass
+    if str(getattr(rt, "pending_subagent_details", "") or "").strip():
+        return True
+    if str(getattr(rt, "pending_skill_details", "") or "").strip():
+        return True
+    return bool(getattr(rt, "images", None))
+
+
+def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int) -> str:
+    brief = _extract_design_brief(turn, rt)
+    if not brief:
+        return ""
+    rt.design_brief = brief
+    st = rt.run
+    st.push_log(
+        phase="design_brief",
+        summary=(brief[:160] + ("…" if len(brief) > 160 else "")),
+        chars=len(brief),
+    )
+    _emit(
+        {
+            "type": "activity",
+            "id": f"design-brief-{round_i}",
+            "kind": "explored",
+            "status": "done",
+            "summary": ("DESIGN_BRIEF: " + brief[:120])[:200],
+            "index": round_i,
+        }
+    )
+    _emit({"type": "analysis_delta", "text": ("DESIGN_BRIEF\n" + brief)[:1200]})
+    return brief
+
 
 async def _node_resource(state: GraphState) -> Command:
     rt = state["rt"]
@@ -91,7 +148,7 @@ async def _node_design_agent(state: GraphState) -> Command:
         )
         lc_system, user_msg = _format_thought_messages(rt)
         if not str(lc_system or "").strip():
-            # 配提示词：decide 阶段唯一入口（无 A or B or C 兜底链）
+            # Decide stage prompt assembly — single entry (no A/B/C fallback chain).
             lc_system = assemble_stage_system(
                 rt.rules,
                 stage="decide",
@@ -168,7 +225,7 @@ async def _node_design_agent(state: GraphState) -> Command:
             st.push_log(
                 phase="design_agent",
                 error=str(err)[:200],
-                summary="决策回合失败",
+                summary="decide turn failed",
                 duration_ms=max(0, int((time.perf_counter() - t_decide) * 1000)),
             )
             _emit(
@@ -180,14 +237,7 @@ async def _node_design_agent(state: GraphState) -> Command:
                     "tokens": 0
                 }
             )
-            fail = await _llm_ux_reply(
-                rt,
-                situation="The design model failed this turn; ask the user to retry.",
-                facts=str(err)[:160],
-            )
-            if fail:
-                st.reply = fail
-                _emit({"type": "token", "text": fail})
+            _emit_ux_tip(rt, "decide_failed")
             rt.terminal = True
             return Command(update=_bump(rt), goto="__settle__")
 
@@ -241,45 +291,13 @@ async def _node_design_agent(state: GraphState) -> Command:
             or turn.get("need_skills")
             or turn.get("need_subagents")
         )
-        if not need_any:
-            # Auto-triggers (vision_scout / research) even when model omitted need_*.
-            from app.services.design.runtime.host.resources import _canvas_is_empty
-            from app.services.design.runtime.subagent import resolve_auto_need_subagents
-            from app.services.design.runtime.agent_profile import (
-                get_active_agent_profile,
-            )
-
-            auto = resolve_auto_need_subagents(
-                profile=get_active_agent_profile(),
-                has_images=bool(rt.images),
-                empty_canvas=_canvas_is_empty(rt),
-                intent=str(intent or rt.classified_intent or "create"),
-                prompt_chars=len(str(rt.prompt or "").strip()),
-                already=list(getattr(st, "subagents_loaded", None) or []),
-                existing=[],
-            )
-            if auto:
-                turn["need_subagents"] = auto
-                rt.turn = turn
-                need_any = True
         if need_any:
             await _node_resource(state)
             # Ask: after tools/skills land, decide again (clarify or paint).
             if ask_mode:
                 st.round = round_i + 1
                 continue
-            # Agent: resources ready → paint when this is canvas work.
-            if _should_route_to_paint(
-                classified=str(rt.classified_intent or ""),
-                turn_intent=str(intent or rt.classified_intent or "create"),
-                has_clarify=False,
-                ask_mode=False,
-            ):
-                st.intent = _resolve_paint_want(rt, intent)
-                # Stash only — stream after paint actually sends tool_ops.
-                if reply and len(reply) <= 80:
-                    st.reply = reply
-                return Command(update=_bump(rt), goto="paint_ops")
+            # Agent: skills/tools just landed — decide again for design_brief; no paint skip.
             st.round = round_i + 1
             continue
 
@@ -291,6 +309,24 @@ async def _node_design_agent(state: GraphState) -> Command:
             rt.flags["await_user"] = True
             rt.terminal = True
             return Command(update=_bump(rt), goto="__settle__")
+
+        brief = _stash_design_brief(rt, turn, round_i=round_i)
+        if (
+            _should_route_to_paint(
+                classified=str(rt.classified_intent or ""),
+                turn_intent=intent,
+                has_clarify=has_clarify,
+                ask_mode=ask_mode,
+            )
+            and _requires_design_brief(rt, intent)
+            and not brief
+        ):
+            st.note_error(
+                "MISSING_DESIGN_BRIEF: emit non-empty design_brief "
+                "(paint/review contract) then paint. tool_ops stay empty here."
+            )
+            st.round = round_i + 1
+            continue
 
         if _should_route_to_paint(
             classified=str(rt.classified_intent or ""),

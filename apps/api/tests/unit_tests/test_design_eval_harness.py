@@ -79,7 +79,7 @@ def test_eval_checkpoint_shape():
     assert "tool_ops" in event_types(events)
 
 
-def test_spatial_stacked_and_ignored_suggest(monkeypatch):
+def test_spatial_stacked_creates(monkeypatch):
     monkeypatch.setattr(observe_mod, "_critique_enabled", lambda: True)
     rt = _rt(
         spatial_summary={
@@ -98,7 +98,8 @@ def test_spatial_stacked_and_ignored_suggest(monkeypatch):
         ],
     )
     issues = observe_mod._spatial_grounding_issues(rt)
-    assert any("stacked" in x or "cramped" in x or "suggested_place" in x for x in issues)
+    assert any("stacked" in x for x in issues)
+    assert not any("cramped" in x for x in issues)
 
 
 def test_ask_proposal_resolve_roundtrip(monkeypatch):

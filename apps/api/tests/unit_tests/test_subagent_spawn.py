@@ -61,7 +61,7 @@ def test_format_subagent_results():
     assert "#f00" in text
 
 
-def test_resolve_auto_need_subagents():
+def test_resolve_auto_need_subagents_noop():
     from app.services.design.runtime.agent_profile import load_agent_profile
     from app.services.design.runtime.subagent import resolve_auto_need_subagents
 
@@ -75,7 +75,7 @@ def test_resolve_auto_need_subagents():
         already=[],
         existing=[],
     )
-    assert any(j["id"] == "vision_scout" for j in with_img)
+    assert with_img == []
 
     text_only = resolve_auto_need_subagents(
         profile=prof,
@@ -86,18 +86,18 @@ def test_resolve_auto_need_subagents():
         already=[],
         existing=[],
     )
-    assert any(j["id"] == "research" for j in text_only)
+    assert text_only == []
 
-    skipped = resolve_auto_need_subagents(
+    kept = resolve_auto_need_subagents(
         profile=prof,
         has_images=True,
         empty_canvas=True,
         intent="create",
         prompt_chars=20,
-        already=["vision_scout"],
-        existing=[],
+        already=[],
+        existing=[{"id": "review", "task": "x", "background": False}],
     )
-    assert skipped == []
+    assert len(kept) == 1 and kept[0]["id"] == "review"
 
 
 def test_background_spawn_and_harvest(monkeypatch):
@@ -117,9 +117,9 @@ def test_background_spawn_and_harvest(monkeypatch):
 
     async def _run() -> None:
         jid = spawn_subagent_background(
-            agent_id="vision_scout",
-            task="look",
-            rules={"precheck.vision_model": "vision-x"},
+            agent_id="review",
+            task="check",
+            rules={"agent.review.model": "review-x"},
             profile=load_agent_profile("design.canvas"),
         )
         assert jid
@@ -149,18 +149,18 @@ def test_background_result_redis_roundtrip(monkeypatch):
 
     monkeypatch.setattr(sa, "_bg_redis", lambda: _FakeRedis())
     res = SubAgentResult(
-        agent_id="research",
+        agent_id="review",
         ok=True,
         summary="ok",
-        payload={"audience": "founders"},
+        payload={"verdict": "pass"},
         job_id="jobdeadbeef",
     )
     sa._persist_bg_result("jobdeadbeef", res)
     clear_subagent_background_jobs()
     loaded = get_subagent_job("jobdeadbeef")
     assert loaded is not None
-    assert loaded.ok and loaded.agent_id == "research"
-    assert loaded.payload.get("audience") == "founders"
+    assert loaded.ok and loaded.agent_id == "review"
+    assert loaded.payload.get("verdict") == "pass"
 
 
 def test_canvas_ops_graph_includes_review_node():

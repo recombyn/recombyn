@@ -221,7 +221,7 @@ function AssetPanel({
     setPreview(asset);
   };
 
-  const onCardDragStart = (e: ReactDragEvent<HTMLDivElement>, asset: UserAsset) => {
+  const onCardDragStart = (e: ReactDragEvent<HTMLElement>, asset: UserAsset) => {
     const url = String(asset.url || '').trim();
     if (!isDraggableMediaKind(asset.kind) || !url) {
       e.preventDefault();

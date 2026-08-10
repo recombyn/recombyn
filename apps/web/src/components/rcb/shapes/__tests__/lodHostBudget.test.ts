@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickFullAndProxyIds } from '../RcbShapesLayer';
+import { lodProxyIsStrokeOnly, pickFullAndProxyIds } from '../RcbShapesLayer';
 import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
@@ -72,7 +72,7 @@ describe('pickFullAndProxyIds', () => {
       moving: true,
     });
     expect(fullIds).toContain('n0');
-    expect(fullIds.length).toBeLessThanOrEqual(40);
+    expect(fullIds.length).toBeLessThanOrEqual(24);
     expect(proxyIds.length).toBeGreaterThan(0);
     expect(fullIds.length + proxyIds.length).toBe(120);
   });
@@ -91,7 +91,7 @@ describe('pickFullAndProxyIds', () => {
       maxProxies: 128,
     });
     expect(fullIds).toContain('n0');
-    expect(fullIds.length).toBeLessThanOrEqual(40);
+    expect(fullIds.length).toBeLessThanOrEqual(24);
     expect(proxyIds.length).toBeLessThanOrEqual(128);
     expect(fullIds.length + proxyIds.length).toBeLessThan(5000);
   });
@@ -113,5 +113,26 @@ describe('pickFullAndProxyIds', () => {
     });
     expect(fullIds).toContain('big');
     expect(proxyIds).toContain('heavy');
+  });
+});
+
+describe('lodProxyIsStrokeOnly', () => {
+  it('treats pencil/pen/line as stroke-only (no AABB fill)', () => {
+    expect(lodProxyIsStrokeOnly({ attrs: { shapeType: 'pencil' } } as any)).toBe(true);
+    expect(lodProxyIsStrokeOnly({ attrs: { shapeType: 'pen' } } as any)).toBe(true);
+    expect(lodProxyIsStrokeOnly({ attrs: { shapeType: 'line' } } as any)).toBe(true);
+  });
+
+  it('treats unfilled path as stroke-only; filled rect as fill proxy', () => {
+    expect(
+      lodProxyIsStrokeOnly({
+        attrs: { shapeType: 'path', path: 'M0 0 L10 10', 'fill-color': 'none' },
+      } as any)
+    ).toBe(true);
+    expect(
+      lodProxyIsStrokeOnly({
+        attrs: { shapeType: 'rect', 'fill-color': '#abc' },
+      } as any)
+    ).toBe(false);
   });
 });

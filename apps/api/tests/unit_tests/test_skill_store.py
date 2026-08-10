@@ -29,6 +29,7 @@ from app.services.design.prompts.skill_store import (
     validate_against_schema,
     validate_skill_meta,
 )
+from app import crud
 
 
 def setup_function() -> None:
@@ -42,13 +43,13 @@ def setup_function() -> None:
 def test_skills_catalog_and_details_roundtrip():
     catalog = format_skills_catalog(scene="website")
     assert "need_skills" in catalog
-    assert "design_methodology" in catalog
-    assert "core" in catalog
+    assert "poster_craft" in catalog
+    assert "image_gen" in catalog
     details = format_skills_details(
-        keys=["design_methodology", "canvas_edit"],
+        keys=["poster_craft", "image_gen"],
         scene="website",
     )
-    assert "skill: design_methodology" in details
+    assert "skill: poster_craft" in details
     assert "preferred_tools" in details
 
 
@@ -116,7 +117,7 @@ def test_resolve_triggered_empty_canvas_create():
         has_images=False,
         intent="create",
     )
-    assert "design_methodology" in keys
+    assert "image_gen" in keys
 
 
 def test_resolve_triggered_long_create_prompt():
@@ -127,7 +128,7 @@ def test_resolve_triggered_long_create_prompt():
         intent="create",
         prompt_chars=40,
     )
-    assert "design_methodology" in keys
+    assert "image_gen" in keys
 
 
 def test_resolve_triggered_images_create():
@@ -137,7 +138,8 @@ def test_resolve_triggered_images_create():
         has_images=True,
         intent="create",
     )
-    assert "vision_extract" in keys
+    # Look-at-image is Decide (attachments + design_brief), not a skill trigger.
+    assert "vision_extract" not in keys
 
 
 def test_resolve_triggered_skips_chat():
@@ -169,7 +171,7 @@ def test_filter_ops_allowlist():
         {"name": "align_nodes", "args": {}},
     ]
     kept, errs = filter_ops_by_skill_allowlist(
-        ops, skill_keys=["design_methodology"], scene="website"
+        ops, skill_keys=["poster_craft"], scene="website"
     )
     names = [o["name"] for o in kept]
     assert "create_shape" in names
@@ -198,11 +200,11 @@ def test_source_constants():
 
 
 def test_namespace_split_and_qualify(monkeypatch):
-    assert split_namespace_key("core.design_methodology") == (NS_CORE, "design_methodology")
+    assert split_namespace_key("core.legacy_key") == (NS_CORE, "legacy_key")
     assert split_namespace_key("user:my_brand") == (NS_USER, "my_brand")
-    assert qualify_skill_key(NS_CORE, "design_methodology") == "design_methodology"
+    assert qualify_skill_key(NS_CORE, "legacy_key") == "legacy_key"
     assert qualify_skill_key(NS_USER, "my_brand") == "user.my_brand"
-    assert resolve_storage_skill_key("core.design_methodology") == "design_methodology"
+    assert resolve_storage_skill_key("poster_craft") == "poster_craft"
     # Patch the runtime module binding (resolve_storage_skill_key calls it in-file).
     from app.services.design.prompts.skill_store import runtime as skill_runtime
 
@@ -222,29 +224,30 @@ def test_namespace_split_and_qualify(monkeypatch):
 
 
 def test_skill_pin_and_parse_need_skills():
-    assert parse_skill_pin("design_methodology@2") == ("design_methodology", 2, None)
+    assert parse_skill_pin("poster_craft@2") == ("poster_craft", 2, None)
     keys, pins, args, errs = parse_need_skills_with_pins(
         [
-            "design_methodology@2",
-            {"key": "canvas_edit", "version": 1, "args": {}},
+            "poster_craft@2",
+            {"key": "brush_ops", "version": 1, "args": {}},
         ]
     )
-    assert "design_methodology" in keys
-    assert "canvas_edit" in keys
-    assert pins.get("design_methodology") == 2
+    assert "poster_craft" in keys
+    assert "brush_ops" in keys
+    assert pins.get("poster_craft") == 2
     assert errs == []
 
 
-def test_validate_skill_meta_rejects_core_collision_for_admin():
+def test_validate_skill_meta_admin_ok_when_seed_empty():
+    """Bare keys are not core-reserved (no JSON skill seed)."""
     errs = validate_skill_meta(
         {
-            "skill_key": "design_methodology",
+            "skill_key": "poster_craft",
             "name": "x",
             "prompt_positive": "body",
         },
         source=SOURCE_ADMIN,
     )
-    assert any("core_key_reserved" in e for e in errs)
+    assert not any("core_key_reserved" in e for e in errs)
 
 
 def test_validate_against_schema_required():
@@ -258,12 +261,11 @@ def test_validate_against_schema_required():
 
 
 def test_custom_skill_acl_platform_open():
-    assert skill_resource_allowlist(["design_methodology"], scene="website") is None
+    assert skill_resource_allowlist(["poster_craft"], scene="website") is None
     assert filter_need_resources_by_skill_acl(
-        skill_keys=["design_methodology"],
+        skill_keys=["poster_craft"],
         scene="website",
     ) == []
-
 
 
 def test_hot_reload_signature_stable():
@@ -271,38 +273,77 @@ def test_hot_reload_signature_stable():
     assert reload_skills_if_disk_changed() is False
 
 
-def test_seed_sync_overwrites_core_body_from_seed():
-    """Core SOURCE_SEED skills follow git seed on ensure (seed wins)."""
-    from app.services.db import connect
+def test_file_pack_sync_overwrites_body_from_disk():
+    """SOURCE_FILE skills follow seeds/design_skills on ensure (file wins)."""
+    from sqlmodel import Session
 
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT prompt_positive, source FROM design_skill WHERE skill_key = ?",
-            ("design_methodology",),
-        ).fetchone()
+    from app.core import db as core_db
+    from app.services.design.prompts.skill_store.constants import SOURCE_FILE
+
+    with Session(core_db.engine) as session:
+        row = crud.get_design_skill_by_key(session=session, skill_key="poster_craft")
         assert row is not None
-        before = str(row["prompt_positive"] or "")
-        assert str(row["source"] or "") == SOURCE_SEED
-        assert "poster_craft" in before
-        conn.execute(
-            "UPDATE design_skill SET prompt_positive = ? WHERE skill_key = ?",
-            ("OPS_CUSTOM_BODY_SHOULD_BE_OVERWRITTEN", "design_methodology"),
-        )
-        conn.commit()
+        assert str(row.source or "") == SOURCE_FILE
+        before = str(row.prompt_positive or "")
+        assert "Poster" in before or "poster" in before.lower()
+        row.prompt_positive = "OPS_CUSTOM_BODY_SHOULD_BE_OVERWRITTEN"
+        session.add(row)
+        session.commit()
 
     reset_skills_ready_for_tests()
     ensure_design_skills(force=True)
 
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT prompt_positive, source FROM design_skill WHERE skill_key = ?",
-            ("design_methodology",),
-        ).fetchone()
-        assert str(row["source"] or "") == SOURCE_SEED
-        got = str(row["prompt_positive"] or "")
+    with Session(core_db.engine) as session:
+        row = crud.get_design_skill_by_key(session=session, skill_key="poster_craft")
+        assert row is not None
+        assert str(row.source or "") == SOURCE_FILE
+        got = str(row.prompt_positive or "")
         assert got != "OPS_CUSTOM_BODY_SHOULD_BE_OVERWRITTEN"
-        assert "poster_craft" in got
-        assert "Direction (commit once)" in got
+        assert "Workflow" in got or "Layer order" in got or "poster" in got.lower()
+
+
+def test_obsolete_seed_skills_pruned():
+    """Legacy SOURCE_SEED rows are deleted on ensure (file packs only)."""
+    from sqlmodel import Session
+
+    from app.core import db as core_db
+    from app.models import DesignSkill
+
+    with Session(core_db.engine) as session:
+        existing = crud.get_design_skill_by_key(
+            session=session, skill_key="design_methodology"
+        )
+        if existing is None:
+            session.add(
+                DesignSkill(
+                    skill_key="design_methodology",
+                    name="legacy",
+                    category="create",
+                    prompt_positive="obsolete body",
+                    source=SOURCE_SEED,
+                    namespace=NS_CORE,
+                    enabled=1,
+                    version=1,
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            session.commit()
+        else:
+            existing.source = SOURCE_SEED
+            existing.namespace = NS_CORE
+            existing.prompt_positive = "obsolete body"
+            session.add(existing)
+            session.commit()
+
+    reset_skills_ready_for_tests()
+    ensure_design_skills(force=True)
+
+    with Session(core_db.engine) as session:
+        row = crud.get_design_skill_by_key(
+            session=session, skill_key="design_methodology"
+        )
+        assert row is None
 
 
 def test_agent_skills_frontmatter_split_and_meta():
@@ -358,6 +399,18 @@ Keep this prompt.
 
 def test_oss_ext_packs_present():
     keys = {str(x.get("skill_key") or "") for x in _load_file_skills()}
-    assert "example_ext" in keys
-    for key in ("ui_ux_pro_max", "garden_style", "awesome_design_md", "shadcn_ui"):
+    for key in (
+        "garden_style",
+        "awesome_design_md",
+        "shadcn_ui",
+        "banner_ad",
+        "icon_set",
+        "type_specimen",
+        "long_scroll",
+    ):
         assert key in keys
+    assert "ui_ux_pro_max" not in keys
+    assert "vision_extract" not in keys
+    assert "canvas_edit" not in keys
+    assert "frontend_ui" not in keys
+    assert "example_ext" not in keys

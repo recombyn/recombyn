@@ -40,7 +40,7 @@ def _slim_admin_steps(
     limit: int = 48,
     io_limit: int = 2500,
 ) -> list[dict[str, Any]]:
-    """Compact Admin 运行监测 trail (path + timing + clipped I/O)."""
+    """Compact Admin run-monitor trail (path + timing + clipped I/O)."""
     keep_keys = (
         "phase",
         "node_id",
@@ -132,7 +132,7 @@ def _hydrate_log_kwargs(
         "phase": "hydrate",
         "image_model": img_mid,
         "images_hydrated": int(n_img),
-        "summary": f"Host 生图 hydrate ×{int(n_img)} · {img_mid}",
+        "summary": f"host image hydrate ×{int(n_img)} · {img_mid}",
         "hydrate_prompts": prompts,
         "llm_image_urls": _clip_urls(srcs),
         "llm_user": _clip_llm_raw(
@@ -213,10 +213,26 @@ def _scene_digest(
     if nodes:
         lines.append("SCENE_NODES:")
         for n in nodes[:limit]:
+            fill = (
+                n.get("fill")
+                or n.get("fillColor")
+                or n.get("backgroundColor")
+                or n.get("color")
+                or ""
+            )
+            stroke = n.get("stroke") or n.get("strokeColor") or ""
+            fill_s = str(fill).strip()[:48]
+            stroke_s = str(stroke).strip()[:32]
+            color_bit = ""
+            if fill_s:
+                color_bit += f" fill={fill_s}"
+            if stroke_s:
+                color_bit += f" stroke={stroke_s}"
             lines.append(
                 f"- id={n.get('id')} type={n.get('type') or n.get('key')} "
                 f"frameId={n.get('frameId') or ''} "
                 f"text={(str(n.get('text') or '')[:40])}"
+                f"{color_bit}"
             )
     return "\n".join(lines) if lines else "SCENE: empty"
 
@@ -312,7 +328,7 @@ def _persist_task_meta(task_id: str, *, decision: DesignRunDecision, state: Agen
             "consoleUrl": langfuse_console_url(task_id=task_id, trace_id=lf_trace or None),
             "taskId": task_id,
             "traceId": lf_trace or None,
-            "hint": "在 Langfuse 用 metadata.task_id 搜索本任务"
+            "hint": "Search Langfuse by metadata.task_id for this run"
         }
         # Prefer in-memory proposal from this run; else keep prior meta (settle rewrite).
         ask_proposal = None
@@ -381,7 +397,7 @@ def _bump(rt: AgentRuntime) -> dict[str, Any]:
     return {"rt": rt, "tick": int(rt.run.round) + len(rt.run.log)}
 
 def _goto_cmd(rt: AgentRuntime, *, frm: str, to: str, **extra: Any) -> Command:
-    """Log graph_hop then jump — so mid-run 复盘 shows path even before settle."""
+    """Log graph_hop then jump — mid-run Admin replay shows path before settle."""
     _log_graph_hop(rt.run, frm=frm, to=to, **extra)
     return Command(update=_bump(rt), goto=to)
 
@@ -390,7 +406,7 @@ def _commit(rt: AgentRuntime) -> Command:
     return Command(update=_bump(rt))
 
 async def _persist_progress(rt: AgentRuntime) -> None:
-    """Flush execution_log while status=running so Admin 复盘 is not empty mid-flight."""
+    """Flush execution_log while status=running so Admin replay is not empty mid-flight."""
     try:
         await asyncio.to_thread(
             _persist_task_meta,

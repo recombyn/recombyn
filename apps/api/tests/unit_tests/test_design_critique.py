@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Phase 3: post-paint critique + spatial grounding helpers."""
+"""Observe critique: host/structure only — craft lives in Skills + Review."""
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
 
 from app.services.design.runtime.graph.nodes import observe as observe_mod
 from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime
@@ -82,7 +81,8 @@ def test_critique_pass_when_nodes_present(monkeypatch):
     assert done.get("ok") is True
 
 
-def test_spatial_cramped_heuristic():
+def test_spatial_no_longer_flags_cramped_taste():
+    """Empty pockets are craft — Skills/Review; observe must not hard-fail them."""
     rt = _rt(
         spatial_summary={
             "empty_rects": [
@@ -92,12 +92,79 @@ def test_spatial_cramped_heuristic():
             ]
         },
         paint_ops=[
-            {"name": "create_rect", "args": {}},
-            {"name": "create_text", "args": {}},
+            {"name": "create_rect", "args": {"x": 100, "y": 100}},
+            {"name": "create_text", "args": {"x": 200, "y": 200}},
         ],
     )
     issues = observe_mod._spatial_grounding_issues(rt)
-    assert any("cramped" in x or "empty" in x for x in issues)
+    assert not any("cramped" in x for x in issues)
+
+
+def test_spatial_flags_stacked_creates():
+    rt = _rt(
+        spatial_summary={},
+        paint_ops=[
+            {"name": "create_text", "args": {"x": 10, "y": 10}},
+            {"name": "create_rect", "args": {"x": 12, "y": 12}},
+        ],
+    )
+    issues = observe_mod._spatial_grounding_issues(rt)
+    assert any("stacked" in x for x in issues)
+
+
+def test_skip_review_for_canvas_op_lean():
+    rt = _rt(classified_intent="canvas_op", prompt="加个红圆", images=None)
+    assert observe_mod._should_route_to_review(rt) is False
+    # Clean design first paint → auto mode skips Review (no signals / retry / taste).
+    rt2 = _rt(classified_intent="design", prompt="画一张万圣节海报" * 5, images=None)
+    assert observe_mod._should_route_to_review(rt2) is False
+
+
+def test_review_auto_gates(monkeypatch):
+    monkeypatch.setattr(observe_mod, "_review_stage_enabled", lambda: True)
+    monkeypatch.setattr(observe_mod, "_review_mode", lambda *_a, **_k: "auto")
+
+    # > lean threshold (96 compact chars) so always-mode is not skipped as short edit.
+    long_prompt = (
+        "Design a complete multi-section marketing landing page with nav, hero, "
+        "three feature blocks, testimonials, pricing table, FAQ, and footer."
+    )
+
+    clean = _rt(classified_intent="design", prompt=long_prompt, images=None)
+    assert observe_mod._should_route_to_review(clean) is False
+
+    with_signals = _rt(classified_intent="design", prompt=long_prompt, images=None)
+    assert (
+        observe_mod._should_route_to_review(
+            with_signals, signals=["creates stacked (1)"]
+        )
+        is True
+    )
+
+    taste = _rt(classified_intent="design", prompt="这个太丑了重新设计", images=None)
+    assert observe_mod._should_route_to_review(taste) is True
+
+    retry = _rt(classified_intent="design", prompt=long_prompt, images=None)
+    retry.flags["critique_failed"] = True
+    assert observe_mod._should_route_to_review(retry) is True
+
+    refs = _rt(
+        classified_intent="design",
+        prompt="参考图风格做一张海报",
+        images=["https://example.com/a.png"],
+    )
+    assert observe_mod._should_route_to_review(refs) is True
+
+    monkeypatch.setattr(observe_mod, "_review_mode", lambda *_a, **_k: "off")
+    assert observe_mod._should_route_to_review(taste) is False
+
+    monkeypatch.setattr(observe_mod, "_review_mode", lambda *_a, **_k: "always")
+    assert observe_mod._should_route_to_review(clean) is True
+    lean = _rt(classified_intent="canvas_op", prompt="加个红圆", images=None)
+    assert observe_mod._should_route_to_review(lean) is False
+    lean_taste = _rt(classified_intent="canvas_op", prompt="这个太丑了", images=None)
+    assert observe_mod._should_route_to_review(lean_taste) is True
+
 
 
 def test_critique_disabled(monkeypatch):
@@ -106,105 +173,25 @@ def test_critique_disabled(monkeypatch):
     assert observe_mod._run_post_paint_critique(rt, rt.run, round_i=0) == []
 
 
-
-
-
-
-def test_format_critique_reflect_note_craft_and_placement():
+def test_format_critique_reflect_note_structural_only():
     note = observe_mod._format_critique_reflect_note(
         [
-            "aesthetic: sparse rhythm",
-            "layout may be cramped: 3 empty regions remain",
+            "creates stacked (1 near-duplicate positions)",
+            "placement_outside_viewport",
         ]
     )
     assert "CRITIQUE" in note
-    assert "Visual craft" in note
-    assert "Placement" in note
-    assert "empty_rects" in note
+    assert "structural" in note.lower() or "Placement" in note
+    assert "Visual craft" not in note
+    assert "empty_rects" in note or "suggested_place" in note
 
 
-def test_layout_craft_flags_clip_emoji_contrast():
-    rt = _rt(
-        scene_frames=[{"id": "f1", "w": 400, "h": 600, "is_empty": False}],
-        scene_nodes=[
-            {
-                "id": "bg",
-                "type": "rect",
-                "x": 0,
-                "y": 0,
-                "w": 400,
-                "h": 200,
-                "fill": "#eeeeee",
-            },
-            {
-                "id": "t1",
-                "type": "text",
-                "x": 350,
-                "y": 10,
-                "w": 120,
-                "h": 40,
-                "fontSize": 48,
-                "text": "🎃 HALLOWEEN",
-                "fill": "#f5f5f5",
-            },
-        ],
-    )
-    issues = observe_mod._layout_craft_issues(rt)
-    joined = " ".join(issues).lower()
-    assert "clip" in joined or "overflow" in joined
-    assert "emoji" in joined or "tofu" in joined
-    assert "contrast" in joined
-
-
-def test_long_canvas_coverage_incomplete():
-    rt = _rt(
-        prompt="电商详情长图 750x2400",
-        scene_frames=[{"id": "f1", "w": 750, "h": 2400, "is_empty": False}],
-        scene_nodes=[
-            {"id": "n1", "type": "image", "x": 0, "y": 0, "w": 750, "h": 600},
-            {"id": "n2", "type": "text", "x": 40, "y": 640, "w": 600, "h": 40, "text": "title"},
-            {"id": "n3", "type": "rect", "x": 0, "y": 700, "w": 750, "h": 200},
-        ],
-    )
-    rt.run.intent = "create"
-    issues = observe_mod._long_canvas_coverage_issues(rt)
-    assert issues
-    assert "long canvas incomplete" in issues[0]
-    assert "APPEND" in issues[0]
-
-
-def test_long_canvas_coverage_ok_when_filled():
-    rt = _rt(
-        scene_frames=[{"id": "f1", "w": 750, "h": 2400, "is_empty": False}],
-        scene_nodes=[
-            {"id": "n1", "type": "image", "x": 0, "y": 0, "w": 750, "h": 900},
-            {"id": "n2", "type": "rect", "x": 0, "y": 900, "w": 750, "h": 900},
-            {"id": "n3", "type": "text", "x": 40, "y": 1900, "w": 600, "h": 80, "text": "buy"},
-        ],
-    )
-    rt.run.intent = "create"
-    assert observe_mod._long_canvas_coverage_issues(rt) == []
-
-
-def test_format_critique_reflect_note_long_canvas_and_type():
-    note = observe_mod._format_critique_reflect_note(
-        [
-            "long canvas incomplete: content ends near y=1200 of 2400",
-            "text clipped/overflow: 1 text node(s) extend past artboard",
-            "low contrast: 1 text node(s) too close to background fill",
-        ]
-    )
-    assert "Continue long page" in note
-    assert "Type:" in note
-    assert "APPEND" in note or "below" in note.lower()
-
-
-def test_critique_includes_layout_craft(monkeypatch):
+def test_critique_does_not_run_layout_craft(monkeypatch):
+    """Clip/emoji/contrast taste must not live in observe kernel."""
     emitted: list[dict] = []
     monkeypatch.setattr(observe_mod, "_emit", lambda ev: emitted.append(ev))
     monkeypatch.setattr(observe_mod, "_critique_enabled", lambda *_a, **_k: True)
     monkeypatch.setattr(observe_mod, "_spatial_grounding_issues", lambda _rt: [])
-    monkeypatch.setattr(observe_mod, "_poster_hero_issues", lambda _rt: [])
     rt = _rt(
         scene_frames=[{"id": "f1", "w": 300, "h": 400, "is_empty": False}],
         scene_nodes=[
@@ -222,7 +209,10 @@ def test_critique_includes_layout_craft(monkeypatch):
         ],
     )
     issues = observe_mod._run_post_paint_critique(rt, rt.run, round_i=0)
-    assert any("clip" in x.lower() or "overflow" in x.lower() for x in issues)
+    assert issues == []
+    assert not hasattr(observe_mod, "_layout_craft_issues")
+    assert not hasattr(observe_mod, "_poster_hero_issues")
+    assert not hasattr(observe_mod, "_long_canvas_coverage_issues")
 
 
 def test_retry_paint_from_critique_sets_reflect_note(monkeypatch):
@@ -237,12 +227,12 @@ def test_retry_paint_from_critique_sets_reflect_note(monkeypatch):
             rt,
             rt.run,
             round_i=1,
-            issues=["aesthetic: sparse rhythm", "artboard looks empty"],
+            issues=["artboard looks empty", "creates stacked (1 near-duplicate positions)"],
         )
 
     cmd = asyncio.run(_run())
     assert getattr(cmd, "goto", None) == "paint_ops"
     assert "CRITIQUE" in (rt.run.reflect_note or "")
-    assert "Visual craft" in (rt.run.reflect_note or "")
+    assert "Visual craft" not in (rt.run.reflect_note or "")
     assert rt.flags.get("critique_failed") is True
     assert rt.run.reflect_left == 1

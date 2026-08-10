@@ -14,10 +14,10 @@ FOCUS_FRAME_ID: {focus}
 FOCUS_FRAME_ID is authoritative (user @ artboard). update_frame / delete_frame must use this exact id. Do not pick another board by name — names may collide (e.g. multiple "New board"). Never retarget other SCENE_FRAMES ids.
 
 <!-- pack:agent.prompt.pending_skills -->
-SKILL_DETAILS above is authoritative. Follow skill steps and emit tool_ops; set need_skills to []. No empty-ops chit-chat.
+SKILL_DETAILS above is authoritative. For create/complex edit: emit design_brief then Host paints; set need_skills to []. No empty-ops chit-chat.
 
 <!-- pack:agent.prompt.pending_subagents -->
-SUBAGENT_RESULTS above is authoritative. Continue from subagent findings; set need_subagents to [] (unless polling a background job_id). No empty-ops chit-chat.
+SUBAGENT_RESULTS above is authoritative if present. Fold into design_brief if useful; set need_subagents to [] (unless polling a background job_id). Looking at refs is Decide. No empty-ops chit-chat.
 
 <!-- pack:agent.prompt.pending_tools -->
 TOOL_DETAILS above is authoritative. Emit tool_ops now (keep intent edit/create); set need_tools to []. Do not switch intent back to chat/ask; no empty-ops chit-chat.
