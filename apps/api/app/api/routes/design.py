@@ -281,6 +281,10 @@ class DesignRunIn(BaseModel):
         default=None,
         description="agent | ask — Ask proposes / clarifies before painting",
     )
+    paint_mode: str | None = Field(
+        default=None,
+        description="ops (default tool_ops) | img_layers (generate board then split layers)",
+    )
     skill_refs: list[str] | None = Field(
         default=None,
         description="User-pinned skill keys/ids from / picker chips (hard-load)",
@@ -428,8 +432,10 @@ async def design_run(
     body: DesignRunIn,
     request: Request,
 ) -> StreamingResponse:
+    from app.core.metrics import observe_design_run_start
     from app.services.geoip import resolve_client_country
 
+    observe_design_run_start(str(body.run_mode or "agent"))
     client_country = resolve_client_country(request)
 
     async def gen():
@@ -438,6 +444,8 @@ async def design_run(
 
         queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         state = _PipelineSseState()
+        t_run0 = time.perf_counter()
+        outcome = "incomplete"
 
         async def produce() -> None:
             try:
@@ -470,6 +478,7 @@ async def design_run(
                     interaction_mode=body.interaction_mode,
                     client_country=client_country,
                     skill_refs=body.skill_refs,
+                    paint_mode=body.paint_mode,
                 ):
                     await queue.put(("ev", ev))
             except Exception as err:  # noqa: BLE001
@@ -495,11 +504,13 @@ async def design_run(
                     term = state.terminal_stage_event()
                     if term:
                         yield _sse_data(term)
+                    outcome = "ok"
                     break
 
                 if kind == "err":
                     msg = str(payload)[:800] or "design_run_failed"
                     yield _sse_data({"type": "error", "code": _run_error_code(msg), "message": msg})
+                    outcome = "error"
                     break
 
                 state.out_n += 1
@@ -507,6 +518,12 @@ async def design_run(
                 if isinstance(payload, dict):
                     for frame in _pipeline_side_effects(state, payload):
                         yield _sse_data(frame)
+                    if et == "error":
+                        outcome = "error"
+                    elif et in ("done", "finished", "complete"):
+                        outcome = "ok"
+                    elif et == "paused":
+                        outcome = "paused"
 
                 if _should_log_sse(et if isinstance(et, str) else None, state.out_n):
                     line = _sse_log_line(
@@ -525,6 +542,14 @@ async def design_run(
 
             yield "data: [DONE]\n\n"
         finally:
+            try:
+                from app.core.metrics import observe_design_run_outcome
+
+                observe_design_run_outcome(
+                    outcome, duration_s=time.perf_counter() - t_run0
+                )
+            except Exception:
+                pass
             if not task.done():
                 task.cancel()
                 try:

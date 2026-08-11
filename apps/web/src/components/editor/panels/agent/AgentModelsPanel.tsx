@@ -209,13 +209,24 @@ function AddPlatformModelFields(props: {
     onIconKey,
     onIconUrl,
   } = props;
+  // Extra catalog model is optional when saving a platform key — only required if started.
+  const started = Boolean(apiId.trim() || name.trim() || iconKey.trim() || iconUrl.trim());
+  const opt = (
+    <span className="ml-1 text-[11px] font-normal text-[var(--muted)]">
+      ({t('agent.providerOptional')})
+    </span>
+  );
+  const req = started ? <span className="text-red-500"> *</span> : opt;
 
   return (
     <>
+      <p className="mb-3 text-[12px] leading-relaxed text-[var(--muted)]">
+        {t('agent.providerAddPlatformModelHint')}
+      </p>
       <label className="mb-4 block">
         <span className="text-[13px] font-medium text-[var(--ink)]">
           {t('agent.providerApiModel')}
-          <span className="text-red-500"> *</span>
+          {req}
         </span>
         <input
           className={fieldClass}
@@ -228,7 +239,7 @@ function AddPlatformModelFields(props: {
       <label className="mb-4 block">
         <span className="text-[13px] font-medium text-[var(--ink)]">
           {t('agent.providerPlatformModelName')}
-          <span className="text-red-500"> *</span>
+          {req}
         </span>
         <input
           className={fieldClass}
@@ -241,7 +252,7 @@ function AddPlatformModelFields(props: {
       <ModelIconPickerFields
         iconKey={iconKey}
         iconUrl={iconUrl}
-        required
+        required={started}
         t={t}
         onIconKey={onIconKey}
         onIconUrl={onIconUrl}
@@ -249,7 +260,7 @@ function AddPlatformModelFields(props: {
       <label className="mb-4 block">
         <span className="text-[13px] font-medium text-[var(--ink)]">
           {t('agent.providerModelKind')}
-          <span className="text-red-500"> *</span>
+          {req}
         </span>
         <Select
           size="large"
@@ -717,7 +728,14 @@ function AgentModelsPanel({
                 onChange={(v) => onPickPlatform(String(v))}
               />
               <span className="mt-1.5 block text-[12px] text-[var(--muted)]">
-                {t('agent.providerPlatformHint')}
+                {isManualProvider
+                  ? t('agent.providerManualHint', {
+                      defaultValue:
+                        'Custom endpoint: fill API key, base URL, and the upstream model id (e.g. deepseek-chat).',
+                    })
+                  : selectedPlatform
+                    ? t('agent.providerPlatformHint')
+                    : t('agent.providerPresetHint')}
               </span>
             </label>
 

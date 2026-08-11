@@ -25,7 +25,8 @@ import {
 import {
   groupNodesInDocument,
   selectionSharedGroupId,
-  ungroupNodesInDocument
+  ungroupNodesInDocument,
+  unlockedGroupableIds,
 } from '@/components/rcb/scene/document/sceneGroups';
 import {
   resolveSelectionNodeIds
@@ -63,7 +64,12 @@ import {
   sizeFromAspectPreset,
 } from '../resizeGeometry';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
-import { computeShapeBoolean, applyBooleanResultPaint, type BoolMode } from '../shapeBoolean';
+import {
+  computeShapeBoolean,
+  applyBooleanResultPaint,
+  applyBooleanResultRadii,
+  type BoolMode,
+} from '../shapeBoolean';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const ASPECT_ORIG_W = 'aspect-original-width';
@@ -416,6 +422,7 @@ function MultiSelectionToolbar({
       sampleNode?.attrs as Record<string, unknown> | undefined,
       { stroke: sample.stroke, borderWidth: sample.borderWidth }
     );
+    applyBooleanResultRadii(attrs, shapeBoxes);
 
     let next = addNodeToDocument(document, id, node);
     next = removeNodesFromDocument(next, ids);
@@ -537,16 +544,19 @@ function MultiSelectionToolbar({
   const groupId = selectionSharedGroupId(document, opNodeIds);
 
   const createGroup = () => {
-    if (opNodeIds.length < 2) return;
-    const next = groupNodesInDocument(document, opNodeIds);
+    const ids = unlockedGroupableIds(document, opNodeIds);
+    if (ids.length < 2) return;
+    const next = groupNodesInDocument(document, ids);
     dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: opNodeIds, frameIds }));
+    dispatch(setMixedSelection({ nodeIds: ids, frameIds }));
   };
 
   const ungroup = () => {
-    const next = ungroupNodesInDocument(document, opNodeIds);
+    const ids = unlockedGroupableIds(document, opNodeIds);
+    if (!ids.length) return;
+    const next = ungroupNodesInDocument(document, ids);
     dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: opNodeIds, frameIds }));
+    dispatch(setMixedSelection({ nodeIds: ids, frameIds }));
   };
 
   const applyAspectPreset = (preset: (typeof ELEMENT_ASPECT_PRESETS)[number]) => {

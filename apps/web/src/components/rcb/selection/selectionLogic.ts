@@ -249,6 +249,55 @@ export function boxesIntersect(a: SceneBox, b: SceneBox) {
   );
 }
 
+export function unionSceneBoxes(a: SceneBox, b: SceneBox): SceneBox {
+  const left = Math.min(a.left, b.left);
+  const top = Math.min(a.top, b.top);
+  const right = Math.max(a.left + a.width, b.left + b.width);
+  const bottom = Math.max(a.top + a.height, b.top + b.height);
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+export function expandSceneBox(box: SceneBox, pad: number): SceneBox {
+  if (!(pad > 0)) return box;
+  return {
+    left: box.left - pad,
+    top: box.top - pad,
+    width: Math.max(1, box.width + pad * 2),
+    height: Math.max(1, box.height + pad * 2),
+  };
+}
+
+/**
+ * Screen-constant marquee slack (px) → scene units.
+ * Small brush / tiny nodes otherwise miss when the rect only grazes ink.
+ */
+export const MARQUEE_HIT_PAD_SCREEN_PX = 3;
+/** Floor hit AABB so sub-pixel / hairline nodes stay brushable. */
+export const MARQUEE_MIN_HIT_SCREEN_PX = 6;
+
+export function marqueeHitPadScene(zoom: number): number {
+  return MARQUEE_HIT_PAD_SCREEN_PX / Math.max(0.05, zoom || 1);
+}
+
+export function ensureMinScreenHitBox(box: SceneBox, zoom: number): SceneBox {
+  const z = Math.max(0.05, zoom || 1);
+  const min = MARQUEE_MIN_HIT_SCREEN_PX / z;
+  const w = Math.max(box.width, min);
+  const h = Math.max(box.height, min);
+  if (w === box.width && h === box.height) return box;
+  return {
+    left: box.left + box.width / 2 - w / 2,
+    top: box.top + box.height / 2 - h / 2,
+    width: w,
+    height: h,
+  };
+}
+
 /** Frame AABB ??marquee ??same idea as selecting a rectangle. Locked frames are skipped. */
 export function framesHittingMarquee(doc: SceneDocument, marquee: SceneBox): Array<{ id: string; area: number }> {
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
@@ -384,50 +433,60 @@ export function pointInBox(x: number, y: number, box: SceneBox, pad = 0) {
 }
 
 /**
- * Marquee hit ??match click semantics per type:
+ * Marquee hit — match click semantics per type:
  * - rect / geo / text / image: AABB (same as click)
  * - pen / pencil / path: stroke/path sampling (click uses ink, not empty AABB gaps)
  * - line / arrow: shaft endpoints / mid
+ *
+ * Uses union(data, DOM) + screen-constant pad so small nodes / tight brushes
+ * don't miss when ink is slightly outside the stored geom box.
  */
 export function nodeHitsMarquee(
   doc: SceneDocument,
   nodeId: string,
   marquee: SceneBox,
   getNodeBox: (id: string) => SceneBox | null,
-  toScene: (clientX: number, clientY: number) => { x: number; y: number }
+  toScene: (clientX: number, clientY: number) => { x: number; y: number },
+  zoom = 1
 ): boolean {
   const node = doc?.deltaSetLike?.[nodeId];
   if (!node || isNodeHidden(node)) return false;
   const dataBox = getNodeBox(nodeId);
   const domBox = sceneBoxFromMountedNode(nodeId, toScene);
-  const box = domBox || dataBox;
+  let box = dataBox && domBox ? unionSceneBoxes(dataBox, domBox) : domBox || dataBox;
   if (!box) return false;
+  box = ensureMinScreenHitBox(box, zoom);
+  const hitMarquee = expandSceneBox(marquee, marqueeHitPadScene(zoom));
+  const strokePad = 3 + marqueeHitPadScene(zoom);
 
   const shapeType = String(node.attrs?.shapeType || '');
   if (shapeType === 'line' || shapeType === 'arrow') {
     const ep = strokeEndpointsFromBox(box, Number(node.attrs?.angle) || 0);
-    if (pointInBox(ep.x0, ep.y0, marquee, 2) || pointInBox(ep.x1, ep.y1, marquee, 2)) {
+    if (
+      pointInBox(ep.x0, ep.y0, hitMarquee, strokePad) ||
+      pointInBox(ep.x1, ep.y1, hitMarquee, strokePad)
+    ) {
       return true;
     }
     const mx = (ep.x0 + ep.x1) / 2;
     const my = (ep.y0 + ep.y1) / 2;
-    return pointInBox(mx, my, marquee, 2) || boxesIntersect(marquee, box);
+    return pointInBox(mx, my, hitMarquee, strokePad) || boxesIntersect(hitMarquee, box);
   }
 
   if (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'path') {
     const d = String(node.attrs?.path || node.attrs?.d || '');
     // Filled closed path: AABB is fine (same spirit as click fill hit).
-    if (shapeType !== 'pen' && supportsFill(node) && boxesIntersect(marquee, box)) {
+    if (shapeType !== 'pen' && supportsFill(node) && boxesIntersect(hitMarquee, box)) {
       return true;
     }
     if (d) {
-      return pathStrokeHitsSceneBox(d, box, Number(node.attrs?.angle) || 0, marquee, 3);
+      return pathStrokeHitsSceneBox(d, box, Number(node.attrs?.angle) || 0, hitMarquee, strokePad);
     }
-    return boxesIntersect(marquee, box);
+    return boxesIntersect(hitMarquee, box);
   }
 
-  // rect / ellipse / text / image / other geo ??AABB like click.
-  return boxesIntersect(marquee, box);
+  // rect / ellipse / text / image / other geo — AABB like click.
+  return boxesIntersect(hitMarquee, box);
 }
 
 /**

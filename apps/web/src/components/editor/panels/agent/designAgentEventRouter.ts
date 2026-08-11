@@ -213,6 +213,7 @@ const DESIGN_UX_TIP_I18N: Record<string, string> = {
   paint_failed: 'agent.uxTipPaintFailed',
   observe_ops_failed: 'agent.uxTipObserveOpsFailed',
   apply_confirm_failed: 'agent.uxTipApplyConfirmFailed',
+  observe_scene_timeout: 'agent.uxTipObserveSceneTimeout',
   observe_critique_failed: 'agent.uxTipObserveCritiqueFailed',
   review_must_fix: 'agent.uxTipReviewMustFix',
   apply_ops_applied: 'agent.uxTipApplyOpsApplied',

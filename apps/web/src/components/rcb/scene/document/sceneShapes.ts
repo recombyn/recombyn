@@ -758,6 +758,47 @@ function asDomElement(el: any): Element | null {
 }
 
 /**
+ * Liang–Barsky: true when segment (x0,y0)→(x1,y1) intersects the closed AABB.
+ * Midpoint-only checks miss small marquees that a stroke segment crosses off-center.
+ */
+export function segmentIntersectsAabb(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number
+): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const edges: Array<[number, number]> = [
+    [-dx, x0 - left],
+    [dx, right - x0],
+    [-dy, y0 - top],
+    [dy, bottom - y0],
+  ];
+  for (const [p, q] of edges) {
+    if (p === 0) {
+      if (q < 0) return false;
+      continue;
+    }
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+  }
+  return t0 <= t1;
+}
+
+/**
  * Whether a local-space path stroke intersects a world-space AABB
  * (marquee / box select). Samples the centerline — not the path's own AABB.
  */
@@ -801,10 +842,9 @@ export function pathStrokeHitsSceneBox(
       const lp = el.getPointAtLength(Math.min(t, len));
       const p = toWorld(lp.x, lp.y);
       if (inBox(p.x, p.y)) return true;
-      // Segment crosses the rect (coarse: midpoint + endpoints already checked).
-      const mx = (prev.x + p.x) / 2;
-      const my = (prev.y + p.y) / 2;
-      if (inBox(mx, my)) return true;
+      if (segmentIntersectsAabb(prev.x, prev.y, p.x, p.y, left, top, right, bottom)) {
+        return true;
+      }
       prev = p;
     }
     return false;

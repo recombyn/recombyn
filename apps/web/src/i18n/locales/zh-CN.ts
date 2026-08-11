@@ -1386,6 +1386,11 @@ const zhCN = {
     routeMultimodalCustom: '多路由',
     routeMultimodalSingle: '单模型',
     routeBack: '返回',
+    paintMode: '板式生成',
+    paintModeTip:
+      '工具操作：Agent 用画布指令精细排版。生图拆层：先生成整板图片再拆成可编辑图层（观感强，文字可编性取决于识别）。',
+    paintModeOps: '工具操作',
+    paintModeImgLayers: '生图拆层',
     routePresetShortPlatform: 'Auto',
     routePresetShortEconomy: '省钱',
     routePresetShortBalanced: '均衡',
@@ -1611,6 +1616,7 @@ const zhCN = {
     uxTipPaintFailed: '未能生成有效画布操作，请描述更具体的修改。',
     uxTipObserveOpsFailed: '部分操作未能应用（{{count}}）：{{notes}}。请针对具体元素重试。',
     uxTipApplyConfirmFailed: '确认的方案无法安全应用（{{error}}），请换一种说法或重试。',
+    uxTipObserveSceneTimeout: '画布回传超时，已按操作已应用继续，未触发自动重绘。',
     uxTipObserveCritiqueFailed: '画布结构校验未通过：{{issues}}',
     uxTipReviewMustFix: '评审未通过：{{issues}}',
     uxTipApplyOpsApplied: '已应用 {{count}} 项修改',
@@ -1658,8 +1664,10 @@ const zhCN = {
     providerPresetModel: '模型',
     providerPresetModelPlaceholder: '选择模型',
     providerPresetComingSoon: '即将支持',
+    providerManualHint:
+      '自定义端点：需填写 API Key、请求地址，以及上游 model 字段（如 deepseek-chat）。仅填密钥不够，请求必须带模型 ID。',
     providerPlatformHint:
-      '选择平台后先填 API Key；名称和请求地址会自动回显。目录外模型在下方填写模型 ID、名称、图标与分类（均必填）。',
+      '选择平台后先填 API Key；名称和请求地址会自动回显。目录外模型在下方可选填写（开始填写后名称/图标/分类才必填）。',
     providerPlatformUnlock: '解锁该平台目录中的全部模型。使用你自己的额度，不消耗平台积分。',
     providerPlatformAutofillHint: '已按平台自动填好，一般不用改。',
     providerModelKindPlatform: '平台',
