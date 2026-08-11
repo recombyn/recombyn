@@ -17,6 +17,7 @@ import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvide
 import { isCollabActive } from '@/components/editor/collab/collabRuntime';
 import type { ComposerContext } from '@/components/editor/panels/AgentComposerInput';
 import AgentDock from '@/components/editor/panels/AgentDock';
+import type { ComposerInteractionMode } from '@/components/editor/panels/agent/AgentComposerShell';
 import DevPropertiesPanel from '@/components/editor/panels/DevPropertiesPanel';
 import ShareDialog from '@/components/editor/panels/ShareDialog';
 import { apiClient } from '@/service/client';
@@ -524,6 +525,9 @@ async function hydrateCloudProject(
   }
 }
 
+/** Stable identity — inline `['image','video']` would churn AgentDock mode-coerce effects. */
+const MOBILE_AGENT_INTERACTION_MODES: ComposerInteractionMode[] = ['image', 'video'];
+
 function EditorPage() {
   const { t } = useTranslation();
   const dispatch = useDispatch();
@@ -577,6 +581,8 @@ function EditorPage() {
   const bootOpenRef = useRef(true);
   const bootFinishingRef = useRef(false);
   const bootExitTimer = useRef<number | null>(null);
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
   /** Local session: selection + grid. Camera fits once after stage layout (below). */
   const sessionReadyForIdRef = useRef<string | null>(null);
   const didInitialFitRef = useRef(false);
@@ -673,15 +679,7 @@ function EditorPage() {
   );
   const stageBackground = useMemo(
     () => computeStageBackground(document, followThemeCanvas, themeCanvas),
-    [
-      document?.backgroundFillType,
-      document?.backgroundColor,
-      document?.backgroundOpacity,
-      document?.backgroundGradient,
-      document?.backgroundImageSrc,
-      followThemeCanvas,
-      themeCanvas,
-    ]
+    [document, followThemeCanvas, themeCanvas]
   );
 
   /** Editor UI is design-only; hide legacy Design/Dev toggle. */
@@ -983,6 +981,39 @@ function EditorPage() {
     if (opts?.prompt) setAgentDraft(opts.prompt);
   }, []);
 
+  const openAgentForTour = useCallback(() => {
+    dispatch(setWorkspaceMode('design'));
+    // Ensure dock is visible; do not bump openSignal (avoids remount churn during tour).
+    setAgentOpen(true);
+  }, [dispatch]);
+
+  const clearAgentDraftBoot = useCallback(() => {
+    clearHomeAgentBoot();
+    setAgentDraft(null);
+    setAgentAutoSubmit(false);
+    setAgentDraftAttachments([]);
+    setAgentDraftContexts([]);
+    setAgentDraftModelId(null);
+    setAgentDraftInteractionMode(null);
+    setAgentDraftImageAspect(null);
+    setAgentDraftScene(null);
+  }, []);
+
+  const clearAttachToChat = useCallback(() => {
+    setAttachToChat(null);
+  }, []);
+
+  const goHomeFromEditor = useCallback(() => {
+    void flushAndGoHome(navigate);
+  }, [navigate]);
+
+  const renameProjectFromChrome = useCallback(
+    (name: string) => {
+      dispatch(renameTemplate(name));
+    },
+    [dispatch]
+  );
+
   const agentOpenNonce = useSelector((s: any) => Number(s.editor.agentOpenNonce) || 0);
   const agentOpenNonceSeenRef = useRef(agentOpenNonce);
   useEffect(() => {
@@ -1058,15 +1089,16 @@ function EditorPage() {
     });
   }, []);
 
-  const finishBoot = () => {
+  const finishBoot = useCallback(() => {
     if (!bootOpenRef.current || bootFinishingRef.current) return;
     bootFinishingRef.current = true;
     const el = stageRef.current;
+    const cam = cameraRef.current;
     rcbJumpLog('finishBoot.start', {
       waitMs: Math.max(0, BOOT_MIN_MS - (Date.now() - bootStartedAt.current)),
       stageW: el?.clientWidth || 0,
       stageH: el?.clientHeight || 0,
-      camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
+      camera: { x: cam.x, y: cam.y, zoom: cam.zoom },
     });
     const wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootStartedAt.current));
     window.setTimeout(() => {
@@ -1087,7 +1119,7 @@ function EditorPage() {
         });
       }, BOOT_EXIT_MS);
     }, wait);
-  };
+  }, []);
 
   // Empty / content fit + boot reveal are handled by the stage-layout initial-fit effect.
 
@@ -1107,7 +1139,7 @@ function EditorPage() {
     if (!bootOpen) return undefined;
     const failSafe = window.setTimeout(() => finishBoot(), 12000);
     return () => window.clearTimeout(failSafe);
-  }, [bootOpen]);
+  }, [bootOpen, finishBoot]);
 
   useEffect(
     () => () => {
@@ -1318,13 +1350,13 @@ function EditorPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document, currentId, frames.length, stageEl, stageSize.width, stageSize.height, onFitView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fit once per project/stage; finishBoot is stable
+  }, [document, currentId, frames.length, stageEl, stageSize.width, stageSize.height, onFitView, finishBoot]);
 
   /** SvgCanvas ready is no longer the fit trigger (see initial-fit effect above). */
   const onCanvasReady = useCallback(() => {
     if (didInitialFitRef.current) finishBoot();
-  }, []);
+  }, [finishBoot]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1452,10 +1484,10 @@ function EditorPage() {
               workspaceMode={workspaceMode}
               inspectOpen={inspectOpen}
               agentOpen={agentOpen}
-              onGoHome={() => void flushAndGoHome(navigate)}
-              onRename={(name) => dispatch(renameTemplate(name))}
+              onGoHome={goHomeFromEditor}
+              onRename={renameProjectFromChrome}
               onShare={openShareDialog}
-              onOpenAgent={() => openAgentPanel()}
+              onOpenAgent={openAgentPanel}
             />
 
             <EditorToolDocks
@@ -1578,7 +1610,9 @@ function EditorPage() {
               openSignal={agentOpenSignal}
               onClose={closeAgentPanel}
               floating={isMobileViewport}
-              allowedInteractionModes={isMobileViewport ? ['image', 'video'] : undefined}
+              allowedInteractionModes={
+                isMobileViewport ? MOBILE_AGENT_INTERACTION_MODES : undefined
+              }
               draftPrompt={agentDraft}
               autoSubmitDraft={agentAutoSubmit}
               draftAttachments={agentDraftAttachments}
@@ -1587,19 +1621,9 @@ function EditorPage() {
               draftInteractionMode={agentDraftInteractionMode}
               draftImageAspectRatio={agentDraftImageAspect}
               draftScene={agentDraftScene}
-              onDraftConsumed={() => {
-                clearHomeAgentBoot();
-                setAgentDraft(null);
-                setAgentAutoSubmit(false);
-                setAgentDraftAttachments([]);
-                setAgentDraftContexts([]);
-                setAgentDraftModelId(null);
-                setAgentDraftInteractionMode(null);
-                setAgentDraftImageAspect(null);
-                setAgentDraftScene(null);
-              }}
+              onDraftConsumed={clearAgentDraftBoot}
               attachToChat={attachToChat}
-              onAttachConsumed={() => setAttachToChat(null)}
+              onAttachConsumed={clearAttachToChat}
               dataTour={agentOpen ? 'editor-agent' : undefined}
               projectName={isMobileViewport ? projectName : undefined}
               onGoHome={
@@ -1704,10 +1728,7 @@ function EditorPage() {
         ) : null}
         <EditorOnboardingTour
           ready={!bootOpen}
-          onOpenAgent={() => {
-            dispatch(setWorkspaceMode('design'));
-            openAgentPanel();
-          }}
+          onOpenAgent={openAgentForTour}
         />
       </div>
     </CollabRoomProvider>

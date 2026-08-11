@@ -576,15 +576,17 @@ function AgentRoutePrefsEditorImpl({
     lastSingleModelIdRef.current
   );
   // Catalog may load after user taps Single — only fill when still `auto`.
+  // `onPickModel` via ref: parent inline handlers must not re-fire this effect.
+  const onPickModelRef = useRef(onPickModel);
+  onPickModelRef.current = onPickModel;
   useEffect(() => {
-    if (!compact || !onPickModel || autoOnly) return;
+    if (!compact || !onPickModelRef.current || autoOnly) return;
     if (activeRouteTab !== 'single') return;
     if (selectedSingleId !== 'auto') return;
     if (!restoreSingleModelId) return;
-    onPickModel(restoreSingleModelId);
+    onPickModelRef.current(restoreSingleModelId);
   }, [
     compact,
-    onPickModel,
     autoOnly,
     activeRouteTab,
     selectedSingleId,

@@ -182,8 +182,7 @@ const Tooltip: FC<TooltipProps> = ({
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={triggerClassName}
-      style={asChild ? { display: 'inline-block' } : undefined}
+      className={cn(asChild && 'inline-block', triggerClassName)}
     >
       {children}
     </div>

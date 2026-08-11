@@ -1497,13 +1497,13 @@ const zhTW = {
     providerPresetLabel: '供應商',
     providerPresetPlaceholder: '選擇供應商',
     providerPresetHint:
-      '選擇內建供應商即可自動填好請求位址與常用模型，你只需填 API Key；也可以選「手動填寫」自行設定。',
-    providerPresetManual: '手動填寫',
+      '選擇內建供應商即可自動填好請求位址與常用模型，你只需填 API Key；也可以選「自訂」自行設定。',
+    providerPresetManual: '自訂',
     providerPresetModel: '模型',
     providerPresetModelPlaceholder: '選擇模型',
     providerPresetComingSoon: '即將支援',
     providerPlatformHint:
-      '選擇 OpenRouter 或火山引擎 — 一把 API Key 即可使用我們已接入的該平台全部模型。「手動填寫」用於單個自訂端點。',
+      '選擇 OpenRouter 或火山引擎 — 一把 API Key 即可使用我們已接入的該平台全部模型。「自訂」用於單個自訂端點。',
     providerPlatformUnlock: '解鎖該平台目錄中的全部模型。使用你自己的額度，不消耗平台積分。',
     providerPlatformAutofillHint: '已依平台自動填好，通常不用改。',
     providerModelKindPlatform: '平台',

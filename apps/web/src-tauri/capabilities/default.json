@@ -13,6 +13,19 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-start-dragging",
     "opener:default",
+    "dialog:default",
+    "fs:allow-write-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$PICTURE/**" },
+        { "path": "$PUBLIC/**" }
+      ]
+    },
     "allow-coding-cli"
   ]
 }

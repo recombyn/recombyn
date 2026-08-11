@@ -16,6 +16,7 @@ import { DropdownPanel, DropdownPanelItem } from '@/components/base/dropdown/Dro
 import { exportVideoAudio } from '@/utils/audioExporter';
 import { imageSrcToFile } from '@/utils/uploadImage';
 import { cn } from '@/utils/classnames';
+import { downloadFileBlob } from '@/components/rcb/scene/paint/exportImage';
 import { videoToolBtn } from './videoToolbarShared';
 
 type CropFractions = { x: number; y: number; w: number; h: number };
@@ -93,17 +94,6 @@ function waitEvent(el: HTMLMediaElement, type: string, timeoutMs = 12_000) {
     el.addEventListener(type, onOk, { once: true });
     el.addEventListener('error', onErr, { once: true });
   });
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = objectUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
 }
 
 /**
@@ -310,12 +300,12 @@ export async function downloadVideoNodeAsset(
       trimStart: opts.trimStart,
       trimEnd: opts.trimEnd,
     });
-    downloadBlob(blob, `${baseName(opts.name)}.${ext}`);
+    await downloadFileBlob(blob, `${baseName(opts.name)}.${ext}`);
     return 'audio';
   }
 
   if (!needsVideoExport) {
-    downloadBlob(file, `${baseName(opts.name)}.mp4`);
+    await downloadFileBlob(file, `${baseName(opts.name)}.mp4`);
     return 'video';
   }
 
@@ -327,7 +317,7 @@ export async function downloadVideoNodeAsset(
     trimStart: opts.trimStart,
     trimEnd: opts.trimEnd,
   });
-  downloadBlob(blob, `${baseName(opts.name)}-edit.${ext}`);
+  await downloadFileBlob(blob, `${baseName(opts.name)}-edit.${ext}`);
   return 'video';
 }
 
@@ -433,7 +423,7 @@ function VideoDownloadButton({
         try {
           const res = await fetch(url);
           const blob = await res.blob();
-          downloadBlob(blob, `${baseName(name)}.mp4`);
+          await downloadFileBlob(blob, `${baseName(name)}.mp4`);
           message.warning(
             t('editor.videoToolbar.exportFallback', {
               defaultValue: '裁剪导出失败，已下载原视频',

@@ -256,6 +256,8 @@ type Props = {
   pickingFromCanvas?: boolean;
   /** Tooltip for the canvas-pick button. */
   pickFromCanvasTooltip?: string;
+  /** Canvas→composer fly land (`agent` | `node:<id>`). */
+  flyLandId?: string;
   /**
    * When true (default), show design canvas size chip.
    * Image quality / ratio / count are LLM-inferred — never shown as a manual panel.
@@ -1012,6 +1014,7 @@ function AgentComposerShell({
   onPickFromCanvas,
   pickingFromCanvas = false,
   pickFromCanvasTooltip,
+  flyLandId,
   showDesignSizePicker = true,
   imageAspectRatio,
   onImageAspectRatioChange,
@@ -1266,6 +1269,7 @@ function AgentComposerShell({
           onEscape={onEscape}
           disabled={disabled}
           placeholder={placeholder}
+          flyLandId={flyLandId}
           onPasteImages={onAttachFiles ? onPasteImages : undefined}
           className={hasTopAttachRow ? 'min-h-[72px]' : undefined}
         />
