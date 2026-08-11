@@ -324,6 +324,8 @@ export type RunDesignJobBody = {
   prompt: string;
   /** agent = auto paint; ask = propose / clarify first (same LangGraph). */
   interaction_mode?: 'agent' | 'ask';
+  /** ops = default tool_ops graph; img_layers = generate board then split layers. */
+  paint_mode?: 'ops' | 'img_layers';
   scene?: DesignScene | null;
   style_group_id?: number;
   user_selected_model?: string;

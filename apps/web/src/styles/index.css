@@ -442,6 +442,58 @@ html[data-theme='dark'] .rcb-skeleton-bone {
   );
 }
 
+/**
+ * Card-level shimmer: single sweep over the whole card so multi-line skeletons
+ * animate in unison instead of each bone sweeping independently.
+ * Children .rcb-skeleton-bone lose their own animation and become static fills.
+ */
+.rcb-skeleton-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.rcb-skeleton-card::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 55%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.0) 30%,
+    rgba(255, 255, 255, 0.52) 50%,
+    rgba(255, 255, 255, 0.0) 70%,
+    transparent 100%
+  );
+  animation: shimmer-sweep 1.55s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.rcb-skeleton-card .rcb-skeleton-bone {
+  animation: none;
+  background-image: none;
+  background-color: #e8e8e8;
+  background-size: auto;
+}
+
+html[data-theme='dark'] .rcb-skeleton-card::after {
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.0) 30%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.0) 70%,
+    transparent 100%
+  );
+}
+
+html[data-theme='dark'] .rcb-skeleton-card .rcb-skeleton-bone {
+  background-color: #2c2c2c;
+}
+
 /* Global thin scrollbar with track inset */
 * {
   scrollbar-width: thin;

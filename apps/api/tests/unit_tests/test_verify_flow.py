@@ -15,6 +15,25 @@ def test_structure_verify_empty_canvas():
     assert issues
 
 
+def test_structure_verify_empty_but_create_ops_ok_is_lag():
+    """FE said creates applied — empty inventory must not force re-paint."""
+    issues = _structure_verify_issues(
+        nodes=[],
+        frames=[],
+        painted=True,
+        intent="create",
+        paint_ops=[
+            {"name": "create_text", "op_id": "a1", "args": {"text": "hi"}},
+            {"name": "create_shape", "op_id": "a2", "args": {"shapeType": "rect"}},
+        ],
+        op_results=[
+            {"op_id": "a1", "name": "create_text", "ok": True},
+            {"op_id": "a2", "name": "create_shape", "ok": True},
+        ],
+    )
+    assert issues == []
+
+
 def test_structure_verify_ok_nodes():
     issues = _structure_verify_issues(
         nodes=[{"id": "n1", "w": 100, "h": 40}],

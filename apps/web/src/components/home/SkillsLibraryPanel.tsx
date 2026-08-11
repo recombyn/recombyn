@@ -73,20 +73,10 @@ function formatSkillUpdatedAt(ts: number | null | undefined, locale: string): st
 /** Same shell + title / line-clamp-2 desc metrics as the real skill card. */
 function SkillCardSkeleton(): ReactNode {
   return (
-    <div className={SKILL_CARD_SHELL} aria-hidden>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex h-[21px] items-center">
-            <div className="rcb-skeleton-bone h-3.5 w-[58%]" />
-          </div>
-          <div className="mt-1 space-y-1">
-            <div className="rcb-skeleton-bone h-[18px] w-full" />
-            <div className="rcb-skeleton-bone h-[18px] w-[80%]" />
-          </div>
-        </div>
-        <div className="rcb-skeleton-bone mt-0.5 h-5 w-9 shrink-0 !rounded-full" />
-      </div>
-    </div>
+    <div
+      className={cn(SKILL_CARD_SHELL, 'rcb-skeleton-bone min-h-[88px] !rounded-xl shadow-none')}
+      aria-hidden
+    />
   );
 }
 

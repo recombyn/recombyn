@@ -143,7 +143,7 @@ function PlazaPublishForm({
       <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--canvas)]">
         <div className="aspect-[680/385] w-full overflow-hidden bg-[var(--canvas)]">
           {resolvingCover && !hasThumbCollage ? (
-            <div className="h-full w-full animate-pulse bg-[var(--accent-soft)]" />
+            <div className="rcb-skeleton-bone h-full w-full !rounded-none" />
           ) : (
             <ProjectCoverCollage
               urls={resolvedUrls}

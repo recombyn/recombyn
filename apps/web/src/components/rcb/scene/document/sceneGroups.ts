@@ -1,6 +1,7 @@
 import { nanoid } from '@reduxjs/toolkit';
 import { listSceneNodes, normalizeDocument } from './sceneDocument';
-import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import { isNodeLocked } from './nodeCapabilities';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /** Logical multi-object groups via attrs.groupId. */
 
@@ -22,21 +23,27 @@ export function listGroupMemberIds(
 
 /**
  * Expand a selection so that picking any member selects the whole group.
- * Used on click / marquee select (not when empty).
+ * Locked layers are never auto-included: expand only from unlocked seeds, and
+ * never pull locked siblings into the selection.
  */
 export function expandSelectionWithGroups(
   doc: SceneDocument | null | undefined,
   nodeIds: string[]
 ): string[] {
   if (!doc || !nodeIds?.length) return nodeIds || [];
+  const explicit = new Set(nodeIds.filter(Boolean));
   const out = new Set<string>();
-  for (const id of nodeIds) {
-    const gid = readNodeGroupId(doc.deltaSetLike?.[id]);
-    if (!gid) {
-      out.add(id);
-      continue;
+  for (const id of explicit) {
+    out.add(id);
+    const seed = doc.deltaSetLike?.[id];
+    // Locked hit stays itself — do not drag the rest of the group into selection.
+    if (isNodeLocked(seed)) continue;
+    const gid = readNodeGroupId(seed);
+    if (!gid) continue;
+    for (const mid of listGroupMemberIds(doc, gid)) {
+      if (isNodeLocked(doc.deltaSetLike?.[mid])) continue;
+      out.add(mid);
     }
-    listGroupMemberIds(doc, gid).forEach((mid) => out.add(mid));
   }
   return [...out];
 }
@@ -50,33 +57,52 @@ export function selectionSharedGroupId(
   nodeIds: string[]
 ): string | null {
   if (!doc || !nodeIds || nodeIds.length < 2) return null;
-  const first = readNodeGroupId(doc.deltaSetLike?.[nodeIds[0]]);
+  const unlocked = unlockedGroupableIds(doc, nodeIds);
+  if (unlocked.length < 2) return null;
+  const first = readNodeGroupId(doc.deltaSetLike?.[unlocked[0]]);
   if (!first) return null;
-  if (!nodeIds.every((id) => readNodeGroupId(doc.deltaSetLike?.[id]) === first)) return null;
-  const members = listGroupMemberIds(doc, first);
-  if (members.length !== nodeIds.length) return null;
-  const set = new Set(nodeIds);
+  if (!unlocked.every((id) => readNodeGroupId(doc.deltaSetLike?.[id]) === first)) {
+    return null;
+  }
+  const members = listGroupMemberIds(doc, first).filter(
+    (id) => !isNodeLocked(doc.deltaSetLike?.[id])
+  );
+  if (members.length !== unlocked.length) return null;
+  const set = new Set(unlocked);
   if (!members.every((id) => set.has(id))) return null;
   return first;
 }
 
-/** Assign a shared groupId to the given nodes. */
+/** Unlocked ids only — locked layers are never grouped / ungrouped. */
+export function unlockedGroupableIds(
+  doc: SceneDocument | null | undefined,
+  nodeIds: string[]
+): string[] {
+  return [...new Set((nodeIds || []).filter(Boolean))].filter(
+    (id) => doc?.deltaSetLike?.[id] && !isNodeLocked(doc.deltaSetLike[id])
+  );
+}
+
+/** Assign a shared groupId to the given nodes (skips locked). */
 export function groupNodesInDocument(doc: SceneDocument, nodeIds: string[]) {
-  const ids = [...new Set((nodeIds || []).filter(Boolean))];
+  const ids = unlockedGroupableIds(doc, nodeIds);
   if (ids.length < 2) return doc;
   const next = normalizeDocument(doc);
   const groupId = nanoid(8);
   ids.forEach((id) => {
     const node = next.deltaSetLike?.[id];
     if (!node) return;
-    node.attrs = { ...(node.attrs || {}), groupId };
+    next.deltaSetLike[id] = {
+      ...node,
+      attrs: { ...(node.attrs || {}), groupId },
+    };
   });
   return next;
 }
 
-/** Clear groupId from the given nodes (and leftover siblings in that group). */
+/** Clear groupId from the given nodes (and unlocked siblings in that group). */
 export function ungroupNodesInDocument(doc: SceneDocument, nodeIds: string[]) {
-  const ids = [...new Set((nodeIds || []).filter(Boolean))];
+  const ids = unlockedGroupableIds(doc, nodeIds);
   if (!ids.length) return doc;
   const next = normalizeDocument(doc);
   const groupIds = new Set<string>();
@@ -88,12 +114,10 @@ export function ungroupNodesInDocument(doc: SceneDocument, nodeIds: string[]) {
   listSceneNodes(next).forEach(({ id, node }) => {
     const gid = readNodeGroupId(node);
     if (!gid || !groupIds.has(gid)) return;
+    if (isNodeLocked(node)) return;
     const attrs = { ...(node.attrs || {}) };
     delete attrs.groupId;
-    node.attrs = attrs;
-    next.deltaSetLike[id] = node;
+    next.deltaSetLike[id] = { ...node, attrs };
   });
   return next;
 }
-
-/** Scene nodes whose center lies inside any of the given artboards. */

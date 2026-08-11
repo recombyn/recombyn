@@ -43,11 +43,14 @@ export type SmartGuideLine = SmartGuideAlign | SmartGuideGap;
 
 /**
  * Object-guide magnet radius in scene units (`SMART_SNAP_PX / zoom`).
+ * Capped at 40 scene units so low-zoom drags don't get yanked by distant elements.
  * Grid quantize is a separate pass and must not widen this.
  */
+export const SMART_SNAP_MAX_SCENE = 40;
+
 export function smartSnapThreshold(zoom: number): number {
   const z = Math.max(0.05, Number(zoom) || 1);
-  return SMART_SNAP_PX / z;
+  return Math.min(SMART_SNAP_PX / z, SMART_SNAP_MAX_SCENE);
 }
 
 /**

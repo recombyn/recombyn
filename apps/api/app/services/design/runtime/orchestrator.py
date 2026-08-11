@@ -200,6 +200,7 @@ async def run_design_job(
     interaction_mode: str | None = None,
     client_country: str | None = None,
     skill_refs: list[str] | None = None,
+    paint_mode: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """LangGraph agent loop. Chat vs design from model intent / ops."""
     del is_premium  # reserved
@@ -211,6 +212,15 @@ async def run_design_job(
     ui_mode = _as_text(interaction_mode or "agent").strip().lower()
     if ui_mode not in ("agent", "ask"):
         ui_mode = "agent"
+
+    from app.services.design.board_modes import is_img_layers_mode
+
+    use_img_layers = (
+        is_img_layers_mode(paint_mode)
+        and mode in ("agent", "single_model")
+        and ui_mode == "agent"
+        and not apply_ops
+    )
 
     prompt = _as_text(prompt).strip()
     if not prompt and not apply_ops:
@@ -325,41 +335,62 @@ async def run_design_job(
             medium if isinstance(medium, dict) else None,
         )
 
-        from app.services.design.runtime.design_run import design_stream
         from app.services.llm import reset_byok_user_id, set_byok_user_id
 
         byok_token = set_byok_user_id(user_id)
         try:
-            async for ev in design_stream(
-                user_id=user_id,
-                mode=mode,
-                prompt=prompt,
-                rules=rules,
-                user_selected_model=user_selected_model,
-                canvas_id=canvas_id,
-                canvas_size=canvas_size,
-                scene=scene,
-                scene_nodes=scene_nodes_gate,
-                scene_frames=scene_frames_gate,
-                spatial_summary=spatial_summary if isinstance(spatial_summary, dict) else None,
-                focus_frame_id=focus_frame_id,
-                images=images,
-                memory_in=memory,
-                session_id=sid,
-                project_id=pid,
-                hold=hold,
-                free_daily=free_daily,
-                t0=t0,
-                reserve_hold_fn=_reserve_design_hold,
-                settle_hold_fn=_settle_hold,
-                refund_hold_fn=_refund_hold,
-                apply_ops=apply_ops,
-                proposal_id=proposal_id,
-                proposal_task_id=proposal_task_id,
-                interaction_mode=ui_mode,
-                skill_refs=skill_refs,
-            ):
-                yield ev
+            if use_img_layers:
+                from app.services.design.img_layers import run_img_layers_job
+
+                async for ev in run_img_layers_job(
+                    user_id=user_id,
+                    prompt=prompt,
+                    rules=rules,
+                    canvas_size=canvas_size,
+                    images=images,
+                    session_id=sid,
+                    project_id=pid,
+                    hold=hold,
+                    free_daily=free_daily,
+                    t0=t0,
+                    settle_hold_fn=_settle_hold,
+                    refund_hold_fn=_refund_hold,
+                    scene=scene,
+                ):
+                    yield ev
+            else:
+                from app.services.design.runtime.design_run import design_stream
+
+                async for ev in design_stream(
+                    user_id=user_id,
+                    mode=mode,
+                    prompt=prompt,
+                    rules=rules,
+                    user_selected_model=user_selected_model,
+                    canvas_id=canvas_id,
+                    canvas_size=canvas_size,
+                    scene=scene,
+                    scene_nodes=scene_nodes_gate,
+                    scene_frames=scene_frames_gate,
+                    spatial_summary=spatial_summary if isinstance(spatial_summary, dict) else None,
+                    focus_frame_id=focus_frame_id,
+                    images=images,
+                    memory_in=memory,
+                    session_id=sid,
+                    project_id=pid,
+                    hold=hold,
+                    free_daily=free_daily,
+                    t0=t0,
+                    reserve_hold_fn=_reserve_design_hold,
+                    settle_hold_fn=_settle_hold,
+                    refund_hold_fn=_refund_hold,
+                    apply_ops=apply_ops,
+                    proposal_id=proposal_id,
+                    proposal_task_id=proposal_task_id,
+                    interaction_mode=ui_mode,
+                    skill_refs=skill_refs,
+                ):
+                    yield ev
         finally:
             reset_byok_user_id(byok_token)
         return

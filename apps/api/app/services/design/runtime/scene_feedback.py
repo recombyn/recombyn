@@ -420,6 +420,22 @@ async def publish_scene(
     rn = int(round_n or 0)
     async with _lock:
         slot = _pending.get(tid)
+        # Drop stale FE posts that belong to a previous wait (late after timeout).
+        if (
+            slot is not None
+            and round_n is not None
+            and slot.get("_posted") is not True
+            and int(slot.get("round") or 0) > 0
+            and rn > 0
+            and rn != int(slot.get("round") or 0)
+        ):
+            _log.warning(
+                "scene_feedback stale round ignored task=%s got=%s expected=%s",
+                tid,
+                rn,
+                slot.get("round"),
+            )
+            return False
         if slot is None:
             slot = {
                 "event": asyncio.Event(),

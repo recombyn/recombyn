@@ -55,7 +55,7 @@ const MAX_FULL_HOSTS = 96;
 const MAX_PROXY_PAINT = 4096;
 
 /** Below this zoom, prefer proxies for most on-screen nodes. */
-const LOD_ZOOM_FAR = 0.42;
+const LOD_ZOOM_FAR = 0.2;
 
 /** Cap centerline samples when stroking a dense pencil path as LOD ink. */
 const LOD_STROKE_MAX_PTS = 64;
@@ -65,6 +65,71 @@ function isTransparentPaint(v: unknown): boolean {
     .trim()
     .toLowerCase();
   return !s || s === 'none' || s === 'transparent' || s === 'rgba(0,0,0,0)';
+}
+
+/** Draw a minimal image-placeholder icon (mountain + sun) into ctx at (0,0) w×h. */
+function drawImageProxyIcon(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  opacity: number
+): void {
+  const s = Math.min(w, h) * 0.28;
+  if (s < 3) return;
+  const cx = w / 2;
+  const cy = h / 2;
+  ctx.save();
+  ctx.globalAlpha = opacity * 0.55;
+  // Background fill
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillRect(0, 0, w, h);
+  // Border
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = Math.max(0.5, Math.min(1.5, s * 0.06));
+  ctx.strokeRect(0, 0, w, h);
+  // Sun circle
+  const sunR = s * 0.18;
+  ctx.fillStyle = '#94a3b8';
+  ctx.beginPath();
+  ctx.arc(cx - s * 0.28, cy - s * 0.22, sunR, 0, Math.PI * 2);
+  ctx.fill();
+  // Mountain triangle
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.5, cy + s * 0.35);
+  ctx.lineTo(cx, cy - s * 0.2);
+  ctx.lineTo(cx + s * 0.5, cy + s * 0.35);
+  ctx.closePath();
+  ctx.fill();
+  // Small right hill
+  ctx.beginPath();
+  ctx.moveTo(cx + s * 0.1, cy + s * 0.35);
+  ctx.lineTo(cx + s * 0.45, cy + s * 0.05);
+  ctx.lineTo(cx + s * 0.8, cy + s * 0.35);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Text proxy: greeking lines at (0,0) w×h — no solid AABB. */
+function drawTextProxyLines(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNodeInput,
+  w: number,
+  h: number,
+  fill: string,
+  opacity: number
+): void {
+  const fontSize = Math.max(6, Number(node.attrs?.fontSize) || 14);
+  const lineH = fontSize * (Number(node.attrs?.lineHeight) || 1.4);
+  const lineCount = Math.max(1, Math.round(h / lineH));
+  const barH = Math.max(1, Math.min(fontSize * 0.55, lineH * 0.55));
+  const lastLineW = w * (0.35 + 0.4 * Math.abs(Math.sin(w * 0.05)));
+  ctx.fillStyle = fill;
+  for (let li = 0; li < lineCount; li++) {
+    const barW = li === lineCount - 1 && lineCount > 1 ? lastLineW : w;
+    ctx.globalAlpha = opacity * 0.72;
+    ctx.fillRect(0, li * lineH + (lineH - barH) / 2, barW, barH);
+  }
 }
 
 /** Pencil / open strokes must never become solid AABB 色块 at far zoom. */
@@ -204,6 +269,14 @@ export function pickFullAndProxyIds(opts: {
     const force = keepSet.has(id);
     let score = screenAreaPx(node, zoom);
     if (isHeavyPathNode(node) && forceLod) score *= 0.05;
+    // Far zoom: demote media-heavy nodes (image/video/lottie/text) so cheap shapes
+    // stay as full SVG hosts and expensive ones drop to canvas proxy.
+    if (far && !force) {
+      const key = String(node?.key || '');
+      if (key === 'image' || key === 'video' || key === 'lottie' || key === 'text') {
+        score *= 0.08;
+      }
+    }
     scored.push({ id, score, force });
   }
   scored.sort((a, b) => {
@@ -271,6 +344,7 @@ function paintLodProxiesCanvas(opts: {
     const pathD = String(node.attrs?.path || node.attrs?.d || '');
     ctx.save();
     ctx.globalAlpha = opacity;
+    const isMedia = node.key === 'image' || node.key === 'video' || node.key === 'lottie';
     if (Math.abs(angle) > 0.5) {
       const cx = left + w / 2;
       const cy = top + h / 2;
@@ -281,12 +355,15 @@ function paintLodProxiesCanvas(opts: {
         ctx.strokeStyle = fill;
         ctx.lineWidth = nodeProxyStrokeWidth(node, zoom);
         if (!strokeLodCenterline(ctx, pathD)) {
-          // Unparseable stroke — thin line on long axis, never a filled AABB.
           ctx.beginPath();
           ctx.moveTo(0, h / 2);
           ctx.lineTo(w, h / 2);
           ctx.stroke();
         }
+      } else if (node.key === 'text') {
+        drawTextProxyLines(ctx, node, w, h, fill, opacity);
+      } else if (isMedia) {
+        drawImageProxyIcon(ctx, w, h, opacity);
       } else {
         ctx.fillStyle = fill;
         ctx.fillRect(0, 0, w, h);
@@ -301,6 +378,16 @@ function paintLodProxiesCanvas(opts: {
         ctx.lineTo(w, h / 2);
         ctx.stroke();
       }
+    } else if (node.key === 'text') {
+      ctx.save();
+      ctx.translate(left, top);
+      drawTextProxyLines(ctx, node, w, h, fill, opacity);
+      ctx.restore();
+    } else if (isMedia) {
+      ctx.save();
+      ctx.translate(left, top);
+      drawImageProxyIcon(ctx, w, h, opacity);
+      ctx.restore();
     } else {
       ctx.fillStyle = fill;
       ctx.fillRect(left, top, w, h);

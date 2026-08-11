@@ -66,15 +66,64 @@ def _structure_verify_issues(
     frames: list[dict[str, Any]],
     painted: bool,
     intent: str,
+    paint_ops: list[dict[str, Any]] | None = None,
+    op_results: list[dict[str, Any]] | None = None,
 ) -> list[str]:
-    """Deterministic canvas sanity checks ? fact flags only, no routing."""
+    """Deterministic canvas sanity checks — fact flags only, no routing.
+
+    When FE reports create ops as ok but inventory is still empty, treat as
+    scene-sync lag (do not force re-paint). Trust per-op results over a stale
+    empty snapshot.
+    """
     if not painted:
         return []
     issues: list[str] = []
     clean_nodes = [n for n in (nodes or []) if isinstance(n, dict) and n.get("id")]
     clean_frames = [f for f in (frames or []) if isinstance(f, dict) and f.get("id")]
     intent_l = (intent or "").strip().lower()
+
+    failed_ids = {
+        str(r.get("op_id") or "")
+        for r in (op_results or [])
+        if isinstance(r, dict) and not r.get("ok", True)
+    }
+    # Only suppress empty-board when FE posted explicit op_results (create ok).
+    ok_creates = 0
+    if op_results:
+        for op in paint_ops or []:
+            if not isinstance(op, dict):
+                continue
+            name = str(op.get("name") or op.get("op_key") or "").strip()
+            if not name.startswith("create_"):
+                continue
+            oid = str(op.get("op_id") or "")
+            if oid and oid in failed_ids:
+                continue
+            if oid:
+                matched = next(
+                    (
+                        r
+                        for r in op_results
+                        if isinstance(r, dict) and str(r.get("op_id") or "") == oid
+                    ),
+                    None,
+                )
+                if matched is not None and matched.get("ok", True):
+                    ok_creates += 1
+                continue
+            if any(
+                isinstance(r, dict)
+                and r.get("ok", True)
+                and str(r.get("name") or "") == name
+                for r in op_results
+            ):
+                ok_creates += 1
+    # FE said creates applied — empty inventory is lag, not a structural miss.
+    scene_lag = ok_creates > 0 and not clean_nodes
+
     if intent_l in ("edit", "create") and not clean_nodes and not clean_frames:
+        if scene_lag:
+            return []
         issues.append("canvas empty after apply (no nodes/frames)")
         return issues
     if (
@@ -83,6 +132,8 @@ def _structure_verify_issues(
         and not clean_nodes
         and all(bool(f.get("is_empty")) for f in clean_frames)
     ):
+        if scene_lag:
+            return []
         issues.append("artboard still empty after apply")
     zero_box = 0
     for n in clean_nodes[:80]:

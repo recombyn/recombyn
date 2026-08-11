@@ -44,6 +44,9 @@ const CHROME_SKIP_SEL =
   '[data-sel-toolbar],[data-frame-toolbar],[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-text-inline-editor],[data-video-trim-toolbar],[data-video-playback-bar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar]';
 const SCENE_COMPOSER_SEL =
   '[data-image-generator],[data-video-generator],[data-image-quick-edit]';
+/** Account / settings / any Headless UI dialog — portaled over the canvas. */
+const OVERLAY_UI_SEL =
+  '[role="dialog"],[data-headlessui-portal],[data-account-settings],[data-rcb-overlay]';
 
 type LongPress = {
   pointerId: number;
@@ -81,6 +84,13 @@ function isChromeTarget(target: EventTarget | null) {
   return Boolean(el.closest(CHROME_SKIP_SEL));
 }
 
+/** Settings modal / floating UI above the board — must not open the canvas menu. */
+function isOverlayUiTarget(target: EventTarget | null) {
+  const el = target as HTMLElement | null;
+  if (!el?.closest) return false;
+  return Boolean(el.closest(OVERLAY_UI_SEL));
+}
+
 function clientInElement(el: HTMLElement, clientX: number, clientY: number) {
   const r = el.getBoundingClientRect();
   return (
@@ -95,6 +105,15 @@ function stageContainsTarget(stage: HTMLElement, target: EventTarget | null) {
   const node = target as Node | null;
   if (!node) return false;
   return node === stage || stage.contains(node);
+}
+
+/**
+ * Canvas menu only for presses that actually hit the stage tree.
+ * Coords alone are wrong when a portaled dialog sits over the board.
+ */
+function isCanvasGestureTarget(hitEl: HTMLElement, target: EventTarget | null) {
+  if (isOverlayUiTarget(target) || isChromeTarget(target)) return false;
+  return stageContainsTarget(hitEl, target);
 }
 
 function findFrameIdAtScene(
@@ -219,7 +238,7 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
       if (performance.now() - openedAtRef.current < OPEN_DEBOUNCE_MS) return;
       if (isBogusClient(clientX, clientY)) return;
       if (!clientInElement(hitEl, clientX, clientY)) return;
-      if (isChromeTarget(target)) return;
+      if (!isCanvasGestureTarget(hitEl, target)) return;
       openedAtRef.current = performance.now();
       openMenuAt(clientX, clientY);
     };
@@ -248,7 +267,8 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      if (isChromeTarget(e.target)) {
+      // Dialog / dock / chrome — never steal right-click from overlay UI.
+      if (!isCanvasGestureTarget(hitEl, e.target)) {
         clearLongPress();
         return;
       }
@@ -272,7 +292,7 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
     /** Some hybrid drivers skip PointerEvent button=2 but still fire MouseEvent. */
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 2) return;
-      if (isChromeTarget(e.target)) return;
+      if (!isCanvasGestureTarget(hitEl, e.target)) return;
       if (isBogusClient(e.clientX, e.clientY) || !clientInElement(hitEl, e.clientX, e.clientY)) {
         return;
       }
@@ -296,13 +316,9 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
       tryOpen(lp.x, lp.y, lp.target);
     };
 
-    /** Suppress native menu only — never open from this event (coords often fake). */
+    /** Suppress native menu only on the stage / canvas chrome — not on settings dialogs. */
     const onContextMenu = (e: MouseEvent) => {
-      const onStage =
-        clientInElement(hitEl, e.clientX, e.clientY) ||
-        stageContainsTarget(hitEl, e.target) ||
-        isChromeTarget(e.target);
-      if (!onStage) return;
+      if (!stageContainsTarget(hitEl, e.target) && !isChromeTarget(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
     };

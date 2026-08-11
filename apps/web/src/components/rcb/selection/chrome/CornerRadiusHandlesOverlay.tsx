@@ -478,6 +478,13 @@ function CornerRadiusHandlesOverlay({
   );
   // Circle / ellipse: no corners — AABB park seats sit in the empty square corners
   // (outside the disk). Rect-style R dots stay off.
+  // Path / pen with curves (C/Q/A): parseClosedPathRings returns [] → pathSites null.
+  // Those shapes have no sharp corners to fillet, so skip AABB fallback handles entirely.
+  const isPathType =
+    node?.key === 'path' ||
+    node?.key === 'pen' ||
+    shapeType === 'path' ||
+    shapeType === 'pen';
   const skipRadiusHandles =
     shapeType === 'circle' || shapeType === 'ellipse' || node?.key === 'ellipse';
 
@@ -488,6 +495,10 @@ function CornerRadiusHandlesOverlay({
   const linked = isRadiusLinked(node?.attrs);
   const pathSites = skipRadiusHandles ? null : sharpCornerSitesForNode(node);
   const usePath = Boolean(pathSites && pathSites.length > 0);
+  // Path/pen with no parseable sharp corners (curves only) → no handles at all.
+  // Without this guard the code falls back to AABB box-mode handles that float
+  // in the empty space outside the actual shape (e.g. crescent, arc shapes).
+  if (isPathType && !usePath) return null;
   const pathVertexCount = usePath ? pathSites!.length : 0;
   const pathVertices = usePath
     ? resolvePathVertexRadii(node?.attrs, pathVertexCount, baseRadii)
