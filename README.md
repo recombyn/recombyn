@@ -30,6 +30,12 @@ Self-host in minutes with Docker Compose (default **MySQL** + Redis + web + API 
 
 ---
 
+## Star us on GitHub ⭐
+
+Open source takes time. If Recombyn helps your work, please hit **⭐ Star** in the top-right of the GitHub repo — your support is the best fuel for making it better.
+
+→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+
 ## Canvas
 
 Custom **RCB** (Resume Canvas) infinite editor: `SceneDocument` + CSS camera (~5%–10000%). Committed nodes paint as **per-node SVG hosts**; **Path2D** powers hit-testing and selection/tool overlays. Viewport cull + **LOD** (far AABB proxies; capped full hosts on screen) keeps large docs editable.
@@ -194,9 +200,3 @@ User-facing help **source** is private; CI publishes only the built static site 
 - **Security** — report privately per [SECURITY.md](SECURITY.md)
 
 Official: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
-
-## Star us on GitHub ⭐
-
-Open source takes time. If Recombyn helps your work, please hit **⭐ Star** in the top-right of the GitHub repo — your support is the best fuel for making it better.
-
-→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
