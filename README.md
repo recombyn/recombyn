@@ -9,7 +9,6 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Source--Available-orange.svg" alt="Recombyn Source Available License" /></a>
   <a href="docs/self-hosting.md"><img src="https://img.shields.io/badge/self--host-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Self-host" /></a>
   <a href="apps/web"><img src="https://img.shields.io/badge/web-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
   <a href="apps/api"><img src="https://img.shields.io/badge/api-FastAPI%20%2B%20Python-3776AB?logo=python&logoColor=white" alt="Python" /></a>
@@ -129,12 +128,6 @@ User-facing help **source** is private; CI publishes only the built static site 
 - **Issues** — bug & feature templates under `.github/ISSUE_TEMPLATE/`
 - **PRs** — see [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Security** — report privately per [SECURITY.md](SECURITY.md)
-
-## License
-
-[Recombyn Source Available License v1.0](./LICENSE) © Recombyn contributors · [NOTICE](./NOTICE)
-
-Terms (self-host, commercial hosting, white-label / brand) live in **[LICENSE](./LICENSE)** — not OSI open source.
 
 Official: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
 

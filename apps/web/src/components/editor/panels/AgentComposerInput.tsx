@@ -9,6 +9,7 @@ import {
 } from '@/components/editor/panels/agent/runDesignAgent';
 import { renderComposerChipThumb, renderExport } from '@/components/rcb/scene/paint/exportImage';
 import { imageSrcToFile } from '@/utils/uploadImage';
+import { sanitizeSvg } from '@/utils/sanitizeHtml';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 
@@ -60,7 +61,7 @@ function ContextChipPill({
         <span
           className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] bg-[var(--canvas)] text-[var(--muted)] ring-1 ring-[var(--line)]"
           aria-hidden
-          dangerouslySetInnerHTML={{ __html: CONTEXT_ICON_SVG }}
+          dangerouslySetInnerHTML={{ __html: sanitizeSvg(CONTEXT_ICON_SVG) }}
         />
       ) : null}
       <span className="truncate font-medium">{label}</span>
@@ -566,7 +567,7 @@ function buildChip(
     icon.className =
       'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] bg-[var(--canvas)] text-[var(--muted)] ring-1 ring-[var(--line)]';
     icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = opts.iconSvg;
+    icon.innerHTML = sanitizeSvg(opts.iconSvg);
     parts.push(icon);
   } else {
     chip.classList.add('pl-1.5', 'pr-0.5');
