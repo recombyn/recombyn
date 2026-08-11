@@ -1398,6 +1398,8 @@ const en = {
       'Canvas ops: Agent paints with editable tool ops. Image layers: generate a full board then split into editable layers (strong look; text editability depends on OCR).',
     paintModeOps: 'Canvas ops',
     paintModeImgLayers: 'Image layers',
+    paintModeImgLayersTokenWarn:
+      'Image layers generates a full-board image first, which uses significantly more tokens than Canvas ops.',
     routePresetShortPlatform: 'Auto',
     routePresetShortEconomy: 'Economy',
     routePresetShortBalanced: 'Balanced',

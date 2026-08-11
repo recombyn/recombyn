@@ -1040,6 +1040,12 @@ function AgentRoutePrefsEditorImpl({
             { value: 'img_layers', label: t('agent.paintModeImgLayers') },
           ]}
         />
+        {paintMode === 'img_layers' && (
+          <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-[12px] leading-relaxed text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:ring-amber-800/60">
+            <span aria-hidden className="mt-px shrink-0 text-[13px]">⚠</span>
+            {t('agent.paintModeImgLayersTokenWarn')}
+          </p>
+        )}
       </div>
 
       <h2 className="mb-1 text-[15px] font-semibold text-[var(--ink)]">
