@@ -137,6 +137,64 @@ def _pick_viewport_blank_slot(
 
 
 
+def _derive_suggested_place_world(
+    spatial: dict[str, Any] | None,
+    *,
+    focus_frame: dict[str, Any] | None = None,
+) -> dict[str, float] | None:
+    """Viewport-first place: blank slot (align if possible) or camera center.
+
+    NOTE: The return value is used only for tests / legacy callers.
+    The paint prompt no longer injects these coords as suggestions to the model
+    (see _format_spatial_placement which returns "").
+    """
+    spatial = spatial if isinstance(spatial, dict) else {}
+    vp_raw = spatial.get("viewport")
+    if isinstance(vp_raw, dict):
+        vw = _box_num(vp_raw, "w", "width")
+        vh = _box_num(vp_raw, "h", "height")
+        if vw > 8 and vh > 8:
+            vp = {
+                "x": _box_num(vp_raw, "x"),
+                "y": _box_num(vp_raw, "y"),
+                "w": vw,
+                "h": vh,
+            }
+            cw = min(320.0, max(80.0, vw * 0.22))
+            ch = min(240.0, max(80.0, vh * 0.22))
+            occupied = _world_occupied_in_viewport(spatial, vp, focus_frame=focus_frame)
+            return _pick_viewport_blank_slot(vp, occupied, cw=cw, ch=ch)
+
+    sp = spatial.get("suggested_place")
+    if isinstance(sp, dict) and isinstance(focus_frame, dict):
+        fox = _box_num(focus_frame, "x")
+        foy = _box_num(focus_frame, "y")
+        fw = _box_num(focus_frame, "w", "width")
+        fh = _box_num(focus_frame, "h", "height")
+        if fw > 8 and fh > 8:
+            return {
+                "x": round(fox + _box_num(sp, "x")),
+                "y": round(foy + _box_num(sp, "y")),
+                "w": round(_box_num(sp, "w", "width", default=320)),
+                "h": round(_box_num(sp, "h", "height", default=200)),
+            }
+    if isinstance(focus_frame, dict):
+        fox = _box_num(focus_frame, "x")
+        foy = _box_num(focus_frame, "y")
+        fw = _box_num(focus_frame, "w", "width")
+        fh = _box_num(focus_frame, "h", "height")
+        if fw > 8 and fh > 8:
+            cw = min(320.0, max(80.0, fw * 0.25))
+            ch = min(200.0, max(80.0, fh * 0.25))
+            return {
+                "x": round(fox + max(24.0, (fw - cw) / 2)),
+                "y": round(foy + max(24.0, (fh - ch) / 2)),
+                "w": round(cw),
+                "h": round(ch),
+            }
+    return None
+
+
 def _format_spatial_placement(
     spatial: dict[str, Any] | None,
     *,
