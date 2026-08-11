@@ -49,7 +49,7 @@ import { AspectRatioGlyph } from '@/components/editor/panels/agent/ImageAspectRa
 import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/ModelPickerPanel';
-import { applyCanvasPickToImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
+import { flyPickIntoImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import {
   canAttachNodeToChat,
   canvasAttachPickPayload,
@@ -70,6 +70,7 @@ import {
   startCanvasAttachPick,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
+import { noteCanvasFlyLand } from '@/components/editor/panels/agent/flyToChat';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateVideoCredits } from '@/utils/imageCredits';
@@ -173,8 +174,9 @@ function plateSizeForVideoAspect(
 }
 
 /** Attach currently selected canvas nodes/frames into the video composer (excl. host). */
-function attachSelectionToVideoComposer(opts: {
+async function attachSelectionToVideoComposer(opts: {
   hostNodeId: string;
+  landId: string;
   document: SceneDocument;
   selectedNodeIds: string[];
   selectedFrameIds: string[];
@@ -183,9 +185,10 @@ function attachSelectionToVideoComposer(opts: {
     next: ComposerContext[] | ((prev: ComposerContext[]) => ComposerContext[])
   ) => void;
   insertChip: (ctx: ComposerContext) => void;
-}): boolean {
+}): Promise<boolean> {
   const {
     hostNodeId,
+    landId,
     document: doc,
     selectedNodeIds,
     selectedFrameIds,
@@ -201,7 +204,8 @@ function attachSelectionToVideoComposer(opts: {
   const frameId = (selectedFrameIds || []).find(Boolean) || null;
   if (!attachable.length && !frameId) return false;
   const payload = canvasAttachPickPayload(attachable, frameId);
-  applyCanvasPickToImageComposer({
+  await flyPickIntoImageComposer({
+    landId,
     document: doc,
     payload,
     existing,
@@ -409,17 +413,22 @@ function VideoGeneratorCard({
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    applyCanvasPickToImageComposer({
-      document: editorDocument || (store.getState() as any).editor?.document,
-      payload,
-      existing: contextsRef.current,
-      setContexts,
-      imagesOnly: false,
-      insertChip: (ctx) => {
-        inputRef.current?.insertContextAtCaret(ctx);
-        inputRef.current?.focus();
-      },
-    });
+    const doc = editorDocument || (store.getState() as any).editor?.document;
+    async function flyPendingAttach() {
+      await flyPickIntoImageComposer({
+        landId: pickTarget,
+        document: doc,
+        payload,
+        existing: contextsRef.current,
+        setContexts,
+        imagesOnly: false,
+        insertChip: (ctx) => {
+          inputRef.current?.insertContextAtCaret(ctx);
+          inputRef.current?.focus();
+        },
+      });
+    }
+    flyPendingAttach();
   }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
 
   // Re-hydrate after overlay remount (e.g. geometry transform hides the portal).
@@ -896,19 +905,23 @@ function VideoGeneratorCard({
                     inputRef.current?.insertContextAtCaret(ctx);
                     inputRef.current?.focus();
                   };
-                  // If something is already selected, add it now; otherwise enter one-shot pick.
-                  const attached = attachSelectionToVideoComposer({
-                    hostNodeId: nodeId,
-                    document: doc,
-                    selectedNodeIds,
-                    selectedFrameIds,
-                    existing: contextsRef.current,
-                    setContexts,
-                    insertChip,
-                  });
-                  if (!attached) {
-                    dispatch(startCanvasAttachPick({ target: pickTarget }));
+                  async function pickOrAttach() {
+                    const attached = await attachSelectionToVideoComposer({
+                      hostNodeId: nodeId,
+                      landId: pickTarget,
+                      document: doc,
+                      selectedNodeIds,
+                      selectedFrameIds,
+                      existing: contextsRef.current,
+                      setContexts,
+                      insertChip,
+                    });
+                    if (!attached) {
+                      noteCanvasFlyLand(pickTarget);
+                      dispatch(startCanvasAttachPick({ target: pickTarget }));
+                    }
                   }
+                  pickOrAttach();
                 }}
                 className={composerAttachActionClass(pickingFromCanvas)}
               >
@@ -924,6 +937,7 @@ function VideoGeneratorCard({
               onChange={onPickRef}
             />
           </div>
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
           <div
             className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
             onClick={(e) => {
@@ -945,6 +959,7 @@ function VideoGeneratorCard({
               onSubmit={() => onGenerate()}
               disabled={disabled || sending}
               placeholder={t('editor.tools.videoGenPlaceholder')}
+              flyLandId={pickTarget}
               className="min-h-full w-full text-[13px]"
               onPasteImages={(files) => {
                 attachRefFiles(files);
