@@ -335,8 +335,8 @@ function BlendModeControl({
                 value={pct}
                 onChange={applyPct}
                 trackHeight={6}
-                thumbWidth={10}
-                thumbHeight={18}
+                thumbWidth={16}
+                thumbHeight={16}
               />
             </div>
 

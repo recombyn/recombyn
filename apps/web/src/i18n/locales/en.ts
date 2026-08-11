@@ -1393,6 +1393,11 @@ const en = {
     routeMultimodalCustom: 'Multi-route',
     routeMultimodalSingle: 'Single',
     routeBack: 'Back',
+    paintMode: 'Board paint',
+    paintModeTip:
+      'Canvas ops: Agent paints with editable tool ops. Image layers: generate a full board then split into editable layers (strong look; text editability depends on OCR).',
+    paintModeOps: 'Canvas ops',
+    paintModeImgLayers: 'Image layers',
     routePresetShortPlatform: 'Auto',
     routePresetShortEconomy: 'Economy',
     routePresetShortBalanced: 'Balanced',
@@ -1621,6 +1626,8 @@ const en = {
       'Some ops failed to apply ({{count}}): {{notes}}. Retry on a specific element.',
     uxTipApplyConfirmFailed:
       'Confirmed plan could not be applied safely ({{error}}). Rephrase or retry.',
+    uxTipObserveSceneTimeout:
+      'Canvas feedback timed out — continuing as applied, without auto re-paint.',
     uxTipObserveCritiqueFailed: 'Canvas structure check failed: {{issues}}',
     uxTipReviewMustFix: 'Review did not pass: {{issues}}',
     uxTipApplyOpsApplied: 'Applied {{count}} canvas change(s).',
@@ -1665,8 +1672,10 @@ const en = {
     providerPresetModel: 'Model',
     providerPresetModelPlaceholder: 'Choose a model',
     providerPresetComingSoon: 'coming soon',
+    providerManualHint:
+      'Custom endpoint: fill API key, base URL, and the upstream model id (e.g. deepseek-chat). A key alone is not enough — requests need a model field.',
     providerPlatformHint:
-      'After picking a platform, fill the API key first. Name and base URL autofill. Optionally add an extra model id below — saved together with the key.',
+      'After picking a platform, fill the API key first. Name and base URL autofill. Optionally add an extra model below — once you start, name/icon/category are required.',
     providerPlatformUnlock:
       'Unlocks every catalog model on this platform. Uses your own quota — no platform credits.',
     providerPlatformAutofillHint:

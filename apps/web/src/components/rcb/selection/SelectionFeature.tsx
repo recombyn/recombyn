@@ -73,6 +73,9 @@ import {
   applyTextWrapHeight,
   normalizeBox,
   boxesIntersect,
+  expandSceneBox,
+  marqueeHitPadScene,
+  MARQUEE_MIN_HIT_SCREEN_PX,
   framesHittingMarquee,
   resolveInspectPrimaryId,
   isHostInjectedSelection,
@@ -1296,9 +1299,12 @@ function SelectionFeature({
           endTransform();
           return;
         }
-        const candidates = queryNodeIdsInRect?.(box) ?? listNodeIds();
+        // Pad spatial prefilter the same as fine hit — tiny nodes near the brush edge.
+        const queryPad = marqueeHitPadScene(zoom) + MARQUEE_MIN_HIT_SCREEN_PX / Math.max(0.05, zoom);
+        const queryBox = expandSceneBox(box, queryPad);
+        const candidates = queryNodeIdsInRect?.(queryBox) ?? listNodeIds();
         const rawHits = candidates.filter((id) =>
-          nodeHitsMarquee(sceneDoc, id, box, getNodeBox, toScene)
+          nodeHitsMarquee(sceneDoc, id, box, getNodeBox, toScene, zoom)
         );
         const frameHits = framesHittingMarquee(sceneDoc, box).map((f) => f.id);
         // Full-bleed plate: keep when artboard brushed, or other non-plate content hit.

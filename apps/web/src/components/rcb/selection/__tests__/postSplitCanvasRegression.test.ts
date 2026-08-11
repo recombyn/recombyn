@@ -16,8 +16,12 @@ import {
   commitMarqueeSelection,
   normalizeBox,
   boxesIntersect,
+  ensureMinScreenHitBox,
+  MARQUEE_MIN_HIT_SCREEN_PX,
+  nodeHitsMarquee,
   makeDragSeed,
 } from '../selectionLogic';
+import { segmentIntersectsAabb } from '@/components/rcb/scene/document/sceneShapes';
 import { computeShapeBoolean, type ShapeBox } from '../shapeBoolean';
 import { smartSnapThreshold } from '../alignGuides';
 import {
@@ -52,6 +56,58 @@ describe('selectionLogic marquee helpers', () => {
     expect(box).toEqual({ left: 20, top: 10, width: 100, height: 70 });
     expect(boxesIntersect(box, { left: 90, top: 50, width: 40, height: 40 })).toBe(true);
     expect(boxesIntersect(box, { left: 200, top: 200, width: 10, height: 10 })).toBe(false);
+  });
+
+  it('ensureMinScreenHitBox expands hairline nodes in scene space', () => {
+    const tiny = { left: 10, top: 10, width: 1, height: 1 };
+    const expanded = ensureMinScreenHitBox(tiny, 1);
+    expect(expanded.width).toBeGreaterThanOrEqual(MARQUEE_MIN_HIT_SCREEN_PX);
+    expect(expanded.height).toBeGreaterThanOrEqual(MARQUEE_MIN_HIT_SCREEN_PX);
+    // Center preserved.
+    expect(expanded.left + expanded.width / 2).toBeCloseTo(10.5, 5);
+    expect(expanded.top + expanded.height / 2).toBeCloseTo(10.5, 5);
+  });
+
+  it('nodeHitsMarquee selects tiny rect with a tight brush via hit pad', () => {
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      deltaSetLike: {
+        tiny: {
+          id: 'tiny',
+          key: 'shape',
+          x: 100,
+          y: 100,
+          width: 2,
+          height: 2,
+          attrs: { shapeType: 'rect' },
+          children: [],
+        },
+      },
+    } satisfies Partial<SceneDocument> as SceneDocument;
+    const getNodeBox = (id: string) => {
+      const n = doc.deltaSetLike?.[id];
+      if (!n) return null;
+      return {
+        left: Number(n.x) || 0,
+        top: Number(n.y) || 0,
+        width: Math.max(1, Number(n.width) || 1),
+        height: Math.max(1, Number(n.height) || 1),
+      };
+    };
+    // Brush grazes just outside the stored 2×2 box — pad + min hit should still catch it.
+    const marquee = { left: 95, top: 95, width: 4, height: 4 };
+    expect(nodeHitsMarquee(doc, 'tiny', marquee, getNodeBox, () => ({ x: 0, y: 0 }), 1)).toBe(
+      true
+    );
+  });
+
+  it('segmentIntersectsAabb catches off-center crossings (midpoint-only would miss)', () => {
+    // Horizontal segment y=10 from x=0→20; tiny box at x=2..3 (midpoint at 10 is outside).
+    expect(segmentIntersectsAabb(0, 10, 20, 10, 2, 8, 3, 12)).toBe(true);
+    expect(segmentIntersectsAabb(0, 0, 1, 1, 50, 50, 60, 60)).toBe(false);
   });
 
   it('framesHittingMarquee + filter + commit', () => {

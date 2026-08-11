@@ -846,6 +846,49 @@ export async function captureFocusFramePreview(
   }
 }
 
+function sceneInventoryFingerprint(doc: SceneDocument | null | undefined): string {
+  if (!doc) return '';
+  const ids = Object.keys(doc.deltaSetLike || {})
+    .filter((id) => id && id !== 'ROOT')
+    .sort();
+  const frames = (Array.isArray(doc.frames) ? doc.frames : [])
+    .map((f: { id?: string }) => String(f?.id || ''))
+    .filter(Boolean)
+    .sort();
+  return `${ids.length}:${ids.join(',')}|${frames.join(',')}`;
+}
+
+/** Wait until Redux scene inventory stops changing (Yjs/dispatch lag). */
+async function waitSceneInventorySettled(
+  getDocument: () => SceneDocument | null,
+  opts?: { timeoutMs?: number; stableFrames?: number }
+): Promise<void> {
+  const timeoutMs = Math.max(80, opts?.timeoutMs ?? 480);
+  const needStable = Math.max(1, opts?.stableFrames ?? 2);
+  const frame = () =>
+    new Promise<void>((resolve) => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => resolve());
+      } else {
+        setTimeout(resolve, 16);
+      }
+    });
+  const t0 = Date.now();
+  let prev = sceneInventoryFingerprint(getDocument());
+  let stable = 0;
+  while (Date.now() - t0 < timeoutMs) {
+    await frame();
+    const next = sceneInventoryFingerprint(getDocument());
+    if (next === prev) {
+      stable += 1;
+      if (stable >= needStable) return;
+    } else {
+      stable = 0;
+      prev = next;
+    }
+  }
+}
+
 /**
  * Prefer a real artboard raster for CLIP critique; fall back to schematic boxes.
  * Caps longest edge so the scene_feedback POST stays small.
@@ -2149,6 +2192,8 @@ export type RunDesignAgentParams = {
   /** Ask confirm: bind to design_task.meta.ask_proposal. */
   proposalId?: string | null;
   proposalTaskId?: string | null;
+  /** Board paint: ops (default) | img_layers (gen then split). */
+  paintMode?: 'ops' | 'img_layers' | null;
   /** User-pinned skill keys/ids from `/` chips. */
   skillRefs?: string[] | null;
   /** Resume a paused LangGraph run instead of starting a new /design/run. */
@@ -2168,6 +2213,9 @@ function buildRunDesignJobBody(
   };
   if (params.interactionMode === 'ask' || params.interactionMode === 'agent') {
     body.interaction_mode = params.interactionMode;
+  }
+  if (params.paintMode === 'ops' || params.paintMode === 'img_layers') {
+    body.paint_mode = params.paintMode;
   }
   if (runMode === 'agent' && params.scene) body.scene = params.scene;
   if (params.styleGroupId != null) body.style_group_id = params.styleGroupId;
@@ -3064,6 +3112,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     const prevPaint = paintChain;
     async function runSceneFeedbackAfterPaint() {
       await prevPaint;
+      if (params.signal?.aborted) return;
+      // Let Redux (+ collab Y push) settle before snapshot — avoids empty-board false critique.
+      await waitSceneInventorySettled(params.getDocument, { timeoutMs: 480, stableFrames: 2 });
       if (params.signal?.aborted) return;
       coverLiveBoard(
         processLabels.reviewing ||

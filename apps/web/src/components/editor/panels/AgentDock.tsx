@@ -162,6 +162,7 @@ import {
   loadAgentRoutePrefs,
 } from '@/components/editor/panels/agent/agentRoutePrefs';
 import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/AgentRoutePrefsEditor';
+import { loadAgentPaintMode } from '@/components/editor/panels/agent/boardModes/prefs';
 import { setAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
 import {
@@ -1922,6 +1923,7 @@ function AgentDock({
         userMessage: userMsg.content || '',
         runMode: 'agent',
         interactionMode: 'agent',
+        paintMode: loadAgentPaintMode(),
         resumeTaskId: taskId,
         resumeToken: target.designResumeToken || undefined,
         scene: null,
@@ -2609,6 +2611,7 @@ function AgentDock({
           : interactionMode === 'ask'
             ? 'ask'
             : 'agent',
+        paintMode: loadAgentPaintMode(),
         applyOps: options.applyOps?.length ? options.applyOps : undefined,
         proposalId: options.proposalId || pendingProposal.proposalId || undefined,
         proposalTaskId:

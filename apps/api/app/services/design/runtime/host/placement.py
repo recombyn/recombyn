@@ -305,15 +305,21 @@ def _placement_errors_for_free_creates(rt: Any, ops: list[dict[str, Any]]) -> li
     focus_frame = _focus_frame_from_rt(rt)
     spw = _derive_suggested_place_world(spatial, focus_frame=focus_frame)
     vp = spatial.get("viewport") if isinstance(spatial, dict) else None
-    view_box = vp if isinstance(vp, dict) and _box_num(vp, "w", "width") > 0 else None
-    if view_box is None and isinstance(focus_frame, dict):
+    # Prefer artboard bounds when present — FE camera viewport is noisier (Yjs/pan lag).
+    if isinstance(focus_frame, dict) and _box_num(focus_frame, "w", "width") > 0:
         view_box = focus_frame
-    if view_box is None:
+        pad = max(
+            48.0,
+            0.2 * min(_box_num(view_box, "w", "width"), _box_num(view_box, "h", "height")),
+        )
+    elif isinstance(vp, dict) and _box_num(vp, "w", "width") > 0:
+        view_box = vp
+        pad = max(
+            96.0,
+            0.4 * min(_box_num(view_box, "w", "width"), _box_num(view_box, "h", "height")),
+        )
+    else:
         return []
-    pad = max(
-        64.0,
-        0.25 * min(_box_num(view_box, "w", "width"), _box_num(view_box, "h", "height")),
-    )
     errors: list[str] = []
     create_names = ("create_shape", "create_text", "create_image", "create_svg")
     for op in ops:

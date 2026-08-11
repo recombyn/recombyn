@@ -3,6 +3,7 @@ import { message } from '@/components/base';
 import {
   groupNodesInDocument,
   ungroupNodesInDocument,
+  unlockedGroupableIds,
 } from '@/components/rcb/scene/document/sceneGroups';
 import {
   isNodeHidden,
@@ -241,18 +242,20 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
   }
   if (action === 'group') {
     const targetIds = resolveSelectionNodeIds(documentRef.current, ids, frameIdsForAction);
-    if (targetIds.length < 2) return;
-    const next = groupNodesInDocument(documentRef.current, targetIds);
+    const grouped = unlockedGroupableIds(documentRef.current, targetIds);
+    if (grouped.length < 2) return;
+    const next = groupNodesInDocument(documentRef.current, grouped);
     dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: targetIds, frameIds: frameIdsForAction }));
+    dispatch(setMixedSelection({ nodeIds: grouped, frameIds: frameIdsForAction }));
     return;
   }
   if (action === 'ungroup') {
     const targetIds = resolveSelectionNodeIds(documentRef.current, ids, frameIdsForAction);
-    if (!targetIds.length) return;
-    const next = ungroupNodesInDocument(documentRef.current, targetIds);
+    const unlocked = unlockedGroupableIds(documentRef.current, targetIds);
+    if (!unlocked.length) return;
+    const next = ungroupNodesInDocument(documentRef.current, unlocked);
     dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: targetIds, frameIds: frameIdsForAction }));
+    dispatch(setMixedSelection({ nodeIds: unlocked, frameIds: frameIdsForAction }));
     return;
   }
   if (action === 'undo') {
