@@ -82,6 +82,12 @@ export function clampExportScale(
   return Math.max(0.01, Math.min(want, byEdge, byArea));
 }
 
+function isTauriShell(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as Window & { __TAURI_INTERNALS__?: unknown; __TAURI__?: unknown };
+  return Boolean(w.__TAURI_INTERNALS__ || w.__TAURI__ || import.meta.env.TAURI_ENV_PLATFORM);
+}
+
 function clickDownloadLink(href: string, filename: string) {
   const a = window.document.createElement('a');
   a.href = href;
@@ -92,15 +98,80 @@ function clickDownloadLink(href: string, filename: string) {
   a.remove();
 }
 
-function downloadDataUrl(dataUrl: string, filename: string) {
-  clickDownloadLink(dataUrl, filename);
+function saveDialogFilters(filename: string): { name: string; extensions: string[] }[] | undefined {
+  const m = /\.([a-z0-9]+)$/i.exec(filename);
+  if (!m) return undefined;
+  const ext = m[1].toLowerCase();
+  return [{ name: ext.toUpperCase(), extensions: [ext] }];
 }
 
-function downloadBlob(blob: Blob, filename: string) {
+/** Decode a data: URL without `fetch` — Tauri/WebView often blocks or empties data: fetches. */
+function blobFromDataUrl(dataUrl: string): Blob | null {
+  try {
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) return null;
+    const header = dataUrl.slice(0, comma);
+    const data = dataUrl.slice(comma + 1);
+    const mime = /data:([^;,]+)/i.exec(header)?.[1] || 'application/octet-stream';
+    if (/;base64/i.test(header)) {
+      const bin = atob(data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], { type: mime });
+    }
+    return new Blob([decodeURIComponent(data)], { type: mime });
+  } catch {
+    return null;
+  }
+}
+
+export type DownloadFileResult = 'saved' | 'cancelled' | 'failed';
+
+/**
+ * Trigger a file download. Web: `<a download>`. Tauri WebView ignores that, so use
+ * a native Save dialog + fs write instead.
+ *
+ * - `saved`: wrote (or browser download started)
+ * - `cancelled`: user closed the Save dialog
+ * - `failed`: write/encode error
+ */
+export async function downloadFileBlob(
+  blob: Blob,
+  filename: string
+): Promise<DownloadFileResult> {
+  const safeName = sanitizeFilename(filename) || 'export';
+  if (isTauriShell()) {
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const { writeFile } = await import('@tauri-apps/plugin-fs');
+      const picked = await save({
+        defaultPath: safeName,
+        filters: saveDialogFilters(safeName),
+      });
+      if (picked == null || picked === '') return 'cancelled';
+      const path = String(picked).replace(/^file:\/\//i, '');
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await writeFile(path, bytes);
+      return 'saved';
+    } catch (err) {
+      console.warn('[download] tauri save failed', err);
+      return 'failed';
+    }
+  }
   const url = URL.createObjectURL(blob);
-  clickDownloadLink(url, filename);
+  clickDownloadLink(url, safeName);
   // Defer revoke — some browsers cancel the download if the blob URL dies immediately.
   window.setTimeout(() => URL.revokeObjectURL(url), 2_000);
+  return 'saved';
+}
+
+async function downloadDataUrl(
+  dataUrl: string,
+  filename: string
+): Promise<DownloadFileResult> {
+  const blob = blobFromDataUrl(dataUrl);
+  if (!blob || !(blob.size > 0)) return 'failed';
+  return downloadFileBlob(blob, filename);
 }
 
 export function sanitizeFilename(name: string) {
@@ -605,6 +676,29 @@ export function bakeStampStrokeInWorker(opts: {
   });
 }
 
+function paintBitmapToCanvas(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  bitmap: CanvasImageSource,
+  pw: number,
+  ph: number,
+  opts?: { transparent?: boolean; backgroundColor?: string; sourceW?: number; sourceH?: number }
+) {
+  if (!opts?.transparent) {
+    const bg = String(opts?.backgroundColor || '').trim();
+    ctx.fillStyle = bg && bg !== 'transparent' ? bg : '#ffffff';
+    ctx.fillRect(0, 0, pw, ph);
+  }
+  const sw = Math.max(1, Math.round(Number(opts?.sourceW) || 0));
+  const sh = Math.max(1, Math.round(Number(opts?.sourceH) || 0));
+  // 1:1 copy stays crisp; only enable smoothing when we must resample.
+  const needsScale = sw > 0 && sh > 0 ? sw !== pw || sh !== ph : true;
+  ctx.imageSmoothingEnabled = needsScale;
+  if (needsScale && 'imageSmoothingQuality' in ctx) {
+    (ctx as CanvasRenderingContext2D).imageSmoothingQuality = 'high';
+  }
+  ctx.drawImage(bitmap, 0, 0, pw, ph);
+}
+
 function rasterizeSvgStringMainThread(
   svgString: string,
   width: number,
@@ -630,12 +724,12 @@ function rasterizeSvgStringMainThread(
           reject(new Error('no-2d'));
           return;
         }
-        if (!transparent) {
-          const bg = String(backgroundColor || '').trim();
-          ctx.fillStyle = bg && bg !== 'transparent' ? bg : '#ffffff';
-          ctx.fillRect(0, 0, pw, ph);
-        }
-        ctx.drawImage(img, 0, 0, pw, ph);
+        paintBitmapToCanvas(ctx, img, pw, ph, {
+          transparent,
+          backgroundColor,
+          sourceW: img.naturalWidth || img.width,
+          sourceH: img.naturalHeight || img.height,
+        });
         resolve(canvas.toDataURL(mime, quality));
       } catch (err) {
         reject(err);
@@ -651,7 +745,84 @@ function rasterizeSvgStringMainThread(
   });
 }
 
-/** SVG string → data URL. Decode on main thread; PNG/JPEG encode prefers worker. */
+/** Decode SVG at the export pixel size (avoid 1× decode → 4× upscale blur). */
+async function rasterizeSvgToBitmap(
+  svgString: string,
+  width: number,
+  height: number
+): Promise<ImageBitmap> {
+  const pw = Math.max(1, Math.round(width));
+  const ph = Math.max(1, Math.round(height));
+  const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+
+  // Chromium / WebView2: resize* controls SVG rasterization resolution.
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(blob, {
+        resizeWidth: pw,
+        resizeHeight: ph,
+        resizeQuality: 'high',
+      });
+    } catch {
+      /* fall through — some hosts reject SVG+resize */
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('svg-image-load-failed'));
+      el.src = url;
+    });
+    if (typeof createImageBitmap === 'function') {
+      try {
+        return await createImageBitmap(img, {
+          resizeWidth: pw,
+          resizeHeight: ph,
+          resizeQuality: 'high',
+        });
+      } catch {
+        return await createImageBitmap(img);
+      }
+    }
+    throw new Error('no-createImageBitmap');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function encodeBitmapOnMainThread(
+  bitmap: ImageBitmap,
+  width: number,
+  height: number,
+  mime: string,
+  quality?: number,
+  transparent = false,
+  backgroundColor?: string
+): string {
+  const pw = Math.max(1, Math.round(width));
+  const ph = Math.max(1, Math.round(height));
+  const canvas = window.document.createElement('canvas');
+  canvas.width = pw;
+  canvas.height = ph;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    bitmap.close();
+    throw new Error('no-2d');
+  }
+  paintBitmapToCanvas(ctx, bitmap, pw, ph, {
+    transparent,
+    backgroundColor,
+    sourceW: bitmap.width,
+    sourceH: bitmap.height,
+  });
+  bitmap.close();
+  return canvas.toDataURL(mime, quality);
+}
+
+/** SVG string → data URL. Decode at target size; PNG/JPEG encode prefers worker. */
 export async function rasterizeSvgString(
   svgString: string,
   width: number,
@@ -663,17 +834,10 @@ export async function rasterizeSvgString(
 ): Promise<string> {
   const pw = Math.max(1, Math.round(width));
   const ph = Math.max(1, Math.round(height));
-  if (canUseRasterWorker()) {
-    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error('svg-image-load-failed'));
-        el.src = url;
-      });
-      const bitmap = await createImageBitmap(img);
+
+  try {
+    const bitmap = await rasterizeSvgToBitmap(svgString, pw, ph);
+    if (canUseRasterWorker()) {
       try {
         return await encodeBitmapInWorker(
           bitmap,
@@ -685,12 +849,23 @@ export async function rasterizeSvgString(
           backgroundColor
         );
       } catch {
-        /* fall through to main-thread encode */
+        // Worker path transfers/closes the bitmap — rebuild via Image fallback.
       }
-    } finally {
-      URL.revokeObjectURL(url);
+    } else {
+      return encodeBitmapOnMainThread(
+        bitmap,
+        pw,
+        ph,
+        mime,
+        quality,
+        transparent,
+        backgroundColor
+      );
     }
+  } catch {
+    /* Image() fallback below */
   }
+
   return rasterizeSvgStringMainThread(
     svgString,
     pw,
@@ -919,44 +1094,40 @@ export async function renderExport(options: ExportImageOptions): Promise<ExportR
   }
 }
 
-async function exportOnce(options: ExportImageOptions): Promise<boolean> {
+export type ExportOnceResult = DownloadFileResult | 'render-failed';
+
+async function exportOnce(options: ExportImageOptions): Promise<ExportOnceResult> {
   const filename = options.filename || 'export';
   try {
     const rendered = await renderExport(options);
-    if (!rendered) return false;
+    if (!rendered) return 'render-failed';
     if (rendered.kind === 'svg') {
       const blob = new Blob([rendered.svgString], { type: 'image/svg+xml;charset=utf-8' });
-      downloadBlob(blob, `${sanitizeFilename(filename)}.svg`);
-      return true;
+      return downloadFileBlob(blob, `${sanitizeFilename(filename)}.svg`);
     }
     const ext = rendered.format === 'jpeg' ? 'jpg' : 'png';
-    // Prefer blob download — large data: URLs are often blocked by the browser.
-    try {
-      const res = await fetch(rendered.dataUrl);
-      const blob = await res.blob();
-      if (blob.size > 0) {
-        downloadBlob(blob, `${sanitizeFilename(filename)}.${ext}`);
-        return true;
-      }
-    } catch {
-      /* fall through */
+    // Prefer real Blob bytes — do not rely on fetch(data:) (broken in Tauri WebView).
+    const blob = blobFromDataUrl(rendered.dataUrl);
+    if (blob && blob.size > 0) {
+      return downloadFileBlob(blob, `${sanitizeFilename(filename)}.${ext}`);
     }
-    downloadDataUrl(rendered.dataUrl, `${sanitizeFilename(filename)}.${ext}`);
-    return true;
+    return downloadDataUrl(rendered.dataUrl, `${sanitizeFilename(filename)}.${ext}`);
   } catch (err) {
     console.warn('[export] exportOnce failed', err);
-    return false;
+    return 'failed';
   }
 }
 
 /** Download the scene document as pretty-printed JSON (round-trips with import). */
-export function exportDocumentJson(document: SceneDocument, filename = 'document'): boolean {
-  if (!document || typeof document !== 'object') return false;
+export async function exportDocumentJson(
+  document: SceneDocument,
+  filename = 'document'
+): Promise<DownloadFileResult> {
+  if (!document || typeof document !== 'object') return 'failed';
   const blob = new Blob([JSON.stringify(document, null, 2)], {
     type: 'application/json;charset=utf-8',
   });
-  downloadBlob(blob, `${sanitizeFilename(filename)}.json`);
-  return true;
+  return downloadFileBlob(blob, `${sanitizeFilename(filename)}.json`);
 }
 
 /**
@@ -1048,14 +1219,14 @@ export async function exportSelectionSlots(opts: {
   compress: boolean;
   slots: ExportSlotConfig[];
   document?: any;
-}): Promise<number> {
+}): Promise<{ saved: number; cancelled: number; failed: number }> {
   const { nodeIds, baseName, compress, slots, document } = opts;
-  if (!nodeIds.length || !slots.length) return 0;
+  const tally = { saved: 0, cancelled: 0, failed: 0 };
+  if (!nodeIds.length || !slots.length) return tally;
 
-  let ok = 0;
   for (const slot of slots) {
     const filename = buildExportFilename(baseName, slot.affixMode, slot.affix);
-    const started = await exportOnce({
+    const result = await exportOnce({
       selectionOnly: true,
       nodeIds,
       document,
@@ -1064,9 +1235,11 @@ export async function exportSelectionSlots(opts: {
       compress,
       filename,
     });
-    if (started) ok += 1;
+    if (result === 'saved') tally.saved += 1;
+    else if (result === 'cancelled') tally.cancelled += 1;
+    else tally.failed += 1;
   }
-  return ok;
+  return tally;
 }
 
 /** Export an artboard / frame region (scene crop + optional background). */
@@ -1078,13 +1251,13 @@ export async function exportCropSlots(opts: {
   slots: ExportSlotConfig[];
   /** Required on infinite canvas — live SvgBoard is not registered. */
   document?: any;
-}): Promise<number> {
+}): Promise<{ saved: number; cancelled: number; failed: number }> {
   const { crop, backgroundColor, baseName, compress, slots, document } = opts;
-  if (!crop || !(crop.width > 0) || !(crop.height > 0) || !slots.length) return 0;
-  let ok = 0;
+  const tally = { saved: 0, cancelled: 0, failed: 0 };
+  if (!crop || !(crop.width > 0) || !(crop.height > 0) || !slots.length) return tally;
   for (const slot of slots) {
     const filename = buildExportFilename(baseName, slot.affixMode, slot.affix);
-    const started = await exportOnce({
+    const result = await exportOnce({
       crop,
       backgroundColor,
       document,
@@ -1093,7 +1266,9 @@ export async function exportCropSlots(opts: {
       compress,
       filename,
     });
-    if (started) ok += 1;
+    if (result === 'saved') tally.saved += 1;
+    else if (result === 'cancelled') tally.cancelled += 1;
+    else tally.failed += 1;
   }
-  return ok;
+  return tally;
 }

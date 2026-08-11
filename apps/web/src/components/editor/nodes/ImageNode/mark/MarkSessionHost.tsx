@@ -422,13 +422,13 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
       const cleared = prev.map((r) => ({ ...r, selected: false }));
       return renumber([...cleared, nextRegion]);
     });
-    void flyRegionToChat(nextRegion);
+    flyRegionToChat(nextRegion);
   };
 
   const onSelectRegion = (id: string, _additive: boolean) => {
     const hit = regions.find((r) => r.id === id);
     setRegions((prev) => prev.map((r) => ({ ...r, selected: r.id === id })));
-    if (hit) void flyRegionToChat(hit);
+    if (hit) flyRegionToChat(hit);
   };
 
   if (!active || !box || !node) return null;

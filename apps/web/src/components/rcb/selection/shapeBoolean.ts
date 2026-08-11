@@ -9,6 +9,12 @@ import {
 } from 'polygon-clipping';
 import { getShapeBaselineD } from '@/components/rcb/core/geometry';
 import {
+  clampCornerRadii,
+  maxRadius,
+  radiiFromAttrs,
+  type CornerRadii,
+} from '@/components/rcb/scene/document/sceneRadii';
+import {
   clampShapeSides,
   DEFAULT_SHAPE_SIDES,
   shapeVertexPoints,
@@ -95,6 +101,52 @@ function ellipseRingFallback(b: ShapeBox, segments?: number): Ring {
   }
   ring.push(ring[0]);
   return ring;
+}
+
+/**
+ * Local-space rounded-rect ring (DOM-free). WebView2 often returns getTotalLength=0
+ * on detached SVG paths with A commands — that used to fall through to a sharp AABB
+ * and turn boolean subtract into a hard-corner L.
+ */
+function roundedRectLocalRing(w: number, h: number, radii: CornerRadii, stepPx: number): Ring {
+  const width = Math.max(1, w);
+  const height = Math.max(1, h);
+  const { tl, tr, br, bl } = clampCornerRadii(radii, width, height);
+  const step = Math.max(0.35, stepPx);
+  const pts: Array<[number, number]> = [];
+
+  const pushArc = (
+    cx: number,
+    cy: number,
+    r: number,
+    a0: number,
+    a1: number
+  ) => {
+    if (!(r > 0.5)) {
+      pts.push([cx + r * Math.cos(a1), cy + r * Math.sin(a1)]);
+      return;
+    }
+    const arcLen = Math.abs(a1 - a0) * r;
+    const n = Math.max(3, Math.ceil(arcLen / step));
+    for (let i = 1; i <= n; i += 1) {
+      const t = i / n;
+      const a = a0 + (a1 - a0) * t;
+      pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  };
+
+  // Match roundedRectPath winding (screen y-down, sweep=1 arcs).
+  pts.push([tl, 0]);
+  if (width - tr > tl) pts.push([width - tr, 0]);
+  pushArc(width - tr, tr, tr, -Math.PI / 2, 0);
+  if (height - br > tr) pts.push([width, height - br]);
+  pushArc(width - br, height - br, br, 0, Math.PI / 2);
+  if (bl < width - br) pts.push([bl, height]);
+  pushArc(bl, height - bl, bl, Math.PI / 2, Math.PI);
+  if (tl < height - bl) pts.push([0, tl]);
+  pushArc(tl, tl, tl, Math.PI, (3 * Math.PI) / 2);
+
+  return closeRing(dedupeRingPts(pts, Math.max(0.25, step * 0.35)));
 }
 
 function closeRing(pts: Array<[number, number]>): Ring {
@@ -468,31 +520,49 @@ function sampleLocalPathToRings(d: string, stepPx = SAMPLE_STEP_PX): Ring[] {
     .filter(Boolean);
   const rings: Ring[] = [];
 
-  for (const chunk of chunks) {
-    // Straight polylines (outlined strokes): keep corners only — densify made
-    // boolean results a bead string of path-edit knobs.
-    const linear = linearPathCornerVerts(chunk.replace(/[Zz]\s*$/i, ''));
-    if (linear && linear.length >= 3) {
-      rings.push(closeRing(dedupeRingPts(linear, 0.35)));
-      continue;
-    }
-    try {
-      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      el.setAttribute('d', chunk);
-      const len = el.getTotalLength?.() ?? 0;
-      if (!(len > 0)) continue;
-      const n = Math.max(MIN_SAMPLE_POINTS, Math.ceil(len / Math.max(0.75, stepPx)));
-      const pts: Array<[number, number]> = [];
-      for (let i = 0; i <= n; i += 1) {
-        const p = el.getPointAtLength((len * i) / n);
-        pts.push([p.x, p.y]);
+  // WebView2 / some engines: getTotalLength() is 0 on detached <path> with arcs.
+  // Mount once under a hidden SVG for the whole sample pass.
+  const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  host.setAttribute('width', '0');
+  host.setAttribute('height', '0');
+  host.style.cssText =
+    'position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none';
+  document.documentElement.appendChild(host);
+
+  try {
+    for (const chunk of chunks) {
+      // Straight polylines (outlined strokes): keep corners only — densify made
+      // boolean results a bead string of path-edit knobs.
+      const linear = linearPathCornerVerts(chunk.replace(/[Zz]\s*$/i, ''));
+      if (linear && linear.length >= 3) {
+        rings.push(closeRing(dedupeRingPts(linear, 0.35)));
+        continue;
       }
-      const cleaned = dedupeRingPts(pts, Math.max(0.35, stepPx * 0.35));
-      if (cleaned.length < 3) continue;
-      rings.push(closeRing(cleaned));
-    } catch {
-      /* skip bad subpath */
+      try {
+        const live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        live.setAttribute('d', chunk);
+        host.appendChild(live);
+        const len = live.getTotalLength?.() ?? 0;
+        if (!(len > 0)) {
+          live.remove();
+          continue;
+        }
+        const n = Math.max(MIN_SAMPLE_POINTS, Math.ceil(len / Math.max(0.75, stepPx)));
+        const pts: Array<[number, number]> = [];
+        for (let i = 0; i <= n; i += 1) {
+          const p = live.getPointAtLength((len * i) / n);
+          pts.push([p.x, p.y]);
+        }
+        live.remove();
+        const cleaned = dedupeRingPts(pts, Math.max(0.35, stepPx * 0.35));
+        if (cleaned.length < 3) continue;
+        rings.push(closeRing(cleaned));
+      } catch {
+        /* skip bad subpath */
+      }
     }
+  } finally {
+    host.remove();
   }
 
   if (rings.length <= 1) return rings;
@@ -518,6 +588,16 @@ function shapeToPolygon(b: ShapeBox): Polygon | null {
       ellipseSegmentCount(b)
     );
     return [toWorld(local)];
+  }
+
+  // Rounded rect: parametric ring (no DOM). Detached SVG A-path length is often 0
+  // in desktop WebView → old code used sharp AABB → boolean became a hard L.
+  if (t === 'rect') {
+    const radii = clampCornerRadii(radiiFromAttrs(b.attrs), b.width, b.height);
+    if (maxRadius(radii) > 0.5) {
+      const local = roundedRectLocalRing(b.width, b.height, radii, sampleStepForBox(b));
+      if (local.length >= 4) return [toWorld(local)];
+    }
   }
 
   // Star / polygon / triangle: prefer sharp verts so concave tips never become AABB.

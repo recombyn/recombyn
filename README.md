@@ -35,6 +35,7 @@ Self-host in minutes with Docker Compose (default **MySQL** + Redis + web + API 
 - **Real canvas editing** — Frames, shapes, images, video, text; export and share
 - **Live multiplayer** — Yjs sync for the same project (cursors, selection, undo); share view-only or edit
 - **Agent that paints** — Conversation plans and applies canvas ops
+- **Your models, your keys** — Add custom OpenAI-compatible endpoints, or connect aggregators like **OpenRouter** (and similar gateways)
 - **Self-host first** — Same stack locally or on a server
 - **Composable** — Infra seeds + prompt packs + **5 core Agent skills** under `apps/api/seeds/`
 
@@ -43,6 +44,7 @@ Self-host in minutes with Docker Compose (default **MySQL** + Redis + web + API 
 - **Visual editor** — selection, layers, fills, export, share
 - **Realtime collab** — Yjs WebSocket room (`apps/collab`); Live bar in the editor; WSS via nginx `/collab/`
 - **Design Agent** — LangGraph tools / skills; create, edit, and chat with streaming UI
+- **Custom models & aggregators** — BYOK providers, manual OpenAI-compatible endpoints, OpenRouter and other multi-model platforms
 - **Image import** — local images → editable canvas nodes
 - **Plaza & projects** — inspiration feed and saved work (API)
 

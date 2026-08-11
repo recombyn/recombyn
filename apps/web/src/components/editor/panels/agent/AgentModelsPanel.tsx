@@ -80,6 +80,105 @@ function platformModelKindOptions(t: (key: string) => string) {
 }
 
 
+function ModelIconPickerFields(props: {
+  iconKey: string;
+  iconUrl: string;
+  required?: boolean;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+  onIconKey: (v: string) => void;
+  onIconUrl: (v: string) => void;
+}): ReactNode {
+  const { iconKey, iconUrl, required, t, onIconKey, onIconUrl } = props;
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const pickPreset = (key: string) => {
+    if (iconKey === key && !iconUrl) onIconKey('');
+    else {
+      onIconUrl('');
+      onIconKey(key);
+    }
+  };
+
+  const onUploadIcon = (file: File | null) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    async function applyUploadedIcon() {
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        onIconKey('');
+        onIconUrl(dataUrl);
+      } catch {
+        /* ignore read errors */
+      }
+    }
+    applyUploadedIcon();
+  };
+
+  return (
+    <div className="mb-4">
+      <span className="text-[13px] font-medium text-[var(--ink)]">
+        {t('agent.providerModelIcon')}
+        {required ? <span className="text-red-500"> *</span> : null}
+        {!required ? (
+          <span className="ml-1 font-normal text-[var(--muted)]">
+            ({t('agent.providerOptional')})
+          </span>
+        ) : null}
+      </span>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          title={t('agent.providerModelIconUpload')}
+          aria-label={t('agent.providerModelIconUpload')}
+          className={cn(
+            'inline-flex h-9 w-9 items-center justify-center rounded-lg ring-1 transition',
+            iconUrl
+              ? 'ring-2 ring-[var(--ink)] ring-offset-1 ring-offset-[var(--account-card)]'
+              : 'ring-[var(--line)] hover:bg-[var(--accent-soft)]'
+          )}
+          onClick={() => fileRef.current?.click()}
+        >
+          {iconUrl ? (
+            <img src={iconUrl} alt="" className="h-5 w-5 rounded object-cover" />
+          ) : (
+            <HiOutlinePlus className="h-4 w-4 text-[var(--ink)]" />
+          )}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            onUploadIcon(e.target.files?.[0] || null);
+            e.target.value = '';
+          }}
+        />
+        {CUSTOM_MODEL_ICON_OPTIONS.map((opt) => {
+          const selected = !iconUrl && iconKey === opt.key;
+          return (
+            <button
+              key={opt.key}
+              type="button"
+              title={opt.label}
+              aria-label={opt.label}
+              aria-pressed={selected}
+              className={cn(
+                'inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--account-card)] ring-1 transition',
+                selected
+                  ? 'ring-2 ring-[var(--ink)] ring-offset-1 ring-offset-[var(--account-card)]'
+                  : 'ring-[var(--line)] hover:bg-[var(--accent-soft)]'
+              )}
+              onClick={() => pickPreset(opt.key)}
+            >
+              <ModelBrandIcon model={{ iconKey: opt.key, label: opt.label }} size={18} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AddPlatformModelFields(props: {
   fieldClass: string;
   selectFieldClass: string;
@@ -110,29 +209,6 @@ function AddPlatformModelFields(props: {
     onIconKey,
     onIconUrl,
   } = props;
-  const fileRef = useRef<HTMLInputElement | null>(null);
-
-  const pickPreset = (key: string) => {
-    if (iconKey === key && !iconUrl) onIconKey('');
-    else {
-      onIconUrl('');
-      onIconKey(key);
-    }
-  };
-
-  const onUploadIcon = (file: File | null) => {
-    if (!file || !file.type.startsWith('image/')) return;
-    async function applyUploadedIcon() {
-      try {
-        const dataUrl = await readFileAsDataUrl(file);
-        onIconKey('');
-        onIconUrl(dataUrl);
-      } catch {
-        /* ignore read errors */
-      }
-    }
-    applyUploadedIcon();
-  };
 
   return (
     <>
@@ -162,63 +238,14 @@ function AddPlatformModelFields(props: {
           autoComplete="off"
         />
       </label>
-      <div className="mb-4">
-        <span className="text-[13px] font-medium text-[var(--ink)]">
-          {t('agent.providerModelIcon')}
-          <span className="text-red-500"> *</span>
-        </span>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            title={t('agent.providerModelIconUpload')}
-            aria-label={t('agent.providerModelIconUpload')}
-            className={cn(
-              'inline-flex h-9 w-9 items-center justify-center rounded-lg ring-1 transition',
-              iconUrl
-                ? 'ring-2 ring-[var(--ink)] ring-offset-1 ring-offset-[var(--account-card)]'
-                : 'ring-[var(--line)] hover:bg-[var(--accent-soft)]'
-            )}
-            onClick={() => fileRef.current?.click()}
-          >
-            {iconUrl ? (
-              <img src={iconUrl} alt="" className="h-5 w-5 rounded object-cover" />
-            ) : (
-              <HiOutlinePlus className="h-4 w-4 text-[var(--ink)]" />
-            )}
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              onUploadIcon(e.target.files?.[0] || null);
-              e.target.value = '';
-            }}
-          />
-          {CUSTOM_MODEL_ICON_OPTIONS.map((opt) => {
-            const selected = !iconUrl && iconKey === opt.key;
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                title={opt.label}
-                aria-label={opt.label}
-                aria-pressed={selected}
-                className={cn(
-                  'inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--account-card)] ring-1 transition',
-                  selected
-                    ? 'ring-2 ring-[var(--ink)] ring-offset-1 ring-offset-[var(--account-card)]'
-                    : 'ring-[var(--line)] hover:bg-[var(--accent-soft)]'
-                )}
-                onClick={() => pickPreset(opt.key)}
-              >
-                <ModelBrandIcon model={{ iconKey: opt.key, label: opt.label }} size={18} />
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <ModelIconPickerFields
+        iconKey={iconKey}
+        iconUrl={iconUrl}
+        required
+        t={t}
+        onIconKey={onIconKey}
+        onIconUrl={onIconUrl}
+      />
       <label className="mb-4 block">
         <span className="text-[13px] font-medium text-[var(--ink)]">
           {t('agent.providerModelKind')}
@@ -275,6 +302,8 @@ function AgentModelsPanel({
   const [addModelIconKey, setAddModelIconKey] = useState('');
   const [addModelIconUrl, setAddModelIconUrl] = useState('');
   const [addModelError, setAddModelError] = useState('');
+  const [providerIconKey, setProviderIconKey] = useState('');
+  const [providerIconUrl, setProviderIconUrl] = useState('');
 
   const selectedPlatform =
     presetId && presetId !== MANUAL_PROVIDER_ID
@@ -382,6 +411,8 @@ function AgentModelsPanel({
     if (id === MANUAL_PROVIDER_ID || !id) {
       setModelKind('text');
       setApiModel('');
+      setProviderIconKey('');
+      setProviderIconUrl('');
       return;
     }
     const platform = platforms.find((p) => p.id === id);
@@ -407,6 +438,8 @@ function AgentModelsPanel({
     setAddModelIconKey('');
     setAddModelIconUrl('');
     setAddModelError('');
+    setProviderIconKey('');
+    setProviderIconUrl('');
   };
 
   const providerSelectOptions = [
@@ -465,6 +498,8 @@ function AgentModelsPanel({
       baseUrl: url,
       apiModel: mid,
       modelKind: isPlatform ? 'platform' : modelKind,
+      iconKey: isPlatform ? '' : providerIconKey.trim(),
+      iconUrl: isPlatform ? '' : providerIconUrl.trim(),
       createdAt: Date.now(),
     };
     const extraMid = isPlatform ? addModelApiId.trim() : '';
@@ -768,6 +803,14 @@ function AgentModelsPanel({
                         })}
                       </span>
                     </label>
+
+                    <ModelIconPickerFields
+                      iconKey={providerIconKey}
+                      iconUrl={providerIconUrl}
+                      t={t}
+                      onIconKey={setProviderIconKey}
+                      onIconUrl={setProviderIconUrl}
+                    />
                   </>
                 ) : null}
 
@@ -963,6 +1006,15 @@ function AgentModelsPanel({
                   key={p.id}
                   className="flex items-center gap-2 rounded-lg bg-[var(--account-main)] px-3 py-2.5 ring-1 ring-[var(--line)]"
                 >
+                  <ModelBrandIcon
+                    model={{
+                      iconKey: p.iconKey,
+                      iconUrl: p.iconUrl,
+                      label: p.name,
+                      id: p.apiModel,
+                    }}
+                    size={22}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
                       <div className="truncate text-[14px] font-medium text-[var(--ink)]">
