@@ -197,9 +197,11 @@ export function sharpCornerIndices(points: Array<[number, number]>): number[] {
   const diag = Math.hypot(maxX - minX, maxY - minY) || 1;
   const maxEdge = Math.max(...edgeLens, 1);
   const dense = n >= SHARP_CORNER_DENSE_VERT_COUNT;
-  // Dense: keep chord filter. Sparse: allow short sides of irregular polygons.
+  // Dense: chord filter keeps arc micro-stubs out, but must not discard real
+  // junction edges (boolean intersection points near a straight side).
+  // Use diag-fraction only — arc turn < minTurn already guards smooth samples.
   const minCornerEdge = dense
-    ? Math.max(diag * 0.02, maxEdge * 0.08)
+    ? Math.max(diag * 0.01, maxEdge * 0.03)
     : Math.max(1e-4, diag * 0.002);
   const minTurn = dense ? SHARP_CORNER_DENSE_MIN_DEG : SHARP_CORNER_MIN_DEG;
   const out: number[] = [];

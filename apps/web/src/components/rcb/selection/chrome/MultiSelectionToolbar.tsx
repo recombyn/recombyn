@@ -67,7 +67,6 @@ import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import {
   computeShapeBoolean,
   applyBooleanResultPaint,
-  applyBooleanResultRadii,
   type BoolMode,
 } from '../shapeBoolean';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
@@ -422,7 +421,6 @@ function MultiSelectionToolbar({
       sampleNode?.attrs as Record<string, unknown> | undefined,
       { stroke: sample.stroke, borderWidth: sample.borderWidth }
     );
-    applyBooleanResultRadii(attrs, shapeBoxes);
 
     let next = addNodeToDocument(document, id, node);
     next = removeNodesFromDocument(next, ids);
