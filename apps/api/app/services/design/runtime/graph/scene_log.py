@@ -177,6 +177,18 @@ def _scene_digest(
         th = int(focus_h or 0)
     except (TypeError, ValueError):
         tw, th = 0, 0
+    # Prefer live frame size from SCENE_FRAMES over potentially stale focus_w/focus_h.
+    frame_rows = list(frames or [])
+    for _f in frame_rows:
+        if str(_f.get("id") or "") == focus:
+            try:
+                _fw = int(_f.get("w") or 0)
+                _fh = int(_f.get("h") or 0)
+                if _fw > 0 and _fh > 0:
+                    tw, th = _fw, _fh
+            except (TypeError, ValueError):
+                pass
+            break
     if focus:
         lines.append(f"FOCUS_FRAME_ID: {focus}")
         if host_plate:
@@ -191,7 +203,6 @@ def _scene_digest(
                 f"{size_bit} "
                 "New design: do NOT update_node/delete ambient SCENE nodes on other boards."
             )
-    frame_rows = list(frames or [])
     if frame_rows or host_plate:
         lines.append("SCENE_FRAMES (world x/y):")
         for f in frame_rows[:16]:

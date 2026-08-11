@@ -74,7 +74,7 @@ function TemplateThumbnail({
   if (!src) {
     return (
       <div
-        className="h-full w-full animate-pulse bg-[var(--accent-soft)]"
+        className="rcb-skeleton-bone h-full w-full"
         style={{ backgroundColor: paperBg }}
       />
     );

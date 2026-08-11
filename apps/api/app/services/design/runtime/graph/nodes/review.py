@@ -241,7 +241,12 @@ def _build_review_user_msg(
     spat = rt.spatial_summary if isinstance(rt.spatial_summary, dict) else None
     if spat and not has_preview:
         try:
-            parts.append("SPATIAL:\n" + json.dumps(spat, ensure_ascii=False)[:800])
+            safe_spat = {
+                k: v
+                for k, v in spat.items()
+                if k in ("focused", "peripheral", "overlaps", "viewport")
+            }
+            parts.append("SPATIAL:\n" + json.dumps(safe_spat, ensure_ascii=False)[:800])
         except Exception:
             pass
     parts.append(

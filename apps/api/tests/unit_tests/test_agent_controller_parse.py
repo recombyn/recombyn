@@ -535,25 +535,26 @@ def test_derive_suggested_place_world_aligns_beside_content():
     assert abs(spw["y"] - 200) <= 1  # top-aligned
 
 
-def test_format_spatial_placement_from_focus_frame_alone():
+def test_format_spatial_placement_emits_no_invented_slots():
     from app.services.design.runtime.agent_controller import _format_spatial_placement
 
     text = _format_spatial_placement(
-        None,
+        {
+            "viewport": {"x": 0, "y": 0, "w": 2000, "h": 1200},
+            "suggested_place": {"x": 40, "y": 40, "w": 320, "h": 200},
+            "empty_rects": [{"x": 40, "y": 40, "w": 320, "h": 200}],
+        },
         focus_frame={"id": "f1", "x": 4800, "y": 1200, "w": 410, "h": 729},
     )
-    assert "PLACEMENT" in text
-    assert "suggested_place_world" in text
-    # Centered inside focus frame world box (4800 + inset).
-    assert "x=4954" in text
-    assert "y=1473" in text
+    assert text == ""
+    assert "320" not in text
+    assert "suggested_place" not in text
 
 
 def test_placement_errors_for_offscreen_free_creates():
     from types import SimpleNamespace
 
     from app.services.design.runtime.agent_controller import (
-        _derive_suggested_place_world,
         _placement_errors_for_free_creates,
     )
 
@@ -579,13 +580,10 @@ def test_placement_errors_for_offscreen_free_creates():
         }
     ]
     errs = _placement_errors_for_free_creates(rt, ops)
-    spw = _derive_suggested_place_world(spatial, focus_frame=focus)
     assert errs
     assert "code=placement_outside_viewport" in errs[0]
-    assert "fix=" in errs[0] and "suggested_place_world" in errs[0]
-    assert spw is not None
-    assert f"x={spw['x']}" in errs[0]
-    assert f"y={spw['y']}" in errs[0]
+    assert "fix=" in errs[0] and "frameId=f1" in errs[0]
+    assert "suggested_place" not in errs[0]
     # Ops must not be mutated — teach via error, model re-emits.
     assert ops[0]["args"]["x"] == 120
 
