@@ -84,6 +84,7 @@ import {
   canvasAttachToken,
 } from '@/components/editor/panels/agent/canvasAttach';
 import {
+  noteCanvasFlyLand,
   playFlyChipToChat,
   resolveAttachFlyLabel,
   resolveNextFlyOrigin,
@@ -1543,18 +1544,20 @@ function AgentDock({
     (composerMode === 'image' && interactionMode !== 'video') ||
     (isImageKind(models.find((m) => m.id === model)) && interactionMode !== 'video');
 
-  /** Arc fly into composer, then apply canvas attach on land. */
+  /** Arc fly into Agent composer only (`data-fly-land="agent"`), then apply attach. */
   async function flyPayloadIntoComposer(
     payload: string | string[],
     imagesOnly: boolean
   ) {
     if (!document) return;
+    noteCanvasFlyLand('agent');
     const from = resolveNextFlyOrigin({ document, payload });
     const label = resolveAttachFlyLabel(document, payload);
     try {
       await playFlyChipToChat({
         from,
         label,
+        landId: 'agent',
         onLand: async () => {
           await applyCanvasAttachPayload({
             document,
@@ -1706,46 +1709,20 @@ function AgentDock({
             canAttachNodeToChat(doc?.deltaSetLike?.[id], { imagesOnly })
           );
           const frameId = selectedFrameIds.find(Boolean) || null;
-          const insertChip = (ctx: ComposerContext) => {
-            pinnedContextKeysRef.current.add(ctx.key);
-            contextDismissedKeyRef.current = null;
-            inputRef.current?.insertContextAtCaret(ctx);
-            inputRef.current?.focusEnd();
-          };
-          const pushAttachment = (att: ComposerContext) => {
-            pinnedContextKeysRef.current.add(att.key);
-            setContextChips((prev) => {
-              if (prev.some((c) => c.key === att.key)) return prev;
-              return [...prev, att];
-            });
-            queueMicrotask(() => inputRef.current?.focusEnd());
-          };
+          noteCanvasFlyLand('agent');
           if (attachable.length || frameId) {
-            async function attachSelection() {
+            async function attachSelectionWithFly() {
               if (attachable.length) {
-                await applyCanvasAttachPayload({
-                  document: doc,
-                  payload: attachable.length === 1 ? attachable[0]! : attachable,
-                  existingChips: contextChipsRef.current,
-                  onAttachFiles: handleAttachFiles,
-                  insertChip,
-                  pushAttachment,
-                  imagesOnly,
-                });
+                await flyPayloadIntoComposer(
+                  attachable.length === 1 ? attachable[0]! : attachable,
+                  imagesOnly
+                );
               }
               if (frameId) {
-                await applyCanvasAttachPayload({
-                  document: doc,
-                  payload: `frame:${frameId}`,
-                  existingChips: contextChipsRef.current,
-                  onAttachFiles: handleAttachFiles,
-                  insertChip,
-                  pushAttachment,
-                  imagesOnly,
-                });
+                await flyPayloadIntoComposer(`frame:${frameId}`, imagesOnly);
               }
             }
-            attachSelection();
+            attachSelectionWithFly();
           } else {
             dispatch(
               startCanvasAttachPick({
@@ -3144,8 +3121,14 @@ function AgentDock({
   /** Anchor attach picker to the `@` glyph / caret — not the whole composer chrome. */
   useLayoutEffect(() => {
     if (!mentionPanelOpen) return;
+    // Prefer Agent land — never the first canvas generator `[data-agent-composer]`.
     const editor =
-      (window.document.querySelector('[data-agent-composer]') as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-fly-land="agent"] [data-agent-composer], [data-fly-land="agent"][data-agent-composer-root]'
+      ) as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-tour="editor-agent"] [data-agent-composer]'
+      ) as HTMLElement | null) ||
       undefined;
     mentionFloating.refs.setPositionReference({
       contextElement: editor,
@@ -3160,7 +3143,12 @@ function AgentDock({
   useLayoutEffect(() => {
     if (!skillPanelOpen) return;
     const editor =
-      (window.document.querySelector('[data-agent-composer]') as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-fly-land="agent"] [data-agent-composer], [data-fly-land="agent"][data-agent-composer-root]'
+      ) as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-tour="editor-agent"] [data-agent-composer]'
+      ) as HTMLElement | null) ||
       undefined;
     skillFloating.refs.setPositionReference({
       contextElement: editor,
@@ -3286,6 +3274,7 @@ function AgentDock({
         onStop={stopGeneration}
         disabled={false}
         placeholder={composerPlaceholder}
+        flyLandId="agent"
         canSend={
           !sending && !!editDraft.trim() && !attachmentsUploading
         }
@@ -3384,6 +3373,7 @@ function AgentDock({
               sending={sending}
               onStop={stopGeneration}
               placeholder={composerPlaceholder}
+              flyLandId="agent"
               canSend={
                 !sending &&
                 (!!input.trim() || contextChips.length > 0) &&

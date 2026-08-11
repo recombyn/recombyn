@@ -788,6 +788,11 @@ const AgentComposerInput = forwardRef<
     disabled?: boolean;
     placeholder: string;
     className?: string;
+    /**
+     * Stable id for canvas→chat fly landing (`agent` | `node:<id>`).
+     * Written to `data-fly-land` so picks don't land in another open composer.
+     */
+    flyLandId?: string;
     /** Paste / drop media → attach strip (do not insert raw <img>). */
     onPasteImages?: (files: File[]) => void;
   }
@@ -802,6 +807,7 @@ const AgentComposerInput = forwardRef<
     disabled,
     placeholder,
     className,
+    flyLandId,
     onPasteImages,
   },
   ref
@@ -1126,8 +1132,11 @@ const AgentComposerInput = forwardRef<
     empty && !domHasChips && contexts.length === 0 && Boolean(placeholder.trim());
 
   return (
-    <div className={cn('relative w-full min-w-0 flex-1 cursor-text', className)} data-agent-composer-root>
-      <div
+    <div
+      className={cn('relative w-full min-w-0 flex-1 cursor-text', className)}
+      data-agent-composer-root
+      {...(flyLandId ? { 'data-fly-land': flyLandId } : {})}
+    >      <div
         ref={editorRef}
         role="textbox"
         tabIndex={disabled ? -1 : 0}

@@ -23,26 +23,88 @@
 </p>
 
 **Recombyn** 是 **画布编辑器 + AI Design Agent**。  
-在无限画布上创作；Agent 基于 LangGraph 直接改图层、图形、文字与布局——用对话驱动设计。
+在无限画布上创作；右侧对话里的 Design Agent（LangGraph）会规划并执行画布操作——直接改画板、图层、形状、文字与布局。
 
 几分钟用 Docker Compose 自托管（默认 **MySQL** + Redis + Web + API + **Yjs 协作**）。本地开发可空 `DATABASE_URL` 用 **SQLite**；也可切 **PostgreSQL**（见 [docs/postgres-switch.md](docs/postgres-switch.md)）。
 
 ---
 
-## 为什么选 Recombyn？
+## 画布
 
-- **真·画布编辑** — 画板、形状、图片、视频、文字，可导出与分享
-- **实时多人协作** — 同一项目 Yjs 同步（光标、选区、撤销）；分享可只读或可编辑
-- **Agent 落笔改稿** — 对话规划并执行画布操作
-- **自定义模型** — 可接入自建 / OpenAI 兼容端点，也可接 **OpenRouter** 等聚合平台
-- **自托管优先** — 本地 / 服务器同一套栈
-- **可组合** — `apps/api/seeds/` 含基建种子 + 提示词包 + **5 个核心 Agent Skill**
+自研 **RCB**（Resume Canvas）无限画布：`SceneDocument` 场景图 + CSS 相机（约 5%–10000%）；已提交图元以 **逐节点 SVG host** 绘制，**Path2D** 负责命中检测与选区/工具叠加；视口裁剪 + **LOD**（远景 AABB 代理，同屏全量 host 有上限），大文档仍可编辑。
+
+工程说明：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
+
+**编辑能力（节选）**
+
+- 画板、矩形/椭圆等形状、文字、图片、视频、Lottie；钢笔 / 铅笔（ribbon 轮廓笔刷）、选区与变换  
+- **布尔运算**（并 / 差 / 交等）  
+- **描边对齐**：居中 / **内描边** / **外描边**  
+- **轮廓化**（描边 → 可编辑填充路径）与路径编辑  
+- 填充、圆角、混合模式、透明度、图层叠放；导出与分享  
+- **Yjs** 实时协作（光标、选区、撤销；`apps/collab`）
+
+## Design Agent
+
+编辑器右侧是流式对话 Agent：创建落地页 / 海报 / 改稿，挂技能、调工具，结果写回同一张画布。
+
+### 怎么设计的（分层）
+
+执行内核固定为 LangGraph 模板 `canvas_ops_v1`；**产品行为可配置**（Profile / 提示词包 / Skills / Tools）。
+
+| 层 | 职责 | 不该做什么 |
+|----|------|------------|
+| **Kernel** | 控制循环、工具调度、画布读写、轮次 / 权限 / ops 白名单 | 不写审美与品类工艺 |
+| **AgentProfile（YAML）** | 阶段协议、路由、角色、子代理、capabilities | 不替代 LangGraph 注册表 |
+| **Stage 提示词包** | 每阶段 turn 协议（intent / decide / paint / review…） | 不是某品类的工艺教材 |
+| **Skills** | 品类 playbook（构图、节奏、评审标准、few-shot） | 不改 JSON 图元 / patch 协议 |
+| **Tools** | 原子画布操作（`create_frame`、`update_node`…） | 不含业务审美 |
+
+典型一轮：`intent` →（闲聊 settle / 小改 `paint` / 设计 `decide`）→ `paint` 产出 `tool_ops` → `observe` → 可选 **Review 子代理** → settle。细节图与字段见 **[docs/agent-profile.md](docs/agent-profile.md)**。
+
+### Skills 是什么
+
+每个技能一个目录：`apps/api/seeds/design_skills/<key>/`（`_meta.json` + `SKILL.md`）。
+
+- **`_meta.json`**：`when_to_use`、触发词、`preferred_tools`、互斥组等 —— Decide 用它选技能
+- **`SKILL.md`**：该品类怎么做（落地页 / 海报 / 简历 / 仪表盘 / 动效……）
+
+仓库里已有多套 skill（landing、poster、resume、dashboard、motion、ecommerce…），可继续加目录扩展，**不是固定 5 项**。
+
+### Tools 是什么
+
+画布原子操作登记在 [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json)。Agent 在 paint 阶段发出结构化 `tool_ops`，由宿主校验并落到画布。技能可以声明偏好工具，但不能发明协议外的 op。
+
+### 可配置 Agent：改哪些文件
+
+| 文件 | 用途 |
+|------|------|
+| [`apps/api/seeds/agents/profiles/design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) | **默认 Profile**：阶段、roles、subagents、skills/tools catalog、`$kv` 路由 |
+| [`apps/api/seeds/agents/bindings.yaml`](apps/api/seeds/agents/bindings.yaml) | `product` / `surface` → 用哪个 Profile |
+| [`apps/api/seeds/design_prompt_packs/`](apps/api/seeds/design_prompt_packs/) | 各 stage 提示词正文 |
+| [`apps/api/seeds/design_skills/`](apps/api/seeds/design_skills/) | 新增 / 改技能 |
+| [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) | 工具目录 |
+| `apps/api/.env` → `AGENT_PROFILE_ID` | 强制指定 Profile（默认 `design.canvas`；空串则走 bindings） |
+
+**换一个 Agent（示例）**
+
+1. 复制 `profiles/design.canvas.yaml` → `profiles/my.agent.yaml`，改 `id:` / `metadata` / `identity` / `capabilities` 等  
+2. 在 `bindings.yaml` 里把对应 `when` 指到新 id，或设 `AGENT_PROFILE_ID=my.agent`  
+3. 重启 API；Profile 从磁盘加载（不是 DB 行）
+
+**加一个 Skill（示例）**
+
+1. 新建 `design_skills/my_scene/_meta.json` + `SKILL.md`  
+2. 填触发条件与 `preferred_tools`  
+3. 重启 / 重新 ensure seeds 后，Decide 即可按触发挂上
+
+环境开关（Review 开关、超时等）见 [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)；种子总览 [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。模型密钥 / OpenRouter： [docs/self-hosting.md](docs/self-hosting.md)。
 
 ## 核心能力
 
-- **可视化编辑** — 选区、图层、填充、导出、分享  
+- **画布编辑** — 见上（布尔、内外描边、轮廓化、媒体与导出等）  
 - **实时协作** — Yjs WebSocket（`apps/collab`）；编辑器 Live 状态条；生产经 nginx `/collab/` 走 WSS  
-- **Design Agent** — LangGraph 工具 / 技能；创建 / 编辑 / 闲聊，流式对话 UI  
+- **Design Agent** — LangGraph + 可配置 Profile / Skills / 工具；创建 / 编辑 / 闲聊，流式对话 UI  
 - **自定义模型与聚合平台** — BYOK、手动 OpenAI 兼容端点，以及 OpenRouter 等多模型网关  
 - **图片导入** — 本地图片 → 可编辑画布节点  
 - **广场与项目** — 灵感流与作品（API）
@@ -50,8 +112,8 @@
 ## 快速开始（自托管）
 
 ```bash
-git clone https://github.com/recombyn/recombine.git
-cd recombine
+git clone https://github.com/recombyn/recombyn.git
+cd recombyn
 cp apps/api/.env.example apps/api/.env   # 填入 LLM_API_KEY 等
 docker compose up -d --build
 ```

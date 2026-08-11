@@ -17,6 +17,7 @@ import {
   enqueueAgentContexts,
 } from '@/store/modules/editor';
 import { CONTEXT_CHIP_PILL_CLASS } from '@/components/editor/panels/AgentComposerInput';
+import { resolveChatFlyTarget } from '@/components/editor/panels/agent/flyToChat';
 import { getHttpErrorMessage } from '@/service/client';
 import {
   processImageTool,
@@ -176,29 +177,8 @@ function buildMarkChipPayload(
 }
 
 /** Landing point inside the right Agent composer (fallback: dock / viewport). */
-function resolveChatFlyTarget(): { x: number; y: number } {
-  const composer =
-    (globalThis.document.querySelector('[data-agent-composer]') as HTMLElement | null) ||
-    (globalThis.document.querySelector('[data-agent-composer-root]') as HTMLElement | null);
-  if (composer) {
-    const r = composer.getBoundingClientRect();
-    if (r.width > 8 && r.height > 8) {
-      return { x: r.left + Math.min(72, r.width * 0.28), y: r.top + r.height * 0.45 };
-    }
-  }
-  const dock =
-    (globalThis.document.querySelector('[data-tour="editor-agent"]') as HTMLElement | null) ||
-    (globalThis.document.querySelector('aside[data-tour]') as HTMLElement | null);
-  if (dock) {
-    const r = dock.getBoundingClientRect();
-    if (r.width > 8 && r.height > 8) {
-      return { x: r.left + r.width * 0.35, y: r.bottom - 96 };
-    }
-  }
-  return {
-    x: Math.max(120, window.innerWidth - 220),
-    y: Math.max(120, window.innerHeight * 0.62),
-  };
+function resolveMarkChatFlyTarget(): { x: number; y: number } {
+  return resolveChatFlyTarget({ landId: 'agent' });
 }
 
 /**
@@ -339,7 +319,7 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
       box.left + region.x + region.w / 2,
       box.top + region.y + region.h / 2
     );
-    const target = resolveChatFlyTarget();
+    const target = resolveMarkChatFlyTarget();
     const flyId = nanoid(6);
     const label = region.label || `${region.index} 区域`;
 
@@ -373,7 +353,7 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
       new Promise<void>((r) => window.setTimeout(r, 140)),
     ]);
 
-    const land = resolveChatFlyTarget();
+    const land = resolveMarkChatFlyTarget();
     setFlies((prev) =>
       prev.map((f) =>
         f.id === flyId

@@ -105,6 +105,11 @@ export function setInfiniteSvgPaintCamera(
   }
 }
 
+/** Last camera pushed from RcbCanvas (for fly-to-chat / off-tree callers). */
+export function getInfiniteSvgPaintCamera(): RcbCamera | null {
+  return paintCamera;
+}
+
 /** Current editor CSS zoom (for outline sparsify etc.). Falls back to 1. */
 export function getInfiniteSvgPaintZoom(): number {
   if (!paintCamera) return 1;
