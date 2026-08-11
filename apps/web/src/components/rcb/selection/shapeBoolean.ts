@@ -10,6 +10,7 @@ import {
 import { getShapeBaselineD } from '@/components/rcb/core/geometry';
 import {
   clampCornerRadii,
+  filletPathD,
   maxRadius,
   radiiFromAttrs,
   type CornerRadii,
@@ -403,7 +404,13 @@ function sparsifyClosedRing(
 function localBaselinePathD(b: ShapeBox): string {
   const t = String(b.shapeType || 'rect');
   if (t === 'path' || t === 'pen') {
-    return String(b.path || b.attrs?.path || b.attrs?.d || '').trim();
+    const raw = String(b.path || b.attrs?.path || b.attrs?.d || '').trim();
+    if (!raw || t === 'pen') return raw;
+    // Closed paths keep a sharp base + live radii; boolean must sample the
+    // painted fillet or nested boolean / path×rect ops lose round corners.
+    const radii = radiiFromAttrs(b.attrs);
+    if (maxRadius(radii) > 0.5) return filletPathD(raw, radii, b.attrs);
+    return raw;
   }
   const attrs: Record<string, unknown> = {
     ...(b.attrs || {}),
@@ -837,6 +844,38 @@ export function computeShapeBoolean(
     usedFallback: false,
     hasNonRect,
   };
+}
+
+/**
+ * Max painted corner radius across boolean operands (rects / paths with R).
+ * Result paths keep a sharp base; paint fillets sharp verts via these attrs
+ * (incl. the reentrant L elbow that boolean geometry never rounds).
+ */
+export function maxBooleanOperandRadius(boxes: ShapeBox[]): number {
+  let maxR = 0;
+  for (const b of boxes) {
+    maxR = Math.max(maxR, maxRadius(radiiFromAttrs(b.attrs)));
+  }
+  return maxR;
+}
+
+/**
+ * Copy operand roundness onto the boolean result path node.
+ * createShapeNode zeroes radius*; without this, outer arcs may stay as samples
+ * while new sharp corners (inner L) stay hard right angles.
+ */
+export function applyBooleanResultRadii(attrs: Record<string, unknown>, boxes: ShapeBox[]) {
+  const maxR = maxBooleanOperandRadius(boxes);
+  if (!(maxR > 0.5)) return;
+  const v = Math.max(1, Math.round(maxR));
+  attrs.radiusTL = v;
+  attrs.radiusTR = v;
+  attrs.radiusBR = v;
+  attrs.radiusBL = v;
+  attrs.cornerRadius = v;
+  attrs.radiusLinked = 'true';
+  // Linked uniform expands to every sharp corner (incl. concave elbows).
+  delete attrs.radiusVertices;
 }
 
 /**

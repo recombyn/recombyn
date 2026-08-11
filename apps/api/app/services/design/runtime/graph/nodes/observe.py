@@ -301,7 +301,7 @@ def _spatial_grounding_issues(rt: AgentRuntime) -> list[str]:
         if stacked:
             issues.append(
                 f"creates stacked ({stacked} near-duplicate positions) — "
-                "offset using empty_rects / suggested_place_world"
+                "offset by varying x/y inside FOCUS_FRAME (frame-local, keep frameId)"
             )
     return issues[:6]
 
@@ -365,10 +365,11 @@ def _format_critique_reflect_note(issues: list[str]) -> str:
     joined = " ".join(str(x).lower() for x in issues)
     if any(
         k in joined
-        for k in ("empty", "place", "viewport", "stacked", "placement")
+        for k in ("place", "viewport", "stacked", "placement", "outside")
     ):
         lines.append(
-            "Placement: use PLACEMENT empty_rects / suggested_place_world from the host."
+            "Placement: set frameId=FOCUS_FRAME_ID on every create_* "
+            "and use frame-local x/y (0..w, 0..h from TARGET_CANVAS)."
         )
     return "\n".join(lines)[:720]
 
