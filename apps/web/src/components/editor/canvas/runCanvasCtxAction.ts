@@ -483,7 +483,7 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
       const frame = frames.find((f: any) => f?.id === exportFrameId);
       if (frame && frame.width > 0 && frame.height > 0) {
         async function exportFrame() {
-          const n = await exportCropSlots({
+          const tally = await exportCropSlots({
             crop: {
               x: Number(frame.x) || 0,
               y: Number(frame.y) || 0,
@@ -504,11 +504,11 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
               },
             ],
           });
-          if (n > 0) {
+          if (tally.saved > 0) {
             message.success(
               t(format === 'svg' ? 'editor.exportedSvg' : 'editor.exportedImage')
             );
-          } else {
+          } else if (!(tally.cancelled > 0 && tally.failed === 0)) {
             message.error(t('editor.exportFailed'));
           }
         }

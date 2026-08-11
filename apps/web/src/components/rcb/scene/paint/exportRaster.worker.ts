@@ -90,6 +90,13 @@ async function handleEncode(msg: RasterEncodeRequest): Promise<RasterEncodeRespo
     ctx.fillStyle = bg && bg !== 'transparent' ? bg : '#ffffff';
     ctx.fillRect(0, 0, pw, ph);
   }
+  const srcW = msg.bitmap.width;
+  const srcH = msg.bitmap.height;
+  const needsScale = srcW !== pw || srcH !== ph;
+  ctx.imageSmoothingEnabled = needsScale;
+  if (needsScale && 'imageSmoothingQuality' in ctx) {
+    ctx.imageSmoothingQuality = 'high';
+  }
   ctx.drawImage(msg.bitmap, 0, 0, pw, ph);
   msg.bitmap.close();
   const mime = String(msg.mime || 'image/png');

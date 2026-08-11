@@ -63,6 +63,8 @@ type Props = {
 function EditorShortcutsPanel({ onClose }: Props): ReactNode {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const mod =
     typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)
       ? '⌘'
@@ -72,7 +74,7 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
     };
     const onPointer = (e: PointerEvent) => {
@@ -81,7 +83,7 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
       const target = e.target as Node | null;
       if (target && el.contains(target)) return;
       if (target instanceof Element && target.closest('[data-shortcuts-toggle]')) return;
-      onClose();
+      onCloseRef.current();
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('pointerdown', onPointer, true);
@@ -89,7 +91,7 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onPointer, true);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div

@@ -60,7 +60,7 @@ export const SEGMENTED_TRACK = cn(SEGMENTED_TRACK_BASE, TRACK_RADIUS.xl, TRACK_P
 
 /** Shared chip chrome without radius. */
 export const SEGMENTED_CHIP_BASE =
-  'relative z-[1] inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap font-medium leading-none transition-colors duration-200 outline-none focus-visible:outline-none';
+  'relative z-[1] flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap font-medium leading-none transition-colors duration-200 outline-none focus-visible:outline-none';
 
 /** @deprecated Prefer `segmentedChipClass('xl')`. */
 export const SEGMENTED_CHIP = cn(SEGMENTED_CHIP_BASE, CHIP_RADIUS.xl, 'h-7');
@@ -200,7 +200,7 @@ function SegmentedControl<T extends string = string>({
         );
         if (!opt.title) {
           return (
-            <div key={opt.value} className={cn('inline-flex', fullWidth && 'min-w-0 flex-1')}>
+            <div key={opt.value} className={cn('inline-flex items-center', fullWidth && 'min-w-0 flex-1')}>
               {chip}
             </div>
           );
@@ -211,7 +211,7 @@ function SegmentedControl<T extends string = string>({
             tip={opt.title}
             placement="top"
             asChild
-            triggerClassName={cn('inline-flex', fullWidth && 'min-w-0 flex-1')}
+            triggerClassName={cn('inline-flex items-center', fullWidth && 'min-w-0 flex-1')}
           >
             {chip}
           </Tooltip>

@@ -1509,13 +1509,13 @@ const ja = {
     providerPresetLabel: 'プロバイダー',
     providerPresetPlaceholder: 'プロバイダーを選択',
     providerPresetHint:
-      '組み込みプロバイダーを選ぶとベースURLと主要モデルが自動入力され、APIキーを入れるだけで使えます。「手動設定」で自分で入力することもできます。',
-    providerPresetManual: '手動設定',
+      '組み込みプロバイダーを選ぶとベースURLと主要モデルが自動入力され、APIキーを入れるだけで使えます。「カスタム」で自分で入力することもできます。',
+    providerPresetManual: 'カスタム',
     providerPresetModel: 'モデル',
     providerPresetModelPlaceholder: 'モデルを選択',
     providerPresetComingSoon: '近日対応',
     providerPlatformHint:
-      'OpenRouter または Volcengine を選ぶと、そのプラットフォームで既に対応している全モデルが1つの API キーで使えます。「手動設定」は単一のカスタムエンドポイント向けです。',
+      'OpenRouter または Volcengine を選ぶと、そのプラットフォームで既に対応している全モデルが1つの API キーで使えます。「カスタム」は単一のカスタムエンドポイント向けです。',
     providerPlatformUnlock:
       'このプラットフォームのカタログ全モデルを解放します。ご自身の枠で課金され、プラットフォームのクレジットは使いません。',
     providerPlatformAutofillHint: 'プラットフォームから自動入力されています。通常はそのままで構いません。',

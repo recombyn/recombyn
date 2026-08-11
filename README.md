@@ -24,33 +24,97 @@
 </p>
 
 **Recombyn** is a **canvas editor + AI Design Agent**.  
-Design on an infinite canvas; a LangGraph agent edits layers, shapes, text, and layout through conversation.
+Design on an infinite canvas; the Design Agent (LangGraph) in the side chat plans and applies canvas ops — frames, layers, shapes, text, and layout.
 
 Self-host in minutes with Docker Compose (default **MySQL** + Redis + web + API + **Yjs collab**). Local dev can use **SQLite** (empty `DATABASE_URL`), or **PostgreSQL** — see [docs/postgres-switch.md](docs/postgres-switch.md).
 
 ---
 
-## Why Recombyn?
+## Canvas
 
-- **Real canvas editing** — Frames, shapes, images, video, text; export and share
-- **Live multiplayer** — Yjs sync for the same project (cursors, selection, undo); share view-only or edit
-- **Agent that paints** — Conversation plans and applies canvas ops
-- **Self-host first** — Same stack locally or on a server
-- **Composable** — Infra seeds + prompt packs + **5 core Agent skills** under `apps/api/seeds/`
+Custom **RCB** (Resume Canvas) infinite editor: `SceneDocument` + CSS camera (~5%–10000%). Committed nodes paint as **per-node SVG hosts**; **Path2D** powers hit-testing and selection/tool overlays. Viewport cull + **LOD** (far AABB proxies; capped full hosts on screen) keeps large docs editable.
+
+Details: [docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md).
+
+**Editing (highlights)**
+
+- Frames, shapes, text, images, video, Lottie; pen / pencil (ribbon outline brush), selection & transform  
+- **Boolean ops** (union / subtract / intersect, …)  
+- **Stroke align**: center / **inside** / **outside**  
+- **Outline** (stroke → editable filled path) and path editing  
+- Fills, corner radius, blend modes, opacity, stacking; export & share  
+- **Yjs** live collab (cursors, selection, undo; `apps/collab`)
+
+## Design Agent
+
+Streaming chat in the editor creates and edits on the same canvas — landing pages, posters, revisions, skills, and tools.
+
+### How it’s designed (layers)
+
+The execution kernel is fixed: LangGraph template `canvas_ops_v1`. **Product behavior is configurable** (Profile / prompt packs / Skills / Tools).
+
+| Layer | Owns | Must not |
+|-------|------|----------|
+| **Kernel** | Control loop, tool scheduling, canvas R/W, rounds / permissions / ops allowlist | Design taste or category craft |
+| **AgentProfile (YAML)** | Stage protocol, routing, roles, sub-agents, capabilities | Replace the LangGraph registry |
+| **Stage prompt packs** | Per-stage turn protocol (intent / decide / paint / review / …) | Category craft curricula |
+| **Skills** | Domain playbooks (layout, rhythm, review bars, few-shots) | JSON element / patch schema |
+| **Tools** | Atomic canvas ops (`create_frame`, `update_node`, …) | Business aesthetics |
+
+Typical turn: `intent` → (chat settle / lean `paint` / design `decide`) → `paint` emits `tool_ops` → `observe` → optional **Review** sub-agent → settle. Full graph: **[docs/agent-profile.md](docs/agent-profile.md)**.
+
+### What Skills are
+
+One folder per skill: `apps/api/seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`).
+
+- **`_meta.json`** — `when_to_use`, triggers, `preferred_tools`, mutex — Decide picks skills from this
+- **`SKILL.md`** — how to craft that deliverable (landing, poster, resume, dashboard, motion, …)
+
+The repo ships many skills (not a fixed “5”); add folders to extend.
+
+### What Tools are
+
+Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json). Paint emits structured `tool_ops`; the host validates and applies them. Skills may prefer tools; they cannot invent ops outside the registry.
+
+### Configurable agent — which files
+
+| File | Purpose |
+|------|---------|
+| [`apps/api/seeds/agents/profiles/design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) | **Default Profile**: stages, roles, subagents, skills/tools catalogs, `$kv` routing |
+| [`apps/api/seeds/agents/bindings.yaml`](apps/api/seeds/agents/bindings.yaml) | `product` / `surface` → Profile id |
+| [`apps/api/seeds/design_prompt_packs/`](apps/api/seeds/design_prompt_packs/) | Stage prompt bodies |
+| [`apps/api/seeds/design_skills/`](apps/api/seeds/design_skills/) | Add / edit skills |
+| [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) | Tool catalog |
+| `apps/api/.env` → `AGENT_PROFILE_ID` | Force Profile id (default `design.canvas`; empty → use bindings) |
+
+**Swap / add an Agent**
+
+1. Copy `profiles/design.canvas.yaml` → `profiles/my.agent.yaml`; change `id:` / identity / capabilities  
+2. Point `bindings.yaml` at the new id, or set `AGENT_PROFILE_ID=my.agent`  
+3. Restart the API (Profiles load from disk, not DB rows)
+
+**Add a Skill**
+
+1. Create `design_skills/my_scene/_meta.json` + `SKILL.md`  
+2. Fill triggers + `preferred_tools`  
+3. Restart / re-ensure seeds — Decide can attach it
+
+Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models / OpenRouter: [docs/self-hosting.md](docs/self-hosting.md).
 
 ## Core features
 
-- **Visual editor** — selection, layers, fills, export, share
-- **Realtime collab** — Yjs WebSocket room (`apps/collab`); Live bar in the editor; WSS via nginx `/collab/`
-- **Design Agent** — LangGraph tools / skills; create, edit, and chat with streaming UI
-- **Image import** — local images → editable canvas nodes
+- **Canvas editing** — see above (booleans, inside/outside stroke, outline, media, export, …)  
+- **Realtime collab** — Yjs WebSocket room (`apps/collab`); Live bar in the editor; WSS via nginx `/collab/`  
+- **Design Agent** — LangGraph + configurable Profile / Skills / tools; create, edit, and chat with streaming UI  
+- **Custom models & aggregators** — BYOK providers, manual OpenAI-compatible endpoints, OpenRouter and other multi-model platforms  
+- **Image import** — local images → editable canvas nodes  
 - **Plaza & projects** — inspiration feed and saved work (API)
 
 ## Quick start (self-host)
 
 ```bash
-git clone https://github.com/recombyn/recombine.git
-cd recombine
+git clone https://github.com/recombyn/recombyn.git
+cd recombyn
 cp apps/api/.env.example apps/api/.env   # add LLM_API_KEY / provider keys
 docker compose up -d --build
 ```
