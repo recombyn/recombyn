@@ -1660,8 +1660,8 @@ const en = {
     providerPresetLabel: 'Provider',
     providerPresetPlaceholder: 'Choose a provider',
     providerPresetHint:
-      'Pick a built-in provider to autofill the base URL and models — you only add your API key. Or choose Manual to enter everything yourself.',
-    providerPresetManual: 'Manual setup',
+      'Pick a built-in provider to autofill the base URL and models — you only add your API key. Or choose Custom to enter everything yourself.',
+    providerPresetManual: 'Custom',
     providerPresetModel: 'Model',
     providerPresetModelPlaceholder: 'Choose a model',
     providerPresetComingSoon: 'coming soon',

@@ -1653,8 +1653,8 @@ const zhCN = {
     providerPresetLabel: '供应商',
     providerPresetPlaceholder: '选择供应商',
     providerPresetHint:
-      '选择内置供应商即可自动填好请求地址和常用模型，你只需填 API Key；也可以选「手动填写」自己配置。',
-    providerPresetManual: '手动填写',
+      '选择内置供应商即可自动填好请求地址和常用模型，你只需填 API Key；也可以选「自定义」自己配置。',
+    providerPresetManual: '自定义',
     providerPresetModel: '模型',
     providerPresetModelPlaceholder: '选择模型',
     providerPresetComingSoon: '即将支持',

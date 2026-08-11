@@ -202,7 +202,7 @@ function RcbCanvas({
         z: rcbCameraCssZoom(camera),
       },
     });
-  }, [devicePixelRatio, camera.x, camera.y, camera.zoom]);
+  }, [devicePixelRatio, camera]);
 
   // Console helpers: window.__rcbDumpDpr() / __rcbDumpGrid()
   useEffect(() => {
@@ -242,15 +242,18 @@ function RcbCanvas({
   panBlockSelectorRef.current = panBlockSelector;
   const emptyWorld = !(artboard.width > 0 && artboard.height > 0);
 
-  const setStageNode = (node: HTMLDivElement | null) => {
+  // Must be stable: a new ref callback every render makes React detach (null) +
+  // reattach (node), which re-enters setState and hits max update depth (e.g. tour
+  // opening Agent and re-layouting the stage).
+  const setStageNode = useCallback((node: HTMLDivElement | null) => {
     if (stageRefProp) {
       (stageRefProp as { current: HTMLDivElement | null }).current = node;
     } else {
       localRef.current = node;
     }
-    setViewportEl(node);
+    setViewportEl((prev) => (prev === node ? prev : node));
     onViewportElRef.current?.(node);
-  };
+  }, [stageRefProp]);
 
   useEffect(() => {
     const key = fitKey || 'default';
@@ -285,17 +288,7 @@ function RcbCanvas({
     return () => {
       cancelled = true;
     };
-  }, [
-    fitKey,
-    emptyWorld,
-    artboard.x,
-    artboard.y,
-    artboard.width,
-    artboard.height,
-    onCameraChange,
-    stageRef,
-    viewportEl,
-  ]);
+  }, [fitKey, emptyWorld, artboard.x, artboard.y, artboard.width, artboard.height, onCameraChange, stageRef, viewportEl, artboard]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -474,7 +467,7 @@ function RcbCanvas({
       if (h.root) snapInfiniteSvgViewportToCamera(h.root, camera, devicePixelRatio);
     }
     notifyShapeHostGeometry();
-  }, [camera.x, camera.y, camera.zoom, devicePixelRatio, viewportEl?.clientWidth, viewportEl?.clientHeight]);
+  }, [camera, devicePixelRatio, viewportEl?.clientWidth, viewportEl?.clientHeight]);
 
   // One scene SVG for grid + shape layers (same CSS box / viewBox / raster lattice).
   const sceneRootRef = useRef<SVGSVGElement | null>(null);
@@ -498,19 +491,32 @@ function RcbCanvas({
   }, []);
 
   // Sync shared scene root viewport whenever camera / stage / dpr changes.
+  // Primitives (not `worldVp` object) — that helper returns a fresh object each render.
+  const worldVpLeft = worldVp?.left;
+  const worldVpTop = worldVp?.top;
+  const worldVpWidth = worldVp?.width;
+  const worldVpHeight = worldVp?.height;
   useEffect(() => {
     const root = sceneRootRef.current;
-    if (!root || !worldVp) return;
-    root.setAttribute('width', String(worldVp.width));
-    root.setAttribute('height', String(worldVp.height));
-    root.setAttribute('viewBox', `${worldVp.left} ${worldVp.top} ${worldVp.width} ${worldVp.height}`);
+    if (
+      !root ||
+      worldVpLeft == null ||
+      worldVpTop == null ||
+      worldVpWidth == null ||
+      worldVpHeight == null
+    ) {
+      return;
+    }
+    root.setAttribute('width', String(worldVpWidth));
+    root.setAttribute('height', String(worldVpHeight));
+    root.setAttribute('viewBox', `${worldVpLeft} ${worldVpTop} ${worldVpWidth} ${worldVpHeight}`);
     root.setAttribute('data-rcb-world-surface', '1');
     root.setAttribute('data-rcb-infinite', '1');
-    root.style.left = `${worldVp.left}px`;
-    root.style.top = `${worldVp.top}px`;
-    root.style.width = `${worldVp.width}px`;
-    root.style.height = `${worldVp.height}px`;
-  }, [worldVp?.left, worldVp?.top, worldVp?.width, worldVp?.height]);
+    root.style.left = `${worldVpLeft}px`;
+    root.style.top = `${worldVpTop}px`;
+    root.style.width = `${worldVpWidth}px`;
+    root.style.height = `${worldVpHeight}px`;
+  }, [worldVpLeft, worldVpTop, worldVpWidth, worldVpHeight]);
 
   return (
     <RcbCameraContext.Provider value={camera}>

@@ -1,10 +1,27 @@
+<p align="center">
+  <img src="docs/assets/readme-hero-v2.jpg" alt="recombyn — オープンソースのキャンバス + AI Design Agent" width="920" />
+</p>
 
+<p align="center">
+  <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
+  <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
+  <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
+</p>
 
-**Self Host** · **[Cloud](https://recombyn.com)** · **[Docs](https://recombyn.github.io/recombyn/)**
+<p align="center">
+  <a href="docs/self-hosting.md"><img src="https://img.shields.io/badge/self--host-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Self-host" /></a>
+  <a href="apps/web"><img src="https://img.shields.io/badge/web-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
+  <a href="apps/api"><img src="https://img.shields.io/badge/api-FastAPI%20%2B%20Python-3776AB?logo=python&logoColor=white" alt="Python" /></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-green.svg" alt="Security" /></a>
+</p>
 
-
-
-   
+<p align="center">
+  <a href="README.md"><img src="docs/assets/lang-en.png" alt="English" height="28" /></a>
+  &nbsp;
+  <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.png" alt="简体中文" height="28" /></a>
+  &nbsp;
+  <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
+</p>
 
 **Recombyn** は **キャンバスエディタ + AI Design Agent** です。  
 無限キャンバス上でデザインし、LangGraph エージェントが会話を通じてレイヤー・図形・テキスト・レイアウトを編集します。
@@ -18,6 +35,7 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 - **本格キャンバス編集** — フレーム、図形、画像、動画、テキスト。エクスポートと共有
 - **リアルタイム共同編集** — 同一プロジェクトを Yjs 同期（カーソル、選択、Undo）。閲覧のみ / 編集を共有可能
 - **描画する Agent** — 会話で計画し、キャンバス操作を適用
+- **カスタムモデル** — 自前の OpenAI 互換エンドポイント、または **OpenRouter** などの集約プラットフォームに接続可能
 - **セルフホスト優先** — ローカルもサーバーも同じスタック
 - **組み合わせ可能** — インフラ seed + プロンプトパック + `apps/api/seeds/` の **コア Agent skills**
 
@@ -26,6 +44,7 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 - **ビジュアルエディタ** — 選択、レイヤー、塗り、エクスポート、共有
 - **リアルタイムコラボ** — Yjs WebSocket（`apps/collab`）；エディタの Live バー；nginx `/collab/` 経由の WSS
 - **Design Agent** — LangGraph ツール / skills；作成・編集・ストリーミング UI
+- **カスタムモデル & 集約プラットフォーム** — BYOK、手動 OpenAI 互換エンドポイント、OpenRouter など
 - **画像インポート** — ローカル画像 → 編集可能なキャンバスノード
 - **Plaza & プロジェクト** — インスピレーションフィードと保存作品（API）
 
@@ -38,13 +57,11 @@ cp apps/api/.env.example apps/api/.env   # LLM_API_KEY / プロバイダキー�
 docker compose up -d --build
 ```
 
-
-| サービス     | URL                                                      |
-| -------- | -------------------------------------------------------- |
-| Web      | [http://localhost:3000](http://localhost:3000)           |
-| API docs | [http://localhost:8000/docs](http://localhost:8000/docs) |
-| MySQL    | `127.0.0.1:3306` · `recombyn` / `recombyn`               |
-
+| サービス | URL |
+|---------|-----|
+| Web | http://localhost:3000 |
+| API docs | http://localhost:8000/docs |
+| MySQL | `127.0.0.1:3306` · `recombyn` / `recombyn` |
 
 詳細（env、LLM、本番 hardening）: **[docs/self-hosting.md](docs/self-hosting.md)** · Postgres: **[docs/postgres-switch.md](docs/postgres-switch.md)**
 
@@ -86,7 +103,7 @@ apps/web/          React キャンバス + Agent UI + Yjs クライアント
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket サーバー（y-websocket）
 packages/          共有ビルダー & スキーマ
-docs/              アーキテクチャ + セルフホスト + デスクトップ + キャンバス / Web データ層（開発者向け）
+docs/              アーキテクチャ + セルフホスト + デスクトップ（開発者向け）
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
@@ -96,10 +113,7 @@ e2e/               Playwright
 ## ドキュメント / コミュニティ
 
 - ユーザー向け: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
-- セルフホスト / 構成: [docs/self-hosting.md](docs/self-hosting.md) · [AgentProfile / サブエージェント](docs/agent-profile.md) · [デスクトップ](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
-- キャンバス（RCB / SVG / Path2D / LOD）: [docs/canvas-architecture.md](docs/canvas-architecture.md)
-- Web データ層（Query / oRPC / nuqs）: [docs/web-frontend.md](docs/web-frontend.md)
-- Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md)
+- セルフホスト / 構成: [docs/self-hosting.md](docs/self-hosting.md) · [デスクトップ](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
 - [コントリビュート](CONTRIBUTING.md) · [セキュリティ](SECURITY.md) · [行動規範](CODE_OF_CONDUCT.md)
 - Issue / PR テンプレートは `.github/`
 

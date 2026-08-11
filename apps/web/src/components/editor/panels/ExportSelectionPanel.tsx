@@ -30,6 +30,7 @@ import {
   exportSelectionSlots,
   exportCropSlots,
   exportDocumentJson,
+  downloadFileBlob,
   isExportScaleSafe,
   clampExportScale,
   type ExportAffixMode,
@@ -92,23 +93,17 @@ function isLottieOnlyExport(document: SceneDocument, ids: string[], hasCrop: boo
   return nodes.length === ids.length && nodes.length > 0;
 }
 
-function downloadLottieJson(node: SceneNodeInput, fallbackName: string) {
+async function downloadLottieJson(node: SceneNodeInput, fallbackName: string) {
   const data = parseLottieAnimationData(node?.attrs?.animationData);
   if (!data) throw new Error('invalid lottie');
   const raw = JSON.stringify(data);
   const blob = new Blob([raw], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
   const base = String(node?.attrs?.name || node?.name || fallbackName || 'lottie')
     .replace(/[\\/:*?"<>|]+/g, '_')
     .trim() || 'lottie';
-  a.href = url;
-  a.download = base.toLowerCase().endsWith('.json') ? base : `${base}.json`;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const filename = base.toLowerCase().endsWith('.json') ? base : `${base}.json`;
+  const result = await downloadFileBlob(blob, filename);
+  if (result !== 'saved') throw new Error(result === 'cancelled' ? 'download cancelled' : 'download failed');
 }
 
 function videoExportMode(format: VideoExportFormat): 'audio' | 'video' {
@@ -444,13 +439,19 @@ function ExportSelectionPanel({
     );
     try {
       for (const node of nodes) {
-        downloadLottieJson(node, name);
+        await downloadLottieJson(node, name);
       }
       hideLoading();
       message.success(t('editor.exportedLottie', { defaultValue: '已导出 Lottie JSON' }));
-      onClose?.();
+      try {
+        onClose?.();
+      } catch {
+        /* ignore */
+      }
     } catch (err) {
       hideLoading();
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === 'download cancelled') return;
       console.warn('[export-lottie]', err);
       message.error(t('editor.exportFailed'));
     } finally {
@@ -476,17 +477,19 @@ function ExportSelectionPanel({
       return;
     }
     setBusy(true);
+    let saved = 0;
+    let cancelled = 0;
+    let failed = 0;
     try {
       const resolved = resolveExportSlot({ ...slot, format });
       const useCompress = isJpeg && compress;
-      let n = 0;
       if (cropList.length > 0) {
         for (let i = 0; i < cropList.length; i += 1) {
           const region = cropList[i];
           const pageName =
             region.name ||
             (cropList.length > 1 ? `${name}-${i + 1}` : name);
-          n += await exportCropSlots({
+          const tally = await exportCropSlots({
             crop: region,
             backgroundColor: region.backgroundColor,
             baseName: pageName,
@@ -494,28 +497,40 @@ function ExportSelectionPanel({
             slots: [resolved],
             document,
           });
+          saved += tally.saved;
+          cancelled += tally.cancelled;
+          failed += tally.failed;
         }
       } else {
-        n = await exportSelectionSlots({
+        const tally = await exportSelectionSlots({
           nodeIds: ids,
           baseName: name,
           compress: useCompress,
           slots: [resolved],
           document,
         });
-      }
-      if (n > 0) {
-        message.success(t(isSvg ? 'editor.exportedSvg' : 'editor.exportedImage'));
-        onClose?.();
-      } else {
-        message.error(t('editor.exportFailed'));
+        saved = tally.saved;
+        cancelled = tally.cancelled;
+        failed = tally.failed;
       }
     } catch (err) {
       console.warn('[export]', err);
       message.error(t('editor.exportFailed'));
-    } finally {
       setBusy(false);
+      return;
     }
+    setBusy(false);
+    if (saved > 0) {
+      message.success(t(isSvg ? 'editor.exportedSvg' : 'editor.exportedImage'));
+      try {
+        onClose?.();
+      } catch {
+        /* closing popover must not look like export failure */
+      }
+      return;
+    }
+    if (cancelled > 0 && failed === 0) return;
+    message.error(t('editor.exportFailed'));
   };
 
   return (
@@ -854,18 +869,22 @@ function EditorTopExportButton({
 
   const runExportJson = useCallback(() => {
     setMenuOpen(false);
-    if (!document) {
+    const doc = document;
+    if (!doc) {
       message.error(t('editor.exportFailed'));
       return;
     }
-    try {
-      const ok = exportDocumentJson(normalizeDocument(document), projectName);
-      if (ok) message.success(t('editor.exportedJson'));
-      else message.error(t('editor.exportFailed'));
-    } catch (err) {
-      console.warn('[export-json]', err);
-      message.error(t('editor.exportFailed'));
+    async function run() {
+      try {
+        const result = await exportDocumentJson(normalizeDocument(doc), projectName);
+        if (result === 'saved') message.success(t('editor.exportedJson'));
+        else if (result !== 'cancelled') message.error(t('editor.exportFailed'));
+      } catch (err) {
+        console.warn('[export-json]', err);
+        message.error(t('editor.exportFailed'));
+      }
     }
+    void run();
   }, [document, projectName, t]);
 
   const panelNodeIds = mode === 'selected' ? exportableSelectedIds : undefined;
