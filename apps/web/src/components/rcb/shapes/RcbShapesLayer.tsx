@@ -55,7 +55,7 @@ const MAX_FULL_HOSTS = 96;
 const MAX_PROXY_PAINT = 4096;
 
 /** Below this zoom, prefer proxies for most on-screen nodes. */
-const LOD_ZOOM_FAR = 0.42;
+const LOD_ZOOM_FAR = 0.2;
 
 /** Cap centerline samples when stroking a dense pencil path as LOD ink. */
 const LOD_STROKE_MAX_PTS = 64;
