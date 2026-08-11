@@ -34,7 +34,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Never use emoji or pictograph text as icons. Every mark must be real vector geometry. Do not substitute motion/Lottie for static marks; do not invent brand logos; do not mix outline and filled weights in one set.",
+  "prompt_negative": "Prefer real geometry over emoji or pictograph text as icons. Prefer simple vector marks; textured/complex brand marks the user asked for may use images. Prefer static marks over Lottie for non-moving icons. Unless the user provides them, avoid inventing brand logos, etc. Prefer one stroke/fill language across a set.",
   "locales": {
     "zh-CN": {
       "displayName": "图标 / 符号组",

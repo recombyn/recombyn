@@ -35,7 +35,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not ship a landing as a single festive poster with no sections; do not invent pricing tiers or logos; do not use five competing CTAs.",
+  "prompt_negative": "Prefer scannable sections over a single festive poster. Simple cards/icons/rules may stay vector; complex hero scenes that look crude as shapes should use images. Unless the user provides them, avoid inventing board facts such as pricing tiers, logos, testimonials, etc. Prefer one primary CTA.",
   "locales": {
     "zh-CN": {
       "displayName": "落地页 / 官网",

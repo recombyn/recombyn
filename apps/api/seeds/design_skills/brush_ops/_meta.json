@@ -36,7 +36,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not fake brush work with circle/ellipse piles; do not use C/Q curves when pathPressure tip-stamp is required.",
+  "prompt_negative": "Prefer real pressure strokes over circle/ellipse piles as fake brush work. Prefer polyline tip-stamp paths when pressure sampling is needed.",
   "locales": {
     "zh-CN": {
       "displayName": "笔刷 / 铅笔",

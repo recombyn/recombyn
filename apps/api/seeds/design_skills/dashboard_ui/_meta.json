@@ -38,7 +38,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not invent metrics or chart data; do not turn a dashboard into a festive poster; do not use five competing primary buttons.",
+  "prompt_negative": "Unless the user provides them, avoid inventing board facts such as metrics, chart series, logos, etc. Prefer console density over a festive poster. Prefer one primary action per region. Simple chrome/charts may stay vector; complex media widgets that look crude as shapes should use images.",
   "locales": {
     "zh-CN": {
       "displayName": "后台 / Dashboard",

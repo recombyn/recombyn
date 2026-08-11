@@ -40,7 +40,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not use desktop sidebar layouts on mobile; do not invent OS status icons clutter; do not place primary CTA outside the thumb zone without reason; never use emoji or pictograph text as tab/list icons — draw real vector glyphs plus plain labels.",
+  "prompt_negative": "Prefer single-column mobile layouts over desktop sidebars. Unless asked, avoid inventing OS status clutter. Prefer primary CTA in the thumb zone. Prefer real glyphs plus plain labels over emoji/pictograph text as tab/list icons. Simple chrome may stay vector; complex headers that look crude as shapes should use images.",
   "locales": {
     "zh-CN": {
       "displayName": "移动 / H5 UI",

@@ -1,50 +1,58 @@
 # Brush / pencil
 
-Playbook for **brush / pencil / 板绘 / 线稿 / pressure drawing** — expressive freehand, not geometric shape collage.
+Craft for **brush / pencil / 板绘 / 线稿 / pressure drawing** — freehand when the brief wants drawn marks. Medium follows the job: pressure strokes vs simple vector vs complex bitmap.
 
-Host args for the pencil brush live in TOOL_DETAILS — this skill owns craft intent and tip choice.
+## Design thinking
 
-## Principles
-1. **Pressure tells the story** — light start/end, heavier mid; flat pressure reads as stamp spam.
-2. **Tip matches intent** — sketch ≠ calligraphy ≠ marker; pick one tip family per pass.
-3. **Stroke economy** — fewer confident strokes beat dozens of timid ones.
-4. **Never fake brush with geometry** — circle/ellipse piles are not drawing.
-5. **Stay inside the artboard** — all strokes clip to FOCUS.
+| Ask | Aim |
+|-----|-----|
+| **Is brush right?** | Sketch / ink / chalk — or UI chrome / photo hero / icons instead? |
+| **Tone** | One drawn language per pass |
+| **Tip family** | Sketch ≠ calligraphy ≠ marker — pick one |
+| **Bitmap vs vector vs brush** | Pressure / expressive freehand → brush. Simple precise geometry → vector. Complex photo/atmosphere → bitmap. Soft-avoid faking brush with ellipse piles |
+| **Economy** | Few confident strokes over timid spam |
 
-## Workflow
-1. Confirm the brief needs freehand (sketch, ink flourish, chalk mark) — not UI chrome or poster hero.
-2. Lock artboard if missing; keep strokes inside FOCUS.
-3. Choose tip + hardness; plan 3–12 strokes max for a mark cluster.
-4. Draw with the pencil brush tool (polyline + matching pressure samples — see TOOL_DETAILS).
-5. Far check: silhouette readable; near check: pressure varies.
-6. Refine the same stroke or add companion strokes — do not rebuild as geometry.
+Quality bar: **intentional design** — silhouette reads; pressure varies.
+
+## Stroke & composition
+
+- Keep strokes on the current artboard.
+- Plan a small budget (~3–12 strokes for a mark cluster).
+- Pressure: lighter ends, heavier mid — soft-avoid uniform stamp dots.
+- Far check silhouette; near check pressure. Refine before rebuilding as geometry.
 
 ## Tip → intent
+
 | Tip | Lean |
 |-----|------|
-| `pencil-hb` / `needle` | Sketch / 线稿; thin; vary pressure |
-| `fountain` / `calligraphy` / `brushpen` | Ink flourishes; fewer confident strokes |
-| `marker` / `highlighter` | Broad marks; opacity for wash feel |
-| `chalk` / `charcoal` / `bristle` | Texture; darker mid-stroke |
-| `soft` / `watercolor` / `airbrush` | Soft edges; lower hardness |
-| `solid` / `bold` | Graphic poster marks; still pressure-aware |
+| `pencil-hb` / `needle` | Sketch / 线稿 |
+| `fountain` / `calligraphy` / `brushpen` | Ink flourishes |
+| `marker` / `highlighter` | Broad marks / wash |
+| `chalk` / `charcoal` / `bristle` | Texture |
+| `soft` / `watercolor` / `airbrush` | Soft edges |
+| `solid` / `bold` | Graphic marks, still pressure-aware |
 
-## When NOT brush
+## When another medium fits better
+
 | Need | Prefer |
 |------|--------|
-| UI chrome / cards / buttons | `shadcn_ui` |
-| Festive / photo hero | `image_gen` / `poster_craft` |
+| Simple precise geometry / icons | shape tools / `icon_set` |
+| UI chrome | `shadcn_ui` |
+| Complex photo / rich atmosphere | `image_gen` / `poster_craft` |
 | Looping motion | `motion_lottie` |
-| Precise geometry | rect / ellipse / line shapes |
 
-## Do not
-- Rebuild brush art as ellipse/circle piles
-- Use curve commands expecting pressure sampling (polyline only)
-- Cover a poster subject with scribble noise
-- Use brush as a substitute for missing fonts or icons
+## Honesty
+
+Soft-avoid using brush as a stand-in for missing fonts or icons. Soft-avoid covering a poster subject with scribble noise.
+
+## Place on board
+
+Confirm freehand → pick tip → draw with pressure → refine. Soft-avoid deleting an artboard when only cleaning strokes.
+
+## Related
+
+`image_gen`, `poster_craft`, `icon_set`
 
 ## Done when
-Silhouette reads at a glance; pressure varies; tip matches intent; strokes stay inside FOCUS.
 
-## Edit / color intent
-When the user asks to keep one color and remove others: match via SCENE fill/stroke; never delete an artboard id (use `delete_frame`). Tool arg shapes → TOOL_DETAILS.
+Silhouette reads; pressure varies; tip matches intent; strokes stay on board.

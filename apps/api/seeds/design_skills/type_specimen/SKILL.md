@@ -1,29 +1,50 @@
 # Typography / font specimen
 
-Playbook for **字体展示 / type specimen / font pairing** — catalog faces only.
+Craft for **字体展示 / type specimen / font pairing** — catalog faces only; type is the hero. Simple rules stay vector; complex lettering art uses image only when asked.
 
-## Principles
-1. **Available fonts only** — never invent font names; pick from the runtime catalog.
-2. **Hierarchy is the craft** — size, weight, tracking, and measure beat decoration.
-3. **Sparse plate** — calm background; type is the hero, not photo collage.
-4. **Honest pairing** — one display + one text face; name both on the board.
+## Design thinking
 
-## Workflow
-1. Lock board (common: 1080×1350, 1920×1080, A4-like 1240×1754).
-2. Pick 1–2 catalog faces that fit the brief mood; state pairing in a small caption.
-3. Specimen block: large display sample + alphabet or 汉字示意 if relevant.
-4. Text block: 2–4 lines at body size showing measure and leading.
-5. Meta row: face name, weight, suggested use — small muted type.
-6. Optional thin rules for Swiss/editorial structure — no emoji.
+| Ask | Aim |
+|-----|-----|
+| **Job** | Single face / pairing / weight ladder |
+| **Tone** | Calm plate — Swiss / editorial / quiet study |
+| **Faces** | 1–2 from Available fonts; caption names on board |
+| **Bitmap vs vector** | Type + thin rules → vector/text. Illustrated lettering / complex glyph art → bitmap only if the user asks (`image_gen`) |
+| **Size** | e.g. 1080×1350 / 1920×1080 / A4-ish or user WxH |
 
-## Layout recipes
+Quality bar: **intentional design** — hierarchy and measure do the work. Soft-avoid invented font names and festive poster chrome.
+
+## Composition recipes
+
 | Ask | Structure |
 |-----|-----------|
-| Single face specimen | Giant sample → metrics → short paragraph |
-| Pairing board | Left display / right text; shared baseline grid |
-| Weight ladder | Same face, 3–5 weights stacked with labels |
+| Single face | Giant sample → metrics → short paragraph |
+| Pairing | Display \| text; shared baseline |
+| Weight ladder | Same face, several weights labeled |
 
-## Avoid
-- Invented font names
-- Lettering bitmaps unless user explicitly wants illustrated lettering art
-- Turning the board into a festive poster with heroes and CTAs
+## Type
+
+- Large display sample + optional alphabet / CJK demo.
+- Body block (2–4 lines) for measure and leading.
+- Meta row: name, weight, suggested use — small muted type.
+- Prefer **add text** over lettering bitmaps unless the user asks for illustrated lettering.
+
+## Vector vs image
+
+Optional thin rules and baseline guides → vector. Soft-avoid decorative shape piles and photo collage that steals the specimen job.
+
+## Honesty
+
+Prefer catalog font names only. Soft-avoid inventing face names.
+
+## Place on board
+
+Lock board → place display → body → meta → optional rules.
+
+## Related
+
+`image_gen` (illustrated lettering only when asked), `garden_style`
+
+## Done when
+
+Faces named correctly; hierarchy clear; plate stays calm; language matches the user.

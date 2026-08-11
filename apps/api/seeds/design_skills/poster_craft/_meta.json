@@ -34,7 +34,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not fake a poster hero with shape/ellipse piles; do not clip titles; do not put SaaS nav/forms on a festive poster; do not invent prices/phones/QR unless the user provided them; do not bake titles/dates into the hero bitmap — keep overlay copy as editable type.",
+  "prompt_negative": "Simple geometry may stay vector; complex atmosphere/illustration that looks crude as shapes should use a background image. Prefer readable titles with margin. Prefer poster craft over SaaS nav/forms on visual posters. Unless the user provides them, avoid inventing board facts such as prices, phones, QR codes, logos, etc. Prefer overlay text or cutout lettering over baking titles into the background.",
   "locales": {
     "zh-CN": {
       "displayName": "海报 / 易拉宝",

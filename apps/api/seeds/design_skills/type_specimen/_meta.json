@@ -30,7 +30,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Never invent fontFamily names; do not fake specimen with lettering images unless user asks for display lettering art; do not turn specimen into a busy poster collage.",
+  "prompt_negative": "Prefer catalog fontFamily names only. Prefer editable text specimens over lettering images unless the user asks for display lettering art. Prefer a calm specimen plate over a busy poster collage.",
   "locales": {
     "zh-CN": {
       "displayName": "字体 / 字样展示",
