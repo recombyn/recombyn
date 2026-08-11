@@ -1,5 +1,5 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-﻿/**
+/**
  * Lottie generator composer under the empty plate.
  * On-plate generate 鈫?POST /design/lottie/generate 鈫?promote to Lottie node.
  */
@@ -70,7 +70,7 @@ import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/ModelPickerPanel';
 import { buildByokAwareModelList, modelSupportsVisionInput } from '@/components/editor/panels/agent/llmModelMeta';
-import { applyCanvasPickToImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
+import { flyPickIntoImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import {
   canAttachNodeToChat,
   canvasAttachPickPayload,
@@ -91,6 +91,7 @@ import {
   setDocumentFromCanvas,
   startCanvasAttachPick,
 } from '@/store/modules/editor';
+import { noteCanvasFlyLand } from '@/components/editor/panels/agent/flyToChat';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateLottieCredits } from '@/utils/imageCredits';
@@ -199,8 +200,9 @@ function isImageFile(file: File) {
   return file.type.startsWith('image/');
 }
 
-function attachSelectionToLottieComposer(opts: {
+async function attachSelectionToLottieComposer(opts: {
   hostNodeId: string;
+  landId: string;
   document: SceneDocument;
   selectedNodeIds: string[];
   selectedFrameIds: string[];
@@ -209,9 +211,10 @@ function attachSelectionToLottieComposer(opts: {
     next: ComposerContext[] | ((prev: ComposerContext[]) => ComposerContext[])
   ) => void;
   insertChip: (ctx: ComposerContext) => void;
-}): boolean {
+}): Promise<boolean> {
   const {
     hostNodeId,
+    landId,
     document: doc,
     selectedNodeIds,
     selectedFrameIds,
@@ -227,7 +230,8 @@ function attachSelectionToLottieComposer(opts: {
   const frameId = (selectedFrameIds || []).find(Boolean) || null;
   if (!attachable.length && !frameId) return false;
   const payload = canvasAttachPickPayload(attachable, frameId);
-  applyCanvasPickToImageComposer({
+  await flyPickIntoImageComposer({
+    landId,
     document: doc,
     payload,
     existing,
@@ -405,17 +409,22 @@ function LottieGeneratorCard({
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    applyCanvasPickToImageComposer({
-      document: editorDocument || (store.getState() as any).editor?.document,
-      payload,
-      existing: contextsRef.current,
-      setContexts,
-      imagesOnly: true,
-      insertChip: (ctx) => {
-        inputRef.current?.insertContextAtCaret(ctx);
-        inputRef.current?.focus();
-      },
-    });
+    const doc = editorDocument || (store.getState() as any).editor?.document;
+    async function flyPendingAttach() {
+      await flyPickIntoImageComposer({
+        landId: pickTarget,
+        document: doc,
+        payload,
+        existing: contextsRef.current,
+        setContexts,
+        imagesOnly: true,
+        insertChip: (ctx) => {
+          inputRef.current?.insertContextAtCaret(ctx);
+          inputRef.current?.focus();
+        },
+      });
+    }
+    flyPendingAttach();
   }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
 
   const modelsCatalogQuery = useQuery({
@@ -807,20 +816,25 @@ function LottieGeneratorCard({
                   inputRef.current?.insertContextAtCaret(ctx);
                   inputRef.current?.focus();
                 };
-                const attached = attachSelectionToLottieComposer({
-                  hostNodeId: nodeId,
-                  document: doc,
-                  selectedNodeIds,
-                  selectedFrameIds,
-                  existing: contextsRef.current,
-                  setContexts,
-                  insertChip,
-                });
-                if (!attached) {
-                  dispatch(
-                    startCanvasAttachPick({ target: pickTarget, accept: 'image' })
-                  );
+                async function pickOrAttach() {
+                  const attached = await attachSelectionToLottieComposer({
+                    hostNodeId: nodeId,
+                    landId: pickTarget,
+                    document: doc,
+                    selectedNodeIds,
+                    selectedFrameIds,
+                    existing: contextsRef.current,
+                    setContexts,
+                    insertChip,
+                  });
+                  if (!attached) {
+                    noteCanvasFlyLand(pickTarget);
+                    dispatch(
+                      startCanvasAttachPick({ target: pickTarget, accept: 'image' })
+                    );
+                  }
                 }
+                pickOrAttach();
               }}
               className={composerAttachActionClass(pickingFromCanvas)}
             >
@@ -837,6 +851,7 @@ function LottieGeneratorCard({
           />
         </div>
 
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
         <div
           className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
           onClick={(e) => {
@@ -858,6 +873,7 @@ function LottieGeneratorCard({
             onSubmit={() => onGenerate()}
             disabled={disabled || sending}
             placeholder={t('editor.tools.lottieGenPlaceholder')}
+            flyLandId={pickTarget}
             className="min-h-full w-full text-[13px]"
             onPasteImages={(files) => {
               attachRefFiles(files);

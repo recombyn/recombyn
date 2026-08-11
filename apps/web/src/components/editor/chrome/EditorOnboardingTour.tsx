@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, memo } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  memo,
+} from 'react';
 import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineXMark } from 'react-icons/hi2';
@@ -201,25 +209,32 @@ function EditorOnboardingTour({
 
   const step = STEPS[index] || STEPS[0];
   const isSpotlight = step.variant === 'spotlight';
+  const onOpenAgentRef = useRef(onOpenAgent);
+  onOpenAgentRef.current = onOpenAgent;
+  const onForceOpenConsumedRef = useRef(onForceOpenConsumed);
+  onForceOpenConsumedRef.current = onForceOpenConsumed;
 
   useEffect(() => {
     if (!ready) return;
     if (forceOpen) {
       setIndex(0);
       setActive(true);
-      onForceOpenConsumed?.();
+      onForceOpenConsumedRef.current?.();
       return;
     }
     if (!hasCompletedEditorTour(userId)) {
       setIndex(0);
       setActive(true);
     }
-  }, [ready, forceOpen, userId, onForceOpenConsumed]);
+  }, [ready, forceOpen, userId]);
 
+  // Open Agent only when entering a step that needs it — do not depend on
+  // `onOpenAgent` identity (inline callbacks re-create every parent render and
+  // used to loop openAgentPanel → white screen).
   useEffect(() => {
     if (!active || !step.openAgent) return;
-    onOpenAgent();
-  }, [active, step.id, step.openAgent, onOpenAgent]);
+    onOpenAgentRef.current();
+  }, [active, step.id, step.openAgent]);
 
   const measure = useCallback(() => {
     if (!active || !step.target) {

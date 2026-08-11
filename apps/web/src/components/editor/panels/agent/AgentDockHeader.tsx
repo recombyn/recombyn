@@ -47,11 +47,14 @@ function AgentDockHeader({
   onCodingCliChange,
 }: Props): ReactNode {
   const { t } = useTranslation();
-  const showEngine = Boolean(engineMode && onEngineModeChange);
   const availableClis = (codingClis || []).filter((c) => c.available);
+  // Hide Agent/CLI chrome entirely when no coding CLI is on PATH.
+  const showEngine = Boolean(
+    engineMode && onEngineModeChange && availableClis.length > 0
+  );
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4">
+    <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-3">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 truncate text-[15px] font-semibold text-[var(--ink)]">
           {historyOpen ? t('agent.history') : title}
@@ -81,18 +84,14 @@ function AgentDockHeader({
               <select
                 aria-label={t('agent.engineCliPick')}
                 className="h-[26px] max-w-[9rem] truncate rounded-full border border-[var(--line)] bg-[var(--surface)] px-2 text-[11px] text-[var(--ink)] outline-none"
-                value={codingCliId || ''}
+                value={codingCliId || availableClis[0]?.id || ''}
                 onChange={(e) => onCodingCliChange(e.target.value)}
               >
-                {availableClis.length === 0 ? (
-                  <option value="">{t('agent.engineCliMissing')}</option>
-                ) : (
-                  availableClis.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))
-                )}
+                {availableClis.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
             ) : null}
           </div>

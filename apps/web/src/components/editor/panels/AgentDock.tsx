@@ -84,6 +84,12 @@ import {
   canvasAttachToken,
 } from '@/components/editor/panels/agent/canvasAttach';
 import {
+  noteCanvasFlyLand,
+  playFlyChipToChat,
+  resolveAttachFlyLabel,
+  resolveNextFlyOrigin,
+} from '@/components/editor/panels/agent/flyToChat';
+import {
   buildCodingCliEnrichedPrompt,
   buildCodingCliWorkspaceFiles,
   codingCliApplyFooter,
@@ -335,6 +341,7 @@ const DETAIL_SUMMARY_KINDS = new Set([
 ]);
 const SUCCESS_VARIANT_KINDS = new Set(['added', 'updated', 'deleted']);
 const CONFIRM_VARIANT_KINDS = new Set(['thought', 'explored', 'tool']);
+const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'ask', 'image', 'video'];
 
 type FinishAssistant = (
   m: ChatUiMessage,
@@ -722,7 +729,7 @@ function AgentDock({
     () =>
       allowedInteractionModes && allowedInteractionModes.length
         ? allowedInteractionModes
-        : (['agent', 'ask', 'image', 'video'] as ComposerInteractionMode[]),
+        : DEFAULT_INTERACTION_MODES,
     [allowedInteractionModes]
   );
 
@@ -735,6 +742,9 @@ function AgentDock({
   const lastHydrateSignalRef = useRef(0);
   const modelsUnavailableWarnRef = useRef(false);
   const modelsErrToastRef = useRef(false);
+  const onDraftConsumedRef = useRef(onDraftConsumed);
+  onDraftConsumedRef.current = onDraftConsumed;
+  const draftConsumeKeyRef = useRef<string | null>(null);
   const [skillsWanted, setSkillsWanted] = useState(false);
 
   const modelsQuery = useQuery({
@@ -850,16 +860,26 @@ function AgentDock({
     async function loadCodingClis(): Promise<CodingCliOption[]> {
       try {
         const rows = await listCodingClisDesktop();
+        const anyAvailable = rows.some((r) => r.available);
         setCodingClis(rows);
-        setCodingCliId((prev) => {
-          if (prev && rows.some((r) => r.id === prev && r.available)) return prev;
-          const next = rows.find((c) => c.available)?.id || '';
-          if (next) persistCodingCliId(next);
-          return next;
-        });
+        if (!anyAvailable) {
+          setEngineMode('agent');
+          persistEngineMode('agent');
+          setCodingCliId('');
+        } else {
+          setCodingCliId((prev) => {
+            if (prev && rows.some((r) => r.id === prev && r.available)) return prev;
+            const next = rows.find((c) => c.available)?.id || '';
+            if (next) persistCodingCliId(next);
+            return next;
+          });
+        }
         return rows;
       } catch {
         setCodingClis([]);
+        setEngineMode('agent');
+        persistEngineMode('agent');
+        setCodingCliId('');
         return [] as CodingCliOption[];
       } finally {
         codingClisInflightRef.current = null;
@@ -964,7 +984,23 @@ function AgentDock({
   }, [canPickModel]);
 
   useEffect(() => {
-    if (!open || draftPrompt == null) return;
+    if (!open || draftPrompt == null) {
+      if (draftPrompt == null) draftConsumeKeyRef.current = null;
+      return;
+    }
+    // One-shot per draft payload — parent `onDraftConsumed` identity must not re-fire.
+    const consumeKey = [
+      draftPrompt,
+      autoSubmitDraft ? '1' : '0',
+      draftModelId || '',
+      draftInteractionMode || '',
+      draftImageAspectRatio || '',
+      draftScene || '',
+      String((draftAttachments || []).length),
+      String((draftContexts || []).length),
+    ].join('\0');
+    if (draftConsumeKeyRef.current === consumeKey) return;
+    draftConsumeKeyRef.current = consumeKey;
     const text = draftPrompt;
     const shouldAuto = autoSubmitDraft;
     const inlineDraft = draftContexts || [];
@@ -1037,7 +1073,7 @@ function AgentDock({
       setDesignScene(draftScene);
       designSceneRef.current = draftScene;
     }
-    onDraftConsumed?.();
+    onDraftConsumedRef.current?.();
     if (shouldAuto && text.trim()) {
       // Queue only — do not close over modelsStatus/send (stale interval never fires).
       pendingAutoSubmitRef.current = text;
@@ -1047,8 +1083,8 @@ function AgentDock({
       setInput(text);
       queueMicrotask(() => inputRef.current?.focus());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot draft consume
-  }, [open, draftPrompt, autoSubmitDraft, onDraftConsumed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot draft consume; callback via ref
+  }, [open, draftPrompt, autoSubmitDraft]);
 
   /** Fallback: home boot still in sessionStorage but parent never passed draftPrompt (route remount). */
   useEffect(() => {
@@ -1109,97 +1145,6 @@ function AgentDock({
     }
     clearHomeAgentBoot();
   }, [open, draftPrompt, location.search]);
-
-  /** Right-click / pick 「添加到 Chat」— shapes → chips; images/videos → attachment strip. */
-  useEffect(() => {
-    if (attachToChat == null) {
-      attachToChatLockRef.current = null;
-      return;
-    }
-    if (!open || !document) return;
-    const token = canvasAttachToken(attachToChat);
-    // StrictMode (and any double-delivery) must not upload the same payload twice.
-    if (attachToChatLockRef.current === token) {
-      onAttachConsumed?.();
-      return;
-    }
-    attachToChatLockRef.current = token;
-    const payload = attachToChat;
-    onAttachConsumed?.();
-    applyCanvasAttachPayload({
-      document,
-      payload,
-      existingChips: contextChipsRef.current,
-      onAttachFiles: handleAttachFiles,
-      insertChip: (ctx) => {
-        pinnedContextKeysRef.current.add(ctx.key);
-        contextDismissedKeyRef.current = null;
-        inputRef.current?.insertContextAtCaret(ctx);
-        inputRef.current?.focusEnd();
-      },
-      pushAttachment: (att) => {
-        pinnedContextKeysRef.current.add(att.key);
-        setContextChips((prev) => {
-          if (prev.some((c) => c.key === att.key)) return prev;
-          return [...prev, att];
-        });
-        queueMicrotask(() => inputRef.current?.focusEnd());
-      },
-      imagesOnly:
-        interactionMode === 'image' ||
-        (composerMode === 'image' && interactionMode !== 'video') ||
-        (isImageKind(models.find((m) => m.id === model)) && interactionMode !== 'video'),
-    });
-    // handleAttachFiles / onAttachConsumed omitted — identity churn must not re-fire.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, attachToChat, document, interactionMode, composerMode, model, models]);
-
-  /** Composer "Add from canvas" pick result (node composers use pending; agent uses attachToChat). */
-  const pendingCanvasAttach = useSelector(
-    (s: any) =>
-      s.editor.pendingCanvasAttach as null | { target: string; payload: string | string[] }
-  );
-  useEffect(() => {
-    if (!pendingCanvasAttach) {
-      pendingCanvasAttachLockRef.current = null;
-      return;
-    }
-    if (!open || !document) return;
-    if (pendingCanvasAttach.target !== 'agent') return;
-    const token = `pending:${pendingCanvasAttach.target}:${canvasAttachToken(pendingCanvasAttach.payload)}`;
-    if (pendingCanvasAttachLockRef.current === token) {
-      dispatch(consumePendingCanvasAttach());
-      return;
-    }
-    pendingCanvasAttachLockRef.current = token;
-    const payload = pendingCanvasAttach.payload;
-    dispatch(consumePendingCanvasAttach());
-    applyCanvasAttachPayload({
-      document,
-      payload,
-      existingChips: contextChipsRef.current,
-      onAttachFiles: handleAttachFiles,
-      insertChip: (ctx) => {
-        pinnedContextKeysRef.current.add(ctx.key);
-        contextDismissedKeyRef.current = null;
-        inputRef.current?.insertContextAtCaret(ctx);
-        inputRef.current?.focusEnd();
-      },
-      pushAttachment: (att) => {
-        pinnedContextKeysRef.current.add(att.key);
-        setContextChips((prev) => {
-          if (prev.some((c) => c.key === att.key)) return prev;
-          return [...prev, att];
-        });
-        queueMicrotask(() => inputRef.current?.focusEnd());
-      },
-      imagesOnly:
-        interactionMode === 'image' ||
-        (composerMode === 'image' && interactionMode !== 'video') ||
-        (isImageKind(models.find((m) => m.id === model)) && interactionMode !== 'video'),
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, pendingCanvasAttach, document, dispatch, interactionMode, composerMode, model, models]);
 
   /** Mark tool selections → insert @ chips into the composer. */
   const pendingAgentContexts = useSelector(
@@ -1355,7 +1300,7 @@ function AgentDock({
       }
       return null;
     },
-    [formatAgentDuration, processTick, t]
+    [formatAgentDuration, t]
   );
 
   const chatTurns = useMemo(() => {
@@ -1594,6 +1539,97 @@ function AgentDock({
     );
   };
 
+  const composerImagesOnly =
+    interactionMode === 'image' ||
+    (composerMode === 'image' && interactionMode !== 'video') ||
+    (isImageKind(models.find((m) => m.id === model)) && interactionMode !== 'video');
+
+  /** Arc fly into Agent composer only (`data-fly-land="agent"`), then apply attach. */
+  async function flyPayloadIntoComposer(
+    payload: string | string[],
+    imagesOnly: boolean
+  ) {
+    if (!document) return;
+    noteCanvasFlyLand('agent');
+    const from = resolveNextFlyOrigin({ document, payload });
+    const label = resolveAttachFlyLabel(document, payload);
+    try {
+      await playFlyChipToChat({
+        from,
+        label,
+        landId: 'agent',
+        onLand: async () => {
+          await applyCanvasAttachPayload({
+            document,
+            payload,
+            existingChips: contextChipsRef.current,
+            onAttachFiles: handleAttachFiles,
+            insertChip: (ctx) => {
+              pinnedContextKeysRef.current.add(ctx.key);
+              contextDismissedKeyRef.current = null;
+              inputRef.current?.insertContextAtCaret(ctx);
+              inputRef.current?.focusEnd();
+            },
+            pushAttachment: (att) => {
+              pinnedContextKeysRef.current.add(att.key);
+              setContextChips((prev) => {
+                if (prev.some((c) => c.key === att.key)) return prev;
+                return [...prev, att];
+              });
+              queueMicrotask(() => inputRef.current?.focusEnd());
+            },
+            imagesOnly,
+          });
+        },
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Right-click / pick 「添加到 Chat」— shapes → chips; images/videos → attachment strip. */
+  useEffect(() => {
+    if (attachToChat == null) {
+      attachToChatLockRef.current = null;
+      return;
+    }
+    if (!open || !document) return;
+    const token = canvasAttachToken(attachToChat);
+    if (attachToChatLockRef.current === token) {
+      onAttachConsumed?.();
+      return;
+    }
+    attachToChatLockRef.current = token;
+    const payload = attachToChat;
+    onAttachConsumed?.();
+    flyPayloadIntoComposer(payload, composerImagesOnly);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot attach; flyPayload reads latest via closure
+  }, [open, attachToChat, document, composerImagesOnly]);
+
+  /** Composer "Add from canvas" pick result (node composers use pending; agent uses attachToChat). */
+  const pendingCanvasAttach = useSelector(
+    (s: any) =>
+      s.editor.pendingCanvasAttach as null | { target: string; payload: string | string[] }
+  );
+  useEffect(() => {
+    if (!pendingCanvasAttach) {
+      pendingCanvasAttachLockRef.current = null;
+      return;
+    }
+    if (!open || !document) return;
+    if (pendingCanvasAttach.target !== 'agent') return;
+    const token = `pending:${pendingCanvasAttach.target}:${canvasAttachToken(pendingCanvasAttach.payload)}`;
+    if (pendingCanvasAttachLockRef.current === token) {
+      dispatch(consumePendingCanvasAttach());
+      return;
+    }
+    pendingCanvasAttachLockRef.current = token;
+    const payload = pendingCanvasAttach.payload;
+    dispatch(consumePendingCanvasAttach());
+    flyPayloadIntoComposer(payload, composerImagesOnly);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, pendingCanvasAttach, document, dispatch, composerImagesOnly]);
+
   const selectedModel =
     model === 'auto' ? AUTO_MODEL : models.find((m) => m.id === model);
   const selectedModelLabel = selectedModel?.label || (models[0]?.label ?? 'Agent');
@@ -1673,46 +1709,20 @@ function AgentDock({
             canAttachNodeToChat(doc?.deltaSetLike?.[id], { imagesOnly })
           );
           const frameId = selectedFrameIds.find(Boolean) || null;
-          const insertChip = (ctx: ComposerContext) => {
-            pinnedContextKeysRef.current.add(ctx.key);
-            contextDismissedKeyRef.current = null;
-            inputRef.current?.insertContextAtCaret(ctx);
-            inputRef.current?.focusEnd();
-          };
-          const pushAttachment = (att: ComposerContext) => {
-            pinnedContextKeysRef.current.add(att.key);
-            setContextChips((prev) => {
-              if (prev.some((c) => c.key === att.key)) return prev;
-              return [...prev, att];
-            });
-            queueMicrotask(() => inputRef.current?.focusEnd());
-          };
+          noteCanvasFlyLand('agent');
           if (attachable.length || frameId) {
-            async function attachSelection() {
+            async function attachSelectionWithFly() {
               if (attachable.length) {
-                await applyCanvasAttachPayload({
-                  document: doc,
-                  payload: attachable.length === 1 ? attachable[0]! : attachable,
-                  existingChips: contextChipsRef.current,
-                  onAttachFiles: handleAttachFiles,
-                  insertChip,
-                  pushAttachment,
-                  imagesOnly,
-                });
+                await flyPayloadIntoComposer(
+                  attachable.length === 1 ? attachable[0]! : attachable,
+                  imagesOnly
+                );
               }
               if (frameId) {
-                await applyCanvasAttachPayload({
-                  document: doc,
-                  payload: `frame:${frameId}`,
-                  existingChips: contextChipsRef.current,
-                  onAttachFiles: handleAttachFiles,
-                  insertChip,
-                  pushAttachment,
-                  imagesOnly,
-                });
+                await flyPayloadIntoComposer(`frame:${frameId}`, imagesOnly);
               }
             }
-            attachSelection();
+            attachSelectionWithFly();
           } else {
             dispatch(
               startCanvasAttachPick({
@@ -2039,6 +2049,7 @@ function AgentDock({
     const useCodingCli =
       desktopShell &&
       engineMode === 'cli' &&
+      codingClis.some((c) => c.available) &&
       !forceAgent &&
       !options.applyOps?.length;
     if (available === false && !useCodingCli) {
@@ -3110,8 +3121,14 @@ function AgentDock({
   /** Anchor attach picker to the `@` glyph / caret — not the whole composer chrome. */
   useLayoutEffect(() => {
     if (!mentionPanelOpen) return;
+    // Prefer Agent land — never the first canvas generator `[data-agent-composer]`.
     const editor =
-      (window.document.querySelector('[data-agent-composer]') as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-fly-land="agent"] [data-agent-composer], [data-fly-land="agent"][data-agent-composer-root]'
+      ) as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-tour="editor-agent"] [data-agent-composer]'
+      ) as HTMLElement | null) ||
       undefined;
     mentionFloating.refs.setPositionReference({
       contextElement: editor,
@@ -3126,7 +3143,12 @@ function AgentDock({
   useLayoutEffect(() => {
     if (!skillPanelOpen) return;
     const editor =
-      (window.document.querySelector('[data-agent-composer]') as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-fly-land="agent"] [data-agent-composer], [data-fly-land="agent"][data-agent-composer-root]'
+      ) as HTMLElement | null) ||
+      (window.document.querySelector(
+        '[data-tour="editor-agent"] [data-agent-composer]'
+      ) as HTMLElement | null) ||
       undefined;
     skillFloating.refs.setPositionReference({
       contextElement: editor,
@@ -3252,6 +3274,7 @@ function AgentDock({
         onStop={stopGeneration}
         disabled={false}
         placeholder={composerPlaceholder}
+        flyLandId="agent"
         canSend={
           !sending && !!editDraft.trim() && !attachmentsUploading
         }
@@ -3350,6 +3373,7 @@ function AgentDock({
               sending={sending}
               onStop={stopGeneration}
               placeholder={composerPlaceholder}
+              flyLandId="agent"
               canSend={
                 !sending &&
                 (!!input.trim() || contextChips.length > 0) &&

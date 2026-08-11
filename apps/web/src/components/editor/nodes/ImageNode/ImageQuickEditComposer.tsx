@@ -1,5 +1,5 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
@@ -23,8 +23,8 @@ import {
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/AgentComposerShell';
 import {
-  applyCanvasPickToImageComposer,
   buildImageGeneratorModelList,
+  flyPickIntoImageComposer,
 } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import ImageAspectRatioPicker, {
   DEFAULT_IMAGE_COUNT,
@@ -40,7 +40,6 @@ import { cloudImageFallbackId } from '@/components/editor/panels/agent/llmModelM
 import {
   listImageVariantUrls,
   writeImageVariantsAttr,
-  canAttachNodeToChat
 } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   clearCanvasAttachPick,
@@ -51,6 +50,7 @@ import {
   pushEditorHistory,
   startCanvasAttachPick,
 } from '@/store/modules/editor';
+import { noteCanvasFlyLand } from '@/components/editor/panels/agent/flyToChat';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
 import { useWalletSnapshot } from '@/service/wallet';
 import { cn } from '@/utils/classnames';
@@ -127,9 +127,9 @@ function ImageQuickEditComposer({
     'idle'
   );
   const [modelId, setModelId] = useState(() => cloudImageFallbackId());
-  const [resolution, setResolution] = useState(DEFAULT_IMAGE_RESOLUTION);
-  const [aspectRatio, setAspectRatio] = useState(DEFAULT_IMAGE_ASPECT_RATIO);
-  const [imageCount, setImageCount] = useState(DEFAULT_IMAGE_COUNT);
+  const [resolution, setResolution] = useState<string>(DEFAULT_IMAGE_RESOLUTION);
+  const [aspectRatio, setAspectRatio] = useState<string>(DEFAULT_IMAGE_ASPECT_RATIO);
+  const [imageCount, setImageCount] = useState<number>(DEFAULT_IMAGE_COUNT);
 
   const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
@@ -156,16 +156,20 @@ function ImageQuickEditComposer({
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    void applyCanvasPickToImageComposer({
-      document,
-      payload,
-      existing: contextsRef.current,
-      setContexts,
-      insertChip: (ctx) => {
-        inputRef.current?.insertContextAtCaret(ctx);
-        inputRef.current?.focus();
-      },
-    });
+    async function flyPendingAttach() {
+      await flyPickIntoImageComposer({
+        landId: pickTarget,
+        document,
+        payload,
+        existing: contextsRef.current,
+        setContexts,
+        insertChip: (ctx) => {
+          inputRef.current?.insertContextAtCaret(ctx);
+          inputRef.current?.focus();
+        },
+      });
+    }
+    flyPendingAttach();
   }, [pendingCanvasAttach, pickTarget, document, dispatch]);
 
   // Auto-focus prompt when the floating chat panel opens.
@@ -425,6 +429,7 @@ function ImageQuickEditComposer({
                   dispatch(clearCanvasAttachPick());
                   return;
                 }
+                noteCanvasFlyLand(pickTarget);
                 dispatch(startCanvasAttachPick({ target: pickTarget, accept: 'image' }));
               }}
               className={composerAttachActionClass(pickingFromCanvas)}
@@ -442,6 +447,7 @@ function ImageQuickEditComposer({
           />
         </div>
 
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
         <div
           className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
           onClick={(e) => {
@@ -458,6 +464,7 @@ function ImageQuickEditComposer({
             onSubmit={() => void onGenerate()}
             disabled={sending}
             placeholder={t('editor.tools.imageGenPlaceholder')}
+            flyLandId={pickTarget}
             className="min-h-full w-full text-[13px]"
           />
         </div>
@@ -484,9 +491,9 @@ function ImageQuickEditComposer({
                   aspectRatio={aspectRatio}
                   imageCount={imageCount}
                   imageLimits={modelImageLimits(selectedModel)}
-                  onResolutionChange={setResolution}
-                  onAspectRatioChange={setAspectRatio}
-                  onImageCountChange={setImageCount}
+                  onResolutionChange={(r) => setResolution(r)}
+                  onAspectRatioChange={(r) => setAspectRatio(r)}
+                  onImageCountChange={(n) => setImageCount(n)}
                   disabled={sending}
                 />
               </DropdownPanel>
