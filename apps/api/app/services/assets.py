@@ -1,4 +1,4 @@
-"""User AI assets (image/video) — metadata in DB, blobs in COS/local storage."""
+"""User AI assets (image/video/audio/lottie) — AI-generated only; blobs in COS/local storage."""
 
 from __future__ import annotations
 
@@ -200,6 +200,8 @@ def _ensure_lottie_animation_on_item(
 
 
 _ASSET_KINDS = ("image", "video", "audio", "font", "lottie")
+# Assets dock is AI-generated media only — user canvas uploads must not appear.
+_AI_ASSET_SOURCES = ("ai_image", "ai_video", "ai_audio", "ai_lottie")
 
 
 def list_assets(
@@ -218,12 +220,16 @@ def list_assets(
         kind_n = None
     with Session(engine) as session:
         total = crud.count_user_assets(
-            session=session, user_id=user_id, kind=kind_n
+            session=session,
+            user_id=user_id,
+            kind=kind_n,
+            sources=_AI_ASSET_SOURCES,
         )
         rows = crud.list_user_assets(
             session=session,
             user_id=user_id,
             kind=kind_n,
+            sources=_AI_ASSET_SOURCES,
             offset=offset,
             limit=page_size_n,
         )
@@ -364,13 +370,16 @@ def create_asset_from_stored(
     url: str,
     object_key: str | None = None,
     mime: str | None = None,
-    source: str = "upload",
+    source: str = "ai_image",
     prompt: str | None = None,
     width: int | None = None,
     height: int | None = None,
 ) -> dict[str, Any]:
-    """Register an already-uploaded storage object (canvas video/audio upload)."""
+    """Register an already-stored media object into the AI assets dock."""
     init_schema()
+    source_n = (source or "").strip().lower()
+    if not source_n.startswith("ai_"):
+        raise ValueError("assets are AI-generated only; user uploads are not registered")
     kind_n = (kind or "image").strip().lower()
     if kind_n not in _ASSET_KINDS:
         kind_n = "image"
@@ -408,7 +417,7 @@ def create_asset_from_stored(
             mime=mime_n,
             width=out_w,
             height=out_h,
-            source=(source or "upload")[:32],
+            source=source_n[:32],
             prompt=(prompt or None),
             created_at=now,
             meta_json=meta_json,
