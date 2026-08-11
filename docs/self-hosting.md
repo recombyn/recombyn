@@ -327,7 +327,7 @@ Compose runs `apps/collab` and nginx proxies `/collab/` → the WS server. Brows
 
 **Local compose (HTTP):** leave defaults — Live uses `ws://localhost:3000/collab`.
 
-**Public HTTPS:** terminate TLS in front of port 3000 (Caddy / cloud LB). Example: [deploy/caddy/Caddyfile.example](../deploy/caddy/Caddyfile.example). Then set:
+**Public HTTPS:** terminate TLS in front of port 3000 (Caddy / cloud LB). Example: [deploy/caddy/Caddyfile.example](../deploy/caddy/Caddyfile.example) (also sets CSP / `nosniff` / frame headers). Then set:
 
 ```bash
 COLLAB_TOKEN_SECRET='…strong…'
@@ -369,7 +369,7 @@ API startup logs **warnings** if admin password, collab secret, default MySQL pa
 
 ## License
 
-**Recombyn Source Available License v1.0** — full terms in root [`LICENSE`](../LICENSE); short notices in [`NOTICE`](../NOTICE).
+**Apache License 2.0** — full terms in root [`LICENSE`](../LICENSE); copyright / attribution in [`NOTICE`](../NOTICE).
 
 Third-party images you may run alongside (Redis, MySQL, …) keep **their own** licenses. Hosted Cloud / support / enterprise add-ons are separate commercial offerings.
 
