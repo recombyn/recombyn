@@ -23,7 +23,7 @@ class RegisterAssetIn(BaseModel):
     prompt: str | None = Field(default=None, max_length=500)
     width: int | None = None
     height: int | None = None
-    source: str | None = Field(default="upload", max_length=32)
+    source: str | None = Field(default=None, max_length=32)
 
 
 @router.get("")
@@ -49,6 +49,13 @@ def register_my_asset(
     kind = (body.kind or "").strip().lower()
     if kind not in ("image", "video", "audio", "lottie"):
         raise HTTPException(status_code=400, detail="kind must be image|video|audio|lottie")
+    source = (body.source or "").strip().lower()
+    # Assets dock is AI-generated only — reject user canvas uploads.
+    if not source.startswith("ai_"):
+        raise HTTPException(
+            status_code=400,
+            detail="assets are AI-generated only; user uploads are not registered",
+        )
     try:
         return asset_store.create_asset_from_stored(
             current_user.id,
@@ -56,7 +63,7 @@ def register_my_asset(
             url=body.url.strip(),
             object_key=(body.objectKey or None),
             mime=body.mime,
-            source=(body.source or "upload"),
+            source=source,
             prompt=(body.prompt or None),
             width=body.width,
             height=body.height,

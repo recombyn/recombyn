@@ -1000,11 +1000,17 @@ def delete_asset(*, session: Session, asset_id: str) -> Asset | None:
 
 
 def count_user_assets(
-    *, session: Session, user_id: str, kind: str | None = None
+    *,
+    session: Session,
+    user_id: str,
+    kind: str | None = None,
+    sources: tuple[str, ...] | list[str] | None = None,
 ) -> int:
     where: list[Any] = [Asset.user_id == user_id]
     if kind:
         where.append(Asset.kind == kind)
+    if sources:
+        where.append(col(Asset.source).in_(list(sources)))
     return int(
         session.exec(select(func.count()).select_from(Asset).where(*where)).one()
         or 0
@@ -1016,12 +1022,15 @@ def list_user_assets(
     session: Session,
     user_id: str,
     kind: str | None = None,
+    sources: tuple[str, ...] | list[str] | None = None,
     offset: int = 0,
     limit: int = 24,
 ) -> list[Asset]:
     where: list[Any] = [Asset.user_id == user_id]
     if kind:
         where.append(Asset.kind == kind)
+    if sources:
+        where.append(col(Asset.source).in_(list(sources)))
     return list(
         session.exec(
             select(Asset)
