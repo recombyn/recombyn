@@ -5,7 +5,7 @@
 import { apiClient } from '@/service/client';
 import type { AssetKind, UserAsset } from '@/models/assets';
 
-/** POST /api/v1/assets/register — canvas upload → Assets dock */
+/** POST /api/v1/assets/register — AI-generated media only (source must be ai_*). */
 export const registerAsset = (data: {
   kind: Exclude<AssetKind, 'font'>;
   url: string;
@@ -25,7 +25,7 @@ export const registerAsset = (data: {
       ...(data.prompt ? { prompt: data.prompt } : {}),
       ...(data.width != null ? { width: data.width } : {}),
       ...(data.height != null ? { height: data.height } : {}),
-      source: data.source || 'upload',
+      ...(data.source ? { source: data.source } : {}),
     },
   }) as Promise<UserAsset>;
 
