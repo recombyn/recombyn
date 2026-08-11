@@ -105,19 +105,16 @@ function ProjectCoverCollage({
 /** Grid cell: min-h-0 so tall imgs cannot blow past the 170px frame; overflow clips. */
 function ImgTile({ src, className }: { src: string; className?: string }) {
   const [errored, setErrored] = useState(false);
+  if (errored) return null;
   return (
     <div className={cn('relative min-h-0 min-w-0 overflow-hidden', className)}>
-      {errored ? (
-        <div className="rcb-skeleton-bone absolute inset-0" />
-      ) : (
-        <img
-          src={src}
-          alt=""
-          className="absolute inset-0 h-full w-full bg-white object-contain"
-          loading="lazy"
-          onError={() => setErrored(true)}
-        />
-      )}
+      <img
+        src={src}
+        alt=""
+        className="absolute inset-0 h-full w-full bg-white object-contain"
+        loading="lazy"
+        onError={() => setErrored(true)}
+      />
     </div>
   );
 }

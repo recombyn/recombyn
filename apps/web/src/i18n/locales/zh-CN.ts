@@ -1391,6 +1391,8 @@ const zhCN = {
       '工具操作：Agent 用画布指令精细排版。生图拆层：先生成整板图片再拆成可编辑图层（观感强，文字可编性取决于识别）。',
     paintModeOps: '工具操作',
     paintModeImgLayers: '生图拆层',
+    paintModeImgLayersTokenWarn:
+      '生图拆层会先生成整板图片，Token 消耗明显高于工具操作模式。',
     routePresetShortPlatform: 'Auto',
     routePresetShortEconomy: '省钱',
     routePresetShortBalanced: '均衡',
