@@ -2,22 +2,19 @@
 
 Deliver canvas work that looks **intentional and memorable** — not a safe AI draft.
 
-## Principles
-1. **Commit a direction** — minimal / editorial / industrial / organic / luxury / festive hand / playful geometric / retro-futurist — one only.
-2. **One memory point** — hero image **or** hero title dominates; never both fighting.
-3. **Atmosphere over flat fill** — backgrounds have depth (image, gradient, texture) matching the tone.
-4. **Anti-slop** — refuse default AI faces unless the brief demands them.
-5. **Craftsmanship** — alignments, contrast, and type mood must look labored-over.
+## Design thinking
 
-## Workflow
-1. Purpose: who sees this and what job it does.
-2. Pick **one** tone from the catalog; justify one creative risk.
-3. Lock constraints: size, required copy, whether image gen is allowed.
-4. Choose the single memory point.
-5. Build: board → atmosphere/hero → hierarchy copy → sparse decoration.
-6. Far/near self-check; fix higher failures first.
+| Ask | Aim |
+|-----|-----|
+| **Purpose** | Who sees this and what job it does |
+| **Tone** | One direction from the catalog — do not mix casually |
+| **Memory point** | Hero image **or** hero title — not both fighting |
+| **Bitmap vs vector** | Simple geometry / flat language that stays crisp → vector. Complex atmosphere, materials, faces, busy illustration → bitmap. If vectors look crude, use image |
+
+Quality bar: **intentional design** — alignments, contrast, and type mood fit this brief. Soft-avoid generic AI postcard defaults. Not a “handmade texture” mandate.
 
 ## Direction catalog (pick one)
+
 | Direction | Cues |
 |-----------|------|
 | Minimal | Few elements, precise gaps, quiet palette, one accent |
@@ -25,35 +22,38 @@ Deliver canvas work that looks **intentional and memorable** — not a safe AI d
 | Industrial | Utility type, hard edges, restrained metal/ink palette |
 | Organic | Soft forms, natural textures, muted earth/plant tones |
 | Luxury | High contrast, generous empty, refined metals/ink |
-| Festive hand | Illustrated hero + expressive lettering; shapes only as accents |
-| Playful geometric | Bold primitives, flat color blocks, friendly type |
-| Retro-futurist | Period cues + modern restraint; avoid costume-party clutter |
+| Festive hand | Expressive lettering + illustrated or rich atmosphere when complexity needs it; simple flat festive language may stay vector |
+| Playful geometric | Bold primitives, flat color blocks, friendly type — vector-friendly |
+| Retro-futurist | Period cues + modern restraint; soft-avoid costume-party clutter |
 
 ## Anti-defaults (unless brief demands)
+
 Purple→indigo gradients on white; Inter/Roboto/Arial as “design”; warm cream `#F4F1EA` + terracotta serif cliché; dense broadsheet hairlines; glow stacks; rounded-full pill spam; emoji-as-icon; Space Grotesk convergence.
 
 ## Build rules
-- Festive / illustration / atmosphere poster: real hero bitmap for the main visual; shape collage ≠ done.
-- Type: distinctive display + restrained body; do not force generic UI sans onto illustration posters.
-- Color: one dominant + sharp accent; copy must clear the background.
-- Space: generous whitespace **or** controlled density — never “everything centered, nothing focal.”
-- Background: atmosphere; put copy on quieter regions.
-- Decoration: only what serves the theme; ban generic UI chrome as festive props.
-- Motion (if allowed): 1–2 high-impact beats via `motion_lottie`, not jitter.
+
+- Atmosphere that needs depth/light/material → real bitmap; soft-avoid crude shape spam as a fake scene.
+- Simple intentional geometry is fine when that is the language (e.g. playful geometric).
+- Type: distinctive display + restrained body; soft-avoid forcing generic UI sans onto illustration posters.
+- Color: one dominant + sharp accent; copy clears the background.
+- Space: generous whitespace **or** controlled density — soft-avoid “everything centered, nothing focal.”
+- Decoration only when they serve the theme.
+- Motion (if allowed): 1–2 high-impact beats via `motion_lottie`.
 
 ## Far / near check
-- Far (~1s): theme + main title readable; hero is illustration/photo when required.
-- Near: no clipped glyphs, low contrast, emoji tofu, or unrelated icons.
+
+- Far (~1s): theme + main title readable; medium matches complexity.
+- Near: soft-avoid clipped glyphs, low contrast, emoji tofu, unrelated icons.
 - Tone: type mood matches the picture.
 
-## Do not
-- Ship a “safe” generic template that could belong to any brand
-- Mix two directions mid-board without declaring cover/merge
-- Use festive Material icons as illustration substitutes
-- Skip locking the artboard on fixed-size briefs
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as logos, slogans, trademark marks, etc.
 
 ## Related
-`poster_craft` / `landing_page` for surface playbooks; `awesome_design_md` when a brand parameter sheet exists.
+
+`poster_craft` / `landing_page` / `image_gen` for surface playbooks; `awesome_design_md` when a brand parameter sheet exists.
 
 ## Done when
+
 Direction is nameable in one phrase; one memory point; anti-defaults cleared; far/near pass.

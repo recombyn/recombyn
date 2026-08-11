@@ -1,59 +1,69 @@
 # Image generation
 
-Craft for **bitmap heroes / materials / lettering art** — concrete prompts, honest typography gate, cutout when compositing. Tool args live in TOOL_DETAILS; this skill owns *what to ask for*, not op recipes.
+Craft for **visual plates on the board**: bitmaps, vectors, and type. Choose medium by **what draws well**, not by a fixed “vectors are only accents” rule.
 
-## Principles
-1. **Hero honesty** — festive/illustrated boards start with a real full/near-full bitmap, not shape piles.
-2. **Typography gate (~90%)** — catalog face or lettering image; never invent font names.
-3. **Concrete prompts** — subject, medium, light, composition, color, negatives.
-4. **Stacking** — image first, then type/chrome on quieter regions.
-5. **No invented facts** inside the picture (logos, prices, phones) unless asked / letteringText.
-6. **Cutout when compositing** — product / subject plates on a design bg must be transparent (no white box).
+## Design thinking
 
-## When
-- Poster / festive / illustrated hero
-- Photo / product / material / atmosphere backgrounds
-- Display lettering that fails the typography gate below
+| Ask | Aim |
+|-----|-----|
+| **What carries the eye** | Atmosphere, subject, or display type — pick the memory point |
+| **Tone** | One direction matching the brief |
+| **Bitmap vs vector** | **Simple** marks/geometry that stay crisp → vector. **Complex** scenes, lighting, materials, faces, busy illustration → bitmap (`add image`). If a vector attempt would look like crude shape spam, switch to image |
+| **Where type sits** | Quiet bands so overlay copy reads |
+| **Medium (bitmap)** | Photo, illustration, grain print, soft 3D, etc. — one craft language per plate |
 
-## Two image jobs (do not mix)
-| Job | Prompt must | Finish |
-|-----|-------------|--------|
-| **Atmosphere / full-bleed hero** | Scene only — **no titles, dates, slogans, logos, watermarks, gibberish letters**. Titles come later as editable type / letteringText. | no cutout |
-| **Product / subject plate** | Isolated subject on **plain solid plate** (white/neutral); studio light; no lifestyle collage text | cutout / removeBg |
-| **Lettering art** | Glyphs only on plain plate | letteringText + cutout |
+Quality bar: **intentional design** — light, material, and crop that fit this brief. Soft-avoid generic AI postcard defaults. This is designed specificity, not a “handmade” texture effect.
 
-## Typography gate (~90%)
-Compare needed title look to Available fonts:
-- ~**≥90%** similar → catalog editable type
-- Below — especially hero/main titles → lettering image on a plain plate (hydrate cutout). Do **not** map 书法感/手写感/国潮/艺术字 to the nearest calligraphy font.
-- Body/UI/captions: prefer catalog faces; invent no font names.
-If the user forbids image gen: skip bitmaps; plain editable type only.
+## When to use bitmap
 
-## Prompt recipe
-Include: **subject**, **style/medium**, **lighting/mood**, **composition/camera**, **color cues**, **negatives**.
-- Atmosphere negatives: **no text, no letters, no logo, no watermark, no poster title baked in**.
-- Product plate: **isolated on solid white/neutral background** + cutout.
-- Lettering: isolate glyphs; high contrast plate; no busy background behind letters.
+- Atmosphere / mood that needs depth, haze, rich light, or material.
+- Products, people, props with believable form and light.
+- Complex illustrated heroes that vectors cannot carry cleanly.
+- Lettering art when catalog fonts cannot match the gesture (~90%+).
 
-## Stacking
-Hero image first → then type / UI chrome on quieter regions. Size/transparency details → TOOL_DETAILS.
+Prompt with subject, medium, lighting, composition, color, and avoid-in-image (e.g. baked titles, watermarks — unless the user wants text in the picture).
 
-## Route
-| Brief | Also load |
-|-------|-----------|
-| Poster / roll-up | `poster_craft` |
-| Ecommerce product plate | `ecommerce_surface` |
-| Taste / anti-slop | `garden_style` |
+## When to use vector
 
-## Do not
-- Fake festive heroes with geometry
-- Bake event titles / dates / CTAs into the hero when editable type will sit on top
-- Ship product photos with a white rectangle still visible on a colored board
-- Paste finished composites that double-print baked titles
+- Simple geometry done cleanly: rules, frames, dots, discs, bars, flat badges, icons, clean silhouettes.
+- UI marks and glyphs (`icon_set` when many).
+- Structural color blocks and dividers that support hierarchy.
+
+Shared stroke / corner / ink with the board. Soft-avoid emoji as marks.
+
+**Not a ban on simple scenes in vector** — a flat night field + moon disc + a few stars can be vector if that is the intentional, simple language. Prefer bitmap when the brief wants rich atmosphere or the vector version would look unfinished.
+
+## Subject & product plates
+
+- Clear silhouette and believable light when using bitmap.
+- Studio / clean plate when the product should stay honest; lifestyle only when asked.
+- **Cutout** when a solid plate sits on a colored board (avoid leftover white boxes).
+
+## Lettering
+
+- Catalog **add text** when a face is a close match (~90%+).
+- Lettering **as image + cutout** when display / calligraphy / neon / 国潮 needs a gesture fonts cannot carry.
+- Body and captions stay catalog text.
+
+## Honesty
+
+Unless the user asks for them, avoid inventing facts inside the picture such as logos, prices, phone numbers, etc.
+
+## Place on board
+
+| Action | Use |
+|--------|-----|
+| **Add image** | Bitmap plate |
+| **Add text** | Editable catalog type |
+| **Cutout** | Drop solid plate on subjects / lettering (skip on full-bleed backgrounds) |
+| **Vector shapes / marks** | Simple geometry, rules, icons, clean accents |
+
+Typical stack: background (bitmap **or** simple vector field) → subject → structure/marks → title → support.
+
+## Related
+
+`poster_craft`, `banner_ad`, `long_scroll`, `ecommerce_surface`, `landing_page`, `icon_set`, `garden_style`
 
 ## Done when
-Hero/atmosphere exists when required; lettering path respects the 90% gate; product plates are cut out; prompt is concrete; stacking leaves quiet zones for type.
 
-## Review gate (for Review Agent / SKILL_CRAFT)
-Fail when: festive/illustrated board has no real bitmap hero; product plate still shows a white box; atmosphere genPrompt baked titles that fight overlay type; typography gate ignored for hero lettering.
-Pass when Principles + Done-when hold for the brief's image job.
+Far: tone and focal read in ~1s. Near: medium choice fits complexity; type sits on quiet ground; language matches the user.

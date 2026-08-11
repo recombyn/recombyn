@@ -35,7 +35,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not turn a resume into a festive poster; do not invent employers/dates/metrics; do not use emoji as section icons; do not clip body text.",
+  "prompt_negative": "Prefer a professional document over a festive poster. Unless the user provides them, avoid inventing board facts such as employers, dates, metrics, phone numbers, etc. Prefer plain section titles over emoji icons. Prefer readable body with margin.",
   "locales": {
     "zh-CN": {
       "displayName": "简历 / CV",

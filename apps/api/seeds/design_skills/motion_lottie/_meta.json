@@ -35,7 +35,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Never substitute still bitmaps, SVG marks, or shape piles for requested Lottie/motion. Do not use Lottie for static icons.",
+  "prompt_negative": "When Lottie/motion is requested, prefer real motion over still stand-ins. Prefer simple static marks as vector instead of Lottie. Complex still atmosphere belongs in image/poster skills, not motion.",
   "locales": {
     "zh-CN": {
       "displayName": "动效 / Lottie",

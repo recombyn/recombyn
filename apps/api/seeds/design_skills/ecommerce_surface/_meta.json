@@ -36,7 +36,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not invent prices/discounts/SKU; do not bury the product under chrome; do not turn PDP into a festive poster with no modules; never leave uncut white product plates on the board.",
+  "prompt_negative": "Unless the user provides them, avoid inventing board facts such as prices, discounts, SKUs, review counts, etc. Prefer the product as hero over heavy chrome. Prefer modular PDP over a festive poster. Simple module chrome may stay vector; detailed product/lifestyle that looks crude as shapes should use images. Prefer cutout when white product plates would remain.",
   "locales": {
     "zh-CN": {
       "displayName": "电商表面",

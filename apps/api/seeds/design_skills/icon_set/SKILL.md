@@ -1,41 +1,48 @@
 # Icon / mark set
 
-Playbook for **图标 / icon set / favicon / UI glyph** — static vector consistency, not illustration posters.
+Craft for **图标 / icon set / favicon / UI glyph** — one system. Default to vector for simple marks; use bitmap only when texture/brand detail cannot stay crisp as geometry.
 
-## Principles
-1. **One system** — shared optical size, stroke weight, corner radius, filled vs outline rule.
-2. **Grid first** — frame each mark on the same cell (e.g. 64 / 96 / 128); align to a keyline grid.
-3. **Vector over bitmap** — prefer clean vector marks; bitmap only for textured/brand marks the user requested.
-4. **Real glyphs only** — every mark is drawn geometry. Never emoji, pictograph characters, or a lone text character as the icon.
+## Design thinking
 
-## Marks & labels
-| Role | Craft |
-|------|-------|
-| Mark | One compact vector glyph per requested icon (shared stroke / corner language) |
-| Label | Optional small plain text under the mark — labels never replace marks |
-| Sheet | One artboard / grid board for the set when creating multiple icons |
+| Ask | Aim |
+|-----|-----|
+| **Deliverable** | App icon / UI glyph set / favicon |
+| **System** | Shared optical size, stroke, corner, filled vs outline |
+| **Grid** | Same cell (e.g. 64 / 96 / 128); columns × rows |
+| **Bitmap vs vector** | Simple silhouettes / outline-filled glyphs → vector. Textured or complex brand marks the user asked for → bitmap. Soft-avoid emoji-as-icon |
+| **Scale** | Still readable ~32px for UI glyphs |
 
-Empty or placeholder marks are not allowed — each glyph must have real paths/geometry.
+Quality bar: **intentional design** — one language across the set, even optical weight. Soft-avoid rainbow-per-mark.
 
-**Budget:** one solid glyph per mark (not a pile of tiny strokes). Eight marks plus labels should stay readable and even.
+## Composition
 
-## Workflow
-1. Lock cell size + columns (e.g. 4×2 grid). Outer artboard optional for the sheet.
-2. State the system in one line (outline 2px / rounded 4 / monochrome ink).
-3. For **each** requested mark: draw the vector glyph first, then optional label.
-4. Optical balance: round glyphs slightly oversized vs square; keep equal visual weight.
-5. Self-check: N marks = N vector glyphs; no emoji; no mixed styles; labels readable.
+- Lock cell size and sheet grid (e.g. 4×2).
+- State the system in one line (stroke / corner / mono ink).
+- Optical balance: rounds slightly large, squares slightly tight.
+- Optional small labels under marks — labels never replace glyphs.
 
-## Set recipes
-| Ask | Deliver |
-|-----|---------|
-| App icon | Single mark + simple plate; avoid tiny detail that dies at 32px |
-| UI glyph set | Outline or filled family; draw larger for craft |
-| Favicon | Ultra-simple silhouette; 1–2 shapes max |
+## Vector vs image
 
-## Avoid
-- Emoji / 🏠🔍❤️ / “icon font” text as marks
-- Motion/Lottie for static icons
-- Rainbow random fills per icon in one set
-- Photoreal collage as “icon set”
-- Only labels with no vector mark
+| Ask | Prefer |
+|-----|--------|
+| App icon / UI set / favicon | Vector silhouette that survives small sizes |
+| Textured brand mark (user asked) | Bitmap via `image_gen` |
+| Static mark | Vector — soft-avoid Lottie unless motion is asked |
+
+Budget: one solid/outline glyph per mark — not stroke piles. Soft-avoid pictograph characters or lone text characters as the icon.
+
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as brand logos or trademark marks.
+
+## Place on board
+
+Draw each simple mark as real geometry; then optional labels. Load `image_gen` only for textured/complex marks the user requested.
+
+## Related
+
+`mobile_app_ui`, `dashboard_ui`, `shadcn_ui`, `image_gen`, `motion_lottie` (motion only)
+
+## Done when
+
+N marks ≈ N real glyphs (or intentional bitmap marks); one system language; labels readable.

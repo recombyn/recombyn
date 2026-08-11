@@ -1,67 +1,52 @@
 # Dashboard / admin UI
 
-Playbook for **后台 / dashboard / console** — scannable density, clear IA, honest empty states.
+Craft for **后台 / dashboard / console** — scannable density, clear IA, honest empty states. Most chrome is simple vector; complex media widgets use image when needed.
 
-## Principles
-1. **Shell before widgets** — sidebar + top bar + main; then KPIs and tables.
-2. **Scan in ~2s** — nav + KPIs + primary content readable immediately.
-3. **Honest data** — never invent KPI numbers, series, or logos; use user values or "—".
-4. **One primary per region** — Create/Apply stays obvious; rest ghost/secondary.
-5. **Density with rhythm** — base-8; section gaps > item gaps; not cramped noise.
+## Design thinking
 
-## Workflow
-1. Desktop-ish size (e.g. 1440×900) unless asked mobile (then prefer `mobile_app_ui`).
-2. Load `shadcn_ui` when crafting dense chrome from scratch.
-3. Build shell → KPI row → main (table **or** card grid) → filters.
-4. Wire loading/empty/error states as muted structures, not blank voids.
-5. Self-check alignment and role consistency.
+| Ask | Aim |
+|-----|-----|
+| **Job** | What scans in ~2s — nav + KPIs + main? |
+| **IA** | Filters+table / KPI+chart+table / master-detail / cards — pick one primary |
+| **Tone** | Dense but calm; one token system |
+| **Bitmap vs vector** | Simple shell, KPI cards, charts, marks → vector. Complex media / photo widgets → bitmap. If vectors look crude, use image |
+| **Data honesty** | Metrics from the user, or placeholders like `—` |
+| **Device** | Desktop ~1440×900; phone → prefer `mobile_app_ui` |
 
-## Shell
+Quality bar: **intentional design** — alignment and roles crisp. Soft-avoid festive poster heroes and invented analytics.
+
+## Shell & composition
+
 | Region | Compose |
 |--------|---------|
-| Sidebar | Narrow vertical; logo/mark + nav; active = weight **and** color |
-| Top bar | Title / breadcrumbs / search / user chip — quiet |
-| KPI row | 3–4 equal cards: label + value; aligned baselines |
-| Main | Table **or** card grid — pick one primary |
-| Filters | Row above table; labeled controls; one primary Apply if needed |
+| Sidebar | Mark + nav; active = weight and color |
+| Top bar | Title / search / user — quiet |
+| KPI row | 3–4 equal cards; aligned baselines |
+| Main | Table **or** card grid as primary |
+| Filters | Labeled controls; one primary Apply when needed |
 
-## Modules
-| Module | Notes |
-|--------|-------|
-| KPI card | Surface + muted label + bold value |
-| Table | Header distinct; column-aligned body |
-| Skeleton | Muted bars matching final layout |
-| Chart | Simple bar/line — no fake precision labels |
-| Primary button | Filled primary + verb from user language |
+States: loading skeleton / empty + one action / error + next step.
 
-## IA patterns
-| Pattern | When |
-|---------|------|
-| Filters + table | Operational lists, orders, users |
-| KPI + chart + table | Analytics overview |
-| List + detail | Master/detail |
-| Cards grid | Entity galleries |
+## Type
 
-## States
-- **Loading**: muted skeleton matching layout.
-- **Empty**: short message + one CTA.
-- **Error**: what failed + next step.
+Muted labels, bold values; one console type system. Primary button verb from user language.
 
-## Placeholder grammar
-| Missing | Show |
-|---------|------|
-| Metric value | `—` with label kept |
-| Chart series | Empty plot or omit series |
-| Logo | Text mark — do not invent brand marks |
+## Vector vs image
 
-## Do not
-- Marketing hero / festive illustration as the whole board
-- Five equal CTAs; rainbow accents; emoji / pictograph text as nav or KPI icons (draw real vector glyphs instead)
-- Invent analytics facts or “sample” revenue
-- Desktop-density tables as the default on phone frames
+Nav and KPI marks as real geometry when simple (`icon_set` when many). Charts as simple bar/line structure. Dense controls → `shadcn_ui`. Soft-avoid emoji as icons. Soft-avoid rebuilding the whole console as a marketing collage.
+
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as KPI numbers, chart series, logos, revenue samples, etc. Prefer `—` or empty structure.
+
+## Place on board
+
+Shell → KPI → main → filters. Load `image_gen` only when a media widget needs a real bitmap.
 
 ## Related
-`shadcn_ui` (controls), `icon_set` (glyph systems), `mobile_app_ui` (if phone console).
+
+`shadcn_ui`, `icon_set`, `mobile_app_ui`, `image_gen` (media widgets)
 
 ## Done when
-Nav + KPIs + main content readable in ~2s; alignment crisp; roles consistent; no invented metrics.
+
+Nav + KPIs + main scan quickly; roles consistent; medium matches complexity; language matches the user.

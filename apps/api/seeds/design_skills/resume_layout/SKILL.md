@@ -1,62 +1,57 @@
 # Resume / CV
 
-Playbook for **简历 / resume / CV** — scannable professional document, not a festive poster.
+Craft for **简历 / resume / CV** — scannable professional document, not a festive poster. Structure is mostly simple vector + type; photo only when asked.
 
-## Principles
-1. **Scan path first** — name → contact → latest role → skills in seconds.
-2. **Honesty** — never invent employers, dates, GPAs, phones, or titles; ask or leave gaps.
-3. **Document, not poster** — no festive heroes, emoji icons, or illustration chrome.
-4. **One grid** — ≤2 columns; align edges; base-8 rhythm.
-5. **One accent** — name or section rules only; rest neutral.
+## Design thinking
 
-## Workflow
-1. Size: A4-ish (e.g. 794×1123 @96dpi feel) or user WxH. Lock artboard first.
-2. Pick structure: **single column** or **sidebar + main** (≤2 columns).
-3. Inventory user facts; mark missing slots — do not invent.
-4. Type: restrained document faces from Available fonts; one display weight for **name only**.
-5. Place sections; self-check scan path and overflow.
-6. Edit in place — preserve column edges.
+| Ask | Aim |
+|-----|-----|
+| **Scan path** | Name → contact → latest role → skills in seconds |
+| **Tone** | Professional document; one restrained accent |
+| **Layout** | ≤2 columns — single / left rail / top name band |
+| **Bitmap vs vector** | Hairlines, columns, section marks → vector. Photo / complex portrait → bitmap when requested. Soft-avoid decorative shape spam |
+| **Facts** | Only what the user gave |
+| **Size** | A4-ish (e.g. 794×1123) or user WxH |
 
-## Structure recipes
-| Pattern | Use when | Notes |
-|---------|----------|-------|
-| Single column | Dense content, ATS-like clarity | Stack section titles + body |
-| Left sidebar | Skills/languages/contact rail | Narrow sidebar + main column |
-| Top header band | Strong name block | Header surface + contacts row; body below |
+Quality bar: **intentional design** — clear scan path and even margins. Soft-avoid festive heroes and emoji section icons.
 
-## Section order (default)
-Name / title → contacts → summary (optional, ≤3 lines) → experience → education → skills → extras.
+## Structure & composition
 
-## Type roles
+| Pattern | When |
+|---------|------|
+| Single column | Dense, ATS-like clarity |
+| Left sidebar | Skills / contact rail |
+| Top header band | Strong name block |
+
+Default order: name / title → contacts → summary (optional) → experience → education → skills → extras.
+
+## Type & hierarchy
+
 | Role | Feel |
 |------|------|
-| Name | Largest; one accent color allowed |
-| Section title | Consistent size/weight; optional hairline |
+| Name | Largest; one accent allowed |
+| Section title | Consistent; optional hairline |
 | Body | Comfortable measure |
-| Meta | Dates, locations — smaller / muted |
+| Meta | Dates / locations — smaller, muted |
 
-## Canvas craft
-- Section titles: consistent; optional hairline — not heavy chrome.
-- Spacing: base 8; section gaps > item gaps.
-- Photo (only if user wants): small; never dominate.
-- Experience items: role + employer + dates + 2–4 bullets max unless user provided more.
+Experience: role + employer + dates + short bullets (2–4 unless user gave more).
 
-## Missing content protocol
-| Situation | Action |
-|-----------|--------|
-| Critical contact/experience missing | Ask once; leave labeled gap if user skips |
-| Optional summary missing | Omit section — do not invent |
-| Photo not requested | Do not add stock headshot |
+## Vector vs image
 
-## Do not
-- Festive illustration heroes or shape decoration piles
-- Emoji section icons / clip-art
-- 5+ type sizes or competing accents
-- Invent content to “look complete”
-- Turn CV into a marketing landing or poster
+Hairline rules, column guides, subtle section marks → vector. Photo only when requested — small, never dominant; soft-avoid stock headshots and clip-art piles.
+
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as employers, dates, GPAs, phone numbers, titles, etc. Omit optional sections rather than fabricating them. Ask once for critical gaps.
+
+## Place on board
+
+Typeset the document grid first. `image_gen` only if a real photo plate is needed. `shadcn_ui` only if the brief is a resume **builder UI**.
 
 ## Related
-`shadcn_ui` only if the brief is a resume **builder UI**, not the CV document itself.
+
+`shadcn_ui` (builder UI only), `image_gen` (photo when asked)
 
 ## Done when
-Recruiter can scan name, latest role, and skills in seconds; margins even; no overflow; language matches user.
+
+Scan path works; margins even; no overflow; language matches the user.
