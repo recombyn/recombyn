@@ -5,7 +5,6 @@ import {
   projectThumbZoomLayerClass,
 } from '@/utils/projectThumb';
 import { nearestScrollRoot } from '@/components/home/InfiniteScroll';
-import { cn } from '@/utils/classnames';
 
 type Props = {
   document?: unknown;
@@ -55,12 +54,7 @@ function LazyTemplateThumb({
         {active && document ? (
           <TemplateThumbnail document={document} fit={fit} />
         ) : (
-          <div
-            className={cn(
-              'flex h-full w-full items-center justify-center bg-[var(--surface)]',
-              active && 'animate-pulse'
-            )}
-          />
+          <div className="rcb-skeleton-bone h-full w-full !rounded-none" />
         )}
       </div>
       {children}
