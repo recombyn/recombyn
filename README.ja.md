@@ -1,28 +1,10 @@
-<p align="center">
-  <img src="docs/assets/readme-hero-v2.jpg" alt="recombyn — オープンソースのキャンバス + AI Design Agent" width="920" />
-</p>
 
-<p align="center">
-  <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
-  <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
-  <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
-</p>
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Source--Available-orange.svg" alt="Recombyn Source Available License" /></a>
-  <a href="docs/self-hosting.md"><img src="https://img.shields.io/badge/self--host-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Self-host" /></a>
-  <a href="apps/web"><img src="https://img.shields.io/badge/web-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
-  <a href="apps/api"><img src="https://img.shields.io/badge/api-FastAPI%20%2B%20Python-3776AB?logo=python&logoColor=white" alt="Python" /></a>
-  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-green.svg" alt="Security" /></a>
-</p>
+**Self Host** · **[Cloud](https://recombyn.com)** · **[Docs](https://recombyn.github.io/recombyn/)**
 
-<p align="center">
-  <a href="README.md"><img src="docs/assets/lang-en.png" alt="English" height="28" /></a>
-  &nbsp;
-  <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.png" alt="简体中文" height="28" /></a>
-  &nbsp;
-  <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
-</p>
+
+
+   
 
 **Recombyn** は **キャンバスエディタ + AI Design Agent** です。  
 無限キャンバス上でデザインし、LangGraph エージェントが会話を通じてレイヤー・図形・テキスト・レイアウトを編集します。
@@ -56,11 +38,13 @@ cp apps/api/.env.example apps/api/.env   # LLM_API_KEY / プロバイダキー�
 docker compose up -d --build
 ```
 
-| サービス | URL |
-|---------|-----|
-| Web | http://localhost:3000 |
-| API docs | http://localhost:8000/docs |
-| MySQL | `127.0.0.1:3306` · `recombyn` / `recombyn` |
+
+| サービス     | URL                                                      |
+| -------- | -------------------------------------------------------- |
+| Web      | [http://localhost:3000](http://localhost:3000)           |
+| API docs | [http://localhost:8000/docs](http://localhost:8000/docs) |
+| MySQL    | `127.0.0.1:3306` · `recombyn` / `recombyn`               |
+
 
 詳細（env、LLM、本番 hardening）: **[docs/self-hosting.md](docs/self-hosting.md)** · Postgres: **[docs/postgres-switch.md](docs/postgres-switch.md)**
 
@@ -118,12 +102,6 @@ e2e/               Playwright
 - Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md)
 - [コントリビュート](CONTRIBUTING.md) · [セキュリティ](SECURITY.md) · [行動規範](CODE_OF_CONDUCT.md)
 - Issue / PR テンプレートは `.github/`
-
-## ライセンス
-
-[Recombyn Source Available License v1.0](./LICENSE) © Recombyn contributors · [NOTICE](./NOTICE)
-
-セルフホスト・商用ホスト・ホワイトラベル / ブランド等の条項は **[LICENSE](./LICENSE)** にあります（OSI オープンソースではありません）。
 
 公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
 

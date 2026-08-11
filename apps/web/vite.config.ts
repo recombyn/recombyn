@@ -113,6 +113,13 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       // Browser auto-open only for plain `npm run dev`, not under Tauri.
       open: !isTauri,
+      headers: {
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+        'Content-Security-Policy': "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self' https://accounts.google.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https: wss: ws: blob: http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:3000 http://localhost:3000; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self'",
+      },
       fs: {
         allow: [path.resolve(__dirname), path.resolve(__dirname, '../..')],
       },

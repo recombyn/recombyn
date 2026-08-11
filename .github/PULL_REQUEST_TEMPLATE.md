@@ -20,4 +20,4 @@
 
 - [ ] No secrets in the diff (`.env`, keys, passwords)
 - [ ] Docs updated if user-facing (`README`, `docs/self-hosting.md`)
-- [ ] I agree contributions are licensed under the Recombyn Source Available License ([CONTRIBUTING.md](../CONTRIBUTING.md))
+- [ ] I agree contributions are licensed under the Apache License 2.0 ([CONTRIBUTING.md](../CONTRIBUTING.md))
