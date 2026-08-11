@@ -2,12 +2,12 @@
   "skill_key": "image_gen",
   "name": "image_gen",
   "displayName": "Image generation",
-  "description": "Bitmap heroes, atmosphere plates, materials, and stylized lettering — with typography gate for overlay copy",
-  "when_to_use": "Poster/hero bitmap, generated backgrounds, materials, or stylized lettering as image",
+  "description": "Bitmap atmosphere/subjects, vector accents, and lettering — design-led visual craft",
+  "when_to_use": "Hero/atmosphere bitmaps, product plates, vector accents/marks, or stylized lettering",
   "category": "image",
   "scenes": "all",
   "sort_weight": 88,
-  "version": "2.0.0",
+  "version": "3.1.0",
   "preferred_tools": [
     "create_image",
     "create_frame",
@@ -31,15 +31,15 @@
     }
   ],
   "mutex_group": "image",
-  "prompt_negative": "If the user forbids image gen, skip bitmap heroes; do not invent fontFamily; do not ship poster/festive work as shape-only geometry; do not bake titles into atmosphere heroes; do not leave white product plates uncut.",
+  "prompt_negative": "If the user forbids image gen, skip bitmap heroes. Prefer catalog fontFamily names. Simple marks may stay vector; complex scenes that look crude as shapes should use images. Prefer overlay type over baking titles into backgrounds. Prefer cutout when product/lettering plates would leave white boxes.",
   "locales": {
     "zh-CN": {
       "displayName": "图像生成",
-      "description": "英雄图 / 氛围底板 / 材质 / 艺术字；可改字标题不进图"
+      "description": "氛围图 / 主体 / 矢量点缀 / 艺术字 — 偏设计表达"
     },
     "en": {
       "displayName": "Image generation",
-      "description": "Bitmap heroes, atmosphere plates, materials, stylized lettering"
+      "description": "Atmosphere, subjects, vector accents, lettering"
     }
   }
 }

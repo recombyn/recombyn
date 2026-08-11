@@ -31,7 +31,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not turn a banner into a multi-section landing; do not clip mid-band copy; do not invent logos/prices; do not spam five CTAs.",
+  "prompt_negative": "Prefer one claim strip over a multi-section landing. Prefer mid-band safe copy. Simple marks may stay vector; complex atmosphere/product that looks crude as shapes should use images. Unless the user provides them, avoid inventing board facts such as logos, prices, phone numbers, etc. Prefer one primary CTA.",
   "locales": {
     "zh-CN": {
       "displayName": "横幅 / 广告条",
