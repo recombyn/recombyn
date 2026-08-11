@@ -276,8 +276,11 @@ const Image: React.FC<ImageProps> = ({
                     onMouseDown={(e) => e.stopPropagation()}
                     style={{
                       display: 'block',
-                      maxWidth: '700px',
-                      maxHeight: '700px',
+                      width: 'auto',
+                      height: 'auto',
+                      maxWidth: 'min(92vw, 960px)',
+                      maxHeight: 'min(88vh, 960px)',
+                      objectFit: 'contain',
                       transform: `rotate(${transform.rotate}deg) scale(${transform.scale}) scaleX(${transform.flipX ? -1 : 1}) scaleY(${transform.flipY ? -1 : 1})`,
                       transformOrigin: 'center center',
                     }}

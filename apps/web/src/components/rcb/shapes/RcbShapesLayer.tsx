@@ -30,11 +30,15 @@ type Props = {
   hiddenNodeId?: string | null;
   /** Never cull these (selection / inline editors) even if off-screen. */
   keepVisibleIds?: readonly string[];
+  /** Must stay as full SVG hosts (inline editors only — selection stays LOD). */
+  forceFullIds?: readonly string[];
   /** Shared scene index from SvgCanvas — drives viewport visible set. */
   spatialIndex?: RcbSpatialIndex | null;
 };
 
 const EMPTY_KEEP: readonly string[] = [];
+const EMPTY_FORCE_FULL: readonly string[] = [];
+const EMPTY_FORCE_FULL_SET = new Set<string>();
 
 /** Screen-px margin so shapes entering the view aren't blank for a frame. */
 const CULL_PAD_SCREEN_PX = 96;
@@ -248,11 +252,14 @@ export function pickFullAndProxyIds(opts: {
   document: SceneDocument;
   visibleIds: string[];
   keepSet: Set<string>;
+  /** Only these force full SVG (e.g. text/pen editors). Selection uses keepSet for cull only. */
+  forceFullSet?: Set<string>;
   zoom: number;
   moving: boolean;
   maxProxies?: number;
 }): { fullIds: string[]; proxyIds: string[] } {
-  const { document, visibleIds, keepSet, zoom, moving } = opts;
+  const { document, visibleIds, zoom, moving } = opts;
+  const forceFullSet = opts.forceFullSet ?? EMPTY_FORCE_FULL_SET;
   const maxProxies = opts.maxProxies ?? MAX_PROXY_PAINT;
   const budget = hostBudget({ zoom, moving, visibleCount: visibleIds.length });
   const far = zoom < LOD_ZOOM_FAR;
@@ -266,7 +273,8 @@ export function pickFullAndProxyIds(opts: {
   const scored: Array<{ id: string; score: number; force: boolean }> = [];
   for (const id of visibleIds) {
     const node = document?.deltaSetLike?.[id];
-    const force = keepSet.has(id);
+    // Selection must not promote proxy → full while LOD is active.
+    const force = forceFullSet.has(id);
     let score = screenAreaPx(node, zoom);
     if (isHeavyPathNode(node) && forceLod) score *= 0.05;
     // Far zoom: demote media-heavy nodes (image/video/lottie/text) so cheap shapes
@@ -400,8 +408,9 @@ function paintLodProxiesCanvas(opts: {
 /**
  * Renders each ROOT child as its own SVG shape host (sharp under CSS camera zoom).
  * Canvas Path2D is only used by selection indicators / draw-tool overlays.
- * Off-viewport nodes are not mounted (lazy paint); selected/editing stay alive.
+ * Off-viewport nodes are not mounted (lazy paint); selection/editing stay culled-alive.
  * Far zoom / dense views: one Canvas2D LOD batch (stroke for pencil; AABB for fills).
+ * Selection does not promote proxies back to full SVG — only inline editors do.
  * z-index comes from document.stackOrder so shapes can interleave with artboards.
  */
 function RcbShapesLayer({
@@ -411,6 +420,7 @@ function RcbShapesLayer({
   lastPatchedNodeIds = [],
   hiddenNodeId = null,
   keepVisibleIds = EMPTY_KEEP,
+  forceFullIds = EMPTY_FORCE_FULL,
   spatialIndex = null,
 }: Props) {
   const camera = useRcbCamera();
@@ -457,6 +467,10 @@ function RcbShapesLayer({
   const keepSet = useMemo(
     () => new Set(keepVisibleIds.filter(Boolean)),
     [keepVisibleIds]
+  );
+  const forceFullSet = useMemo(
+    () => new Set(forceFullIds.filter(Boolean)),
+    [forceFullIds]
   );
 
   /** Mount only in-view (+ keep) ids — never `ids.filter` over 100k after spatial hits. */
@@ -511,10 +525,11 @@ function RcbShapesLayer({
         document,
         visibleIds,
         keepSet,
+        forceFullSet,
         zoom: cullCam.zoom || 1,
         moving,
       }),
-    [document, visibleIds, keepSet, cullCam.zoom, moving]
+    [document, visibleIds, keepSet, forceFullSet, cullCam.zoom, moving]
   );
 
   const patched = useMemo(() => new Set(lastPatchedNodeIds.filter(Boolean)), [lastPatchedNodeIds]);

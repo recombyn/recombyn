@@ -68,10 +68,10 @@ describe('pickFullAndProxyIds', () => {
       document: doc,
       visibleIds: ids,
       keepSet: new Set(['n0']),
-      zoom: 0.2,
+      zoom: 0.15,
       moving: true,
     });
-    expect(fullIds).toContain('n0');
+    // Selection keepSet must not force full SVG while LOD is active.
     expect(fullIds.length).toBeLessThanOrEqual(24);
     expect(proxyIds.length).toBeGreaterThan(0);
     expect(fullIds.length + proxyIds.length).toBe(120);
@@ -86,14 +86,47 @@ describe('pickFullAndProxyIds', () => {
       document: doc,
       visibleIds: ids,
       keepSet: new Set(['n0']),
-      zoom: 0.2,
+      zoom: 0.15,
       moving: true,
       maxProxies: 128,
     });
-    expect(fullIds).toContain('n0');
     expect(fullIds.length).toBeLessThanOrEqual(24);
     expect(proxyIds.length).toBeLessThanOrEqual(128);
     expect(fullIds.length + proxyIds.length).toBeLessThan(5000);
+  });
+
+  it('forceFullSet keeps editors as full SVG under LOD', () => {
+    const nodes: Record<string, any> = {};
+    for (let i = 0; i < 120; i += 1) nodes[`n${i}`] = rect(`n${i}`);
+    const doc = makeDoc(nodes);
+    const ids = Object.keys(nodes);
+    const { fullIds, proxyIds } = pickFullAndProxyIds({
+      document: doc,
+      visibleIds: ids,
+      keepSet: new Set(['n0']),
+      forceFullSet: new Set(['n0']),
+      zoom: 0.15,
+      moving: false,
+    });
+    expect(fullIds).toContain('n0');
+    expect(proxyIds).not.toContain('n0');
+  });
+
+  it('selection keepSet alone does not promote under far LOD', () => {
+    // Tiny n0 loses the host budget to large siblings unless keepSet forces it.
+    const nodes: Record<string, any> = { n0: rect('n0', 2, 2) };
+    for (let i = 1; i < 120; i += 1) nodes[`n${i}`] = rect(`n${i}`, 400, 400);
+    const doc = makeDoc(nodes);
+    const ids = Object.keys(nodes);
+    const { fullIds, proxyIds } = pickFullAndProxyIds({
+      document: doc,
+      visibleIds: ids,
+      keepSet: new Set(['n0']),
+      zoom: 0.15,
+      moving: false,
+    });
+    expect(proxyIds).toContain('n0');
+    expect(fullIds).not.toContain('n0');
   });
 
   it('demotes heavy paths when force-lod', () => {
@@ -108,7 +141,7 @@ describe('pickFullAndProxyIds', () => {
       document: doc,
       visibleIds: ids,
       keepSet: new Set(),
-      zoom: 0.2,
+      zoom: 0.15,
       moving: true,
     });
     expect(fullIds).toContain('big');

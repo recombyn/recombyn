@@ -66,7 +66,6 @@ import {
   readFileAsDataUrl,
   waitForImageReady,
 } from '@/utils/uploadImage';
-import { registerAsset } from '@/service/assets';
 import { getHttpErrorMessage } from '@/service/client';
 import store from '@/store';
 import { message } from '@/components/base';
@@ -1679,20 +1678,6 @@ function SvgCanvas({
           },
         })
       );
-      try {
-        await registerAsset({
-          kind: 'video',
-          url: String(uploaded.url || '').trim(),
-          objectKey: uploaded.key || null,
-          mime: file.type || 'video/mp4',
-          prompt: prepared.name || null,
-          width,
-          height,
-          source: 'upload',
-        });
-      } catch {
-        /* ignore asset registration errors */
-      }
     } catch (err: any) {
       dispatch(failImageProcess({}));
       message.error(getHttpErrorMessage(err, '视频上传失败'));
@@ -1765,18 +1750,6 @@ function SvgCanvas({
             },
           })
         );
-        try {
-          await registerAsset({
-            kind: 'audio',
-            url,
-            objectKey: uploaded.key || null,
-            mime: file.type || 'audio/mpeg',
-            prompt: file.name?.replace(/\.[^.]+$/, '') || null,
-            source: 'upload',
-          });
-        } catch {
-          /* ignore asset registration errors */
-        }
       } finally {
         finishNodeUpload(spawnedId);
       }
@@ -1929,6 +1902,14 @@ function SvgCanvas({
     return out;
   }, [ids, editingTextId, editingPenId]);
 
+  /** Editors need full SVG; selection alone must stay LOD while zoomed out. */
+  const forceFullIds = useMemo(() => {
+    const out: string[] = [];
+    if (editingTextId) out.push(editingTextId);
+    if (editingPenId) out.push(editingPenId);
+    return out;
+  }, [editingTextId, editingPenId]);
+
   // Path-edit stays open on empty selection (blank click must not dismiss).
   // Only leave when the user selects a *different* node.
   useEffect(() => {
@@ -2017,6 +1998,7 @@ function SvgCanvas({
             lastPatchedNodeIds={lastPatchedNodeIds}
             hiddenNodeId={editingTextId || editingPenId}
             keepVisibleIds={keepVisibleIds}
+            forceFullIds={forceFullIds}
             spatialIndex={nodeSpatialIndex}
           />
         ) : null}
