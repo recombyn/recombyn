@@ -2,6 +2,7 @@
  * Lightweight markdown helpers for scene text nodes.
  * Canvas text renders plain text; `attrs.markdown` keeps the source.
  */
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
 
 export function markdownToPlain(md: string): string {
   let s = String(md || '');
@@ -153,7 +154,8 @@ export function markdownToSafeHtml(md: string): string {
 
   if (inCode) out.push(`<pre><code>${esc(codeBuf.join('\n'))}</code></pre>`);
   closeLists();
-  return out.join('') || '<p class="md-empty"></p>';
+  const html = out.join('') || '<p class="md-empty"></p>';
+  return sanitizeHtml(html);
 }
 
 /** Wrap selection in a textarea with markdown markers. */

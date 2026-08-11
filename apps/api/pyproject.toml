@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "recombyn-api"
 version = "0.1.0"
 description = "Recombyn API — canvas Scene + Design Agent runtime"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.115.0",
