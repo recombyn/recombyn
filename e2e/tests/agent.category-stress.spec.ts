@@ -9,13 +9,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
+import { E2E_TOKEN_SKIP_REASON, resolveE2EToken } from './e2eAuth';
 
 const ROOT = path.resolve(__dirname, '../..');
 const OUT = path.join(ROOT, '.tmp-e2e-category-stress');
 const SUITE = path.join(ROOT, 'apps/api/seeds/design_agent_stress_suite.json');
-const TOKEN =
-  (process.env.E2E_TOKEN || '').trim() ||
-  fs.readFileSync(path.join(ROOT, '.tmp-token.txt'), 'utf8').trim();
+const TOKEN = resolveE2EToken(ROOT);
+/** Opt-in only — do not run this long suite on default CI. */
+const STRESS_ENABLED = (process.env.E2E_STRESS || '').trim() === '1';
+const STRESS_SKIP_REASON = STRESS_ENABLED
+  ? E2E_TOKEN_SKIP_REASON
+  : 'Set E2E_STRESS=1 (and a token) to run category stress';
 
 /** Default: poster-heavy + UI surfaces. Override with E2E_STRESS_CASES=poster,banner,mobile_ui */
 const DEFAULT_CASE_IDS = [
@@ -399,6 +403,7 @@ async function waitRunSettle(
 }
 
 test.describe('agent category stress (poster / UI / image)', () => {
+  test.skip(!STRESS_ENABLED || !TOKEN, STRESS_SKIP_REASON);
   test.beforeAll(() => {
     fs.mkdirSync(OUT, { recursive: true });
     expect(fs.existsSync(SUITE)).toBeTruthy();
