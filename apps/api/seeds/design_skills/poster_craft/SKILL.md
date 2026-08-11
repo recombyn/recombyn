@@ -1,71 +1,57 @@
 # Poster / roll-up
 
-Playbook for **海报 / poster / 易拉宝 / roll-up** — atmosphere first, then readable info groups.
+Craft for **海报 / poster / 易拉宝 / roll-up / 演唱会 KV** — atmosphere and hierarchy first; sparse, intentional type. Medium follows complexity: simple → vector OK; complex → image.
 
-Mature craft: name a visual philosophy, commit one focal image, treat type as sparse visual accent — never a shape collage pretending to be a poster.
+## Design thinking
 
-## Principles
-1. **Atmosphere carries meaning** — form, color, and space speak before paragraphs.
-2. **One focal hero** — full/near-full board atmosphere or photo; geometry piles are not posters.
-3. **Quiet zones for type** — place copy on calm bands; never fight busy art with hard titles.
-4. **Sparse text** — one primary line + ≤2 support clusters; type is accent, not essay.
-5. **Master craftsmanship** — alignments and contrast must look labored-over, not AI-default.
+| Ask | Aim |
+|-----|-----|
+| **Purpose** | Who sees it, and what sticks in ~1s? |
+| **Tone** | One direction — e.g. night quiet, editorial, luxury, industrial, organic, retro-futurist |
+| **Memory point** | Strong atmosphere **or** dominant title — not both fighting |
+| **Bitmap vs vector** | Simple geometry / flat language → vector. Rich light, material, photo, busy illustration → bitmap via `image_gen`. If vectors would look crude, use image |
+| **Copy budget** | Usually 1 title + ≤2 support clusters |
+| **Constraints** | Size / roll-up / language / user assets |
 
-## Workflow
-1. Lock size (common: 1080×1920, 1242×2208, 800×2000 roll-up, 1920×1080 wide).
-2. Name the tone in one phrase (festive hand / luxury ink / editorial photo / minimal print …).
-3. Deduce the subject from the brief — embed it visually; do not announce with paragraphs.
-4. Build layer order below; pull `image_gen` + `garden_style` when needed.
-5. Far/near self-check; fix contrast and clip before declaring done.
+Quality bar: **intentional design** — hierarchy and crop fit this brief. Soft-avoid generic AI postcard defaults.
 
-## Layer order
-1. **Hero** — full or near-full board scene/atmosphere only (no baked titles).
-2. **Quiet zones** — calm bands for copy (top/mid/bottom).
-3. **Title** — one primary editable line (or lettering art when catalog fonts fail the 90% gate).
-4. **Support** — date / venue / CTA / bullets — clearly smaller; ≤2 clusters.
-5. **Accents** — thin marks only; no Material icon spam; no emoji as type.
+## Atmosphere & layout
 
-## Tall vs wide
-| Format | Hierarchy |
-|--------|-----------|
-| Tall poster / roll-up | Top brand/title → mid hero focus → bottom info/CTA; side margins ≥ ~5% width |
-| Wide banner-poster | Left/right subject vs copy; mid-band safe for title; avoid edge clip |
+- Tall / roll-up: top brand/title → mid focus → bottom info/CTA; generous side margins.
+- Wide: subject vs copy left/right; mid-band safer for title.
+- Quiet bands for type on busy grounds.
+- Visual-first posters need a real scene when complexity calls for it — not a pile of random shapes pretending to be atmosphere.
 
-## Image intent
-Subject + style/medium + lighting + composition + color + **hard negatives**:
-- No titles, event names, dates, venue text, logos, watermarks, or gibberish letters in the hero bitmap.
-- Titles/dates live as editable type on quiet zones.
-- Cutout subjects on a colored board: solid plate + cutout — never leave a white rectangle.
+## Type & hierarchy
 
-## Type scale (feel)
-| Role | Relative |
-|------|----------|
-| Title | Dominates; one line preferred |
-| Support | Clearly smaller; secondary weight |
-| Meta | Smallest; date/venue/legal |
+- Title ≫ support ≫ meta.
+- Catalog text when fonts match (~90%+); lettering image + cutout when display needs it (`image_gen`).
+- Language matches the user.
 
-## Edit
-Refine type and accents in place. Do **not** rebuild the hero as shapes. Regenerate hero only when the brief's atmosphere changes.
+## Vector vs image (same rule)
 
-## Do not
-- Fake hero with rect/circle piles
-- Five equal-weight slogans
-- Hard title against the edge / low-contrast type on busy art
-- Bake the poster title/date into the hero then overlay the same copy again
-- Invent QR / phone / price / logos
-- Festive Material UI chrome as decoration
-- Composite subjects with leftover white cutout boxes
+| Prefer vector when | Prefer bitmap when |
+|--------------------|--------------------|
+| Clean discs, dots, bars, frames, hairlines, flat badges | Deep night sky with rich light/haze/material |
+| Simple geometric poster language, intentional and sparse | Photo / painted hero, complex illustration |
+| Icons and crisp marks | Faces, products, detailed props |
+
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as logos, prices, phone numbers, QR codes, review counts, etc.
+
+## Place on board
+
+Load **`image_gen`** when placing bitmaps, cutouts, or lettering plates.
+
+Typical stack: background → optional subject → simple vector structure → title → support.
+
+Second pass: refine alignment and contrast before adding more marks.
 
 ## Related
-`image_gen` (hero), `garden_style` (direction), `brush_ops` (hand accents only).
+
+`image_gen`, `garden_style`, `brush_ops` (accents only), `icon_set`
 
 ## Done when
-Far: theme + title read in ~1s. Near: no clip, contrast OK, one focal image, copy language matches user.
 
-## Review gate (for Review Agent / SKILL_CRAFT)
-Fail (`must_fix`) when any of:
-- Hero is a shape/geometry pile instead of `create_image` atmosphere
-- Hero bitmap bakes titles/dates that also appear as overlay type
-- Product/subject plates leave white cutout boxes on a colored board
-- Title clipped, low-contrast on busy art, or five equal-weight slogans
-Pass when Principles + Done-when above hold and DESIGN_BRIEF image strategy is met.
+Far: tone + title in ~1s. Near: medium matches complexity; type clear; language matches the user.

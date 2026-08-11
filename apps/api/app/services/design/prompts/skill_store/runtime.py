@@ -562,13 +562,16 @@ def format_skills_details_checked(
         head = f"## skill: {key} — {name} (v{ver}, ns={ns})"
         if when:
             head += f"\nwhen: {when}"
-        if tools:
-            head += "\npreferred_tools: " + ", ".join(str(t) for t in tools)
+        # Prefer natural-language canvas actions in craft text — never leak op ids
+        # like create_image into SKILL_DETAILS (TOOL_DETAILS already owns schemas).
+        action_hint = _preferred_tools_as_actions(tools)
+        if action_hint:
+            head += "\ncanvas_actions: " + action_hint
         out_schema = r.get("outputSchema") if isinstance(r.get("outputSchema"), dict) else None
         if out_schema and isinstance(out_schema.get("allowed_ops"), list):
-            head += "\noutput_allowed_ops: " + ", ".join(
-                str(t) for t in out_schema.get("allowed_ops") if str(t).strip()
-            )
+            allowed_actions = _preferred_tools_as_actions(out_schema.get("allowed_ops") or [])
+            if allowed_actions:
+                head += "\noutput_actions: " + allowed_actions
         block = f"{head}\n{body}".strip()
         if neg:
             block += f"\n\nforbid: {neg}"
@@ -609,6 +612,43 @@ def _iter_skills_for_keys(
         key = str(r.get("skillKey") or "").strip().lower()
         if key in keys:
             yield r
+
+_OP_TO_ACTION = {
+    "create_image": "新增图片",
+    "create_text": "新增文字",
+    "create_shape": "新增形状",
+    "create_frame": "新建画板",
+    "create_svg": "新增矢量图",
+    "create_icon": "新增图标",
+    "create_lottie": "新增动效",
+    "update_node": "修改图层",
+    "move_nodes": "移动图层",
+    "resize_nodes": "缩放图层",
+    "delete_nodes": "删除图层",
+    "delete_frame": "删除画板",
+}
+
+
+def _preferred_tools_as_actions(tools: Any) -> str:
+    """Map preferred_tools / allowed_ops ids → natural canvas actions for SKILL_DETAILS."""
+    if not isinstance(tools, (list, tuple)):
+        return ""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in tools:
+        key = str(raw or "").strip()
+        if not key:
+            continue
+        label = _OP_TO_ACTION.get(key) or _OP_TO_ACTION.get(key.lower())
+        if not label:
+            # Skip unknown op ids — do not leak them into craft text.
+            continue
+        if label in seen:
+            continue
+        seen.add(label)
+        out.append(label)
+    return "、".join(out)
+
 
 def preferred_tools_allowlist(
     skill_keys: list[str], *, scene: str = "website"

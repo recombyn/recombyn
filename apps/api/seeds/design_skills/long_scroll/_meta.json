@@ -31,7 +31,7 @@
     }
   ],
   "mutex_group": "",
-  "prompt_negative": "Do not flatten a long story into a short square poster; do not invent multi-artboard websites when user asked for one long image; do not clip chapter titles.",
+  "prompt_negative": "When the user asks for a long image, prefer one tall scroll board over a short square poster or a multi-artboard website. Prefer chapter titles with breathing room. Simple separators may stay vector; complex chapter scenes that look crude as shapes should use images.",
   "locales": {
     "zh-CN": {
       "displayName": "长图 / 滚动叙事",

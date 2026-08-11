@@ -1,77 +1,54 @@
 # Mobile / H5 app UI
 
-Playbook for **手机 / H5 / App** screens — single column, thumb-first, honest chrome.
+Craft for **手机 / H5 / App** screens — single column, thumb-first, honest chrome. Medium follows complexity: simple chrome/marks → vector; complex header/hero → image.
 
-## Principles
-1. **Thumb-first** — primary CTA lives in the lower third; avoid corner-only primaries.
-2. **Single column** — stack; do not port desktop sidebars as the default.
-3. **Honest chrome** — do not invent OS battery/wifi glyphs unless asked.
-4. **Hit targets** — generous tap height; do not rely on hover.
-5. **Shared tokens across screens** — multi-board flows keep one type/color language.
-6. **Real nav / list icons** — tabs, lists, and action marks are drawn vector glyphs (shared stroke). Never use emoji or a single pictograph character as an icon — including greetings and card titles.
+## Design thinking
 
-## Workflow
-1. Phone-ish size (e.g. 390×844) or user WxH. Multi-screen → one artboard per screen (cap ~8).
-2. Pair with `shadcn_ui` for controls when needed; pair with `icon_set` when many glyphs share one stroke system.
-3. Build: top bar → content → bottom nav **or** sticky CTA. Each bottom-nav item = vector mark + short plain label.
-4. Apply safe insets; check tap sizes.
-5. Far check at phone scale; near check overflow and contrast.
+| Ask | Aim |
+|-----|-----|
+| **Job** | Login / list / detail / empty / tabs |
+| **Tone** | One product UI language across screens |
+| **Thumb** | Primary action in the lower third when possible |
+| **Bitmap vs vector** | Simple icons, lists, chrome → vector. Rich header/hero scenes → bitmap. If vectors look crude, use image |
+| **Chrome honesty** | Prefer not inventing OS status glyphs unless asked |
+| **Size** | ~390×844 or user WxH |
 
-## Marks & labels
-| Role | Craft |
-|------|-------|
-| Tab / list / KPI mark | One compact vector glyph per mark — not emoji, not a letter pretending to be an icon |
-| Label | Short plain words only under/beside the mark |
-| Bottom nav | Mark first, then label; 3–5 items max |
+Quality bar: **intentional design** — readable at phone scale, clear hierarchy. Soft-avoid desktop sidebars and festive poster chrome on product UI.
 
-Keep the screen lean: do not explode each icon into many overlapping shapes; leave room for chrome and content.
+## Patterns & composition
 
-## Safe area & insets
-| Region | Cue |
-|--------|-----|
-| Side inset | ~16–24px content padding |
-| Top | Title/logo; optional back; respect status-band calm |
-| Bottom | Nav or sticky CTA above home-indicator feel |
-| Tap height | List rows / buttons feel ≥ ~44px |
-
-## Chrome
-| Region | Notes |
-|--------|-------|
-| Top | Title or logo; optional back; quiet |
-| Content | Single column; shared radius on cards/lists |
-| Bottom nav | 3–5 items max; active = weight **and** color |
-| Sticky CTA | Full-width primary in thumb zone; one verb |
-
-## Patterns
 | Pattern | Compose |
 |---------|---------|
-| Login / form | Labels above fields; error adjacent; full-width primary |
-| Feed / list | Repeated rows; avatar + title + meta; generous height |
+| Login / form | Labels above fields; full-width primary |
+| Feed / list | Avatar + title + meta; generous row height |
 | Detail | Optional top image + title + body + bottom CTA |
 | Empty | Short line + one action |
-| Tabs | Labels; active underline; panel below |
+| Tabs | 3–5 items; mark + label; active cue |
 
-## Multi-screen flows
-- One artboard per step; reuse tokens.
-- Carry the same primary verb language across steps.
-- Do not invent intermediate marketing interstitial screens.
+Safe area: side inset ~16–24; top title/back; bottom nav or sticky CTA; tap targets feel ~≥44px.
 
-## When NOT this skill
-| Need | Prefer |
-|------|--------|
-| Desktop admin density | `dashboard_ui` |
-| Marketing multi-section site | `landing_page` |
-| Festive full-board poster | `poster_craft` |
+## Type
 
-## Do not
-- Desktop sidebar + dense tables as the default mobile layout
-- Tiny tap targets; CTA only in the top corner
-- Festive poster decoration on product chrome
-- Five bottom-nav items of equal “primary” weight
-- Emoji / pictograph text in greetings, cards, or nav (use vector marks + plain labels)
+One token set across the flow. Short labels; plain words beside marks.
+
+## Vector vs image
+
+Tab / list / KPI marks as real geometry when simple (`icon_set` when many). Soft-avoid emoji as icons. Dense controls → `shadcn_ui`. Complex photo headers → `image_gen`.
+
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as account balances, phone numbers, brand logos, etc.
+
+## Place on board
+
+Optional detail header → load **`image_gen`** when the plate needs bitmap/cutout; keep the title clear.
+
+Typical stack: optional header → vector chrome / icons → type → primary CTA.
 
 ## Related
-`shadcn_ui` for controls when needed; `icon_set` for glyph systems; `motion_lottie` only for explicit micro-motion.
+
+`image_gen`, `shadcn_ui`, `icon_set`, `motion_lottie` when motion is explicit
 
 ## Done when
-Readable at phone scale; primary action easy to reach; safe margins; hierarchy clear; tokens consistent across screens; every tab/list mark is a real vector glyph.
+
+Readable at phone scale; primary action easy to reach; medium matches complexity; language matches the user.

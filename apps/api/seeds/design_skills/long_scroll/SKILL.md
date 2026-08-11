@@ -1,33 +1,54 @@
 # Long image / scroll story
 
-Playbook for **长图 / long image / 长截图 / scroll story** — one tall continuous board.
+Craft for **长图 / long image / 长截图 / scroll story** — one tall continuous board with chapter rhythm.
 
-## Principles
-1. **One board, tall rhythm** — single tall artboard (e.g. 750×3000+ or 1080×4000); not many separate boards unless user asks.
-2. **Chapter beats** — intro → 3–6 sections → close/CTA; each beat needs a visual pause.
-3. **Mobile-first width** — keep ~750–1080 width; generous vertical spacing between chapters.
-4. **Sticky thesis** — repeat the core claim lightly; do not dump all copy at the top.
+## Design thinking
 
-## Workflow
-1. Lock WxH; prefer width 750/1080; height from content (start ≥2800 if story-rich).
-2. Map chapter list before painting (title each beat in one phrase).
-3. Per chapter: optional mood band + quiet type block; pull `image_gen` sparingly (1 hero + accents).
-4. Keep left/right margins ≥ ~6% width; avoid edge-clipped titles.
-5. Closing beat: one CTA or takeaway — not a second landing page.
-6. Self-check: scroll continuity, contrast on each band, no invented metrics.
+| Ask | Aim |
+|-----|-----|
+| **Job** | A scroll story, not a short square poster |
+| **Beats** | Hook → a few chapters → close/CTA |
+| **Tone** | One visual language top to bottom |
+| **Bitmap vs vector** | Simple separators / marks → vector. Rich hook/chapter scenes → bitmap. If vectors look crude, use image |
+| **Width** | Mobile-first (~750–1080) |
+| **Height** | Real scroll when asked 长图 (often tall, e.g. ≥~2800) |
 
-## Rhythm
+Quality bar: **intentional design** — clear pauses between beats, coverage down the board. Soft-avoid empty bottoms and shape-pile fillers.
+
+## Rhythm & composition
+
 | Zone | Role |
 |------|------|
-| Hook (top ~15%) | Hook visual + one-line thesis |
-| Body chapters | Alternating image/type density; clear separators |
-| Close | Summary + CTA / share prompt |
+| Hook (~top 15%) | Visual + one-line thesis |
+| Body | Alternating image/type density; clear pauses |
+| Close | Summary + one CTA |
 
-## Avoid
-- Short 1:1 poster when user asked 长图
-- Website nav + footer chrome on a shareable long image
-- Wall of text without visual pauses
+- Side inset often ≥~6% width.
+- Prefer appending chapters below over rebuilding an empty top.
 
-## Review gate (for Review Agent / SKILL_CRAFT)
-Fail (`must_fix`) when a tall board (≥~1400px or aspect ≳2.2) leaves large empty bottom — content coverage should reach ~≥72% of height; APPEND modules below current content (no clear/rebuild top).
-Pass when chapter rhythm + coverage meet Principles above.
+## Type
+
+- One theme line per chapter; thesis repeats lightly, not a wall of text at the top.
+- Catalog text; lettering plates via `image_gen` when display needs it.
+
+## Vector vs image
+
+Separators, chapter markers, thin rules → vector. Complex chapter heroes → `image_gen`. Soft-avoid filling empty scroll with crude geometry spam.
+
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as logos, prices, phone numbers, etc.
+
+## Place on board
+
+Load **`image_gen`** for hook/chapter bitmaps, overlay type, and cutouts.
+
+Review cue: on very tall boards (e.g. ≥~1400px or aspect ≳2.2), large empty bottoms usually mean unfinished chapters — keep appending.
+
+## Related
+
+`image_gen`, `garden_style`
+
+## Done when
+
+Scroll rhythm reads; coverage reaches well down the board; type and imagery share one tone; language matches the user.

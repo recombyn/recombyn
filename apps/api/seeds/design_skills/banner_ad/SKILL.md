@@ -1,30 +1,52 @@
 # Banner / ad strip
 
-Playbook for **横幅 / banner / 通栏 / 顶通 / KV banner** — one message strip, not a landing page.
+Craft for **横幅 / banner / 通栏 / 顶通 / KV banner** — one claim strip, not a landing page.
 
-## Principles
-1. **One claim + one CTA** — no essay, no five competing buttons.
-2. **Mid-band safe** — keep primary copy away from edge crop; assume 5–8% side/top bleed risk.
-3. **Subject vs message** — photo/illustration owns one side (or full bleed under quiet plate); type owns the calm band.
-4. **Fixed ratio** — lock exact WxH first; common: 1920×400, 1200×628, 750×300, 1080×540.
+## Design thinking
 
-## Workflow
-1. Lock banner WxH.
-2. Hero atmosphere or subject (full bleed or subject-side); pull `image_gen` when needed.
-3. Quiet plate or calm region for title + CTA.
-4. Title: catalog face if ~≥90% match else lettering art; support line ≤1 short sentence.
-5. Single CTA — high contrast, not edge-clipped.
-6. Self-check: crop safety, contrast, no invented logo/price.
+| Ask | Aim |
+|-----|-----|
+| **Job** | One claim + one CTA a glance can catch |
+| **Tone** | One direction — clean promo, bold retail, quiet luxury, etc. |
+| **Split** | Where subject lives vs where type lives |
+| **Bitmap vs vector** | Simple geometry / flat marks → vector. Rich atmosphere / product photo → bitmap. If vectors look crude, use image |
+| **Crop risk** | Mid-band safer; edges may clip (~5–8%) |
+| **Size** | e.g. 1920×400 / 1200×628 / 750×300 / 1080×540 or user WxH |
+
+Quality bar: **intentional design** — claim readable, CTA obvious, crop-aware. Soft-avoid generic AI postcard fills.
 
 ## Layout recipes
+
 | Format | Split |
 |--------|-------|
-| Wide web banner | Left/right: subject \| copy+CTA; or full bleed + bottom/mid quiet band |
-| Tall mobile strip | Top subject → mid claim → bottom CTA |
-| Square social | Center claim; subject as atmosphere, not busy collage |
+| Wide web | Subject \| copy+CTA, or full bleed + quiet band |
+| Tall mobile | Subject → claim → CTA |
+| Square social | Center claim; subject as atmosphere |
 
-## Avoid
-- Multi-section landing rhythm on a single strip
-- Emoji / Material icon spam as decoration
-- Tiny type at edges; dual primary CTAs
-- Baked titles in the hero bitmap fighting overlay copy
+## Type & CTA
+
+- One primary claim; ≤1 supporting line, clearly smaller.
+- One primary CTA — high contrast, not flush to the edge.
+- Catalog text or lettering plate via `image_gen` when fonts fall short.
+
+## Vector vs image
+
+Simple frames, dividers, dots, flat CTA plates → vector. Complex product/scene → `image_gen`. Soft-avoid emoji spam and multi-section landing sprawl on one strip.
+
+## Honesty
+
+Unless the user provides them, avoid inventing board facts such as logos, prices, phone numbers, etc.
+
+## Place on board
+
+Load **`image_gen`** for atmosphere / product / title plates and stack.
+
+Typical stack: background → subject → structure/marks → claim → CTA.
+
+## Related
+
+`image_gen`, `garden_style`
+
+## Done when
+
+Far: claim + CTA clear. Near: mid-band safe; medium matches complexity; language matches the user.
