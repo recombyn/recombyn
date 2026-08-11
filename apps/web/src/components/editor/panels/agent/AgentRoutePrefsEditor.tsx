@@ -47,6 +47,14 @@ import {
   seedCustomLaneFromPrefs,
   warmOpenrouterAvailability,
 } from './agentRoutePrefs';
+import {
+  loadAgentPaintMode,
+  saveAgentPaintMode,
+} from './boardModes/prefs';
+import {
+  type AgentPaintMode,
+  normalizeAgentPaintMode,
+} from './boardModes/types';
 
 const selectFieldClass =
   'mt-1.5 w-full !h-10 rounded-lg border-0 bg-[var(--account-main)] px-3 pr-8 text-[14px] text-[var(--ink)] ring-1 ring-[var(--line)]';
@@ -315,6 +323,7 @@ function AgentRoutePrefsEditorImpl({
   const [routePrefs, setRoutePrefs] = useState<AgentRoutePrefs>(() =>
     desktopLocal ? emptyCustomRoutePrefs() : { preset: 'platform' }
   );
+  const [paintMode, setPaintMode] = useState<AgentPaintMode>(() => loadAgentPaintMode());
   const [routeSaved, setRouteSaved] = useState(false);
   const [textModels, setTextModels] = useState<LlmModel[]>([]);
   const [imageModels, setImageModels] = useState<LlmModel[]>([]);
@@ -330,6 +339,7 @@ function AgentRoutePrefsEditorImpl({
 
   useEffect(() => {
     setRoutePrefs(loadAgentRoutePrefs());
+    setPaintMode(loadAgentPaintMode());
   }, []);
 
   // Account Agent tab loads catalog once on the parent — skip duplicate design fetch there.
@@ -1008,6 +1018,36 @@ function AgentRoutePrefsEditorImpl({
 
   return (
     <div className={cn('space-y-4', className)}>
+      <div>
+        <h2 className="mb-1 text-[15px] font-semibold text-[var(--ink)]">
+          {t('agent.paintMode')}
+        </h2>
+        <p className="mb-3 text-[13px] leading-relaxed text-[var(--muted)]">
+          {t('agent.paintModeTip')}
+        </p>
+        <SegmentedControl
+          size="sm"
+          radius="full"
+          aria-label={t('agent.paintMode')}
+          value={paintMode}
+          onChange={(v) => {
+            const next = normalizeAgentPaintMode(v);
+            setPaintMode(next);
+            saveAgentPaintMode(next);
+          }}
+          options={[
+            { value: 'ops', label: t('agent.paintModeOps') },
+            { value: 'img_layers', label: t('agent.paintModeImgLayers') },
+          ]}
+        />
+        {paintMode === 'img_layers' && (
+          <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-[12px] leading-relaxed text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:ring-amber-800/60">
+            <span aria-hidden className="mt-px shrink-0 text-[13px]">⚠</span>
+            {t('agent.paintModeImgLayersTokenWarn')}
+          </p>
+        )}
+      </div>
+
       <h2 className="mb-1 text-[15px] font-semibold text-[var(--ink)]">
         {t('account.agentRouteSection')}
       </h2>

@@ -21,7 +21,6 @@ from app.services.design.runtime.graph.support import (
     _bump,
     _emit,
     _emit_ux_tip,
-    _placement_errors_for_free_creates,
     _structure_verify_issues,
 )
 
@@ -277,7 +276,12 @@ def _create_op_xy(op: dict[str, Any]) -> tuple[float, float] | None:
 
 
 def _spatial_grounding_issues(rt: AgentRuntime) -> list[str]:
-    """Structural host checks only — not layout taste (that belongs in Skills/Review)."""
+    """Structural host checks only — not layout taste (that belongs in Skills/Review).
+
+    Post-paint observe must NOT re-check FE viewport placement: camera / Yjs lag
+    makes viewport_world stale and forces false re-paint. Viewport rejection stays
+    in the pre-apply paint gate (`_placement_errors_for_free_creates`).
+    """
     issues: list[str] = []
     creates = [
         op
@@ -297,13 +301,8 @@ def _spatial_grounding_issues(rt: AgentRuntime) -> list[str]:
         if stacked:
             issues.append(
                 f"creates stacked ({stacked} near-duplicate positions) — "
-                "offset using empty_rects / suggested_place_world"
+                "offset by varying x/y inside FOCUS_FRAME (frame-local, keep frameId)"
             )
-
-    for err in _placement_errors_for_free_creates(rt, list(rt.paint_ops or [])):
-        s = str(err or "").strip()
-        if s and s not in issues:
-            issues.append(s[:240])
     return issues[:6]
 
 
@@ -313,6 +312,7 @@ def _run_post_paint_critique(
     *,
     round_i: int,
     preview_image: str | None = None,
+    op_results: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Structural critique after FE scene lands. Craft taste → Review + Skills."""
     if not _critique_enabled(rt) or not st.painted:
@@ -329,6 +329,8 @@ def _run_post_paint_critique(
         frames=list(rt.scene_frames or []),
         painted=bool(st.painted),
         intent=str(st.intent or ""),
+        paint_ops=list(rt.paint_ops or []),
+        op_results=list(op_results or []),
     )
     for issue in _spatial_grounding_issues(rt):
         if issue not in issues:
@@ -363,10 +365,11 @@ def _format_critique_reflect_note(issues: list[str]) -> str:
     joined = " ".join(str(x).lower() for x in issues)
     if any(
         k in joined
-        for k in ("empty", "place", "viewport", "stacked", "placement")
+        for k in ("place", "viewport", "stacked", "placement", "outside")
     ):
         lines.append(
-            "Placement: use PLACEMENT empty_rects / suggested_place_world from the host."
+            "Placement: set frameId=FOCUS_FRAME_ID on every create_* "
+            "and use frame-local x/y (0..w, 0..h from TARGET_CANVAS)."
         )
     return "\n".join(lines)[:720]
 
@@ -434,6 +437,7 @@ async def _node_observe(
     snap = _normalize_resume_snap(resume_raw)
     preview_image: str | None = None
     op_failures: list[dict[str, Any]] = []
+    op_results: list[dict[str, Any]] = []
     if snap:
         nodes = [
             n for n in (snap.get("nodes") or []) if isinstance(n, dict) and n.get("id")
@@ -450,11 +454,10 @@ async def _node_observe(
         if prev:
             preview_image = prev
             rt.flags["preview_image"] = True
-        op_failures = [
-            r
-            for r in (snap.get("op_results") or [])
-            if isinstance(r, dict) and not r.get("ok", True)
+        op_results = [
+            r for r in (snap.get("op_results") or []) if isinstance(r, dict)
         ]
+        op_failures = [r for r in op_results if not r.get("ok", True)]
         fail_bits = [
             f"{r.get('name') or 'op'}: {r.get('error') or 'failed'}"
             for r in op_failures[:8]
@@ -480,6 +483,19 @@ async def _node_observe(
             error="timeout",
             summary="observe timeout: FE did not post scene",
         )
+        # Stale inventory must NOT drive critique → paint retry (empty board /
+        # placement false positives). Assume applied and settle.
+        if rt.skip_loop:
+            if st.reply:
+                _emit({"type": "token", "text": st.reply})
+        _emit_ux_tip(rt, "observe_scene_timeout", params={})
+        rt.terminal = True
+        rt.flags["ok"] = True
+        rt.flags["scene_ready"] = False
+        rt.flags["scene_timeout"] = True
+        rt.flags["op_failed"] = False
+        rt.flags["retry"] = False
+        return Command(update=_bump(rt), goto="__settle__")
 
     if rt.skip_loop:
         if st.reply:
@@ -552,7 +568,11 @@ async def _node_observe(
         return Command(update=_bump(rt), goto="__settle__")
 
     critique_issues = _run_post_paint_critique(
-        rt, st, round_i=round_i, preview_image=preview_image
+        rt,
+        st,
+        round_i=round_i,
+        preview_image=preview_image,
+        op_results=op_results,
     )
     if (
         critique_issues

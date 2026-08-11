@@ -49,8 +49,8 @@ function OpacityToolPanel({
           value={safe}
           onChange={onOpacityPctChange}
           trackHeight={6}
-          thumbWidth={10}
-          thumbHeight={18}
+          thumbWidth={16}
+          thumbHeight={16}
         />
       </div>
     </ImageToolPanelShell>

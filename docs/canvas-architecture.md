@@ -23,7 +23,7 @@ Custom **RCB** scene runtime (resume canvas).
 `SceneDocument` (see also [scene-json-spec.md](./scene-json-spec.md)):
 
 - **`deltaSetLike`**: flat `id → SceneNode` map; `ROOT.children` (or page children) lists top-level nodes
-- **`frames`**: artboard frames; paint order unified in **`stackOrder`** (`frame:id` | `node:id`, bottom → top)
+- **`frames`**: **artboards** (fixed design plates). Not the camera **viewport**. Paint order unified in **`stackOrder`** (`frame:id` | `node:id`, bottom → top)
 - Node fields: `id`, `key`, `x/y/width/height`, `attrs`, `children[]`
 
 There is **no hard max node count** on the document. Capacity is governed by paint/hit budgets below.

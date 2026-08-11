@@ -51,7 +51,12 @@ import { serializeFillGradient } from '@/components/rcb/scene/document/sceneFill
 import { createMeshGrid, type MeshSize } from '@/components/rcb/scene/document/sceneDiffuseMesh';
 import { isStrokeStyle } from '@/components/rcb/scene/document/sceneStrokeStyle';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { computeShapeBoolean, applyBooleanResultPaint, type BoolMode } from '@/components/rcb/selection/shapeBoolean';
+import {
+  computeShapeBoolean,
+  applyBooleanResultPaint,
+  applyBooleanResultRadii,
+  type BoolMode,
+} from '@/components/rcb/selection/shapeBoolean';
 import { nanoid } from '@reduxjs/toolkit';
 import { getAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import {
@@ -1171,8 +1176,7 @@ function placementRewriteError(
       `(refused rewrite → ${Math.round(placed.x)},${Math.round(placed.y)} ` +
       `${Math.round(placed.width)}×${Math.round(placed.height)}).`,
     next_actions: [
-      'Use frame-local coords inside FOCUS_FRAME',
-      'Or free-canvas world x/y from suggested_place_world',
+      'Use frame-local coords with frameId inside FOCUS_FRAME (0..w, 0..h)',
     ],
   };
 }
@@ -1188,7 +1192,7 @@ function requireCreateXY(
     status: 'error',
     summary:
       `${tool}_missing_xy: provide numeric x and y ` +
-      `(frame-local with frameId, or world coords from suggested_place_world).`,
+      `(frame-local inside FOCUS_FRAME with frameId, or free-canvas world coords).`,
     next_actions: ['Re-emit create_* with explicit x and y'],
   };
 }
@@ -2734,6 +2738,7 @@ function execBooleanOp(
       sampleNode?.attrs as Record<string, unknown> | undefined,
       { stroke: sample.stroke, borderWidth: sample.borderWidth }
     );
+    applyBooleanResultRadii(attrs, boxes);
     let next = addNodeToDocument(doc, id, node);
     next = removeNodesFromDocument(next, boxes.map((b) => b.id));
     pushHistory();

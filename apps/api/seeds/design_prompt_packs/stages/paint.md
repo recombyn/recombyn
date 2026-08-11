@@ -31,7 +31,8 @@ Your ONLY job: emit non-empty tool_ops that change the canvas.
 <!-- pack:agent.prompt.paint_retry -->
 RETRY: previous tool_ops were empty or invalid.
 Read LAST_ERROR (code=…; fix=…) and re-emit a non-empty tool_ops array now.
-If code=placement_outside_viewport: free-canvas create_* with x/y from PLACEMENT.suggested_place_world.
+If code=placement_outside_viewport: re-emit with frameId=FOCUS_FRAME_ID and
+frame-local x/y inside the artboard; do not invent stock place sizes (e.g. 320×200).
 
 <!-- pack:agent.prompt.recover_edit_retry -->
 Resource details are loaded ({tools_hint}). Emit tool_ops now to finish the user request; keep intent={prior_intent}; do not switch back to chat/ask.

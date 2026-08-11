@@ -117,6 +117,41 @@ START → bootstrap
 | `review` | **forked** | Sparse craft gate (`review_mode=auto` by default); not every paint |
 | `propose` / `action` / settle | shared | Ask hold / emit ops / finish |
 
+### Observe ↔ scene feedback (do not infinite-repaint)
+
+After `action` emits `tool_ops`, the graph **interrupts** until the frontend POSTs a real canvas snapshot (`POST /api/v1/design/run/{task_id}/scene`). Observe’s inventory / `op_results` / spatial hints come from that POST — not from a server-side apply.
+
+```text
+paint_ops → action (tool_ops + scene_feedback_request)
+         → FE apply + wait inventory settle → POST scene
+         → observe
+              ├─ timeout (no POST)     → settle (assume applied; no critique→paint)
+              ├─ op_results all fail   → paint_ops if reflect_left
+              ├─ structure critique    → paint_ops if reflect_left (capped)
+              ├─ Review auto gate?     → review …
+              └─ else                  → settle
+```
+
+| Guard | Behavior |
+|-------|----------|
+| Scene wait | ~12s; timeout → **settle**, do **not** critique stale/empty inventory into a re-paint |
+| Round latch | Stale FE POSTs for a previous wait round are ignored |
+| Create vs empty | If FE `op_results` mark creates **ok** but nodes are still empty → treat as sync lag (no empty-board re-paint) |
+| FE settle | After paint, FE waits until scene inventory fingerprint is stable (~2 frames / ≤480ms) before POST |
+| Reflect / Review | `reflect_left` / `review_left` cap retries (not unbounded) |
+
+#### Artboard vs viewport (placement)
+
+| Term | Meaning |
+|------|---------|
+| **Artboard** | A fixed design plate (`frames[]`: x/y/w/h). Does not move when the user pans/zooms. |
+| **Viewport** | The camera window currently visible on screen (`spatial_summary.viewport`). Changes with pan/zoom and can lag behind Yjs/Redux. |
+
+- **Pre-apply paint gate**: placement prefers **artboard** bounds when a focus frame exists; falls back to viewport with a looser pad.
+- **Post-paint observe**: does **not** re-check “outside viewport” (camera lag caused false re-paints). Observe still flags **stacked creates** and empty-board structure when FE truth says ops failed or inventory is empty without successful create results.
+
+UX tip codes: `observe_scene_timeout`, `observe_ops_failed`, `observe_critique_failed` (FE i18n via `designAgentEventRouter`).
+
 ### Env knobs
 
 | Key | Default | Notes |
@@ -134,7 +169,7 @@ UX tips on failure / apply / Ask dismiss use `_emit_ux_tip` (`token.code` + Engl
 
 ### Stress / regression
 
-Eval seed: [`apps/api/seeds/design_agent_stress_suite.json`](../apps/api/seeds/design_agent_stress_suite.json) (not ingested by the live graph). SSE runner: `npm run stress:agent` → [`scripts/design-agent-stress.mjs`](../scripts/design-agent-stress.mjs). System failures → prompt packs; craft failures → skills.
+Eval seed: [`apps/api/seeds/design_agent_eval_suite.json`](../apps/api/seeds/design_agent_eval_suite.json) (not ingested by the live graph). Runner: `npm run eval:agent` → [`eval/design-agent/run.mjs`](../eval/design-agent/run.mjs). System failures → prompt packs; craft failures → skills. Load gates: [`docs/quality-gates.md`](./quality-gates.md).
 
 Review 重试预算：`rt.flags.review_left` ← Profile `topology.loops`（`from: review` / `when: must_fix` / `to: paint` 的 `max`）。
 

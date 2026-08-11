@@ -9,8 +9,10 @@ Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite)
 | Piece | Default |
 |-------|---------|
 | Web editor | http://localhost:3000 |
-| API | http://localhost:8000 (`/docs`) |
+| API | http://localhost:8000 (`/docs`, **`/metrics`**) |
 | Collab (Yjs WS) | compose `collab` · browser via `ws://localhost:3000/collab/…` (prod: `wss://`) |
+| Prometheus | http://localhost:9090 (compose) |
+| Grafana | http://localhost:3001 (compose · default `admin` / `recombyn`) |
 | Agent seeds | prompt packs + skills + **AgentProfile** YAML from `apps/api/seeds/` |
 | **MySQL 8** | compose service + volume `mysql_data` |
 | Redis | Celery / queues |
@@ -20,6 +22,8 @@ Default DB URL inside compose:
 `mysql://recombyn:recombyn@mysql:3306/recombyn`
 
 Host tools can reach MySQL at `127.0.0.1:3306` (same user/password). Change via `MYSQL_PASSWORD` / `DATABASE_URL` before first boot.
+
+**Quality gates (Pytest / Playwright / k6 / Prometheus):** [quality-gates.md](./quality-gates.md).
 
 **Dev without Docker MySQL:** leave `DATABASE_URL` empty → SQLite at `storage/recombyn.db`.
 
@@ -148,9 +152,11 @@ START → bootstrap
 |------|------|
 | `design_agent` | Decide: reply / `need_tools` / `need_skills` / `need_subagents` / **design_brief** — **no** canvas ops |
 | `paint_ops` | Structured `tool_ops` only |
-| `observe` | Wait FE scene (`interrupt`); structural critique only |
+| `observe` | Wait FE scene (`interrupt`); structural critique only — see [agent-profile.md](./agent-profile.md#observe--scene-feedback-do-not-infinite-repaint) |
 | `review` | Forked craft gate when auto/always; may force paint retry |
 | `propose` | Ask preview → Confirm as **new** run |
+
+**Scene feedback contract:** FE must POST inventory after applying `tool_ops`. Timeout or create-ok + empty inventory must **not** loop paint forever (settle / lag-tolerant). Placement truth prefers **artboard (`frames`)** over FE **viewport** (camera). Glossary and guards: [agent-profile.md](./agent-profile.md#artboard-vs-viewport-placement).
 
 Inside a node: assemble pack → LangChain stream/structured → validate ops → `Command(update, goto)`.  
 `create_agent` is an **inner** helper; durable pause/resume is always the **outer** graph + checkpointer.

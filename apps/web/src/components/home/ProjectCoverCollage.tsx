@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode, memo } from 'react';
+import { useMemo, useState, type ReactNode, memo } from 'react';
 import TemplateThumbnail from '@/components/templates/TemplateThumbnail';
 import LazyTemplateThumb from '@/components/home/LazyTemplateThumb';
 import {
@@ -104,14 +104,16 @@ function ProjectCoverCollage({
 
 /** Grid cell: min-h-0 so tall imgs cannot blow past the 170px frame; overflow clips. */
 function ImgTile({ src, className }: { src: string; className?: string }) {
+  const [errored, setErrored] = useState(false);
+  if (errored) return null;
   return (
     <div className={cn('relative min-h-0 min-w-0 overflow-hidden', className)}>
-      {/* object-contain keeps shape tiles uncropped; white fill matches tile board. */}
       <img
         src={src}
         alt=""
         className="absolute inset-0 h-full w-full bg-white object-contain"
         loading="lazy"
+        onError={() => setErrored(true)}
       />
     </div>
   );
@@ -124,16 +126,7 @@ function ImgCollage({ urls }: { urls: string[] }) {
 
   const n = list.length;
   if (n <= 1) {
-    return (
-      <div className="absolute inset-0 overflow-hidden">
-        <img
-          src={list[0]}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-          loading="lazy"
-        />
-      </div>
-    );
+    return <ImgTile src={list[0]!} className="absolute inset-0 [&>img]:object-cover" />;
   }
 
   if (n === 2) {

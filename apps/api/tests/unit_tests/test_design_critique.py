@@ -183,7 +183,9 @@ def test_format_critique_reflect_note_structural_only():
     assert "CRITIQUE" in note
     assert "structural" in note.lower() or "Placement" in note
     assert "Visual craft" not in note
-    assert "empty_rects" in note or "suggested_place" in note
+    assert "FOCUS_FRAME" in note or "frameId" in note
+    assert "empty_rects" not in note
+    assert "suggested_place" not in note
 
 
 def test_critique_does_not_run_layout_craft(monkeypatch):

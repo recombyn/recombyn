@@ -165,21 +165,21 @@ function quadraticPath(from: Point, to: Point): string {
 }
 
 function ensureFlyStyles() {
-  const id = 'recombyn-fly-to-chat-css';
+  const id = 'recombyn-fly-to-chat-css-2';
   if (globalThis.document.getElementById(id)) return;
   const style = globalThis.document.createElement('style');
   style.id = id;
   style.textContent = `
-@keyframes recombyn-fly-chip-pop {
-  0% { transform: translate(-50%, -50%) scale(0.55); opacity: 0; }
-  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-}
 @keyframes recombyn-fly-chip-arc {
   0% {
     offset-distance: 0%;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55) rotate(0deg);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  }
+  12% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1) rotate(0deg);
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
   }
   55% {
     opacity: 1;
@@ -242,7 +242,7 @@ export async function playFlyChipToChat(opts: PlayFlyChipToChatOpts): Promise<vo
   }
   ensureFlyStyles();
   const from = opts.from;
-  const popMs = opts.popMs ?? 140;
+  const popMs = opts.popMs ?? 0;
   const label = String(opts.label || 'Chat').trim() || 'Chat';
 
   const el = document.createElement('div');
@@ -260,7 +260,7 @@ export async function playFlyChipToChat(opts: PlayFlyChipToChatOpts): Promise<vo
     'transform:translate(-50%,-50%)',
     'will-change:transform,opacity,offset-distance',
     'box-shadow:0 10px 28px rgba(15,23,42,0.2)',
-    `animation:recombyn-fly-chip-pop 160ms cubic-bezier(0.22, 1.2, 0.36, 1) forwards`,
+    'opacity:0',
   ].join(';');
 
   if (opts.thumbUrl) {

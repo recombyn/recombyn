@@ -577,13 +577,13 @@ export type SpatialSummary = {
     is_empty: boolean;
   }>;
   overlaps: Array<{ a: string; b: string; iou: number }>;
-  /** Frame-local empty slots (create_shape/text/… inside focus). */
+  /** Frame-local empty slots — intentionally unused (no invented WxH suggestions). */
   empty_rects: SpatialBox[];
-  /** World-space slots for create_frame. */
+  /** World-space slots for create_frame (same size as focus plate). */
   new_frame_slots: SpatialBox[];
-  /** Frame-local default place for new children. */
-  suggested_place: SpatialBox;
-  /** Raw camera viewport in world coords (sensor only — host derives placement). */
+  /** @deprecated Not set — host must not invent place WxH for the model. */
+  suggested_place?: SpatialBox;
+  /** Raw camera viewport in world coords (sensor only). */
   viewport?: SpatialBox;
 };
 
@@ -687,59 +687,8 @@ export function buildSpatialSummary(
   }
   overlaps.sort((a, b) => b.iou - a.iou);
 
-  const occupied: SpatialBox[] = inFocus.map((n) => ({
-    x: n.x,
-    y: n.y,
-    w: n.w,
-    h: n.h,
-  }));
-  const candidates: SpatialBox[] = [];
-  // Right of content / below content / top-left empty.
-  let maxR = 0;
-  let maxB = 0;
-  for (const b of occupied) {
-    maxR = Math.max(maxR, b.x + b.w);
-    maxB = Math.max(maxB, b.y + b.h);
-  }
-  if (!occupied.length) {
-    // Empty frame: suggest the visible center, not top-left.
-    const cw = Math.min(320, Math.max(80, fw - gap * 2));
-    const ch = Math.min(200, Math.max(80, fh - gap * 2));
-    candidates.push({
-      x: Math.round(Math.max(gap, (fw - cw) / 2)),
-      y: Math.round(Math.max(gap, (fh - ch) / 2)),
-      w: cw,
-      h: ch,
-    });
-  } else {
-    candidates.push(
-      { x: Math.min(maxR + gap, Math.max(gap, fw - 360)), y: gap, w: 320, h: 200 },
-      { x: gap, y: Math.min(maxB + gap, Math.max(gap, fh - 240)), w: 320, h: 200 },
-      { x: gap, y: gap, w: 280, h: 160 }
-    );
-  }
-
-  const empty_rects: SpatialBox[] = [];
-  for (const c of candidates.slice(0, 3)) {
-    const box = {
-      x: Math.round(Math.max(0, c.x)),
-      y: Math.round(Math.max(0, c.y)),
-      w: Math.max(80, Math.round(c.w)),
-      h: Math.max(80, Math.round(c.h)),
-    };
-    if (occupied.some((o) => _boxesOverlap(box, o, gap))) continue;
-    empty_rects.push(box);
-    if (empty_rects.length >= 3) break;
-  }
-  if (!empty_rects.length) {
-    empty_rects.push({
-      x: Math.round(maxR + gap),
-      y: gap,
-      w: 320,
-      h: 200,
-    });
-  }
-
+  // Do NOT invent empty_rects / suggested_place with stock 320×200 (etc.).
+  // Those slots leaked into PLACEMENT and models copied them as create_frame size.
   const new_frame_slots: SpatialBox[] = [];
   if (frames.length) {
     let worldR = 0;
@@ -768,10 +717,9 @@ export function buildSpatialSummary(
     focused: inFocus,
     peripheral,
     overlaps: overlaps.slice(0, 12),
-    empty_rects,
+    empty_rects: [],
     new_frame_slots,
-    suggested_place: empty_rects[0],
-    // viewport is raw camera AABB only — host derives suggested_place_world.
+    // viewport is raw camera AABB only (no invented place slots).
     ...(viewport ? { viewport } : {}),
   };
 }
@@ -843,6 +791,49 @@ export async function captureFocusFramePreview(
     return canvas.toDataURL('image/jpeg', 0.72);
   } catch {
     return null;
+  }
+}
+
+function sceneInventoryFingerprint(doc: SceneDocument | null | undefined): string {
+  if (!doc) return '';
+  const ids = Object.keys(doc.deltaSetLike || {})
+    .filter((id) => id && id !== 'ROOT')
+    .sort();
+  const frames = (Array.isArray(doc.frames) ? doc.frames : [])
+    .map((f: { id?: string }) => String(f?.id || ''))
+    .filter(Boolean)
+    .sort();
+  return `${ids.length}:${ids.join(',')}|${frames.join(',')}`;
+}
+
+/** Wait until Redux scene inventory stops changing (Yjs/dispatch lag). */
+async function waitSceneInventorySettled(
+  getDocument: () => SceneDocument | null,
+  opts?: { timeoutMs?: number; stableFrames?: number }
+): Promise<void> {
+  const timeoutMs = Math.max(80, opts?.timeoutMs ?? 480);
+  const needStable = Math.max(1, opts?.stableFrames ?? 2);
+  const frame = () =>
+    new Promise<void>((resolve) => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => resolve());
+      } else {
+        setTimeout(resolve, 16);
+      }
+    });
+  const t0 = Date.now();
+  let prev = sceneInventoryFingerprint(getDocument());
+  let stable = 0;
+  while (Date.now() - t0 < timeoutMs) {
+    await frame();
+    const next = sceneInventoryFingerprint(getDocument());
+    if (next === prev) {
+      stable += 1;
+      if (stable >= needStable) return;
+    } else {
+      stable = 0;
+      prev = next;
+    }
   }
 }
 
@@ -2149,6 +2140,8 @@ export type RunDesignAgentParams = {
   /** Ask confirm: bind to design_task.meta.ask_proposal. */
   proposalId?: string | null;
   proposalTaskId?: string | null;
+  /** Board paint: ops (default) | img_layers (gen then split). */
+  paintMode?: 'ops' | 'img_layers' | null;
   /** User-pinned skill keys/ids from `/` chips. */
   skillRefs?: string[] | null;
   /** Resume a paused LangGraph run instead of starting a new /design/run. */
@@ -2168,6 +2161,9 @@ function buildRunDesignJobBody(
   };
   if (params.interactionMode === 'ask' || params.interactionMode === 'agent') {
     body.interaction_mode = params.interactionMode;
+  }
+  if (params.paintMode === 'ops' || params.paintMode === 'img_layers') {
+    body.paint_mode = params.paintMode;
   }
   if (runMode === 'agent' && params.scene) body.scene = params.scene;
   if (params.styleGroupId != null) body.style_group_id = params.styleGroupId;
@@ -3064,6 +3060,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     const prevPaint = paintChain;
     async function runSceneFeedbackAfterPaint() {
       await prevPaint;
+      if (params.signal?.aborted) return;
+      // Let Redux (+ collab Y push) settle before snapshot — avoids empty-board false critique.
+      await waitSceneInventorySettled(params.getDocument, { timeoutMs: 480, stableFrames: 2 });
       if (params.signal?.aborted) return;
       coverLiveBoard(
         processLabels.reviewing ||
