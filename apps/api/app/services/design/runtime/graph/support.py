@@ -12,7 +12,6 @@ from app.services.design.runtime.host.ops_gate import (  # noqa: F401
     _validate_ops_payload,
 )
 from app.services.design.runtime.host.placement import (  # noqa: F401
-    _derive_suggested_place_world,
     _focus_frame_from_rt,
     _format_spatial_placement,
     _placement_errors_for_free_creates,
@@ -34,7 +33,6 @@ __all__ = (
         "_normalize_ops_payload",
         "_op_name",
         "_validate_ops_payload",
-        "_derive_suggested_place_world",
         "_focus_frame_from_rt",
         "_format_spatial_placement",
         "_placement_errors_for_free_creates",
