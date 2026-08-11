@@ -29,6 +29,12 @@
 
 ---
 
+## 帮忙点个 ⭐ Star
+
+开源不易，如果觉得 Recombyn 对您的工作还有帮助，请帮忙在 GitHub 仓库右上角点个 ⭐ Star。您的支持是让 Recombyn 变得更好最大的动力。
+
+→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+
 ## 画布
 
 自研 **RCB**（Resume Canvas）无限画布：`SceneDocument` 场景图 + CSS 相机（约 5%–10000%）；已提交图元以 **逐节点 SVG host** 绘制，**Path2D** 负责命中检测与选区/工具叠加；视口裁剪 + **LOD**（远景 AABB 代理，同屏全量 host 有上限），大文档仍可编辑。
@@ -182,9 +188,3 @@ e2e/               Playwright
 - [贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [行为准则](CODE_OF_CONDUCT.md)
 - Issue / PR 模板见 `.github/`
 官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
-
-## 帮忙点个 ⭐ Star
-
-开源不易，如果觉得 Recombyn 对您的工作还有帮助，请帮忙在 GitHub 仓库右上角点个 ⭐ Star。您的支持是让 Recombyn 变得更好最大的动力。
-
-→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
