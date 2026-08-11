@@ -30,6 +30,12 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 
 ---
 
+## GitHub で ⭐ Star を
+
+オープンソースは時間がかかります。Recombyn が役に立ったら、右上の **⭐ Star** をお願いします。
+
+→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+
 ## キャンバス
 
 自作 **RCB**（Resume Canvas）無限キャンバス：`SceneDocument` + CSS カメラ（約 5%–10000%）。確定図元は **ノード単位 SVG host**、**Path2D** はヒットテスト / 選択オーバーレイ用。ビューポート cull + **LOD**（遠景 AABB プロキシ）で大きなドキュメントも編集可能。
@@ -180,9 +186,3 @@ e2e/               Playwright
 - Issue / PR テンプレートは `.github/`
 
 公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
-
-## GitHub で ⭐ Star を
-
-オープンソースは時間がかかります。Recombyn が役に立ったら、右上の **⭐ Star** をお願いします。
-
-→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
