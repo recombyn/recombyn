@@ -119,25 +119,30 @@ function EditorTopChrome({
   const desktop = useIsDesktopShell();
   const setTitlebarLeading = useSetDesktopTitlebarLeading();
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const onGoHomeRef = useRef(onGoHome);
+  const onRenameRef = useRef(onRename);
+  onGoHomeRef.current = onGoHome;
+  onRenameRef.current = onRename;
 
   // SVG canvas pointer handlers stopPropagation, so blank-canvas clicks never
   // blur this chrome input via the normal focus model — capture + blur like AgentComposerInput.
   useLayoutEffect(() => bindTitleInputBlurOnOutsidePointer(titleInputRef), []);
 
   // Desktop: home + filename live in the custom titlebar (no logo there).
+  // Callbacks via refs so parent inline handlers do not re-stamp the titlebar every render.
   useLayoutEffect(() => {
     if (!desktop || !setTitlebarLeading) return;
     setTitlebarLeading(
       <EditorHomeTitleCluster
         projectName={projectName}
-        onGoHome={onGoHome}
-        onRename={onRename}
+        onGoHome={() => onGoHomeRef.current()}
+        onRename={(name) => onRenameRef.current(name)}
         titleInputRef={titleInputRef}
         variant="titlebar"
       />
     );
     return () => setTitlebarLeading(null);
-  }, [desktop, setTitlebarLeading, projectName, onGoHome, onRename]);
+  }, [desktop, setTitlebarLeading, projectName]);
 
   return (
     <>

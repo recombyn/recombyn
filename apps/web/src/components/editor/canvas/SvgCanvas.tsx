@@ -128,6 +128,10 @@ import {
   resolveAttachPickPayload,
 } from './attachPick';
 import {
+  noteCanvasFlyOrigin,
+  resolveAttachPayloadFlyOrigin,
+} from '@/components/editor/panels/agent/flyToChat';
+import {
   useCanvasClipboard,
   type CanvasClipboardApi,
 } from './clipboard/useCanvasClipboard';
@@ -280,6 +284,9 @@ function SvgCanvas({
   canvasAttachPickRef.current = canvasAttachPick;
   const onAddToChatRef = useRef(onAddToChat);
   onAddToChatRef.current = onAddToChat;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const lastPointerClientRef = useRef({ x: 0, y: 0 });
   const hitTestRef = useRef<(x: number, y: number, screen?: { clientX: number; clientY: number }) => string | null>(
     () => null
   );
@@ -466,7 +473,7 @@ function SvgCanvas({
   useEffect(() => {
     if (infinite) {
       // Per-shape hosts mount via RcbShapesLayer; signal ready once children are known.
-      onReady?.();
+      onReadyRef.current?.();
       return;
     }
     const board = boardRef.current;
@@ -487,10 +494,10 @@ function SvgCanvas({
       });
       if (loadSeqRef.current !== seq) return;
       board.nodeEls = map || new Map();
-      onReady?.();
+      onReadyRef.current?.();
     }
     void loadScene();
-  }, [document, reloadToken, boardEpoch, onReady, infinite, omitNonExportable, boardRef]);
+  }, [document, reloadToken, boardEpoch, infinite, omitNonExportable, boardRef]);
 
   useEffect(() => {
     if (!documentPatchToken || geometryTransforming) return;
@@ -648,8 +655,30 @@ function SvgCanvas({
   hitTestRef.current = hitTest;
 
   /** Apply one canvas pick into composer, then exit pick mode (one pick per activation). */
+  const noteFlyOriginForPayload = useCallback(
+    (payload: string | string[], fromPointer: boolean) => {
+      if (fromPointer) {
+        const p = lastPointerClientRef.current;
+        if (p.x || p.y) {
+          noteCanvasFlyOrigin(p.x, p.y);
+          return;
+        }
+      }
+      const doc = documentRef.current;
+      if (!doc) return;
+      const origin = resolveAttachPayloadFlyOrigin({
+        document: doc,
+        payload,
+        camera,
+      });
+      if (origin) noteCanvasFlyOrigin(origin.x, origin.y);
+    },
+    [camera]
+  );
+
   const completeCanvasAttachPick = useCallback(
     (pickTarget: string, payload: string | string[]) => {
+      noteFlyOriginForPayload(payload, true);
       if (pickTarget === 'agent') {
         onAddToChatRef.current?.(payload);
       } else {
@@ -659,8 +688,30 @@ function SvgCanvas({
       }
       dispatch(clearCanvasAttachPick());
     },
-    [dispatch]
+    [dispatch, noteFlyOriginForPayload]
   );
+
+  const emitAddToChat = useCallback(
+    (payload: string | string[]) => {
+      noteFlyOriginForPayload(payload, false);
+      onAddToChatRef.current?.(payload);
+    },
+    [noteFlyOriginForPayload]
+  );
+
+  // Track pointer for pick-mode fly origin (click → composer).
+  useEffect(() => {
+    if (!stageEl) return undefined;
+    const onPointer = (e: PointerEvent) => {
+      lastPointerClientRef.current = { x: e.clientX, y: e.clientY };
+    };
+    stageEl.addEventListener('pointerdown', onPointer, true);
+    stageEl.addEventListener('pointermove', onPointer, true);
+    return () => {
+      stageEl.removeEventListener('pointerdown', onPointer, true);
+      stageEl.removeEventListener('pointermove', onPointer, true);
+    };
+  }, [stageEl]);
 
   // Plus / not-allowed cursor while picking for Chat.
   useEffect(() => {
@@ -1499,7 +1550,7 @@ function SvgCanvas({
       camera,
       stageEl: stageEl ?? null,
       t,
-      onAddToChat,
+      onAddToChat: emitAddToChat,
       collabUndo,
       collabRedo,
       deleteCanvasSelection,
@@ -1841,7 +1892,7 @@ function SvgCanvas({
     copySelected: clipboardApi.copySelected,
     cutSelected: clipboardApi.cutSelected,
     duplicateSelected: clipboardApi.duplicateSelected,
-    onAddToChat,
+    onAddToChat: emitAddToChat,
   });
 
   const bgType = parseFillType(document?.backgroundFillType);

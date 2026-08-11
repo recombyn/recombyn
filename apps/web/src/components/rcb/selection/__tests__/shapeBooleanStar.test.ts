@@ -109,4 +109,29 @@ describe('boolean circle crescent arcs', () => {
     // Dense rim — previous budgets still looked faceted on crescents.
     expect(verts).toBeGreaterThan(80);
   });
+
+  it('subtracts rounded rects without collapsing to a sharp AABB L', () => {
+    const boxes: ShapeBox[] = [
+      rectBox({
+        left: 0,
+        top: 0,
+        width: 200,
+        height: 160,
+        attrs: { shapeType: 'rect', cornerRadius: 24 },
+      }),
+      rectBox({
+        left: 70,
+        top: 50,
+        width: 160,
+        height: 140,
+        attrs: { shapeType: 'rect', cornerRadius: 24 },
+      }),
+    ];
+    const { result, usedFallback } = computeShapeBoolean(boxes, 'subtract');
+    expect(usedFallback).toBe(false);
+    expect(result?.path).toBeTruthy();
+    const verts = (result!.path.match(/[ML]/gi) || []).length;
+    // Sharp AABB L is ~6 verts; rounded boolean keeps many samples on arcs.
+    expect(verts).toBeGreaterThan(12);
+  });
 });

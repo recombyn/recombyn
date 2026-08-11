@@ -155,13 +155,15 @@ function DiffuseMeshEditor({
   }, [signature, value, baseColor]);
 
   // Keep selection in range when mesh size changes from outside.
+  const onSelectedIndexChangeRef = useRef(onSelectedIndexChange);
+  onSelectedIndexChangeRef.current = onSelectedIndexChange;
   useEffect(() => {
     if (selected >= points.length) {
       const next = Math.max(0, points.length - 1);
       setSelectedLocal(next);
-      onSelectedIndexChange?.(next);
+      onSelectedIndexChangeRef.current?.(next);
     }
-  }, [points.length, selected, onSelectedIndexChange]);
+  }, [points.length, selected]);
 
   const pushHistory = useCallback((prev: MeshPoint[]) => {
     setPast((p) => [...p.slice(-40), clonePoints(prev)]);
