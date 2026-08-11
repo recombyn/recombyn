@@ -1,5 +1,5 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
@@ -43,6 +43,12 @@ import {
   ComposerAttachmentChip,
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/AgentComposerShell';
+import {
+  noteCanvasFlyLand,
+  playFlyChipToChat,
+  resolveAttachFlyLabel,
+  resolveNextFlyOrigin,
+} from '@/components/editor/panels/agent/flyToChat';
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';
@@ -408,9 +414,48 @@ export async function applyCanvasPickToImageComposer(opts: {
   if (ctx) insertChip(ctx);
 }
 
+/** Fly chip into this node's composer, then apply pick payload. */
+export async function flyPickIntoImageComposer(opts: {
+  landId: string;
+  document: SceneDocument;
+  payload: string | string[];
+  existing: ComposerContext[];
+  setContexts: (
+    next: ComposerContext[] | ((prev: ComposerContext[]) => ComposerContext[])
+  ) => void;
+  insertChip: (ctx: ComposerContext) => void;
+  imagesOnly?: boolean;
+}) {
+  const { landId, document: doc, payload, ...applyOpts } = opts;
+  noteCanvasFlyLand(landId);
+  const from = resolveNextFlyOrigin({ document: doc, payload });
+  const label = resolveAttachFlyLabel(doc, payload);
+  try {
+    await playFlyChipToChat({
+      from,
+      label,
+      landId,
+      onLand: async () => {
+        await applyCanvasPickToImageComposer({
+          document: doc,
+          payload,
+          ...applyOpts,
+        });
+      },
+    });
+  } catch {
+    await applyCanvasPickToImageComposer({
+      document: doc,
+      payload,
+      ...applyOpts,
+    });
+  }
+}
+
 /** Attach currently selected canvas nodes/frames into the image composer (excl. host). */
-function attachSelectionToImageComposer(opts: {
+async function attachSelectionToImageComposer(opts: {
   hostNodeId: string;
+  landId: string;
   document: SceneDocument;
   selectedNodeIds: string[];
   selectedFrameIds: string[];
@@ -419,9 +464,10 @@ function attachSelectionToImageComposer(opts: {
     next: ComposerContext[] | ((prev: ComposerContext[]) => ComposerContext[])
   ) => void;
   insertChip: (ctx: ComposerContext) => void;
-}): boolean {
+}): Promise<boolean> {
   const {
     hostNodeId,
+    landId,
     document: doc,
     selectedNodeIds,
     selectedFrameIds,
@@ -439,7 +485,8 @@ function attachSelectionToImageComposer(opts: {
   const frameId = (selectedFrameIds || []).find(Boolean) || null;
   if (!attachable.length && !frameId) return false;
   const payload = canvasAttachPickPayload(attachable, frameId);
-  applyCanvasPickToImageComposer({
+  await flyPickIntoImageComposer({
+    landId,
     document: doc,
     payload,
     existing,
@@ -523,16 +570,21 @@ function ImageGeneratorCard({
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
-    applyCanvasPickToImageComposer({
-      document: editorDocument || (store.getState() as any).editor?.document,
-      payload,
-      existing: contextsRef.current,
-      setContexts,
-      insertChip: (ctx) => {
-        inputRef.current?.insertContextAtCaret(ctx);
-        inputRef.current?.focus();
-      },
-    });
+    const doc = editorDocument || (store.getState() as any).editor?.document;
+    async function flyPendingAttach() {
+      await flyPickIntoImageComposer({
+        landId: pickTarget,
+        document: doc,
+        payload,
+        existing: contextsRef.current,
+        setContexts,
+        insertChip: (ctx) => {
+          inputRef.current?.insertContextAtCaret(ctx);
+          inputRef.current?.focus();
+        },
+      });
+    }
+    flyPendingAttach();
   }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
 
   // Re-hydrate after overlay remount (e.g. geometry transform hides the portal).
@@ -948,21 +1000,26 @@ function ImageGeneratorCard({
                     inputRef.current?.insertContextAtCaret(ctx);
                     inputRef.current?.focus();
                   };
-                  // If something is already selected, add it now; otherwise enter one-shot pick.
-                  const attached = attachSelectionToImageComposer({
-                    hostNodeId: nodeId,
-                    document: doc,
-                    selectedNodeIds,
-                    selectedFrameIds,
-                    existing: contextsRef.current,
-                    setContexts,
-                    insertChip,
-                  });
-                  if (!attached) {
-                    dispatch(
-                      startCanvasAttachPick({ target: pickTarget, accept: 'image' })
-                    );
+                  async function pickOrAttach() {
+                    // If something is already selected, add it now; otherwise enter one-shot pick.
+                    const attached = await attachSelectionToImageComposer({
+                      hostNodeId: nodeId,
+                      landId: pickTarget,
+                      document: doc,
+                      selectedNodeIds,
+                      selectedFrameIds,
+                      existing: contextsRef.current,
+                      setContexts,
+                      insertChip,
+                    });
+                    if (!attached) {
+                      noteCanvasFlyLand(pickTarget);
+                      dispatch(
+                        startCanvasAttachPick({ target: pickTarget, accept: 'image' })
+                      );
+                    }
                   }
+                  pickOrAttach();
                 }}
                 className={composerAttachActionClass(pickingFromCanvas)}
               >
@@ -978,6 +1035,7 @@ function ImageGeneratorCard({
               onChange={onPickRef}
             />
           </div>
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
           <div
             className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
             onClick={(e) => {
@@ -999,6 +1057,7 @@ function ImageGeneratorCard({
               onSubmit={() => onGenerate()}
               disabled={disabled || sending}
               placeholder={t('editor.tools.imageGenPlaceholder')}
+              flyLandId={pickTarget}
               className="min-h-full w-full text-[13px]"
               onPasteImages={(files) => {
                 attachRefFiles(files);

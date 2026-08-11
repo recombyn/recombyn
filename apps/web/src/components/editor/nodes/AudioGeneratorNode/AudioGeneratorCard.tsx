@@ -568,6 +568,7 @@ function AudioGeneratorCard({
               </button>
             </Tooltip>
           </div>
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
           <div
             className="min-h-0 flex-1 cursor-text px-3 pt-2"
             onClick={(e) => {

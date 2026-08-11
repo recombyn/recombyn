@@ -24,28 +24,90 @@
 </p>
 
 **Recombyn** は **キャンバスエディタ + AI Design Agent** です。  
-無限キャンバス上でデザインし、LangGraph エージェントが会話を通じてレイヤー・図形・テキスト・レイアウトを編集します。
+無限キャンバス上でデザインし、サイドチャットの Design Agent（LangGraph）が計画してキャンバス操作を適用します——フレーム・レイヤー・図形・テキスト・レイアウト。
 
 Docker Compose で数分でセルフホストできます（既定は **MySQL** + Redis + Web + API + **Yjs コラボ**）。ローカル開発では空の `DATABASE_URL` で **SQLite**、または **PostgreSQL** — [docs/postgres-switch.md](docs/postgres-switch.md) を参照。
 
 ---
 
-## なぜ Recombyn？
+## キャンバス
 
-- **本格キャンバス編集** — フレーム、図形、画像、動画、テキスト。エクスポートと共有
-- **リアルタイム共同編集** — 同一プロジェクトを Yjs 同期（カーソル、選択、Undo）。閲覧のみ / 編集を共有可能
-- **描画する Agent** — 会話で計画し、キャンバス操作を適用
-- **カスタムモデル** — 自前の OpenAI 互換エンドポイント、または **OpenRouter** などの集約プラットフォームに接続可能
-- **セルフホスト優先** — ローカルもサーバーも同じスタック
-- **組み合わせ可能** — インフラ seed + プロンプトパック + `apps/api/seeds/` の **コア Agent skills**
+自作 **RCB**（Resume Canvas）無限キャンバス：`SceneDocument` + CSS カメラ（約 5%–10000%）。確定図元は **ノード単位 SVG host**、**Path2D** はヒットテスト / 選択オーバーレイ用。ビューポート cull + **LOD**（遠景 AABB プロキシ）で大きなドキュメントも編集可能。
+
+詳細：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
+
+**編集機能（抜粋）**
+
+- フレーム、図形、テキスト、画像、動画、Lottie；ペン / 鉛筆（ribbon 輪郭ブラシ）、選択と変形  
+- **ブール演算**（和 / 差 / 積など）  
+- **ストローク揃え**：中央 / **内側** / **外側**  
+- **輪郭化**（ストローク → 編集可能な塗りパス）とパス編集  
+- 塗り、角丸、ブレンド、不透明度、レイヤー；エクスポートと共有  
+- **Yjs** リアルタイム共同編集（カーソル・選択・Undo；`apps/collab`）
+
+## Design Agent
+
+エディタ右側のストリーミング会話 Agent が、同じキャンバス上でランディング / ポスター作成・改稿・スキル・ツールを実行します。
+
+### どう設計されているか（レイヤー）
+
+実行カーネルは LangGraph テンプレート `canvas_ops_v1` で固定。**製品挙動は設定可能**（Profile / プロンプトパック / Skills / Tools）。
+
+| 層 | 担当 | やってはいけないこと |
+|----|------|----------------------|
+| **Kernel** | 制御ループ、ツールスケジュール、キャンバス R/W、ラウンド / 権限 / ops 許可 | 審美や品類クラフト |
+| **AgentProfile（YAML）** | 段階プロトコル、ルーティング、役割、サブエージェント、capabilities | LangGraph レジストリの代替 |
+| **Stage プロンプトパック** | 段階ごとの turn プロトコル | 品類のクラフト教材 |
+| **Skills** | ドメイン playbook（構図・リズム・レビュー基準・few-shot） | JSON 図元 / patch スキーマ変更 |
+| **Tools** | 原子キャンバス操作（`create_frame`、`update_node`…） | ビジネス審美 |
+
+典型フロー：`intent` →（雑談 settle / 軽改 `paint` / 設計 `decide`）→ `paint` が `tool_ops` を出す → `observe` → 任意の **Review** サブエージェント → settle。詳細は **[docs/agent-profile.md](docs/agent-profile.md)**。
+
+### Skills とは
+
+スキルごとに `apps/api/seeds/design_skills/<key>/`（`_meta.json` + `SKILL.md`）。
+
+- **`_meta.json`** — トリガー、`preferred_tools` など（Decide が選ぶ）
+- **`SKILL.md`** — その成果物の作り方
+
+多数同梱（固定 5 個ではない）。フォルダ追加で拡張。
+
+### Tools とは
+
+原子操作は [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json)。Paint が構造化 `tool_ops` を出し、ホストが検証してキャンバスに適用。Skills は好みのツールを宣言できるが、登録外の op は不可。
+
+### 設定可能な Agent — どのファイルか
+
+| ファイル | 用途 |
+|----------|------|
+| [`apps/api/seeds/agents/profiles/design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) | **既定 Profile** |
+| [`apps/api/seeds/agents/bindings.yaml`](apps/api/seeds/agents/bindings.yaml) | `product` / `surface` → Profile |
+| [`apps/api/seeds/design_prompt_packs/`](apps/api/seeds/design_prompt_packs/) | 段階プロンプト本文 |
+| [`apps/api/seeds/design_skills/`](apps/api/seeds/design_skills/) | スキル追加・編集 |
+| [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) | ツールカタログ |
+| `apps/api/.env` → `AGENT_PROFILE_ID` | Profile 強制指定（既定 `design.canvas`） |
+
+**Agent を差し替える**
+
+1. `profiles/design.canvas.yaml` をコピーして `id:` などを変更  
+2. `bindings.yaml` を更新するか `AGENT_PROFILE_ID=…` を設定  
+3. API を再起動（ディスクから読み込み、DB 行ではない）
+
+**Skill を追加する**
+
+1. `design_skills/my_scene/_meta.json` + `SKILL.md` を作成  
+2. トリガーと `preferred_tools` を記入  
+3. 再起動 / seed ensure 後、Decide がアタッチできる
+
+Env： [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)。Seeds： [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。モデル： [docs/self-hosting.md](docs/self-hosting.md)。
 
 ## 主な機能
 
-- **ビジュアルエディタ** — 選択、レイヤー、塗り、エクスポート、共有
-- **リアルタイムコラボ** — Yjs WebSocket（`apps/collab`）；エディタの Live バー；nginx `/collab/` 経由の WSS
-- **Design Agent** — LangGraph ツール / skills；作成・編集・ストリーミング UI
-- **カスタムモデル & 集約プラットフォーム** — BYOK、手動 OpenAI 互換エンドポイント、OpenRouter など
-- **画像インポート** — ローカル画像 → 編集可能なキャンバスノード
+- **キャンバス編集** — 上記（ブール、内外ストローク、輪郭化、メディア、エクスポートなど）  
+- **リアルタイムコラボ** — Yjs WebSocket（`apps/collab`）；エディタの Live バー；nginx `/collab/` 経由の WSS  
+- **Design Agent** — LangGraph + 設定可能な Profile / Skills / ツール；作成・編集・ストリーミング UI  
+- **カスタムモデル & 集約プラットフォーム** — BYOK、手動 OpenAI 互換エンドポイント、OpenRouter など  
+- **画像インポート** — ローカル画像 → 編集可能なキャンバスノード  
 - **Plaza & プロジェクト** — インスピレーションフィードと保存作品（API）
 
 ## クイックスタート（セルフホスト）

@@ -4,7 +4,10 @@
  */
 import { CONTEXT_CHIP_PILL_CLASS } from '@/components/editor/panels/AgentComposerInput';
 import { rcbSceneToScreen, type RcbCamera } from '@/components/rcb';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import {
+  getInfiniteSvgPaintCamera,
+  nodeLeftTop,
+} from '@/components/rcb/scene/paint/sceneToSvg';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { cn } from '@/utils/classnames';
 
@@ -16,8 +19,10 @@ const CHIP_H = 28;
 
 type Point = { x: number; y: number };
 
-/** Last pointer / selection origin for the next attach → chat fly. */
+/** Last pointer / selection origin for the next attach → chat fly (client / fixed). */
 let pendingFlyOrigin: Point | null = null;
+/** Which composer should receive the chip (`agent` | `node:<id>`). */
+let pendingFlyLandId: string | null = null;
 
 export function noteCanvasFlyOrigin(x: number, y: number) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -30,24 +35,58 @@ export function takeCanvasFlyOrigin(): Point | null {
   return p;
 }
 
-/** Landing point inside the right Agent composer (fallback: dock / viewport). */
-export function resolveChatFlyTarget(): Point {
-  const composer =
-    (globalThis.document.querySelector('[data-agent-composer]') as HTMLElement | null) ||
-    (globalThis.document.querySelector('[data-agent-composer-root]') as HTMLElement | null);
-  if (composer) {
-    const r = composer.getBoundingClientRect();
-    if (r.width > 8 && r.height > 8) {
-      return { x: r.left + Math.min(72, r.width * 0.28), y: r.top + r.height * 0.45 };
-    }
+/** Remember which input the next fly should land in (matches `data-fly-land`). */
+export function noteCanvasFlyLand(landId: string) {
+  const id = String(landId || '').trim();
+  pendingFlyLandId = id || null;
+}
+
+export function takeCanvasFlyLand(): string | null {
+  const id = pendingFlyLandId;
+  pendingFlyLandId = null;
+  return id;
+}
+
+function pointFromEl(el: HTMLElement | null): Point | null {
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  if (!(r.width > 8 && r.height > 8)) return null;
+  return { x: r.left + Math.min(72, r.width * 0.28), y: r.top + r.height * 0.45 };
+}
+
+/**
+ * Landing point for a fly chip.
+ * Prefer the composer that started pick (`data-fly-land`), never the first random
+ * `[data-agent-composer]` (generator cards also use that attribute).
+ */
+export function resolveChatFlyTarget(opts?: { landId?: string | null }): Point {
+  const landId = String(opts?.landId ?? pendingFlyLandId ?? '').trim();
+  if (landId) {
+    const scoped = globalThis.document.querySelector(
+      `[data-fly-land="${landId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`
+    ) as HTMLElement | null;
+    const pt = pointFromEl(scoped);
+    if (pt) return pt;
   }
+  const agentLand = pointFromEl(
+    globalThis.document.querySelector('[data-fly-land="agent"]') as HTMLElement | null
+  );
+  if (agentLand) return agentLand;
+
   const dock =
     (globalThis.document.querySelector('[data-tour="editor-agent"]') as HTMLElement | null) ||
     (globalThis.document.querySelector('aside[data-tour]') as HTMLElement | null);
   if (dock) {
-    const r = dock.getBoundingClientRect();
-    if (r.width > 8 && r.height > 8) {
-      return { x: r.left + r.width * 0.35, y: r.bottom - 96 };
+    const composer = dock.querySelector(
+      '[data-fly-land], [data-agent-composer-root], [data-agent-composer]'
+    ) as HTMLElement | null;
+    const pt = pointFromEl(composer) || pointFromEl(dock);
+    if (pt) {
+      if (!composer && dock) {
+        const r = dock.getBoundingClientRect();
+        return { x: r.left + r.width * 0.35, y: r.bottom - 96 };
+      }
+      return pt;
     }
   }
   return {
@@ -56,7 +95,17 @@ export function resolveChatFlyTarget(): Point {
   };
 }
 
-function sceneBoxCenter(
+/** Stage-local → `position:fixed` client coords. */
+function stageLocalToClient(local: Point): Point {
+  const stage =
+    (globalThis.document.querySelector('[data-rcb-canvas]') as HTMLElement | null) ||
+    (globalThis.document.querySelector('[data-rcb-overlay]') as HTMLElement | null);
+  if (!stage) return local;
+  const r = stage.getBoundingClientRect();
+  return { x: local.x + r.left, y: local.y + r.top };
+}
+
+function sceneBoxCenterClient(
   document: SceneDocument,
   nodeId: string,
   camera: RcbCamera
@@ -66,10 +115,11 @@ function sceneBoxCenter(
   const { left, top } = nodeLeftTop(document, node);
   const w = Math.max(1, Number(node.width) || 1);
   const h = Math.max(1, Number(node.height) || 1);
-  return rcbSceneToScreen(camera, left + w / 2, top + h / 2);
+  const local = rcbSceneToScreen(camera, left + w / 2, top + h / 2);
+  return stageLocalToClient(local);
 }
 
-/** Best-effort screen origin for an attach payload (node / multi / frame). */
+/** Best-effort **client** origin for an attach payload (node / multi / frame). */
 export function resolveAttachPayloadFlyOrigin(opts: {
   document: SceneDocument;
   payload: string | string[];
@@ -78,7 +128,7 @@ export function resolveAttachPayloadFlyOrigin(opts: {
   const { document: doc, payload, camera } = opts;
   if (Array.isArray(payload)) {
     const pts = payload
-      .map((id) => sceneBoxCenter(doc, String(id), camera))
+      .map((id) => sceneBoxCenterClient(doc, String(id), camera))
       .filter(Boolean) as Point[];
     if (!pts.length) return null;
     return {
@@ -96,9 +146,10 @@ export function resolveAttachPayloadFlyOrigin(opts: {
     const y = Number(frame.y) || 0;
     const w = Math.max(1, Number(frame.width) || 1);
     const h = Math.max(1, Number(frame.height) || 1);
-    return rcbSceneToScreen(camera, x + w / 2, y + h / 2);
+    const local = rcbSceneToScreen(camera, x + w / 2, y + h / 2);
+    return stageLocalToClient(local);
   }
-  return sceneBoxCenter(doc, raw, camera);
+  return sceneBoxCenterClient(doc, raw, camera);
 }
 
 function quadraticPath(from: Point, to: Point): string {
@@ -147,6 +198,8 @@ function ensureFlyStyles() {
 export type PlayFlyChipToChatOpts = {
   from: Point;
   to?: Point;
+  /** Prefer this composer (`agent` | `node:<id>`); consumes pending land if omitted. */
+  landId?: string | null;
   label?: string;
   thumbUrl?: string;
   /** Called near landing so the real chip can appear in the composer. */
@@ -234,7 +287,10 @@ export async function playFlyChipToChat(opts: PlayFlyChipToChatOpts): Promise<vo
 
   await new Promise<void>((r) => window.setTimeout(r, popMs));
 
-  const to = opts.to || resolveChatFlyTarget();
+  // Prefer explicit landId; always clear pending so a later fly can't steal the wrong box.
+  const pendingLand = takeCanvasFlyLand();
+  const landId = String(opts.landId ?? pendingLand ?? '').trim();
+  const to = opts.to || resolveChatFlyTarget({ landId: landId || null });
   const path = quadraticPath(from, to);
   el.style.left = '0px';
   el.style.top = '0px';
@@ -253,22 +309,27 @@ export async function playFlyChipToChat(opts: PlayFlyChipToChatOpts): Promise<vo
   el.remove();
 }
 
-/** Convenience: origin from pending pointer, else payload geometry, else composer-adjacent. */
+/**
+ * Origin for the next fly chip (client / fixed coords).
+ * Prefer attached node / frame center; else noted canvas pointer; else near land.
+ */
 export function resolveNextFlyOrigin(opts: {
   document?: SceneDocument | null;
   payload?: string | string[] | null;
   camera?: RcbCamera | null;
 }): Point {
   const noted = takeCanvasFlyOrigin();
-  if (noted) return noted;
-  if (opts.document && opts.payload != null && opts.camera) {
+  const camera = opts.camera ?? getInfiniteSvgPaintCamera();
+  if (opts.document && opts.payload != null && camera) {
     const fromPayload = resolveAttachPayloadFlyOrigin({
       document: opts.document,
       payload: opts.payload,
-      camera: opts.camera,
+      camera,
     });
     if (fromPayload) return fromPayload;
   }
-  const land = resolveChatFlyTarget();
+  if (noted) return noted;
+
+  const land = resolveChatFlyTarget({ landId: null });
   return { x: land.x - 120, y: land.y + 40 };
 }
