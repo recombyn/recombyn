@@ -38,7 +38,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 | 用户权限 | Auth + wallet flags | Dedicated IdP / multi-tenant org RBAC |
 | 画布存储 | Projects API + scene doc | Shard / multi-region document service |
 | 素材资产 | Uploads / S3 hooks | CDN + virus scan + huge media pipeline |
-| AI 模型中台 | Design agent runtime + BYOK | Shared model gateway across products |
+| AI 模型中台 | In-process façade (`resolve_chat_endpoint` / `chat_model_for`) | Extract gateway only with multi-product scale |
 | 异步任务 | Celery deps present; most still sync | First job vertical (export / hydrate) |
 | 协同 | **`apps/collab` already separate** | Scale WS fleet independently (already can) |
 
@@ -109,9 +109,10 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] First vertical async job: `POST/GET /api/v1/design/hydrate/jobs` + `run_image_hydrate_job`
 - [x] `npm run dev:worker` (+ CODEOWNERS / PR template)
 - [x] Wire hydrate job into Design Agent apply/action (`hydrate_tool_ops_images` → Celery, stall fallback)
-- [ ] LLM adapter ADR + thin façade (model 中台 **in-process** first)
-- [ ] Memory tiers (project → session → global)
-- [ ] Alembic CI gate; coverage on new routes
+- [x] LLM adapter ADR + thin façade (model 中台 **in-process** first) — [0006](../adr/0006-llm-facade-memory-tiers.md)
+- [x] Memory tiers documented (session / project / global → `agent_memory`) — same ADR
+- [x] Alembic single-head CI gate (`test_alembic_single_head`)
+- [ ] Coverage floor on new routes (hydrate jobs)
 - [ ] Celery retry / DLQ metrics when failure rate known
 
 ### Phase 3 — Observability & security
