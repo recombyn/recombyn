@@ -371,10 +371,13 @@ def design_skills_upsert(
 @router.post("/skills/import")
 async def design_skills_import_zip(
     current_user: CurrentUser,
-    file: UploadFile = File(..., description="Skill pack .zip (_meta.json + SKILL.md)"),
+    file: UploadFile = File(
+        ...,
+        description="Skill pack .zip or .recombyn-plugin (_meta.json + SKILL.md)",
+    ),
     overwrite: bool = Form(default=False),
 ) -> dict[str, Any]:
-    """Upload a skill pack zip — scan, optional overwrite, then save as user skill."""
+    """Upload a skill / plugin pack — scan, optional overwrite, then save."""
     from app.services.design.prompts.skill_store import import_end_user_skill_zip
 
     raw = await file.read()
@@ -388,6 +391,30 @@ async def design_skills_import_zip(
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
     return result
+
+
+@router.post("/plugins/install")
+async def design_plugins_install(
+    current_user: CurrentUser,
+    file: UploadFile = File(
+        ...,
+        description=".recombyn-plugin pack (plugin.json + skill or canvas files)",
+    ),
+    overwrite: bool = Form(default=False),
+) -> dict[str, Any]:
+    """Install a branded ``.recombyn-plugin`` pack (skill → user DB; canvas → disk when enabled)."""
+    from app.services.design.plugins import install_recombyn_plugin
+
+    raw = await file.read()
+    try:
+        return install_recombyn_plugin(
+            user_id=current_user.id,
+            filename=file.filename or "pack.recombyn-plugin",
+            raw=raw,
+            overwrite=bool(overwrite),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
 
 
 @router.patch("/skills/{skill_id}/enabled")

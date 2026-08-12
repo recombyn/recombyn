@@ -97,7 +97,7 @@ const en = {
     railSkills: 'Skills',
     skillsTitle: 'Skill toolbox',
     skillsHint:
-      'Upload a skill pack (.zip), or turn off official ones you do not need. In Chat, type / to pin one for the turn.',
+      'Upload a skill pack (.zip / .recombyn-plugin), or turn off official ones you do not need. In Chat, type / to pin one for the turn.',
     viewAll: 'View all',
     inspiration: 'Inspiration',
     updatedAt: 'Updated {{time}}',
@@ -1542,7 +1542,7 @@ const en = {
     skillsMine: 'Mine',
     skillsOfficial: 'Official',
     skillsUpload: 'Upload skill',
-    skillsZipOnly: 'Please choose a .zip skill pack',
+    skillsZipOnly: 'Please choose a .zip or .recombyn-plugin pack',
     skillsImportOk: 'Skill uploaded',
     skillsImportRejected: 'Upload failed security checks: {{reason}}',
     skillsScanTitle: 'Security check in progress',

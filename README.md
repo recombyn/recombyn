@@ -180,6 +180,7 @@ User-facing help **source** is private; CI publishes only the built static site 
 | Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
 | Skill extensions | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | Canvas plugins | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
+| Plugin packs (`.recombyn-plugin`) | [docs/plugin-packs.md](docs/plugin-packs.md) |
 | AgentProfile / sub-agents | [docs/agent-profile.md](docs/agent-profile.md) |
 | Canvas (RCB / SVG / Path2D / LOD) | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
 | Web data layer (Query / oRPC / nuqs) | [docs/web-frontend.md](docs/web-frontend.md) |
