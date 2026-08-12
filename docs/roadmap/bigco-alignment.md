@@ -162,3 +162,4 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] ClamAV prod overlay (`docker-compose.av.yml` + `INSTALL_AV` / `clamdscan`)
 - [x] Admin Insights hydrate DLQ tab (list / replay / discard)
 - [x] Async artboard export jobs (`POST/GET /design/export/jobs` + `/file`, PNG/PDF)
+- [x] Editor Export menu: server PDF (poll + download)
