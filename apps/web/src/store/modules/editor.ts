@@ -1394,6 +1394,25 @@ const editorSlice = createSlice({
       state.activeTool = 'select';
     },
     /**
+     * Insert a pre-built scene node (canvas plugins / host helpers).
+     * Payload must already include a stable ``id`` matching ``node.id``.
+     */
+    spawnCreatedNode(state, action) {
+      if (!state.document) return;
+      const id = String(action.payload?.id || '').trim();
+      const node = action.payload?.node;
+      if (!id || !node || typeof node !== 'object') return;
+      pushHistory(state);
+      const next = { ...node, id };
+      state.document = addNodeToDocument(state.document, id, next);
+      state.dirty = true;
+      state.sceneReloadToken += 1;
+      state.selectedNodeId = id;
+      state.selectedNodeIds = [id];
+      state.pendingImageSrc = null;
+      state.activeTool = 'select';
+    },
+    /**
      * Place a library / AI asset onto the canvas (image | video | audio | lottie).
      * Used by the Assets dock — source URL already hosted.
      */
@@ -1999,6 +2018,7 @@ export const {
   spawnAudioGenerator,
   spawnLottie,
   spawnAudio,
+  spawnCreatedNode,
   placeMediaAsset,
   finishImageGenerator,
   finishVideoGenerator,

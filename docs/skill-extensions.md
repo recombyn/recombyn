@@ -82,7 +82,7 @@ Duplicate `skill_key`: **later root wins** (plugins override seeds).
 
 ## Out of scope here
 
-- Frontend toolbar plugins (`manifest.json` + TypeScript) — separate Phase C  
-- Executing `handler.py` / sandboxes / `.recombyn-plugin` zip install — Phase B/D  
+- Frontend toolbar plugins (`manifest.json` + TypeScript) — [canvas-plugins.md](./canvas-plugins.md) (Phase B)
+- Executing `handler.py` / sandboxes / `.recombyn-plugin` zip install — Phase C/D
 
 → [ADR 0013](./adr/0013-skill-extensions.md)
