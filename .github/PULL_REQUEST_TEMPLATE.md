@@ -1,23 +1,20 @@
 ## Summary
 
-<!-- Why this change? -->
+<!-- 1–3 bullets: why this change exists -->
 
-## Type
+-
 
-- [ ] Bug fix
-- [ ] Feature
-- [ ] Docs / OSS hygiene
-- [ ] Refactor (no behavior change)
-- [ ] Tests
+## ADR
+
+- [ ] Linked or added ADR under `docs/adr/` (required for architecture / async / storage / security boundaries)
+- ADR link (if any):
 
 ## Test plan
 
-- [ ] `npm run test:web` (if frontend)
-- [ ] `npm run test:api` (if API)
-- [ ] Manual: …
+- [ ] `npm run check` (when JS touched)
+- [ ] Relevant unit / integration / e2e
+- [ ] Manual smoke (if UI)
 
-## Checklist
+## Notes
 
-- [ ] No secrets in the diff (`.env`, keys, passwords)
-- [ ] Docs updated if user-facing (`README`, `docs/self-hosting.md`)
-- [ ] I agree contributions are licensed under the Apache License 2.0 ([CONTRIBUTING.md](../CONTRIBUTING.md))
+<!-- Breaking changes, flags, follow-ups -->
