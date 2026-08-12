@@ -129,10 +129,11 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Unified CI umbrella (`ci.yml`: lint → contracts typecheck → unit → web build) — [0009](../adr/0009-unified-ci-rollback.md)
 - [x] CHANGELOG + semver tagging convention; Docker Compose rollback runbook
 - [x] GHCR / Docker publish workflow on tags (`release-docker.yml` + `docker-compose.ghcr.yml`)
-- [ ] Tauri signed builds (separate)
-- [ ] Optional: k8s manifests (not required for OSS default)
+- [x] Tauri signing docs + unsigned `desktop-build.yml` (dispatch) — [0010](../adr/0010-desktop-signing.md)
+- [x] k8s deferred (compose/GHCR default) — `deploy/k8s/README.md`
 - [ ] Require `typecheck:web` once Phase 1 tsc debt is cleared
 
 ### Phase 5 — Stress
 
-- [ ] Collab multi-client, large canvas, batch AI — baselines in k6 + canvas stress
+- [x] Baseline runbook for collab/canvas/k6/agent stress — [stress-baselines.md](../stress-baselines.md)
+- [ ] Dual-client collab conflict + paid-gen E2E (tracked gaps)
