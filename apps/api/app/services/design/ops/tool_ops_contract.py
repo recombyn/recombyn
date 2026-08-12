@@ -1524,14 +1524,13 @@ def assess_tool_ops_result(
         except ValueError:
             min_creates = 0
     if not min_creates:
-        # Soft defaults so one-shape "dashboards" cannot silent-settle (stress craft).
+        # Soft defaults only when craft skills are loaded — never blanket-min
+        # generic creates (integration CRUD / single-op asks would clear to []).
         skills = {str(k).strip() for k in (skill_keys or []) if str(k).strip()}
         if skills & {"dashboard_ui", "landing_page", "mobile_app_ui"}:
             min_creates = 8
         elif skills & {"poster_craft", "banner_ad", "ecommerce_surface", "resume_layout"}:
             min_creates = 5
-        else:
-            min_creates = 3
 
     min_texts = 0
     try:
