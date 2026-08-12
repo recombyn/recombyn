@@ -1,11 +1,17 @@
 """Hydrate create_image / gen_prompt placeholders into real image URLs."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
-from typing import Any
+import time
+import uuid
+from typing import Any, Callable
 
 _log = logging.getLogger(__name__)
+
+_HYDRATE_KIND = "hydrate"
+_OnProgress = Callable[[int, str], None]
 
 
 def _image_model_from_rules(rules: dict[str, str] | None) -> str:
@@ -164,6 +170,123 @@ def _needs_image_hydrate(op: dict[str, Any]) -> bool:
     return bool(str(args.get("genPrompt") or args.get("prompt") or "").strip())
 
 
+def _pending_hydrate_count(ops: list[dict[str, Any]], *, limit: int) -> int:
+    n = 0
+    for op in ops:
+        if n >= limit:
+            break
+        if _needs_image_hydrate(op):
+            n += 1
+    return n
+
+
+async def _hydrate_via_celery(
+    ops: list[dict[str, Any]],
+    *,
+    limit: int,
+    policy: str,
+    rules: dict[str, str] | None,
+    on_progress: _OnProgress | None,
+) -> tuple[list[dict[str, Any]], int] | None:
+    """Enqueue + poll. Returns None to signal caller should use in-process path."""
+    from app.core.config import settings
+    from app.services.job_store import get_job, save_job
+    from worker.tasks import run_image_hydrate_job
+
+    budget = max(5.0, float(getattr(settings, "design_image_hydrate_timeout_sec", 90.0) or 90.0))
+    stall = max(1.0, float(getattr(settings, "design_image_hydrate_queue_stall_sec", 5.0) or 5.0))
+    job_id = uuid.uuid4().hex
+    payload = {
+        "job_id": job_id,
+        "kind": _HYDRATE_KIND,
+        "status": "queued",
+        "progress": 0,
+        "ops": list(ops),
+        "limit": limit,
+        "policy": policy,
+        "rules": {str(k): str(v) for k, v in (rules or {}).items()},
+        "result": None,
+        "error": None,
+    }
+    save_job(job_id, payload, kind=_HYDRATE_KIND)
+    run_image_hydrate_job.delay(job_id)
+    if on_progress:
+        on_progress(0, "queued")
+
+    deadline = time.monotonic() + budget
+    queued_deadline = time.monotonic() + stall
+    last_progress = -1
+    while time.monotonic() < deadline:
+        job = await asyncio.to_thread(get_job, job_id, kind=_HYDRATE_KIND)
+        if not job:
+            return None
+        status = str(job.get("status") or "queued")
+        progress = int(job.get("progress") or 0)
+        if on_progress and progress != last_progress:
+            on_progress(progress, status)
+            last_progress = progress
+        if status == "done":
+            result = job.get("result") if isinstance(job.get("result"), dict) else {}
+            out = result.get("ops")
+            filled = int(result.get("filled") or 0)
+            if isinstance(out, list):
+                return out, filled
+            return None
+        if status == "failed":
+            _log.warning("hydrate job failed job=%s err=%s", job_id, job.get("error"))
+            return None
+        if status == "queued" and time.monotonic() >= queued_deadline:
+            _log.info(
+                "hydrate job still queued after %.1fs — falling back in-process job=%s",
+                stall,
+                job_id,
+            )
+            return None
+        await asyncio.sleep(0.35)
+    _log.warning("hydrate job poll budget exceeded job=%s", job_id)
+    return None
+
+
+async def hydrate_tool_ops_images(
+    ops: list[dict[str, Any]],
+    *,
+    limit: int = 6,
+    policy: str = "auto",
+    rules: dict[str, str] | None = None,
+    on_progress: _OnProgress | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Apply/action entry: Celery when enabled, else in-process (ADR 0005)."""
+    if policy != "auto" or not ops or limit <= 0:
+        return ops, 0
+    if _pending_hydrate_count(ops, limit=limit) <= 0:
+        return ops, 0
+
+    try:
+        from app.core.config import settings
+
+        use_async = bool(getattr(settings, "design_image_hydrate_async", True))
+    except Exception:
+        use_async = True
+
+    if use_async:
+        try:
+            queued = await _hydrate_via_celery(
+                ops,
+                limit=limit,
+                policy=policy,
+                rules=rules,
+                on_progress=on_progress,
+            )
+            if queued is not None:
+                return queued
+        except Exception:
+            _log.warning("hydrate Celery path unavailable; using in-process", exc_info=True)
+
+    return await _hydrate_tool_ops_images(
+        ops, limit=limit, policy=policy, rules=rules
+    )
+
+
 async def _hydrate_tool_ops_images(
     ops: list[dict[str, Any]],
     *,
@@ -178,7 +301,6 @@ async def _hydrate_tool_ops_images(
     """
     if policy != "auto" or not ops or limit <= 0:
         return ops, 0
-    import asyncio
 
     from app.services.llm.image import generate_image
 

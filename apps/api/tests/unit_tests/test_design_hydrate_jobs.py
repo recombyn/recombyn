@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -112,3 +113,99 @@ def test_create_hydrate_job_enqueues(monkeypatch: pytest.MonkeyPatch):
         delay.assert_called_once()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_hydrate_tool_ops_images_uses_celery_result(monkeypatch: pytest.MonkeyPatch):
+    from app.services.design.ops import image_hydrate as mod
+
+    ops = [{"name": "create_image", "args": {"genPrompt": "cat", "width": 64, "height": 64}}]
+    store: dict[str, dict[str, Any]] = {}
+
+    def _save(job_id: str, payload: dict[str, Any], *, kind: str = "import"):
+        assert kind == "hydrate"
+        store[job_id] = dict(payload)
+
+    def _get(job_id: str, *, kind: str = "import"):
+        assert kind == "hydrate"
+        job = store.get(job_id)
+        if not job:
+            return None
+        return {
+            **job,
+            "status": "done",
+            "progress": 100,
+            "result": {
+                "ops": [
+                    {
+                        "name": "create_image",
+                        "args": {**(ops[0]["args"]), "src": "https://cdn.example/c.png"},
+                    }
+                ],
+                "filled": 1,
+            },
+        }
+
+    delay = MagicMock()
+    monkeypatch.setattr("app.core.config.settings.design_image_hydrate_async", True)
+    monkeypatch.setattr("app.services.job_store.save_job", _save)
+    monkeypatch.setattr("app.services.job_store.get_job", _get)
+    monkeypatch.setattr("worker.tasks.run_image_hydrate_job.delay", delay)
+
+    async def _should_not_run(*_a, **_k):
+        raise AssertionError("in-process hydrate must not run when Celery succeeds")
+
+    monkeypatch.setattr(mod, "_hydrate_tool_ops_images", _should_not_run)
+
+    out, filled = asyncio.run(mod.hydrate_tool_ops_images(ops, limit=2, policy="auto"))
+    assert filled == 1
+    assert out[0]["args"]["src"].startswith("https://")
+    delay.assert_called_once()
+
+
+def test_hydrate_tool_ops_images_stall_falls_back(monkeypatch: pytest.MonkeyPatch):
+    from app.services.design.ops import image_hydrate as mod
+
+    ops = [{"name": "create_image", "args": {"genPrompt": "dog"}}]
+    store: dict[str, dict[str, Any]] = {}
+
+    def _save(job_id: str, payload: dict[str, Any], *, kind: str = "import"):
+        store[job_id] = dict(payload)
+
+    def _get(job_id: str, *, kind: str = "import"):
+        return store.get(job_id)
+
+    monkeypatch.setattr("app.core.config.settings.design_image_hydrate_async", True)
+    monkeypatch.setattr("app.core.config.settings.design_image_hydrate_queue_stall_sec", 0.2)
+    monkeypatch.setattr("app.services.job_store.save_job", _save)
+    monkeypatch.setattr("app.services.job_store.get_job", _get)
+    monkeypatch.setattr("worker.tasks.run_image_hydrate_job.delay", MagicMock())
+
+    called = {"n": 0}
+
+    async def _fallback(step_ops, **_k):
+        called["n"] += 1
+        return step_ops, 0
+
+    monkeypatch.setattr(mod, "_hydrate_tool_ops_images", _fallback)
+
+    out, filled = asyncio.run(mod.hydrate_tool_ops_images(ops, limit=2, policy="auto"))
+    assert filled == 0
+    assert out == ops
+    assert called["n"] == 1
+
+
+def test_hydrate_tool_ops_images_async_disabled(monkeypatch: pytest.MonkeyPatch):
+    from app.services.design.ops import image_hydrate as mod
+
+    ops = [{"name": "create_image", "args": {"genPrompt": "x"}}]
+    monkeypatch.setattr("app.core.config.settings.design_image_hydrate_async", False)
+
+    called = {"n": 0}
+
+    async def _fallback(step_ops, **_k):
+        called["n"] += 1
+        return step_ops, 0
+
+    monkeypatch.setattr(mod, "_hydrate_tool_ops_images", _fallback)
+    asyncio.run(mod.hydrate_tool_ops_images(ops, limit=1, policy="auto"))
+    assert called["n"] == 1
