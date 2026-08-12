@@ -1,4 +1,4 @@
-"""Org membership HTTP API (create / list / invite)."""
+"""Org membership HTTP API (create / list / pending invites)."""
 
 from __future__ import annotations
 
@@ -34,6 +34,58 @@ def list_my_orgs(current_user: CurrentUser) -> dict[str, Any]:
     return {"orgs": org_store.list_orgs_for_user(user_id=current_user.id)}
 
 
+@router.get("/invites/mine")
+def list_my_pending_invites(current_user: CurrentUser) -> dict[str, Any]:
+    return {
+        "invites": org_store.list_pending_invites_for_user(
+            user_id=current_user.id,
+            email=getattr(current_user, "email", None),
+        )
+    }
+
+
+@router.post("/invites/{invite_id}/accept")
+def accept_invite(current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
+    try:
+        row = org_store.accept_org_invite(
+            invite_id=invite_id,
+            user_id=current_user.id,
+            email=getattr(current_user, "email", None),
+        )
+    except LookupError:
+        raise HTTPException(
+            status_code=404, detail={"code": "invite_not_found"}
+        ) from None
+    except PermissionError:
+        raise HTTPException(
+            status_code=403, detail={"code": "invite_not_for_user"}
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+    return row
+
+
+@router.post("/invites/{invite_id}/decline")
+def decline_invite(current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
+    try:
+        row = org_store.decline_org_invite(
+            invite_id=invite_id,
+            user_id=current_user.id,
+            email=getattr(current_user, "email", None),
+        )
+    except LookupError:
+        raise HTTPException(
+            status_code=404, detail={"code": "invite_not_found"}
+        ) from None
+    except PermissionError:
+        raise HTTPException(
+            status_code=403, detail={"code": "invite_not_for_user"}
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+    return row
+
+
 @router.get("/{org_id}")
 def get_org(
     org_id: str,
@@ -55,29 +107,36 @@ def list_members(
     return {"members": org_store.list_org_members(org_id=org_id)}
 
 
+@router.get("/{org_id}/invites")
+def list_org_pending_invites(
+    org_id: str,
+    current_user: SessionUser = Depends(require_org_permission("org:members:write")),
+) -> dict[str, Any]:
+    _ = current_user
+    return {"invites": org_store.list_org_invites(org_id=org_id, status="pending")}
+
+
 @router.post("/{org_id}/members")
 def invite_member(
     org_id: str,
     body: InviteMemberIn,
     current_user: SessionUser = Depends(require_org_permission("org:members:write")),
 ) -> dict[str, Any]:
-    _ = current_user
+    """Create a pending invite (membership starts after accept)."""
     try:
-        row = org_store.invite_org_member(
+        row = org_store.create_org_invite(
             org_id=org_id,
             actor_user_id=current_user.id,
             user_id=body.userId,
             email=body.email,
             role=body.role,
         )
-    except LookupError:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "user_not_found"},
-        ) from None
+    except LookupError as exc:
+        code = str(exc) or "not_found"
+        raise HTTPException(status_code=404, detail={"code": code}) from None
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail={"code": str(exc)},
         ) from exc
-    return {"member": row}
+    return {"invite": row}

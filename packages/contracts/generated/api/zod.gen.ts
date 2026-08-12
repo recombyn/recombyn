@@ -2009,6 +2009,35 @@ export const zOrgsCreateOrgResponse = z.record(z.unknown());
  */
 export const zOrgsListMyOrgsResponse = z.record(z.unknown());
 
+/**
+ * Response Orgs-List My Pending Invites
+ *
+ * Successful Response
+ */
+export const zOrgsListMyPendingInvitesResponse = z.record(z.unknown());
+
+export const zOrgsAcceptInvitePath = z.object({
+    invite_id: z.string()
+});
+
+/**
+ * Response Orgs-Accept Invite
+ *
+ * Successful Response
+ */
+export const zOrgsAcceptInviteResponse = z.record(z.unknown());
+
+export const zOrgsDeclineInvitePath = z.object({
+    invite_id: z.string()
+});
+
+/**
+ * Response Orgs-Decline Invite
+ *
+ * Successful Response
+ */
+export const zOrgsDeclineInviteResponse = z.record(z.unknown());
+
 export const zOrgsGetOrgPath = z.object({
     org_id: z.string()
 });
@@ -2043,6 +2072,17 @@ export const zOrgsInviteMemberPath = z.object({
  * Successful Response
  */
 export const zOrgsInviteMemberResponse = z.record(z.unknown());
+
+export const zOrgsListOrgPendingInvitesPath = z.object({
+    org_id: z.string()
+});
+
+/**
+ * Response Orgs-List Org Pending Invites
+ *
+ * Successful Response
+ */
+export const zOrgsListOrgPendingInvitesResponse = z.record(z.unknown());
 
 export const zPlazaPlazaSubmitBody = zSubmitIn;
 

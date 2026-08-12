@@ -1,4 +1,4 @@
-"""Org RBAC skeleton unit tests."""
+"""Org RBAC + pending invite unit tests."""
 
 from __future__ import annotations
 
@@ -67,6 +67,7 @@ def test_alembic_includes_org_revision():
     names = {p.name for p in versions.glob("*.py")}
     assert "0006_org_members.py" in names
     assert "0007_project_org_id.py" in names
+    assert "0008_org_invites.py" in names
 
 
 def _use_tmp_db(tmp_path: Path, monkeypatch, name: str) -> None:
@@ -83,7 +84,9 @@ def _use_tmp_db(tmp_path: Path, monkeypatch, name: str) -> None:
     reset_engine()
 
 
-def test_org_project_access_and_invite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_org_project_access_and_pending_invite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     _use_tmp_db(tmp_path, monkeypatch, "org-projects.db")
 
     from app.services.auth import orgs as org_store
@@ -105,14 +108,31 @@ def test_org_project_access_and_invite(tmp_path: Path, monkeypatch: pytest.Monke
         )
         org = org_store.create_org(name="Team A", owner_user_id=owner.id)
         org_id = org["id"]
-        invited = org_store.invite_org_member(
+
+        invited = org_store.create_org_invite(
             org_id=org_id,
             actor_user_id=owner.id,
             email="member@example.com",
             role="member",
         )
-        assert invited["user_id"] == member.id
-        assert invited["role"] == "member"
+        assert invited["status"] == "pending"
+        assert invited["userId"] == member.id
+
+        # Not a member until accept.
+        assert project_store.get_project(member.id, "nope") is None
+        assert org_store.get_org_member_role(org_id=org_id, user_id=member.id) is None
+
+        pending = org_store.list_pending_invites_for_user(
+            user_id=member.id, email="member@example.com"
+        )
+        assert any(i["id"] == invited["id"] for i in pending)
+
+        org_store.accept_org_invite(
+            invite_id=invited["id"],
+            user_id=member.id,
+            email="member@example.com",
+        )
+        assert org_store.get_org_member_role(org_id=org_id, user_id=member.id) == "member"
 
         created = project_store.upsert_project(
             owner.id,
@@ -150,5 +170,34 @@ def test_org_project_access_and_invite(tmp_path: Path, monkeypatch: pytest.Monke
 
         mine = org_store.list_orgs_for_user(user_id=member.id)
         assert any(o["id"] == org_id for o in mine)
+    finally:
+        restore_default_sqlite_engine()
+
+
+def test_decline_invite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _use_tmp_db(tmp_path, monkeypatch, "org-decline.db")
+    from app.services.auth import orgs as org_store
+    from app.services.auth.email_store import upsert_user
+    from app.services.db import init_schema
+
+    try:
+        init_schema()
+        owner = upsert_user(email="o2@example.com", password="password123", name="O")
+        member = upsert_user(email="m2@example.com", password="password123", name="M")
+        org = org_store.create_org(name="Team B", owner_user_id=owner.id)
+        inv = org_store.create_org_invite(
+            org_id=org["id"],
+            actor_user_id=owner.id,
+            user_id=member.id,
+            role="member",
+        )
+        org_store.decline_org_invite(
+            invite_id=inv["id"], user_id=member.id, email=member.email
+        )
+        assert org_store.get_org_member_role(org_id=org["id"], user_id=member.id) is None
+        pending = org_store.list_pending_invites_for_user(
+            user_id=member.id, email=member.email
+        )
+        assert pending == []
     finally:
         restore_default_sqlite_engine()

@@ -140,6 +140,22 @@ class OrgMember(SQLModel, table=True):
     created_at: float = Field(default=0.0)
 
 
+class OrgInvite(SQLModel, table=True):
+    """Pending / resolved org invitation (accept before membership)."""
+
+    __tablename__ = "org_invites"
+
+    id: str = Field(primary_key=True, max_length=64)
+    org_id: str = Field(index=True, max_length=64)
+    email: Optional[str] = Field(default=None, index=True, max_length=320)
+    user_id: Optional[str] = Field(default=None, index=True, max_length=64)
+    role: str = Field(default="member", max_length=16)
+    status: str = Field(default="pending", index=True, max_length=16)
+    invited_by: str = Field(max_length=64)
+    created_at: float = Field(default=0.0)
+    responded_at: Optional[float] = Field(default=None)
+
+
 class AuthSession(SQLModel, table=True):
     """Maps ``auth_sessions`` — bearer token primary key."""
 
