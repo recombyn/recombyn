@@ -422,6 +422,18 @@ def test_assess_tool_ops_result_rejects_sparse_dashboard():
     assert "too_few_elements" in reason
 
 
+def test_assess_tool_ops_result_allows_single_create_without_craft_skills():
+    from app.services.design.ops.tool_ops_contract import assess_tool_ops_result
+
+    ok, reason = assess_tool_ops_result(
+        [{"name": "create_text", "args": {"id": "t1", "text": "Hi", "x": 0, "y": 0}}],
+        intent="create",
+        scene="website",
+        skill_keys=[],
+    )
+    assert ok, reason
+
+
 def test_assess_tool_ops_result_create_on_empty_scene_uses_projected_ops():
     """Empty pre-apply scene must not yield scene_too_thin:0 when ops are dense."""
     from app.services.design.ops.tool_ops_contract import assess_tool_ops_result
