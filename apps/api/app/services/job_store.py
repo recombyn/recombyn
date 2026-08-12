@@ -70,13 +70,26 @@ _DLQ_MAX = 500
 
 
 def push_hydrate_dlq(entry: dict[str, Any]) -> None:
-    """Append a terminal hydrate failure for ops replay (ADR 0005 DLQ)."""
-    client = _client()
-    payload = json.dumps(entry, ensure_ascii=False)
-    client.lpush(_DLQ_KEY, payload)
-    client.ltrim(_DLQ_KEY, 0, _DLQ_MAX - 1)
-    # Keep list around at least as long as jobs.
-    client.expire(_DLQ_KEY, max(settings.job_ttl_seconds, 7 * 86400))
+    """Append a terminal hydrate failure for ops replay (ADR 0005 DLQ).
+
+    Best-effort: never raise — failure recording must not mask the original error
+    (and unit tests often run without Redis).
+    """
+    try:
+        client = _client()
+        payload = json.dumps(entry, ensure_ascii=False)
+        client.lpush(_DLQ_KEY, payload)
+        client.ltrim(_DLQ_KEY, 0, _DLQ_MAX - 1)
+        # Keep list around at least as long as jobs.
+        client.expire(_DLQ_KEY, max(settings.job_ttl_seconds, 7 * 86400))
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "hydrate DLQ push failed job_id=%s",
+            entry.get("job_id"),
+            exc_info=True,
+        )
 
 
 def list_hydrate_dlq(*, limit: int = 50) -> list[dict[str, Any]]:

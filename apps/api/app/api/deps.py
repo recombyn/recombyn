@@ -71,3 +71,78 @@ def get_current_active_superuser(current_user: CurrentUser) -> SessionUser:
 
 
 AdminUser = Annotated[SessionUser, Depends(get_current_active_superuser)]
+
+# Resource×action permissions (Phase 3+). Coarse roles still gate today;
+# helpers encode the matrix so org_role can plug in later without a mega rbac module.
+Permission = str  # e.g. "admin:users:write", "project:write", "plaza:moderate"
+
+_ADMIN_PERMISSIONS: frozenset[str] = frozenset(
+    {
+        "admin:users:read",
+        "admin:users:write",
+        "admin:plaza:moderate",
+        "admin:catalog:write",
+        "admin:design:write",
+        "admin:fonts:write",
+        "admin:content:read",
+        "admin:notices:write",
+        "admin:metrics:read",
+    }
+)
+
+
+def user_has_permission(user: SessionUser, permission: Permission) -> bool:
+    """Deny-by-default permission check beside coarse admin role."""
+    if not permission:
+        return False
+    if is_admin_user(user):
+        return permission in _ADMIN_PERMISSIONS or permission.startswith("admin:")
+    # End-user surface (extend when org roles land).
+    if permission in {"project:write", "project:read", "upload:write", "wallet:read"}:
+        return True
+    return False
+
+
+def require_permission(permission: Permission):
+    """FastAPI dependency factory: `Depends(require_permission('admin:users:write'))`."""
+
+    def _dep(current_user: CurrentUser) -> SessionUser:
+        if not user_has_permission(current_user, permission):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "permission_denied",
+                    "permission": permission,
+                },
+            )
+        return current_user
+
+    return _dep
+
+
+def audit_admin_mutation(
+    *,
+    actor: SessionUser,
+    action: str,
+    resource: str,
+    resource_id: str | None = None,
+    trace_id: str | None = None,
+) -> None:
+    """Structured audit line for admin writes (ADR 0007 correlation)."""
+    import logging
+
+    logging.getLogger("recombyn.audit").info(
+        "admin_audit action=%s resource=%s resource_id=%s actor=%s trace_id=%s",
+        action,
+        resource,
+        resource_id or "",
+        getattr(actor, "id", ""),
+        trace_id or "",
+        extra={
+            "event": "admin_audit",
+            "user_id": getattr(actor, "id", None),
+            "trace_id": trace_id,
+            "action": action,
+            "resource": resource,
+        },
+    )

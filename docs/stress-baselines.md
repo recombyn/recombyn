@@ -25,10 +25,9 @@ Phase 5 living notes. Tools already exist; this doc records **how to capture a b
 
 ## Intentional gaps (still)
 
-- Real provider paid image/video gen finish (E2E uses route mock only)
-- True 5k-node SvgCanvas interactive mount
-- OTel spans inside Celery worker / collab Node process (API SDK is live — ADR 0011)
+- Real provider paid image/video gen finish in CI (opt-in: `E2E_PAID_IMAGE_GEN=1`)
+- Full 5k SVG host DOM mount (product uses LOD ≤96 full hosts — covered by `canvas5k.interactiveBudget`)
 
 Dual-client Yjs concurrent merge: `npm run test:collab:merge` (also Gate B `perf-k6.yml`).
 
-See [quality-gates.md](./quality-gates.md) Gate A/B and [bigco-alignment.md](./roadmap/bigco-alignment.md) Phase 5.
+See [quality-gates.md](./quality-gates.md) Gate A/B and [bigco-alignment.md](./roadmap/bigco-alignment.md) Phase 5–6.

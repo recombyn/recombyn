@@ -16,12 +16,14 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Desktop unsigned CI build (dispatch) + signing checklist (ADR 0010); stress baseline runbook
 - Mock image-gen promote E2E + project `baseRevision` 412 conflict coverage (Phase 5 slice)
 - Optional OpenTelemetry (`.[otel]`, ADR 0011); hydrate Redis DLQ; ClamAV compose profile; dual Yjs merge Gate B
+- Phase 6: k8s starter manifests, worker/collab OTel, RBAC permissions, 5k LOD budget test, paid-gen opt-in E2E
 
 ### Changed
 
 - Self-host docs: Docker Compose image tag rollback procedure
 - Cleared Phase 1 web `tsc` debt; `npm run typecheck:web` required in CI / `ci:gate`
 - Perf k6 collab install uses `--ignore-scripts` (husky prepare no longer breaks Gate B)
+- Hydrate DLQ push is best-effort (no Redis required in unit tests)
 
 ## [0.1.0] — 2026-08-12
 
