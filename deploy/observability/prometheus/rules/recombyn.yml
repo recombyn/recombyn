@@ -69,3 +69,34 @@ groups:
         annotations:
           summary: "Hydrate DLQ depth > 20"
           description: "Redis list recombyn:dlq:hydrate is backing up. Check worker health and replay or discard via admin ops."
+
+      - alert: RecombynExportJobFailures
+        expr: |
+          sum(rate(recombyn_export_jobs_total{event="failed"}[10m]))
+            /
+          clamp_min(sum(rate(recombyn_export_jobs_total{event=~"enqueued|done|failed"}[10m])), 0.001)
+            > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Export job failure rate > 25% (10m)"
+          description: "Check Celery worker, storage, Redis DLQ recombyn:dlq:export, and logs filtered by trace_id."
+
+      - alert: RecombynExportDlqRising
+        expr: increase(recombyn_export_dlq_total[30m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Export DLQ receiving failures"
+          description: "More than 5 export jobs pushed to Redis DLQ in 30m. Replay via POST /api/v1/admin/ops/export-dlq/replay."
+
+      - alert: RecombynExportDlqDepth
+        expr: recombyn_export_dlq_depth > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Export DLQ depth > 20"
+          description: "Redis list recombyn:dlq:export is backing up. Check worker health and replay or discard via admin ops."

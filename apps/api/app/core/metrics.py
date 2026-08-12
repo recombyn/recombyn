@@ -67,6 +67,11 @@ EXPORT_DLQ_TOTAL = Counter(
     "Export jobs pushed to Redis DLQ after terminal failure",
 )
 
+EXPORT_DLQ_DEPTH = Gauge(
+    "recombyn_export_dlq_depth",
+    "Current Redis export DLQ list length (recombyn:dlq:export)",
+)
+
 
 def observe_hydrate_job(event: str) -> None:
     """event: enqueued | done | failed | retry | dlq."""
@@ -127,11 +132,12 @@ def refresh_dependency_gauges() -> None:
     except Exception:
         logger.debug("dependency gauge refresh failed", exc_info=True)
     try:
-        from app.services.job_store import hydrate_dlq_depth
+        from app.services.job_store import export_dlq_depth, hydrate_dlq_depth
 
         HYDRATE_DLQ_DEPTH.set(float(hydrate_dlq_depth()))
+        EXPORT_DLQ_DEPTH.set(float(export_dlq_depth()))
     except Exception:
-        logger.debug("hydrate dlq depth gauge failed", exc_info=True)
+        logger.debug("job dlq depth gauge failed", exc_info=True)
 
 
 def setup_metrics(app: "FastAPI") -> None:

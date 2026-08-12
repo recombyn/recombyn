@@ -111,6 +111,45 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "title": "Export jobs by event",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "sum(rate(recombyn_export_jobs_total[5m])) by (event)",
+          "legendFormat": "{{event}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Export DLQ depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 24 },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "recombyn_export_dlq_depth",
+          "legendFormat": "depth",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Export DLQ pushes",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 24 },
+      "id": 10,
+      "targets": [
+        {
+          "expr": "increase(recombyn_export_dlq_total[1h])",
+          "legendFormat": "1h",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
