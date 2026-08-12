@@ -1,14 +1,18 @@
 """Server-side artboard export (PNG / PDF) for async jobs (ADR 0005).
 
 Not a full Fabric/SVG replay — composites artboard background, solid rects,
-and image nodes. Interactive canvas export stays in the browser.
+image nodes, and scene text (wrapped to the node box). Interactive canvas
+export stays in the browser.
 """
 
 from __future__ import annotations
 
 import io
+import json
 import logging
+import os
 import re
+from functools import lru_cache
 from typing import Any
 
 from app.services.plaza.cover import list_artboard_frames
@@ -125,6 +129,292 @@ def _fill_color(node: dict[str, Any]) -> tuple[int, int, int, int] | None:
     return _parse_color(raw, default=(0, 0, 0, 0))
 
 
+def _node_z(node: dict[str, Any]) -> int:
+    attrs = _attrs(node)
+    return int(
+        _num(
+            node.get("z"),
+            _num(node.get("zIndex"), _num(attrs.get("z"), _num(attrs.get("zIndex")))),
+        )
+    )
+
+
+def _json_list(raw: Any) -> list[Any]:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def _text_plain(attrs: dict[str, Any]) -> str:
+    origin_lines: list[str] = []
+    for block in _json_list(attrs.get("ORIGIN_DATA")):
+        if not isinstance(block, dict):
+            continue
+        children = block.get("children")
+        if not isinstance(children, list):
+            continue
+        origin_lines.append(
+            "".join(str(c.get("text") or "") for c in children if isinstance(c, dict))
+        )
+    origin = "\n".join(part for part in origin_lines if part)
+    if origin:
+        return origin
+
+    data_lines: list[str] = []
+    for run in _json_list(attrs.get("DATA")):
+        if not isinstance(run, dict):
+            continue
+        chars = run.get("chars")
+        if not isinstance(chars, list):
+            continue
+        data_lines.append(
+            "".join(str(item.get("char") or "") for item in chars if isinstance(item, dict))
+        )
+    data = "\n".join(data_lines)
+    if data:
+        return data
+
+    for key in ("markdown", "text", "content"):
+        raw = attrs.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw
+    return ""
+
+
+def _first_char_config(attrs: dict[str, Any]) -> dict[str, Any]:
+    for run in _json_list(attrs.get("DATA")):
+        if not isinstance(run, dict):
+            continue
+        chars = run.get("chars")
+        if not isinstance(chars, list):
+            continue
+        for item in chars:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("char") or "").strip():
+                cfg = item.get("config")
+                return cfg if isinstance(cfg, dict) else {}
+    return {}
+
+
+def _origin_font_base(attrs: dict[str, Any]) -> dict[str, Any]:
+    for block in _json_list(attrs.get("ORIGIN_DATA")):
+        if not isinstance(block, dict):
+            continue
+        children = block.get("children")
+        if not isinstance(children, list) or not children:
+            continue
+        child = children[0]
+        if not isinstance(child, dict):
+            continue
+        base = child.get("font-base")
+        return base if isinstance(base, dict) else {}
+    return {}
+
+
+def _text_style(attrs: dict[str, Any]) -> dict[str, Any]:
+    font_size = 14.0
+    fill = "#333333"
+    align = "left"
+    line_height = 1.4
+    weight = "normal"
+    cfg = _first_char_config(attrs)
+    if cfg.get("SIZE") is not None:
+        font_size = max(1.0, _num(cfg.get("SIZE"), 14.0))
+    if cfg.get("COLOR"):
+        fill = str(cfg.get("COLOR"))
+    if cfg.get("ALIGN"):
+        align = str(cfg.get("ALIGN")).strip().lower() or "left"
+    if cfg.get("LINE_HEIGHT") is not None:
+        line_height = max(0.8, _num(cfg.get("LINE_HEIGHT"), 1.4))
+    if str(cfg.get("WEIGHT") or "").strip().lower() in ("bold", "700", "800", "900"):
+        weight = "bold"
+    base = _origin_font_base(attrs)
+    if base.get("fontSize") is not None:
+        font_size = max(1.0, _num(base.get("fontSize"), font_size))
+    if base.get("color"):
+        fill = str(base.get("color"))
+    if base.get("textAlign"):
+        align = str(base.get("textAlign")).strip().lower() or align
+    if base.get("lineHeight") is not None:
+        line_height = max(0.8, _num(base.get("lineHeight"), line_height))
+    return {
+        "font_size": font_size,
+        "fill": fill,
+        "align": align,
+        "line_height": line_height,
+        "weight": weight,
+    }
+
+
+def _font_candidates(bold: bool) -> list[str]:
+    windir = os.environ.get("WINDIR") or "C:\\Windows"
+    if bold:
+        return [
+            os.path.join(windir, "Fonts", "msyhbd.ttc"),
+            os.path.join(windir, "Fonts", "arialbd.ttf"),
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        ]
+    return [
+        os.path.join(windir, "Fonts", "msyh.ttc"),
+        os.path.join(windir, "Fonts", "msyh.ttf"),
+        os.path.join(windir, "Fonts", "simhei.ttf"),
+        os.path.join(windir, "Fonts", "arial.ttf"),
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+    ]
+
+
+@lru_cache(maxsize=8)
+def _resolve_font_path(bold: bool) -> str | None:
+    for path in _font_candidates(bold):
+        if path and os.path.isfile(path):
+            return path
+    if bold:
+        return _resolve_font_path(False)
+    return None
+
+
+@lru_cache(maxsize=32)
+def _load_font(size: int, bold: bool):
+    from PIL import ImageFont
+
+    px = max(8, int(size))
+    path = _resolve_font_path(bold)
+    if path:
+        try:
+            return ImageFont.truetype(path, px)
+        except OSError:
+            _log.debug("export font load failed: %s", path)
+    try:
+        return ImageFont.load_default(size=px)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _glyph_width(font: Any, text: str) -> float:
+    if not text:
+        return 0.0
+    getlength = getattr(font, "getlength", None)
+    if callable(getlength):
+        try:
+            return float(getlength(text))
+        except (TypeError, ValueError, OSError):
+            pass
+    bbox = font.getbbox(text)
+    return float(bbox[2] - bbox[0])
+
+
+def _wrap_text(text: str, font: Any, max_width: float) -> list[str]:
+    limit = max(8.0, float(max_width))
+    lines: list[str] = []
+    for para in text.replace("\r\n", "\n").split("\n"):
+        if not para:
+            lines.append("")
+            continue
+        current = ""
+        for ch in para:
+            trial = current + ch
+            if _glyph_width(font, trial) <= limit or not current:
+                current = trial
+                continue
+            lines.append(current)
+            current = ch
+        if current:
+            lines.append(current)
+    return lines or [""]
+
+
+def _draw_text(
+    draw: Any,
+    node: dict[str, Any],
+    *,
+    dx: int,
+    dy: int,
+    dw: int,
+    dh: int,
+    scale: float,
+) -> None:
+    attrs = _attrs(node)
+    plain = _text_plain(attrs)
+    if not plain.strip():
+        return
+    style = _text_style(attrs)
+    font_px = max(8, int(round(style["font_size"] * scale)))
+    font = _load_font(font_px, style["weight"] == "bold")
+    color = _parse_color(style["fill"], default=(51, 51, 51, 255))
+    lines = _wrap_text(plain, font, max(font_px, dw))
+    line_px = max(1, int(round(style["font_size"] * max(0.8, style["line_height"]) * scale)))
+    auto_size = str(attrs.get("autoSize") or "true").lower() != "false"
+    origin_y = dy
+    if not auto_size:
+        content_h = line_px * max(1, len(lines))
+        origin_y = dy + max(0, (dh - content_h) // 2)
+    align = style["align"]
+    for i, line in enumerate(lines):
+        y = origin_y + i * line_px
+        if y >= dy + dh:
+            break
+        if align in ("center", "middle"):
+            x = dx + max(0.0, (dw - _glyph_width(font, line)) / 2.0)
+        elif align in ("right", "end"):
+            x = dx + max(0.0, dw - _glyph_width(font, line))
+        else:
+            x = float(dx)
+        draw.text((int(round(x)), int(y)), line or " ", font=font, fill=color[:3])
+
+
+def _paint_image(canvas: Any, src: str, dx: int, dy: int, dw: int, dh: int) -> None:
+    from PIL import Image
+
+    blob = _load_image_bytes(src)
+    png = _to_png_bytes(blob, max_edge=_MAX_EDGE) if blob else None
+    if not png:
+        return
+    im = Image.open(io.BytesIO(png)).convert("RGBA")
+    im = im.resize((dw, dh), Image.Resampling.LANCZOS)
+    canvas.alpha_composite(im, (dx, dy))
+
+
+def _paint_node(
+    canvas: Any,
+    draw: Any,
+    node: dict[str, Any],
+    *,
+    dx: int,
+    dy: int,
+    dw: int,
+    dh: int,
+    scale: float,
+) -> None:
+    key = str(node.get("key") or "").strip().lower()
+    if key == "text":
+        _draw_text(draw, node, dx=dx, dy=dy, dw=dw, dh=dh, scale=scale)
+        return
+    src = _image_src(node)
+    if src:
+        _paint_image(canvas, src, dx, dy, dw, dh)
+        return
+    fill = _fill_color(node)
+    if fill is None:
+        return
+    draw.rectangle([dx, dy, dx + dw, dy + dh], fill=fill)
+
+
 def _fallback_frame(document: dict[str, Any]) -> dict[str, Any]:
     w = max(1.0, _num(document.get("width"), 794.0))
     h = max(1.0, _num(document.get("height"), 1123.0))
@@ -173,7 +463,7 @@ def render_artboard_png(document: dict[str, Any], frame: dict[str, Any]) -> byte
     fx, fy = _num(frame.get("x")), _num(frame.get("y"))
 
     nodes = [n for n in _iter_nodes(document) if _inside_frame(n, frame)]
-    nodes.sort(key=lambda n: int(_num(n.get("zIndex"), _num(_attrs(n).get("zIndex")))))
+    nodes.sort(key=_node_z)
 
     for node in nodes:
         x, y, w, h = _node_box(node)
@@ -181,20 +471,7 @@ def render_artboard_png(document: dict[str, Any], frame: dict[str, Any]) -> byte
         dy = int(round((y - fy) * scale))
         dw = max(1, int(round(w * scale)))
         dh = max(1, int(round(h * scale)))
-        src = _image_src(node)
-        if src:
-            blob = _load_image_bytes(src)
-            png = _to_png_bytes(blob, max_edge=_MAX_EDGE) if blob else None
-            if not png:
-                continue
-            im = Image.open(io.BytesIO(png)).convert("RGBA")
-            im = im.resize((dw, dh), Image.Resampling.LANCZOS)
-            canvas.alpha_composite(im, (dx, dy))
-            continue
-        fill = _fill_color(node)
-        if fill is None:
-            continue
-        draw.rectangle([dx, dy, dx + dw, dy + dh], fill=fill)
+        _paint_node(canvas, draw, node, dx=dx, dy=dy, dw=dw, dh=dh, scale=scale)
 
     out = io.BytesIO()
     canvas.convert("RGB").save(out, format="PNG", optimize=True)

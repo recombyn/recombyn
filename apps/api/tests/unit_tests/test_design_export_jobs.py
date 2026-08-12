@@ -70,6 +70,83 @@ def test_render_artboard_png_magic():
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_render_artboard_png_draws_text():
+    import json
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.services.design.export_render import render_artboard_png
+
+    chars = [
+        {
+            "char": c,
+            "config": {
+                "SIZE": 28,
+                "COLOR": "#000000",
+                "WEIGHT": "bold",
+                "ALIGN": "left",
+                "LINE_HEIGHT": 1.2,
+            },
+        }
+        for c in "Hello"
+    ]
+    doc: dict[str, Any] = {
+        "width": 200,
+        "height": 100,
+        "backgroundColor": "#ffffff",
+        "frames": [
+            {
+                "id": "f1",
+                "name": "Board",
+                "x": 0,
+                "y": 0,
+                "width": 200,
+                "height": 100,
+                "backgroundColor": "#ffffff",
+            }
+        ],
+        "deltaSetLike": {
+            "ROOT": {"id": "ROOT", "children": ["t1"]},
+            "t1": {
+                "id": "t1",
+                "key": "text",
+                "x": 8,
+                "y": 20,
+                "z": 1,
+                "width": 180,
+                "height": 48,
+                "attrs": {
+                    "markdown": "Hello",
+                    "DATA": json.dumps([{"chars": chars}], ensure_ascii=False),
+                    "ORIGIN_DATA": json.dumps(
+                        [
+                            {
+                                "children": [
+                                    {
+                                        "text": "Hello",
+                                        "font-base": {"fontSize": 28, "color": "#000000"},
+                                    }
+                                ]
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                },
+            },
+        },
+    }
+    png = render_artboard_png(doc, doc["frames"][0])
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    im = Image.open(BytesIO(png)).convert("RGB")
+    raw = im.tobytes()
+    dark = 0
+    for i in range(0, len(raw), 3):
+        if raw[i] < 80 and raw[i + 1] < 80 and raw[i + 2] < 80:
+            dark += 1
+    assert dark > 20
+
+
 def test_render_and_store_pdf(monkeypatch: pytest.MonkeyPatch):
     from app.services.design import export_render as er
 
