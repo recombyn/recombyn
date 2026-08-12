@@ -25,6 +25,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Org invite **email notify** (Tencent SES best-effort; response `emailSent`)
 - Admin hydrate **DLQ replay** (`/api/v1/admin/ops/hydrate-dlq`) + `recombyn_hydrate_dlq_depth`
 - Compose **obs** profile (Prometheus / Grafana / Alertmanager) and **av** overlay (`clamdscan`)
+- Admin Insights **失败队列** tab (hydrate DLQ list / replay / discard)
 
 ### Changed
 
