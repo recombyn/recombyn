@@ -45,7 +45,7 @@ export type CanvasToolbarButton = {
   id: string;
   pluginId: string;
   tip: string;
-  order: number;
+  order?: number;
   iconSrc?: string;
   icon?: ReactNode;
   onClick: (runtime: CanvasPluginRuntime) => void;
@@ -75,7 +75,7 @@ export function __resetCanvasPluginsForTests(): void {
 
 export function listCanvasToolbarButtons(): CanvasToolbarButton[] {
   return [...toolbarButtons.values()].sort(
-    (a, b) => a.order - b.order || a.id.localeCompare(b.id)
+    (a, b) => (a.order ?? 100) - (b.order ?? 100) || a.id.localeCompare(b.id)
   );
 }
 
@@ -173,8 +173,9 @@ export async function ensureCanvasPlugins(): Promise<void> {
   bootstrapped = true;
   try {
     const mod = await import('@canvas-plugins/watermark');
-    const pack =
-      (mod as { default?: CanvasPluginModule }).default || (mod as CanvasPluginModule);
+    const pack = (mod as { default?: unknown }).default as
+      | CanvasPluginModule
+      | undefined;
     if (pack?.manifest) installCanvasPlugin(pack);
   } catch (err) {
     console.warn('[canvas-plugin] builtin watermark failed to load', err);
