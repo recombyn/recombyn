@@ -63,6 +63,12 @@ async def create_hydrate_job(body: HydrateJobCreateRequest, _current_user: Curre
             status_code=503,
             detail=f"Job queue unavailable (start Redis + worker). {exc}",
         ) from exc
+    try:
+        from app.core.metrics import observe_hydrate_job
+
+        observe_hydrate_job("enqueued")
+    except Exception:
+        pass
     return HydrateJobCreateResponse(job_id=job_id, status="queued")
 
 

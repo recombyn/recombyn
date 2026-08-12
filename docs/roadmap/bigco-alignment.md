@@ -48,7 +48,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Celery+Redis configured; underused | ADR + first queue with retry/DLQ |
+| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate autoretry + metrics | DLQ when failure rate known |
 | AI / 导出 / 渲染异步 | Hydrate jobs API + apply enqueue | Export / long paint off request |
 | 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
 
@@ -112,8 +112,8 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] LLM adapter ADR + thin façade (model 中台 **in-process** first) — [0006](../adr/0006-llm-facade-memory-tiers.md)
 - [x] Memory tiers documented (session / project / global → `agent_memory`) — same ADR
 - [x] Alembic single-head CI gate (`test_alembic_single_head`)
-- [ ] Coverage floor on new routes (hydrate jobs)
-- [ ] Celery retry / DLQ metrics when failure rate known
+- [x] Coverage floor on hydrate jobs route (`--cov-fail-under=95`)
+- [x] Celery transient retry + `recombyn_hydrate_jobs_total` metrics (DLQ still deferred)
 
 ### Phase 3 — Observability & security
 

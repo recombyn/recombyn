@@ -40,6 +40,20 @@ DEP_WORKER_UP = Gauge(
     "recombyn_dependency_worker_up", "1 if Celery worker ping succeeds"
 )
 
+HYDRATE_JOBS_TOTAL = Counter(
+    "recombyn_hydrate_jobs_total",
+    "Design image hydrate jobs enqueued or finished",
+    ["event"],
+)
+
+
+def observe_hydrate_job(event: str) -> None:
+    """event: enqueued | done | failed | retry."""
+    try:
+        HYDRATE_JOBS_TOTAL.labels(event=(event or "unknown")[:32]).inc()
+    except Exception:
+        logger.debug("hydrate job metric failed", exc_info=True)
+
 
 def observe_design_run_start(run_mode: str = "agent") -> None:
     try:

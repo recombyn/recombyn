@@ -11,6 +11,7 @@ from app.services.pipeline import run_import
 from worker.celery_app import celery
 
 _HYDRATE_KIND = "hydrate"
+_HYDRATE_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 
 
 @celery.task(name="worker.tasks.run_import_job", bind=True)
@@ -35,11 +36,22 @@ def run_import_job(self, job_id: str, source_type: str, file_path: str) -> dict:
         return {"job_id": job_id, "status": "failed", "error": str(exc)}
 
 
-@celery.task(name="worker.tasks.run_image_hydrate_job", bind=True)
+@celery.task(
+    name="worker.tasks.run_image_hydrate_job",
+    bind=True,
+    autoretry_for=_HYDRATE_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
 def run_image_hydrate_job(self, job_id: str) -> dict:
     """Fill create_image genPrompt ops via image providers (ADR 0005)."""
+    from app.core.metrics import observe_hydrate_job
+
     job = get_job(job_id, kind=_HYDRATE_KIND)
     if not job:
+        observe_hydrate_job("failed")
         return {"job_id": job_id, "status": "failed", "error": "job_not_found"}
 
     update_job(job_id, kind=_HYDRATE_KIND, status="processing", progress=10, error=None)
@@ -73,7 +85,18 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
             result=result,
             error=None,
         )
+        observe_hydrate_job("done")
         return {"job_id": job_id, "status": "done", "filled": filled}
+    except _HYDRATE_TRANSIENT as exc:
+        # Leave status=processing so clients keep polling; Celery will retry.
+        observe_hydrate_job("retry")
+        update_job(
+            job_id,
+            kind=_HYDRATE_KIND,
+            status="processing",
+            error=f"transient retry: {exc}",
+        )
+        raise
     except Exception as exc:  # noqa: BLE001
         update_job(
             job_id,
@@ -82,6 +105,7 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
             progress=100,
             error=str(exc),
         )
+        observe_hydrate_job("failed")
         return {"job_id": job_id, "status": "failed", "error": str(exc)}
 
 
