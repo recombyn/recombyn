@@ -5,7 +5,7 @@
 
 ## Context
 
-Recombyn ships a canvas web app, a Python Design Agent API, a Yjs collab server, and shared contracts. We need clear ownership so tooling (Turborepo, lint, CI) and future async/observability work do not blur process boundaries.
+Recombyn ships a canvas web app, a Python Design Agent API, a collab server, and shared contracts. We need clear ownership so tooling (lint, CI) and future async/observability work do not blur process boundaries.
 
 ## Decision
 
@@ -20,20 +20,20 @@ Recombyn ships a canvas web app, a Python Design Agent API, a Yjs collab server,
 | `packages/scene-schema` / `scene-builder-py` | Scene document schema / builders | dual |
 
 - **npm workspaces** own JS/TS packages; Python stays under `apps/api` with its own venv/`pip install -e`.
-- **Turborepo** orchestrates JS package tasks (`build` / `lint` / `typecheck` / `test` / `dev`). API tests remain `npm run test:api` (or Gate scripts), not forced into npm workspace graphs.
+- **Workspace task runner** orchestrates JS package tasks (`build` / `lint` / `typecheck` / `test` / `dev`). API tests remain `npm run test:api` (or Gate scripts), not forced into npm workspace graphs.
 - Cross-language contracts flow through OpenAPI / `packages/contracts`, not ad-hoc shared folders.
 
 ## Consequences
 
 ### Positive
 
-- Clear CI path filters and turbo caching for web/collab/contracts.
+- Clear CI path filters and task caching for web/collab/contracts.
 - Shared lint/tsconfig without dumping utils into `src/utils`.
 
 ### Negative / trade-offs
 
 - Developers need both Node and Python toolchains.
-- Turbo does not schedule Python tasks; document Gate A/B separately.
+- The JS task runner does not schedule Python tasks; document Gate A/B separately.
 
 ## Alternatives considered
 

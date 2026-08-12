@@ -22,12 +22,12 @@ Detailed behavior: [docs/canvas-architecture.md](../canvas-architecture.md).
 
 ### Negative / trade-offs
 
-- Higher maintenance vs adopting Fabric/tldraw/etc.
+- Higher maintenance vs adopting an off-the-shelf whiteboard SDK.
 - New contributors need the canvas architecture doc.
 
 ## Alternatives considered
 
-1. **tldraw / Excalidraw fork** — rejected for product-specific artboards, generators, and agent ops.
+1. **Fork a generic whiteboard SDK** — rejected for product-specific artboards, generators, and agent ops.
 2. **Pure SVG without RCB layer** — insufficient for LOD and collab bridge.
 
 ## References

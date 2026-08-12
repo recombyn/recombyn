@@ -39,4 +39,4 @@ ADR 0007 shipped app-level `trace_id` + JSON logs for hydrate correlation. Cross
 
 - [ADR 0007](./0007-correlation-structured-logs.md)
 - `apps/api/app/core/metrics.py` (`setup_otel`)
-- [Roadmap Phase 3](../roadmap/bigco-alignment.md)
+- [Roadmap Phase 3](../roadmap/platform.md)

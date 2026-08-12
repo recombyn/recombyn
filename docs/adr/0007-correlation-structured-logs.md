@@ -38,4 +38,4 @@ Phase 3 needs API → Celery observability. We already have Prometheus `/metrics
 - [ADR 0005](./0005-async-job-boundary.md)
 - `apps/api/app/services/job_store.py`
 - `deploy/observability/prometheus/rules/recombyn.yml`
-- [Roadmap Phase 3](../roadmap/bigco-alignment.md)
+- [Roadmap Phase 3](../roadmap/platform.md)

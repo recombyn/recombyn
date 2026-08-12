@@ -30,4 +30,4 @@ Phase 5 living notes. Tools already exist; this doc records **how to capture a b
 
 Dual-client Yjs concurrent merge: `npm run test:collab:merge` (also Gate B `perf-k6.yml`).
 
-See [quality-gates.md](./quality-gates.md) Gate A/B and [bigco-alignment.md](./roadmap/bigco-alignment.md) Phase 5–6.
+See [quality-gates.md](./quality-gates.md) Gate A/B and [platform.md](./roadmap/platform.md) Phase 5–6.

@@ -36,7 +36,7 @@ Useful scripts:
 | `npm run test` | Web + API tests |
 | `npm run test:web` / `test:api` | Scoped tests |
 | `npm run test:e2e` | Playwright (under `e2e/`) |
-| `npm run build` | Production web build (via Turborepo) |
+| `npm run build` | Production web build |
 
 ## Commits
 
@@ -47,14 +47,14 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat|fix|docs
 ```bash
 feat(canvas): show mark-region live preview while dragging
 fix(api): skip soft min_creates without craft skills
-chore: add turborepo and shared tsconfig
+chore: add workspace task runner and shared tsconfig
 ```
 
 Do **not** add AI-assistant `Co-authored-by` trailers (CI rejects `Co-authored-by: Cursor`).
 
 ## Architecture decisions (ADR)
 
-Cross-cutting changes need an ADR under [`docs/adr/`](./docs/adr/README.md) (copy the template). Seed docs: monorepo boundaries, RCB canvas, Yjs collab. Roadmap: [`docs/roadmap/bigco-alignment.md`](./docs/roadmap/bigco-alignment.md).
+Cross-cutting changes need an ADR under [`docs/adr/`](./docs/adr/README.md) (copy the template). Seed docs: monorepo boundaries, RCB canvas, collab. Roadmap: [`docs/roadmap/platform.md`](./docs/roadmap/platform.md).
 
 ## Git identity (required)
 
