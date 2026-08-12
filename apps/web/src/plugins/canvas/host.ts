@@ -171,13 +171,17 @@ export function buildCanvasPluginRuntime(
 export async function ensureCanvasPlugins(): Promise<void> {
   if (bootstrapped) return;
   bootstrapped = true;
-  try {
-    const mod = await import('@canvas-plugins/watermark');
-    const pack = (mod as { default?: unknown }).default as
-      | CanvasPluginModule
-      | undefined;
-    if (pack?.manifest) installCanvasPlugin(pack);
-  } catch (err) {
-    console.warn('[canvas-plugin] builtin watermark failed to load', err);
+  // Sample watermark toolbar button is a local demo only — never ship on Cloud / prod.
+  if (import.meta.env.DEV) {
+    try {
+      const mod = await import('@canvas-plugins/watermark');
+      const pack = (mod as { default?: unknown }).default as
+        | CanvasPluginModule
+        | undefined;
+      if (pack?.manifest) installCanvasPlugin(pack);
+    } catch (err) {
+      console.warn('[canvas-plugin] builtin watermark failed to load', err);
+    }
   }
+  // Cloud-safe first-party packs can register below (unconditional).
 }

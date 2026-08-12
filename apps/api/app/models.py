@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import Column, LargeBinary
+from sqlalchemy import Column, LargeBinary, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -432,8 +432,9 @@ class DesignPromptPack(SQLModel, table=True):
     kind: str = Field(max_length=128)
     pack_type: str = Field(default="need", max_length=32)
     title: str = Field(max_length=128)
-    body: str = Field(default="")
-    when_to_use: Optional[str] = Field(default=None)
+    # MySQL maps bare str → VARCHAR(255); packs/skills need TEXT.
+    body: str = Field(default="", sa_column=Column(Text, nullable=False))
+    when_to_use: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     scenes: str = Field(default="all", max_length=128)
     used_by: str = Field(default="", max_length=256)
     sort_order: int = Field(default=0)
@@ -449,23 +450,23 @@ class DesignSkill(SQLModel, table=True):
     name: str = Field(max_length=128)
     skill_key: Optional[str] = Field(default=None, max_length=64)
     category: str = Field(max_length=32)
-    prompt_positive: str = Field(default="")
-    prompt_negative: Optional[str] = Field(default=None)
-    when_to_use: Optional[str] = Field(default=None)
-    preferred_tools: Optional[str] = Field(default=None)
-    allowed_resources: Optional[str] = Field(default=None)
-    triggers: Optional[str] = Field(default=None)
+    prompt_positive: str = Field(default="", sa_column=Column(Text, nullable=False))
+    prompt_negative: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    when_to_use: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    preferred_tools: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    allowed_resources: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    triggers: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     mutex_group: Optional[str] = Field(default=None, max_length=64)
     version: int = Field(default=1)
     pack_version: Optional[str] = Field(default=None, max_length=32)
-    description: Optional[str] = Field(default=None)
-    logo: Optional[str] = Field(default=None)
-    locales: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    logo: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    locales: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     source: str = Field(default="admin", max_length=16)
     namespace: str = Field(default="user", max_length=16)
     owner_user_id: Optional[str] = Field(default=None, max_length=64)
-    input_schema: Optional[str] = Field(default=None)
-    output_schema: Optional[str] = Field(default=None)
+    input_schema: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    output_schema: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     sort_weight: int = Field(default=0)
     scenes: str = Field(default="all", max_length=128)
     default_model: str = Field(default="doubao", max_length=32)
@@ -486,7 +487,7 @@ class DesignSkillRevision(SQLModel, table=True):
     namespace: str = Field(default="user", max_length=16)
     version: int = Field(default=1)
     pack_version: Optional[str] = Field(default=None, max_length=32)
-    snapshot: str = Field(default="")
+    snapshot: str = Field(default="", sa_column=Column(Text, nullable=False))
     source: str = Field(default="admin", max_length=16)
     created_at: float = Field(default=0.0)
 
