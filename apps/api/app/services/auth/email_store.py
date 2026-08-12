@@ -628,13 +628,13 @@ def store_code(email: str, code: str) -> None:
 
     init_auth_db()
     email_n = email.strip().lower()
-    now = time.time()
+    now = int(time.time())
     with Session(engine) as session:
         crud.upsert_email_code(
             session=session,
             email=email_n,
             code_hash=hash_code(email_n, code),
-            expires_at=now + _CODE_TTL_SECONDS,
+            expires_at=now + int(_CODE_TTL_SECONDS),
             sent_at=now,
         )
 
@@ -652,7 +652,7 @@ def verify_and_issue_ticket(email: str, code: str) -> str:
         row = crud.get_email_code(session=session, email=email_n)
         if not row:
             raise ValueError("code_missing")
-        if float(row.expires_at) < time.time():
+        if int(row.expires_at) < int(time.time()):
             session.delete(row)
             session.commit()
             raise ValueError("code_expired")
@@ -671,7 +671,7 @@ def verify_and_issue_ticket(email: str, code: str) -> str:
             session=session,
             ticket=ticket,
             email=email_n,
-            expires_at=time.time() + _TICKET_TTL_SECONDS,
+            expires_at=int(time.time()) + int(_TICKET_TTL_SECONDS),
         )
         return ticket
 
@@ -690,7 +690,7 @@ def consume_ticket(email: str, ticket: str) -> bool:
             return False
         session.delete(row)
         session.commit()
-        if float(row.expires_at) < time.time():
+        if int(row.expires_at) < int(time.time()):
             return False
         return str(row.email).lower() == email_n
 
@@ -736,14 +736,14 @@ def create_activate_token(email: str) -> str:
 
     init_auth_db()
     email_n = email.strip().lower()
-    now = time.time()
+    now = int(time.time())
     token_id = secrets.token_urlsafe(24)
     with Session(engine) as session:
         crud.replace_activate_token(
             session=session,
             email=email_n,
             token_id=token_id,
-            expires_at=now + _ACTIVATE_TTL_SECONDS,
+            expires_at=now + int(_ACTIVATE_TTL_SECONDS),
             created_at=now,
         )
     return token_id
@@ -765,7 +765,7 @@ def consume_activate_token(token_id: str) -> str:
         if not row:
             raise ValueError("link_invalid")
         email = str(row.email).strip().lower()
-        expired = float(row.expires_at) < time.time()
+        expired = int(row.expires_at) < int(time.time())
         session.delete(row)
         session.commit()
         if expired:
