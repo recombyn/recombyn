@@ -71,7 +71,7 @@ Typical turn: `intent` → (chat settle / lean `paint` / design `decide`) → `p
 
 ### What Skills are
 
-One folder per skill: `apps/api/seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`).
+One folder per skill: `apps/api/seeds/design_skills/<key>/` (canonical: `_meta.json` + `SKILL.md`; optional `schema.json`, `assets/`, …).
 
 - **`_meta.json`** — `when_to_use`, triggers, `preferred_tools`, mutex — Decide picks skills from this
 - **`SKILL.md`** — how to craft that deliverable (landing, poster, resume, dashboard, motion, …)
@@ -104,6 +104,8 @@ Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/s
 1. Create `design_skills/my_scene/_meta.json` + `SKILL.md`  
 2. Fill triggers + `preferred_tools`  
 3. Restart / re-ensure seeds — Decide can attach it
+
+Private packs can also live under [`plugins/skills/`](plugins/skills/) (Compose-mounted). Authoring: [docs/skill-extensions.md](docs/skill-extensions.md).
 
 Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models / OpenRouter: [docs/self-hosting.md](docs/self-hosting.md).
 
@@ -176,6 +178,7 @@ User-facing help **source** is private; CI publishes only the built static site 
 |--|--|
 | User docs | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
+| Skill extensions | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | AgentProfile / sub-agents | [docs/agent-profile.md](docs/agent-profile.md) |
 | Canvas (RCB / SVG / Path2D / LOD) | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
 | Web data layer (Query / oRPC / nuqs) | [docs/web-frontend.md](docs/web-frontend.md) |

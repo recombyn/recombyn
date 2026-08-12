@@ -87,6 +87,8 @@ services:
     volumes:
       - ./apps/api/storage/uploads:/app/apps/api/storage/uploads
       - ./apps/api/storage/results:/app/apps/api/storage/results
+      # Private skill packs (Phase A) — drop folders without rebuilding the image
+      - ./plugins/skills:/app/plugins/skills
     environment:
       - LIBREOFFICE_PATH=/usr/bin/soffice
       - REDIS_URL=redis://redis:6379/0

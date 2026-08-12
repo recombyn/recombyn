@@ -39,6 +39,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 | AI 模型入口 | In-process façade (`get_llm_endpoint` / `build_chat_model`) |
 | 异步任务 | Celery worker sharing the API codebase (hydrate / export / image) |
 | 协同 | `apps/collab` WebSocket process |
+| 扩展（Skill） | File packs: `seeds/design_skills` + `plugins/skills` ([ADR 0013](../adr/0013-skill-extensions.md)) |
 
 → See [ADR 0004](../adr/0004-modular-monolith-first.md).
 
@@ -164,3 +165,11 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 - [x] Export DLQ admin replay (`GET/POST/DELETE /admin/ops/export-dlq`) + depth gauge / Insights tab
 - [x] Chat image gen jobs (`POST/GET /chat/image/jobs`) — editor polls; sync `POST /chat/image` kept for scripts
 - [x] Hydrate job progress on Design Agent SSE (`activity` + `task_id`)
+- [x] Skill extensions Phase A — `plugins/skills` mount, meta aliases, sample `festival_poster` ([ADR 0013](../adr/0013-skill-extensions.md))
+
+### Phase 7 — Extensibility (plugins)
+
+- [x] Skill playbook packs + private mount (`plugins/skills`) — ADR 0013
+- [ ] Canvas toolbar / exporter registry (TS SDK, in-process)
+- [ ] Optional skill ops runner (return `tool_ops` only)
+- [ ] Packaged install (`.recombyn-plugin` zip) + permissions / signatures

@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY packages/scene-builder-py ./packages/scene-builder-py
 COPY apps/api ./apps/api
-COPY .agents/skills ./.agents/skills
+# Product skills ship under apps/api/seeds/design_skills; private packs mount at /app/plugins/skills.
 
 ARG INSTALL_OCR=false
 ARG INSTALL_AV=false

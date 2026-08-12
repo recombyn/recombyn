@@ -2,7 +2,7 @@
 
 Namespaces (conflict isolation):
   - core  — legacy SOURCE_SEED only (no longer shipped); bare keys stay BC aliases
-  - ext   — file packs under ``.agents/skills`` + seeds/design_skills (source=file)
+  - ext   — file packs under ``seeds/design_skills`` + ``plugins/skills`` (source=file)
   - user  — admin / user-extension skills (source=admin); keys use ``user.<local>``
 
 Also:
