@@ -80,7 +80,9 @@ import {
   parseFillType,
   type FillType,
 } from '@/components/rcb/scene/document/sceneFill';
-import EditorOnboardingTour from '@/components/editor/chrome/EditorOnboardingTour';
+import EditorOnboardingTour, {
+  hasCompletedEditorTour,
+} from '@/components/editor/chrome/EditorOnboardingTour';
 import EditorTopChrome, { flushAndGoHome } from '@/components/editor/page/EditorTopChrome';
 import EditorToolDocks from '@/components/editor/page/EditorToolDocks';
 import EditorBottomHud, { isThemeFollowCanvasBg } from '@/components/editor/page/EditorBottomHud';
@@ -577,6 +579,7 @@ function EditorPage() {
   const [bootOpen, setBootOpen] = useState(true);
   const [bootExiting, setBootExiting] = useState(false);
   const [bootProgress, setBootProgress] = useState(8);
+  const [tourActive, setTourActive] = useState(false);
   const bootStartedAt = useRef(Date.now());
   const bootOpenRef = useRef(true);
   const bootFinishingRef = useRef(false);
@@ -608,6 +611,7 @@ function EditorPage() {
     (state: any) => (state.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
   const currentId = useSelector((state: any) => state.editor.currentId as string | null);
+  const authUserId = useSelector((s: any) => s.auth?.user?.id as string | undefined);
   const templates = useSelector((state: any) => state.editor.templates as any[]);
   const currentTemplate = useSelector((state: any) =>
     state.editor.templates.find((item: any) => item.id === state.editor.currentId)
@@ -1002,6 +1006,9 @@ function EditorPage() {
   const clearAttachToChat = useCallback(() => {
     setAttachToChat(null);
   }, []);
+
+  const holdHomeAgentSubmit =
+    bootOpen || tourActive || !hasCompletedEditorTour(authUserId);
 
   const goHomeFromEditor = useCallback(() => {
     void flushAndGoHome(navigate);
@@ -1615,6 +1622,7 @@ function EditorPage() {
               }
               draftPrompt={agentDraft}
               autoSubmitDraft={agentAutoSubmit}
+              holdAutoSubmit={holdHomeAgentSubmit}
               draftAttachments={agentDraftAttachments}
               draftContexts={agentDraftContexts}
               draftModelId={agentDraftModelId}
@@ -1729,6 +1737,7 @@ function EditorPage() {
         <EditorOnboardingTour
           ready={!bootOpen}
           onOpenAgent={openAgentForTour}
+          onActiveChange={setTourActive}
         />
       </div>
     </CollabRoomProvider>

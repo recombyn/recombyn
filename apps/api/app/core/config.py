@@ -252,6 +252,11 @@ class Settings(BaseSettings):
     # Google OAuth — Client ID on web + API; secret only for popup auth-code exchange
     google_client_id: str = ""
     google_client_secret: str = ""
+    # Token endpoint timeout (oauth2.googleapis.com). Raise if API host is slow to Google.
+    google_oauth_timeout_sec: float = 30.0
+    # Optional HTTP(S) proxy for Google token exchange (needed when API cannot reach Google,
+    # e.g. CN VPS). Example: http://127.0.0.1:7890
+    google_oauth_http_proxy: str = ""
 
     # Local-only admin OTP (apps/api/.env). Empty = disabled. Never set in production.
     super_admin_test_code: str = ""

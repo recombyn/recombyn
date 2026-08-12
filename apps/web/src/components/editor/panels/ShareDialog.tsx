@@ -16,6 +16,7 @@ import { getToken } from '@/utils/token';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { useNavigate } from 'react-router-dom';
 import { setTemplateThumbnail } from '@/store/modules/editor';
+import { flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
 
 type Props = {
   open: boolean;
@@ -300,6 +301,12 @@ function ShareDialog({ open, onClose }: Props) {
     if (coversInflightRef.current) return;
     async function refreshCovers() {
       try {
+        // Covers require a cloud project row — flush first if local-only / failed sync.
+        try {
+          await flushCurrentProjectNow({ force: true });
+        } catch {
+          /* still try covers; API returns project_not_found if missing */
+        }
         const res = await extractCoversMutation.mutateAsync({
           projectId: currentId!,
           document: document != null ? (document as Record<string, unknown>) : undefined,

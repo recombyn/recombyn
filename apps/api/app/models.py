@@ -177,10 +177,11 @@ class Project(SQLModel, table=True):
     """Optional team container — members may read/write per org role."""
     org_id: Optional[str] = Field(default=None, index=True, max_length=64)
     name: str = Field(default="Untitled", max_length=255)
-    thumbnail_key: Optional[str] = Field(default=None, max_length=512)
+    # Collage may store ≤4 https URLs as a JSON array — must be TEXT, not VARCHAR(512).
+    thumbnail_key: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     thumbnail_custom: int = Field(default=0)
     document_key: Optional[str] = Field(default=None, max_length=512)
-    document_json: Optional[str] = Field(default=None)
+    document_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     revision: int = Field(default=1)
     updated_at: float = Field(default=0.0)
     created_at: float = Field(default=0.0)
