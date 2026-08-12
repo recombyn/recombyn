@@ -118,6 +118,71 @@ async def _node_paint_ops(state: GraphState) -> Command:
         list(st.tools_loaded or [])[:8],
     )
 
+    # Opt-in skill handler.py → tool_ops (before LLM). Falls through on miss/error.
+    try:
+        from app.services.design.prompts.skill_store.ops_runner import (
+            try_skill_ops_for_paint,
+        )
+
+        runner_ops, runner_skill, runner_err = try_skill_ops_for_paint(
+            skill_keys=list(st.skills_loaded or []),
+            prompt=str(rt.prompt or ""),
+            scene_key=str(rt.scene_key or "website"),
+            scene_nodes=list(rt.scene_nodes or []),
+            scene_frames=list(rt.scene_frames or []),
+            design_brief=rt.flags.get("design_brief")
+            if isinstance(rt.flags.get("design_brief"), dict)
+            else None,
+        )
+    except Exception as exc:
+        _log.warning("skill ops runner failed: %s", exc)
+        runner_ops, runner_skill, runner_err = None, None, str(exc)
+
+    if runner_ops is not None:
+        step_ops, op_errors = resolve_tool_host().validate_ops(
+            runner_ops,
+            scene_nodes=rt.scene_nodes,
+            scene_frames=rt.scene_frames,
+            rules=rt.rules,
+            skill_keys=list(st.skills_loaded or []),
+            scene=rt.scene_key or "website",
+            runtime=rt,
+        )
+        rt.step_ops = step_ops
+        rt.op_errors = list(op_errors or [])
+        st.push_log(
+            phase="paint_ops",
+            intent=want,
+            summary=(
+                f"skill_ops_runner skill={runner_skill or '?'} "
+                f"ops={len(step_ops)} err={runner_err or ''}"
+            ),
+            model="skill_ops_runner",
+            ops_count=len(step_ops),
+            attempt=0,
+            **({"errors": _op_errors_for_log(op_errors)} if op_errors else {}),
+        )
+        if step_ops:
+            ask_mode = str(rt.flags.get("mode") or "") == "ask"
+            _emit_canvas_size_from_ops(rt, step_ops)
+            st.reply = _paint_user_reply("")
+            st.intent = want
+            rt.turn = {
+                "intent": want,
+                "reply": st.reply,
+                "tool_ops_raw": runner_ops,
+                "skill_ops_runner": runner_skill,
+            }
+            if ask_mode:
+                st.reply = ""
+                return Command(update=_bump(rt), goto="propose")
+            return Command(update=_bump(rt), goto="action")
+        _log.info(
+            "skill ops runner produced no valid ops skill=%s errors=%s — LLM paint",
+            runner_skill,
+            (op_errors or [])[:3],
+        )
+
     for attempt in range(max_attempts):
         round_i = st.round
         _emit(
