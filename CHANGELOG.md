@@ -33,6 +33,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Design Agent hydrate **progress** on the existing SSE (`activity` + `task_id`)
 - Skill **extensions** Phase A: two roots (`seeds/design_skills` + `plugins/skills`), canonical pack layout (`schema.json` / `assets/` / reserved `handler.py`), meta aliases, sample `festival_poster` (ADR 0013)
 - Canvas **plugins** Phase B: `plugins/canvas` host + toolbar registry + sample `watermark` (ADR 0014)
+- Skill **ops runner** Phase C: opt-in `handler.py` → `tool_ops` before LLM paint (subprocess + validate), sample `festival_poster` (ADR 0015)
 
 ### Changed
 

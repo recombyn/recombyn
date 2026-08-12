@@ -204,6 +204,9 @@ class Settings(BaseSettings):
     # Extra skill pack roots (comma-separated). Always also scans <repo>/plugins/skills when present.
     # Self-host: mount host ./plugins/skills → container /app/plugins/skills.
     design_skills_plugin_dirs: str = ""
+    # Opt-in: run pack handler.py → tool_ops before LLM paint (subprocess, validated).
+    design_skill_ops_runner: bool = False
+    design_skill_ops_runner_timeout_sec: float = 8.0
 
     # Active AgentProfile id (seeds/agents/profiles/{id}.yaml). Empty → bindings.default.
     agent_profile_id: str = "design.canvas"

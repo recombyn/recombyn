@@ -495,13 +495,21 @@ def _load_schema_json(pack_dir: Path) -> tuple[Any, Any]:
     return inp, out
 
 
-def _note_deferred_handler(pack_dir: Path) -> None:
-    """``handler.py`` is reserved for Phase B ops runners — do not execute yet."""
-    if (pack_dir / "handler.py").is_file():
-        logger.info(
-            "skill pack %s has handler.py (ignored until skill runner Phase B)",
-            pack_dir.name,
-        )
+def _handler_py_path(pack_dir: Path) -> Path | None:
+    p = pack_dir / "handler.py"
+    return p if p.is_file() else None
+
+
+def _note_handler(pack_dir: Path) -> str | None:
+    """Record optional ``handler.py`` path (executed only when ops runner is on)."""
+    path = _handler_py_path(pack_dir)
+    if not path:
+        return None
+    logger.info(
+        "skill pack %s has handler.py (ops runner; enable DESIGN_SKILL_OPS_RUNNER)",
+        pack_dir.name,
+    )
+    return str(path)
 
 
 def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
@@ -543,13 +551,18 @@ def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
     ):
         meta["output_schema"] = schema_out
 
-    _note_deferred_handler(pack_dir)
-    return _skill_item_from_parts(
+    item = _skill_item_from_parts(
         pack_dir=pack_dir,
         meta=meta,
         body=body,
         skill_md_path=skill_md,
     )
+    if not item:
+        return None
+    handler = _note_handler(pack_dir)
+    if handler:
+        item["_handler"] = handler
+    return item
 
 
 def _load_file_skills() -> list[dict[str, Any]]:
