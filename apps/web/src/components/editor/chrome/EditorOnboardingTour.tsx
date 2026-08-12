@@ -91,6 +91,8 @@ type Props = {
   forceOpen?: boolean;
   onForceOpenConsumed?: () => void;
   onOpenAgent: () => void;
+  /** Notify parent when the tour overlay is shown/hidden (home-agent auto-send waits). */
+  onActiveChange?: (active: boolean) => void;
   className?: string;
 };
 
@@ -199,6 +201,7 @@ function EditorOnboardingTour({
   forceOpen = false,
   onForceOpenConsumed,
   onOpenAgent,
+  onActiveChange,
   className,
 }: Props) {
   const { t } = useTranslation();
@@ -213,6 +216,12 @@ function EditorOnboardingTour({
   onOpenAgentRef.current = onOpenAgent;
   const onForceOpenConsumedRef = useRef(onForceOpenConsumed);
   onForceOpenConsumedRef.current = onForceOpenConsumed;
+  const onActiveChangeRef = useRef(onActiveChange);
+  onActiveChangeRef.current = onActiveChange;
+
+  useEffect(() => {
+    onActiveChangeRef.current?.(active);
+  }, [active]);
 
   useEffect(() => {
     if (!ready) return;

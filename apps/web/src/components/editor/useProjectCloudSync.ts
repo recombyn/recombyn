@@ -39,6 +39,23 @@ const DEBOUNCE_MS = 800;
 const MANUAL_SAVE_DEBOUNCE_MS = 300;
 /** Delete / structural edits should hit the cloud ASAP (refresh must not restore old nodes). */
 const FLUSH_NOW_EVENT = 'resume:flush-project';
+/**
+ * After a failed PUT/PATCH, do not hammer the API every debounce tick.
+ * Pause auto-retry for the same document hash once this ladder is exhausted.
+ */
+const CLOUD_FAIL_BACKOFF_MS = [2_000, 5_000, 15_000, 45_000] as const;
+
+function cloudFailRetryDelayMs(failCount: number): number {
+  const idx = Math.max(
+    0,
+    Math.min(failCount - 1, CLOUD_FAIL_BACKOFF_MS.length - 1)
+  );
+  return CLOUD_FAIL_BACKOFF_MS[idx];
+}
+
+function shouldPauseCloudAutoRetry(failCount: number): boolean {
+  return failCount >= CLOUD_FAIL_BACKOFF_MS.length;
+}
 
 /** Latest in-flight / queued editor flush — Home awaits this before re-listing projects. */
 let flushChain: Promise<void> = Promise.resolve();
@@ -530,6 +547,9 @@ export function useProjectCloudSync() {
   const flushingRef = useRef(false);
   /** Delete/edit while a flush is in-flight — run again after current finishes. */
   const pendingFlushRef = useRef(false);
+  /** Consecutive cloud write failures for the current document hash. */
+  const cloudFailCountRef = useRef(0);
+  const cloudFailHashRef = useRef<string | null>(null);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
@@ -559,6 +579,9 @@ export function useProjectCloudSync() {
       return;
     }
     flushingRef.current = true;
+    let cloudAttempted = false;
+    let cloudOk = false;
+    let pauseAutoRetry = false;
 
     try {
       dispatch(persistCurrent({ keepDirty: true }));
@@ -575,6 +598,12 @@ export function useProjectCloudSync() {
       });
       const contentHash = draft?.contentHash || hashDocument(pushedDoc);
 
+      // New edits unlock a previously paused failure streak.
+      if (cloudFailHashRef.current && cloudFailHashRef.current !== contentHash) {
+        cloudFailCountRef.current = 0;
+        cloudFailHashRef.current = null;
+      }
+
       if (!force && isDraftAlreadyAcked(draft, contentHash, name)) {
         clearDirtyIfSameDoc(dispatch, pushedDoc);
         return;
@@ -584,6 +613,17 @@ export function useProjectCloudSync() {
         return;
       }
 
+      // Same doc already failed the backoff ladder — wait for edits or force save.
+      if (
+        !force &&
+        shouldPauseCloudAutoRetry(cloudFailCountRef.current) &&
+        cloudFailHashRef.current === contentHash
+      ) {
+        pauseAutoRetry = true;
+        return;
+      }
+
+      cloudAttempted = true;
       const written = await syncOwnedDocumentToCloud({
         id,
         name,
@@ -592,6 +632,9 @@ export function useProjectCloudSync() {
         baseDoc: draft?.baseDocument ?? null,
       });
       if (written.status === 'ok') {
+        cloudOk = true;
+        cloudFailCountRef.current = 0;
+        cloudFailHashRef.current = null;
         await applyCloudAck({
           dispatch,
           projectId: id,
@@ -602,6 +645,8 @@ export function useProjectCloudSync() {
         return;
       }
       if (written.status === 'conflict') {
+        cloudFailCountRef.current = 0;
+        cloudFailHashRef.current = null;
         await handleFlushConflict({
           dispatch,
           projectId: id,
@@ -610,15 +655,36 @@ export function useProjectCloudSync() {
           contentHash,
           conflict: written.conflict,
         });
+        return;
       }
-      // failed → stay dirty for debounce / hide / delete flush retry
+      cloudFailCountRef.current += 1;
+      cloudFailHashRef.current = contentHash;
+      if (shouldPauseCloudAutoRetry(cloudFailCountRef.current)) {
+        pauseAutoRetry = true;
+      }
+      if (import.meta.env.DEV) {
+        console.warn('[project-sync] cloud write failed', {
+          id,
+          fails: cloudFailCountRef.current,
+          paused: pauseAutoRetry,
+        });
+      }
     } finally {
       flushingRef.current = false;
       const still = store.getState().editor as { dirty: boolean; currentId: string | null };
       const queued = pendingFlushRef.current;
       pendingFlushRef.current = false;
-      if (still.currentId === id && (queued || still.dirty)) {
-        scheduleFlush(queued ? 0 : DEBOUNCE_MS);
+      // No `return` in finally — eslint no-unsafe-finally.
+      if (still.currentId === id) {
+        if (queued) {
+          scheduleFlush(0);
+        } else if (still.dirty && !pauseAutoRetry) {
+          if (cloudAttempted && !cloudOk && cloudFailCountRef.current > 0) {
+            scheduleFlush(cloudFailRetryDelayMs(cloudFailCountRef.current));
+          } else {
+            scheduleFlush(DEBOUNCE_MS);
+          }
+        }
       }
     }
   }, [dispatch, scheduleFlush]);

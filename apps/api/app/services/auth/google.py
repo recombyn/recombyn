@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -15,6 +16,7 @@ _VALID_ISSUERS = frozenset({"accounts.google.com", "https://accounts.google.com"
 # GIS popup code client uses this redirect_uri (not a real browser redirect).
 _POPUP_REDIRECT_URI = "postmessage"
 _REDIRECT_PATH = "/login/google/callback"
+_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
 def _session_from_id_token(credential: str) -> tuple[SessionUser, str]:
@@ -72,6 +74,45 @@ def _resolve_redirect_uri(redirect_uri: str | None) -> str:
     return uri
 
 
+def _google_httpx_client() -> httpx.Client:
+    timeout = float(settings.google_oauth_timeout_sec or 30.0)
+    proxy = (settings.google_oauth_http_proxy or "").strip() or None
+    return httpx.Client(timeout=timeout, proxy=proxy)
+
+
+def _exchange_timeout_hint(err: BaseException) -> str:
+    proxy = (settings.google_oauth_http_proxy or "").strip()
+    base = (
+        "Google token exchange timed out — this API host cannot reach "
+        "oauth2.googleapis.com within the deadline"
+    )
+    if proxy:
+        return f"{base} (proxy={proxy}). Check the proxy and try again."
+    return (
+        f"{base}. If the server is in a restricted network, set "
+        "GOOGLE_OAUTH_HTTP_PROXY (e.g. http://127.0.0.1:7890) and restart the API."
+    )
+
+
+def _post_google_token(data: dict[str, str]) -> httpx.Response:
+    """POST to Google's token endpoint; one retry on transient timeout/connect errors."""
+    last_err: BaseException | None = None
+    for attempt in range(2):
+        try:
+            with _google_httpx_client() as client:
+                return client.post(_TOKEN_URL, data=data)
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as err:
+            last_err = err
+            if attempt == 0:
+                time.sleep(0.4)
+                continue
+            if isinstance(err, httpx.TimeoutException):
+                raise ValueError(_exchange_timeout_hint(err)) from err
+            raise ValueError(f"Google token exchange failed: {err}") from err
+    assert last_err is not None
+    raise ValueError(f"Google token exchange failed: {last_err}") from last_err
+
+
 def login_with_google_auth_code(
     code: str,
     redirect_uri: str | None = None,
@@ -94,17 +135,17 @@ def login_with_google_auth_code(
     resolved_redirect = _resolve_redirect_uri(redirect_uri)
 
     try:
-        with httpx.Client(timeout=20.0) as client:
-            token_res = client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "code": code,
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "redirect_uri": resolved_redirect,
-                    "grant_type": "authorization_code",
-                },
-            )
+        token_res = _post_google_token(
+            {
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": resolved_redirect,
+                "grant_type": "authorization_code",
+            }
+        )
+    except ValueError:
+        raise
     except Exception as err:
         raise ValueError(f"Google token exchange failed: {err}") from err
 
