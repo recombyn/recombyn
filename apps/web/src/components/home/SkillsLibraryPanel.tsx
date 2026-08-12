@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type KeyboardEvent,
   type ReactNode,
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,19 +21,20 @@ import { cn } from '@/utils/classnames';
 
 /** Skills toolbox — same scale as Me / projects: 2 → 3 → 4 → 5 (2xl). */
 const DEFAULT_SKILL_GRID =
-  'grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5';
+  'grid w-full grid-cols-2 gap-[10px] md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5';
 
-/** Loading placeholders only 鈥?not real totals (API count unknown until fetch). */
+/** Loading placeholders only — not real totals (API count unknown until fetch). */
 const SKILL_SKELETON_MINE = 1;
 /** ~one row on the 2xl 5-col grid. */
 const SKILL_SKELETON_OFFICIAL = 5;
 
+/** Skill card — icon + title/2-line subtitle + switch; 10px pad. */
 const SKILL_CARD_SHELL =
-  'w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3.5 py-3 text-left shadow-[0_2px_10px_rgba(15,23,42,0.06)]';
+  'flex h-full w-full flex-col rounded-xl border border-[var(--line)] bg-[var(--surface)] p-[10px] text-left shadow-[0_2px_8px_rgba(15,23,42,0.05)]';
 
-/** App-store style tile — fixed square; never let flex/preflight squeeze width. */
+/** Preview dialog mark — fixed square. */
 const SKILL_ICON_FRAME =
-  'inline-flex h-14 w-14 min-h-14 min-w-14 shrink-0 grow-0 overflow-hidden rounded-[14px] shadow-[0_1px_4px_rgba(15,23,42,0.08)]';
+  'inline-flex h-12 w-12 min-h-12 min-w-12 shrink-0 grow-0 overflow-hidden rounded-[12px] shadow-[0_1px_4px_rgba(15,23,42,0.08)]';
 const SKILL_ICON_IMG = 'h-full w-full max-w-none object-cover';
 
 /** Default picture icon when a pack has no logo — never use letter avatars. */
@@ -50,7 +50,7 @@ function SkillLogo({ src }: { src?: string | null }) {
 
 const SKILLS_PICKER_INPUT = { query: { manage: true as const } };
 
-/** Dashed upload tile 鈥?first cell in Mine grid (icon only, like New project). */
+/** Dashed upload tile — first cell in Mine grid. */
 function UploadSkillCard({
   label,
   disabled = false,
@@ -69,12 +69,12 @@ function UploadSkillCard({
       title={label}
       className={cn(
         SKILL_CARD_SHELL,
-        'flex min-h-[104px] flex-col items-center justify-center border-dashed shadow-none',
-        'transition hover:border-[var(--muted)] hover:bg-[var(--accent-soft)] hover:shadow-none',
+        'min-h-[76px] items-center justify-center border-dashed shadow-none',
+        'transition hover:border-[var(--muted)] hover:bg-[var(--accent-soft)]',
         'disabled:opacity-50'
       )}
     >
-      <HiOutlinePlus className="h-7 w-7 text-[var(--muted)]" strokeWidth={1.5} />
+      <HiOutlinePlus className="h-6 w-6 text-[var(--muted)]" strokeWidth={1.5} />
     </button>
   );
 }
@@ -86,13 +86,10 @@ function formatSkillUpdatedAt(ts: number | null | undefined, locale: string): st
   return date.toLocaleString(locale.startsWith('zh') ? 'zh-CN' : locale);
 }
 
-/** Same shell + title / line-clamp-2 desc metrics as the real skill card. */
+/** Same shell metrics as the real skill card. */
 function SkillCardSkeleton(): ReactNode {
   return (
-    <div
-      className={cn(SKILL_CARD_SHELL, 'rcb-skeleton-bone min-h-[104px] !rounded-xl shadow-none')}
-      aria-hidden
-    />
+    <div className={cn(SKILL_CARD_SHELL, 'rcb-skeleton-bone min-h-[76px] !rounded-xl shadow-none')} aria-hidden />
   );
 }
 
@@ -108,7 +105,7 @@ function SkillGroupSkeleton({
   gridClassName?: string;
 }): ReactNode {
   return (
-    <section className="space-y-2" aria-busy="true" aria-label={title}>
+    <section className="space-y-3" aria-busy="true" aria-label={title}>
       <h3 className="text-[12px] font-semibold uppercase tracking-wide text-[var(--muted)]">
         {title}
       </h3>
@@ -120,10 +117,6 @@ function SkillGroupSkeleton({
       </div>
     </section>
   );
-}
-
-function stopCardBubble(e: { stopPropagation: () => void }) {
-  e.stopPropagation();
 }
 
 function SkillCard({
@@ -139,29 +132,23 @@ function SkillCard({
 }): ReactNode {
   const on = row.enabled !== false;
 
-  const onKeyActivate = (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    onPreview(row);
-  };
-
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onPreview(row)}
-      onKeyDown={onKeyActivate}
       className={cn(
         SKILL_CARD_SHELL,
-        'cursor-pointer transition hover:shadow-[0_8px_22px_rgba(15,23,42,0.1)]',
+        'transition hover:border-[var(--muted)]',
         !on && 'opacity-55'
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={() => onPreview(row)}
+          className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 border-0 bg-transparent p-0 text-left"
+        >
           <SkillLogo src={row.logo} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[14px] font-medium leading-[21px] text-[var(--ink)]">
+            <div className="truncate text-[14px] font-semibold leading-5 text-[var(--ink)]">
               {row.name}
             </div>
             {row.whenToUse ? (
@@ -170,16 +157,10 @@ function SkillCard({
               </div>
             ) : null}
           </div>
-        </div>
-        <div
-          className="shrink-0 pt-0.5"
-          onClick={stopCardBubble}
-          onKeyDown={stopCardBubble}
-        >
-          <span title={enableLabel} className="inline-flex">
-            <Switch checked={on} onChange={(next) => onToggle(row.id, next)} />
-          </span>
-        </div>
+        </button>
+        <span title={enableLabel} className="inline-flex shrink-0 pt-0.5">
+          <Switch checked={on} onChange={(next) => onToggle(row.id, next)} />
+        </span>
       </div>
     </div>
   );
@@ -225,7 +206,7 @@ function SkillGroup({
   );
 
   return (
-    <section className="space-y-2">
+    <section className="space-y-3">
       <h3 className="text-[12px] font-semibold uppercase tracking-wide text-[var(--muted)]">
         {title}
       </h3>
@@ -395,7 +376,7 @@ function SkillsLibraryPanel(): ReactNode {
           tip={t('home.skillsHint')}
           placement="bottom"
           offset={8}
-          popupClassName="h-auto max-w-[280px] whitespace-normal py-2 leading-[1.4]"
+          popupClassName="!h-auto max-w-[340px] items-start whitespace-pre-line py-2.5 text-left leading-[1.45]"
         >
           <button
             type="button"

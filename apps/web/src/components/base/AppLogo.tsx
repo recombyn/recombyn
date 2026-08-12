@@ -10,26 +10,33 @@ type Props = {
   className?: string;
   bordered?: boolean;
   /**
-   * Kept for call-site compat. Mark asset is the dark-plate PNG (readable on light and dark rails).
-   * @deprecated Prefer omitting — both themes use `/logo-mark.png`.
+   * `dark` — white feather on dark plate (`/logo-mark.png`), for light rails.
+   * `light` — dark feather on light plate (`/logo-mark-light.png`), for dark rails (e.g. login art).
+   * `auto` / omit — same as `dark`.
    */
   scheme?: LogoScheme | 'auto';
 };
 
+function markSrc(scheme: LogoScheme | 'auto' | undefined): string {
+  if (scheme === 'light') return '/logo-mark-light.png';
+  return '/logo-mark.png';
+}
+
 /**
- * Brand mark — `/logo-mark.png` (white feather on dark plate).
+ * Brand mark — scheme picks the fixed plate (not CSS theme).
  * Used by: HomeBody, LoginDialog, EditorBootOverlay.
  */
 function AppLogo({
   size = 36,
   className,
   bordered = false,
+  scheme = 'dark',
 }: Props) {
   const { t } = useTranslation();
 
   return (
     <img
-      src="/logo-mark.png"
+      src={markSrc(scheme)}
       alt={t('app.name')}
       width={size}
       height={size}
