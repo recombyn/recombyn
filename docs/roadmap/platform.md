@@ -48,9 +48,9 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 
 | Capability | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Hydrate + export jobs / DLQ + admin hydrate/export replay; image gen jobs | Video/audio off request |
-| AI / 导出 / 渲染异步 | Hydrate + artboard PNG/PDF export + chat image jobs | Video/audio off request |
-| 前端流式进度 | SSE / agent stream exists; hydrate `activity` + job poll `progress` | Video/audio job progress |
+| 消息队列 / 优先级 / 重试 / DLQ | Hydrate + export jobs / DLQ + admin replay; chat image/video/audio jobs | Priority queues / richer DLQ policy |
+| AI / 导出 / 渲染异步 | Hydrate + artboard PNG/PDF export + chat image/video/audio jobs | — |
+| 前端流式进度 | SSE / agent stream; hydrate `activity` + job poll `progress` (incl. video/audio) | Optional SSE for media jobs |
 
 ### 4. 存储分层隔离
 
@@ -174,4 +174,4 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 - [x] Canvas toolbar registry (TS, in-process) + sample watermark — ADR 0014
 - [x] Optional skill ops runner (`handler.py` → `tool_ops`) — ADR 0015
 - [x] Packaged install (`.recombyn-plugin`) + optional HMAC — ADR 0016
-- [ ] Video/audio async jobs (off-request, mirror chat image jobs)
+- [x] Video/audio async jobs (off-request, mirror chat image jobs) — ADR 0005

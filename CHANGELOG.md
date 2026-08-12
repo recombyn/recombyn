@@ -30,6 +30,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Editor **Export PDF (server)** menu item (save → enqueue → poll → download)
 - Admin **export DLQ** replay (`/api/v1/admin/ops/export-dlq`) + `recombyn_export_dlq_depth`
 - Async **chat image** jobs (`POST/GET /api/v1/chat/image/jobs`) so editor generate does not hold API workers
+- Async **chat video/audio** jobs (`POST/GET /api/v1/chat/video/jobs`, `/chat/audio/jobs`) — same poll contract as image (ADR 0005)
 - Design Agent hydrate **progress** on the existing SSE (`activity` + `task_id`)
 - Skill **extensions** Phase A: two roots (`seeds/design_skills` + `plugins/skills`), canonical pack layout (`schema.json` / `assets/` / reserved `handler.py`), meta aliases, sample `festival_poster` (ADR 0013)
 - Canvas **plugins** Phase B: `plugins/canvas` host + toolbar registry + sample `watermark` (ADR 0014)

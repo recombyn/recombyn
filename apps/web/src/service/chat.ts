@@ -2,7 +2,7 @@
  * Chat / LLM API — models + image gen.
  */
 
-import { abortAfter, apiClient, apiQuery, queryClient } from '@/service/client';
+import { abortAfter, apiQuery, queryClient } from '@/service/client';
 import { request } from '@/utils/request';
 
 export type ModelReferenceType = 'text' | 'vision' | 'image';
@@ -146,16 +146,16 @@ export async function listModels(opts?: { force?: boolean }): Promise<ChatModels
   }) as Promise<ChatModelsResponse>;
 }
 
-type ImageJobCreate = {
+type MediaJobCreate = {
   job_id: string;
   status: 'queued';
 };
 
-type ImageJobState = {
+type MediaJobState<TResult> = {
   job_id: string;
   status: 'queued' | 'processing' | 'done' | 'failed';
   progress?: number;
-  result?: GenerateImageResult | null;
+  result?: TResult | null;
   error?: string | null;
 };
 
@@ -165,35 +165,41 @@ function sleep(ms: number) {
   });
 }
 
-async function waitForImageJob(
+async function waitForMediaJob<TResult>(
+  kind: 'image' | 'video' | 'audio',
   jobId: string,
-  opts?: { signal?: AbortSignal; timeoutMs?: number },
-): Promise<GenerateImageResult> {
-  const timeoutMs = opts?.timeoutMs ?? 180_000;
-  const deadline = Date.now() + timeoutMs;
+  opts: {
+    signal?: AbortSignal;
+    timeoutMs: number;
+    isValidResult: (result: TResult | null | undefined) => result is TResult;
+    missingResultMessage: string;
+    failedMessage: string;
+    timedOutMessage: string;
+  },
+): Promise<TResult> {
+  const deadline = Date.now() + opts.timeoutMs;
   while (Date.now() < deadline) {
-    if (opts?.signal?.aborted) {
+    if (opts.signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    const job = await request<ImageJobState>({
-      url: `/api/v1/chat/image/jobs/${encodeURIComponent(jobId)}`,
+    const job = await request<MediaJobState<TResult>>({
+      url: `/api/v1/chat/${kind}/jobs/${encodeURIComponent(jobId)}`,
       method: 'get',
       skipInflightDedupe: true,
-      signal: opts?.signal,
+      signal: opts.signal,
     });
     if (job.status === 'done') {
-      const result = job.result;
-      if (!result || !Array.isArray(result.images)) {
-        throw new Error(job.error || 'image job missing result');
+      if (!opts.isValidResult(job.result)) {
+        throw new Error(job.error || opts.missingResultMessage);
       }
-      return result;
+      return job.result;
     }
     if (job.status === 'failed') {
-      throw new Error(job.error || 'image generation failed');
+      throw new Error(job.error || opts.failedMessage);
     }
     await sleep(800);
   }
-  throw new Error('image generation timed out');
+  throw new Error(opts.timedOutMessage);
 }
 
 /** POST /api/v1/chat/image/jobs + poll (keeps API workers free). */
@@ -202,13 +208,21 @@ export async function generateImage(
   opts?: { signal?: AbortSignal },
 ): Promise<GenerateImageResult> {
   const signal = abortAfter(180_000, opts?.signal);
-  const created = await request<ImageJobCreate>({
+  const created = await request<MediaJobCreate>({
     url: '/api/v1/chat/image/jobs',
     method: 'post',
     data,
     signal,
   });
-  return waitForImageJob(created.job_id, { signal });
+  return waitForMediaJob('image', created.job_id, {
+    signal,
+    timeoutMs: 180_000,
+    isValidResult: (r): r is GenerateImageResult =>
+      !!r && Array.isArray(r.images),
+    missingResultMessage: 'image job missing result',
+    failedMessage: 'image generation failed',
+    timedOutMessage: 'image generation timed out',
+  });
 }
 
 export type GenerateVideoInput = {
@@ -228,15 +242,28 @@ export type GenerateVideoResult = {
   assets?: Array<{ url?: string | null; id?: string | null }> | null;
 };
 
-/** POST /api/v1/chat/video — generation may take minutes (submit + poll on the API side). */
-export const generateVideo = (
+/** POST /api/v1/chat/video/jobs + poll (keeps API workers free). */
+export async function generateVideo(
   data: GenerateVideoInput,
-  opts?: { signal?: AbortSignal }
-) =>
-  apiClient.chatPostVideo(
-    { body: data as never },
-    { signal: abortAfter(600_000, opts?.signal) }
-  ) as Promise<GenerateVideoResult>;
+  opts?: { signal?: AbortSignal },
+): Promise<GenerateVideoResult> {
+  const signal = abortAfter(600_000, opts?.signal);
+  const created = await request<MediaJobCreate>({
+    url: '/api/v1/chat/video/jobs',
+    method: 'post',
+    data,
+    signal,
+  });
+  return waitForMediaJob('video', created.job_id, {
+    signal,
+    timeoutMs: 600_000,
+    isValidResult: (r): r is GenerateVideoResult =>
+      !!r && Array.isArray(r.videos),
+    missingResultMessage: 'video job missing result',
+    failedMessage: 'video generation failed',
+    timedOutMessage: 'video generation timed out',
+  });
+}
 
 export type GenerateAudioInput = {
   prompt: string;
@@ -254,12 +281,25 @@ export type GenerateAudioResult = {
   assets?: Array<{ url?: string | null; id?: string | null }> | null;
 };
 
-/** POST /api/v1/chat/audio — OpenRouter TTS / speech. */
-export const generateAudio = (
+/** POST /api/v1/chat/audio/jobs + poll (keeps API workers free). */
+export async function generateAudio(
   data: GenerateAudioInput,
-  opts?: { signal?: AbortSignal }
-) =>
-  apiClient.chatPostAudio(
-    { body: data as never },
-    { signal: abortAfter(180_000, opts?.signal) }
-  ) as Promise<GenerateAudioResult>;
+  opts?: { signal?: AbortSignal },
+): Promise<GenerateAudioResult> {
+  const signal = abortAfter(180_000, opts?.signal);
+  const created = await request<MediaJobCreate>({
+    url: '/api/v1/chat/audio/jobs',
+    method: 'post',
+    data,
+    signal,
+  });
+  return waitForMediaJob('audio', created.job_id, {
+    signal,
+    timeoutMs: 180_000,
+    isValidResult: (r): r is GenerateAudioResult =>
+      !!r && Array.isArray(r.audios),
+    missingResultMessage: 'audio job missing result',
+    failedMessage: 'audio generation failed',
+    timedOutMessage: 'audio generation timed out',
+  });
+}
