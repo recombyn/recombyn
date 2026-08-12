@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     result_dir: str = "storage/results"
     max_upload_mb: int = 20
     max_video_upload_mb: int = 100
+    # Reject uploads whose magic bytes disagree with claimed image/video/audio type.
+    upload_require_magic_match: bool = True
+    # Optional external scanner (e.g. clamscan); off by default.
+    upload_av_hook_enabled: bool = False
+    upload_av_command: str = ""
 
     # Observability (ADR 0007) — JSON lines when true; human text otherwise.
     log_json: bool = False
