@@ -24,8 +24,8 @@ Phase 5 living notes. Tools already exist; this doc records **how to capture a b
 
 ## Intentional gaps (still)
 
-- Paid image/video gen finish in E2E
-- Dual-client collab conflict resolution under load (beyond k6 WS smoke)
+- Real provider paid image/video gen finish (E2E uses route mock only)
+- Dual-browser Yjs conflict resolution under load (HTTP `baseRevision` 412 is covered; live two-editor merge is not)
 - True 5k-node SvgCanvas interactive mount
 
 See [quality-gates.md](./quality-gates.md) Gate A/B and [bigco-alignment.md](./roadmap/bigco-alignment.md) Phase 5.

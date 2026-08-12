@@ -14,6 +14,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Unified CI umbrella (`.github/workflows/ci.yml`) — lint, contracts typecheck, **web `tsc`**, unit tests, web build (ADR 0009)
 - GHCR publish on `v*.*.*` tags (`release-docker.yml`) + `docker-compose.ghcr.yml` pull path
 - Desktop unsigned CI build (dispatch) + signing checklist (ADR 0010); stress baseline runbook
+- Mock image-gen promote E2E + project `baseRevision` 412 conflict coverage (Phase 5 slice)
 
 ### Changed
 

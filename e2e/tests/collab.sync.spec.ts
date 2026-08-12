@@ -1,5 +1,5 @@
 /**
- * Gate A — collab room identity + dual-client WS presence.
+ * Gate A — collab room identity, dual-client WS presence, project revision conflict.
  *
  * Requires E2E_TOKEN. Optional live WS: set E2E_COLLAB_WS=ws://127.0.0.1:1234
  * and run apps/collab with the same COLLAB_TOKEN_SECRET as the API.
@@ -115,5 +115,45 @@ test.describe('collab sync', () => {
     const [r1, r2] = await Promise.all([openOnce(t1), openOnce(t2)]);
     expect(r1.ok, JSON.stringify(r1)).toBe(true);
     expect(r2.ok, JSON.stringify(r2)).toBe(true);
+  });
+
+  test('stale baseRevision PATCH returns project_revision_conflict', async ({
+    request,
+  }) => {
+    const projectId = `e2e-rev-${Date.now()}`;
+    const headers = {
+      Authorization: `Bearer ${TOKEN}`,
+      'Content-Type': 'application/json',
+    };
+    const created = await request.put(`${API}/api/v1/projects`, {
+      headers,
+      data: { id: projectId, name: 'E2E Rev Conflict' },
+    });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    const createdBody = await created.json();
+    let rev = createdBody?.project?.revision ?? createdBody?.revision;
+    if (rev == null) {
+      const got = await request.get(`${API}/api/v1/projects/${projectId}`, { headers });
+      expect(got.ok(), await got.text()).toBeTruthy();
+      const body = await got.json();
+      rev = body?.project?.revision ?? body?.revision;
+    }
+    expect(rev).not.toBeNull();
+    expect(rev).not.toBeUndefined();
+
+    const ok = await request.patch(`${API}/api/v1/projects/${projectId}`, {
+      headers,
+      data: { name: `ok-${Date.now()}`, baseRevision: rev },
+    });
+    expect(ok.ok(), await ok.text()).toBeTruthy();
+
+    const stale = await request.patch(`${API}/api/v1/projects/${projectId}`, {
+      headers,
+      data: { name: `stale-${Date.now()}`, baseRevision: rev },
+    });
+    expect(stale.status()).toBe(412);
+    const body = await stale.json();
+    const code = body?.detail?.code || body?.code;
+    expect(code).toBe('project_revision_conflict');
   });
 });
