@@ -27,6 +27,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Compose **obs** profile (Prometheus / Grafana / Alertmanager) and **av** overlay (`clamdscan`)
 - Admin Insights **失败队列** tab (hydrate DLQ list / replay / discard)
 - Async **artboard export** jobs (`POST/GET /api/v1/design/export/jobs`, PNG/PDF via Celery)
+- Editor **Export PDF (server)** menu item (save → enqueue → poll → download)
 
 ### Changed
 
