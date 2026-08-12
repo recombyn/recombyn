@@ -35,3 +35,4 @@ Cross-cutting or irreversible technical choices live here. Product feature notes
 | [0013](./0013-skill-extensions.md) | Skill extension packs (Phase A plugins) | Accepted |
 | [0014](./0014-canvas-plugins.md) | Canvas toolbar plugins (Phase B) | Accepted |
 | [0015](./0015-skill-ops-runner.md) | Skill `handler.py` ops runner (Phase C) | Accepted |
+| [0016](./0016-recombyn-plugin-pack.md) | `.recombyn-plugin` pack install (Phase D) | Accepted |

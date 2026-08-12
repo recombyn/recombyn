@@ -338,7 +338,7 @@ function SkillsLibraryPanel(): ReactNode {
     e.target.value = '';
     if (!file) return;
     const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.zip')) {
+    if (!(lower.endsWith('.zip') || lower.endsWith('.recombyn-plugin'))) {
       message.warning(t('agent.skillsZipOnly'));
       return;
     }
@@ -431,7 +431,7 @@ function SkillsLibraryPanel(): ReactNode {
         <input
           ref={fileRef}
           type="file"
-          accept=".zip,application/zip"
+          accept=".zip,.recombyn-plugin,application/zip"
           className="hidden"
           onChange={onPickFile}
         />

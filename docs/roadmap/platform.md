@@ -173,4 +173,5 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 - [x] Skill playbook packs + private mount (`plugins/skills`) — ADR 0013
 - [x] Canvas toolbar registry (TS, in-process) + sample watermark — ADR 0014
 - [x] Optional skill ops runner (`handler.py` → `tool_ops`) — ADR 0015
-- [ ] Packaged install (`.recombyn-plugin` zip) + permissions / signatures
+- [x] Packaged install (`.recombyn-plugin`) + optional HMAC — ADR 0016
+- [ ] Video/audio async jobs (off-request, mirror chat image jobs)

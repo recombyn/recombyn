@@ -95,6 +95,6 @@ Duplicate `skill_key`: **later root wins** (plugins override seeds).
 ## Out of scope here
 
 - Frontend toolbar plugins — [canvas-plugins.md](./canvas-plugins.md) / ADR 0014  
-- Full process sandbox / `.recombyn-plugin` zip install — later  
+- Full process sandbox / public-key plugin trust chain — later  
 
-→ [ADR 0013](./adr/0013-skill-extensions.md) · [ADR 0015](./adr/0015-skill-ops-runner.md)
+→ [ADR 0013](./adr/0013-skill-extensions.md) · [ADR 0015](./adr/0015-skill-ops-runner.md) · [plugin-packs.md](./plugin-packs.md)

@@ -437,7 +437,19 @@ def _zip_entry_allowed(rel: str) -> bool:
     name = Path(rel.replace("\\", "/")).name.lower()
     if name in _META_NAMES or name in ("skill.md", "design.md"):
         return True
-    if name in ("license", "license.txt", "license.md", "licence", "licence.txt"):
+    if name in (
+        "license",
+        "license.txt",
+        "license.md",
+        "licence",
+        "licence.txt",
+        "schema.json",
+        "handler.py",
+        "handler.py.example",
+        "plugin.json",
+        "plugin.sig",
+        "readme.md",
+    ):
         return True
     if name.startswith(".") or name.startswith("__macosx"):
         return False
@@ -742,10 +754,20 @@ def import_end_user_skill_zip(
     raw: bytes,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Import a skill pack zip for the signed-in user (scan → upsert)."""
+    """Import a skill pack zip / ``.recombyn-plugin`` for the signed-in user."""
+    from app.services.design.plugins.pack_install import (
+        install_recombyn_plugin,
+        looks_like_recombyn_plugin,
+    )
+
     uid = str(user_id or "").strip()
     fname = str(filename or "skill.zip").strip() or "skill.zip"
     checks: list[dict[str, Any]] = []
+
+    if looks_like_recombyn_plugin(fname, raw):
+        return install_recombyn_plugin(
+            user_id=uid, filename=fname, raw=raw, overwrite=overwrite
+        )
 
     if not fname.lower().endswith(".zip"):
         checks.append(_zip_check("ext", False, "need_zip"))

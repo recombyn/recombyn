@@ -532,13 +532,26 @@ export type DesignSkillImportResult = {
   existing?: DesignSkillImportExisting | null;
 };
 
-/** Upload a skill pack `.zip`: `_meta.json`+`SKILL.md`, or Agent Skills `SKILL.md` with YAML frontmatter. */
+/** Upload a skill / plugin pack (``.zip`` or ``.recombyn-plugin``). */
 export const importDesignSkillZip = (file: File, opts?: { overwrite?: boolean }) => {
   const data = new FormData();
   data.append('file', file);
   data.append('overwrite', opts?.overwrite ? 'true' : 'false');
   return request<DesignSkillImportResult>({
     url: '/api/v1/design/skills/import',
+    method: 'post',
+    data,
+    timeout: 120000,
+  });
+};
+
+/** Install a branded ``.recombyn-plugin`` (skill → user DB; canvas → disk when enabled). */
+export const installRecombynPlugin = (file: File, opts?: { overwrite?: boolean }) => {
+  const data = new FormData();
+  data.append('file', file);
+  data.append('overwrite', opts?.overwrite ? 'true' : 'false');
+  return request<DesignSkillImportResult>({
+    url: '/api/v1/design/plugins/install',
     method: 'post',
     data,
     timeout: 120000,

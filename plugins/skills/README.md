@@ -40,4 +40,6 @@ volumes:
 
 Extra roots: `DESIGN_SKILLS_PLUGIN_DIRS=...`
 
+Pack for distribution: `node scripts/pack-recombyn-plugin.mjs plugins/skills/<key>` → see [docs/plugin-packs.md](../docs/plugin-packs.md).
+
 See [docs/skill-extensions.md](../docs/skill-extensions.md).
