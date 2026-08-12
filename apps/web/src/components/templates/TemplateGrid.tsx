@@ -14,7 +14,10 @@ import {
   renameProjectOnCloud,
   requestProjectFlush,
 } from '@/components/editor/useProjectCloudSync';
-import { invalidateProjectsListCache } from '@/service/projects';
+import {
+  invalidateProjectsListCache,
+  setProjectOrgApi,
+} from '@/service/projects';
 import { cn } from '@/utils/classnames';
 import {
   deleteTemplate,
@@ -177,6 +180,7 @@ function TemplateGrid({
   onCreate,
   createDisabled = false,
   gridClassName = DEFAULT_PROJECTS_GRID,
+  orgOptions = [],
 }: {
   templates: any[];
   title: string;
@@ -192,6 +196,7 @@ function TemplateGrid({
   createDisabled?: boolean;
   /** Per-page grid; do not reuse other modules' breakpoints. */
   gridClassName?: string;
+  orgOptions?: { id: string; name: string }[];
 }) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
@@ -377,9 +382,21 @@ function TemplateGrid({
             item={item}
             selected={selected.includes(item.id)}
             selectMode={selectMode}
+            orgOptions={orgOptions}
             onToggle={() => toggle(item.id)}
             onRename={() => setRenameTarget(item)}
             onCommitRename={(name) => commitRenameFor(item, name)}
+            onSetOrg={async (orgId) => {
+              try {
+                await setProjectOrgApi(item.id, orgId);
+                invalidateProjectsListCache();
+                message.success(
+                  orgId ? t('home.orgMoved') : t('home.orgDetached')
+                );
+              } catch {
+                message.error(t('home.orgMoveFailed'));
+              }
+            }}
             onDelete={async () => {
               const id = item.id;
               try {

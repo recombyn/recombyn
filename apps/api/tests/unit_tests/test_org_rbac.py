@@ -201,3 +201,51 @@ def test_decline_invite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         assert pending == []
     finally:
         restore_default_sqlite_engine()
+
+
+def test_set_project_org_and_rename_kick(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _use_tmp_db(tmp_path, monkeypatch, "org-set.db")
+    from app.services.auth import orgs as org_store
+    from app.services.auth.email_store import upsert_user
+    from app.services.db import init_schema
+    from app.services import projects as project_store
+
+    try:
+        init_schema()
+        owner = upsert_user(email="o3@example.com", password="password123", name="O")
+        member = upsert_user(email="m3@example.com", password="password123", name="M")
+        org = org_store.create_org(name="Team C", owner_user_id=owner.id)
+        org_store.upsert_org_member(
+            org_id=org["id"], user_id=member.id, role="member"
+        )
+        renamed = org_store.rename_org(org_id=org["id"], name="Team C2")
+        assert renamed["name"] == "Team C2"
+
+        created = project_store.upsert_project(
+            owner.id,
+            project_id=None,
+            name="P",
+            document={"nodes": {}},
+        )
+        moved = project_store.set_project_org(
+            owner.id, created["id"], org_id=org["id"]
+        )
+        assert moved["orgId"] == org["id"]
+        assert moved["orgName"] == "Team C2"
+
+        listed = project_store.list_projects(member.id, org_id=org["id"])
+        assert any(
+            p["id"] == created["id"] and p.get("orgName") == "Team C2"
+            for p in listed["projects"]
+        )
+
+        org_store.remove_org_member(
+            org_id=org["id"], user_id=member.id, actor_user_id=owner.id
+        )
+        assert (
+            org_store.get_org_member_role(org_id=org["id"], user_id=member.id) is None
+        )
+    finally:
+        restore_default_sqlite_engine()

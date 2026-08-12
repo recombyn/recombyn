@@ -84,7 +84,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next |
 |-----------|--------|------|
-| 细粒度 RBAC | resource×action + org invites (pending accept) + account org UI | Project↔org polish / email notify |
+| 细粒度 RBAC | org rename/kick + project org move/badge + pending invites | Email notify for invites |
 | 文件查杀 / 内容安全 | Magic sniff + optional AV hook; Compose `av` profile (ClamAV) | Wire `UPLOAD_AV_COMMAND=clamdscan` in prod |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |

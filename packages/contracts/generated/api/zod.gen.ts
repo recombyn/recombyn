@@ -745,6 +745,13 @@ export const zRejectIn = z.object({
 });
 
 /**
+ * RenameOrgIn
+ */
+export const zRenameOrgIn = z.object({
+    name: z.string().min(1).max(120)
+});
+
+/**
  * RevokeCardKeysIn
  */
 export const zRevokeCardKeysIn = z.object({
@@ -778,6 +785,15 @@ export const zSceneFeedbackIn = z.object({
     spatial_summary: z.record(z.unknown()).nullish(),
     op_results: z.array(z.record(z.unknown())).nullish(),
     round: z.number().int().nullish()
+});
+
+/**
+ * SetProjectOrgIn
+ *
+ * Attach project to an org, or null to detach (owner only).
+ */
+export const zSetProjectOrgIn = z.object({
+    orgId: z.string().max(64).nullish()
 });
 
 /**
@@ -2049,6 +2065,19 @@ export const zOrgsGetOrgPath = z.object({
  */
 export const zOrgsGetOrgResponse = z.record(z.unknown());
 
+export const zOrgsRenameOrgBody = zRenameOrgIn;
+
+export const zOrgsRenameOrgPath = z.object({
+    org_id: z.string()
+});
+
+/**
+ * Response Orgs-Rename Org
+ *
+ * Successful Response
+ */
+export const zOrgsRenameOrgResponse = z.record(z.unknown());
+
 export const zOrgsListMembersPath = z.object({
     org_id: z.string()
 });
@@ -2072,6 +2101,18 @@ export const zOrgsInviteMemberPath = z.object({
  * Successful Response
  */
 export const zOrgsInviteMemberResponse = z.record(z.unknown());
+
+export const zOrgsRemoveMemberPath = z.object({
+    org_id: z.string(),
+    user_id: z.string()
+});
+
+/**
+ * Response Orgs-Remove Member
+ *
+ * Successful Response
+ */
+export const zOrgsRemoveMemberResponse = z.record(z.unknown());
 
 export const zOrgsListOrgPendingInvitesPath = z.object({
     org_id: z.string()
@@ -2251,6 +2292,17 @@ export const zProjectsExtractCoversPath = z.object({
  * Successful Response
  */
 export const zProjectsExtractCoversResponse = zProjectOneOut;
+
+export const zProjectsSetProjectOrgBody = zSetProjectOrgIn;
+
+export const zProjectsSetProjectOrgPath = z.object({
+    project_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zProjectsSetProjectOrgResponse = zProjectOneOut;
 
 export const zSharesSharesCreateBody = zCreateShareIn;
 

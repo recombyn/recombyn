@@ -29,6 +29,8 @@ export type ProjectCardItem = {
   updatedAt?: number;
   openedAt?: number;
   remoteOnly?: boolean;
+  orgId?: string | null;
+  orgName?: string | null;
 };
 
 export function formatProjectUpdatedAt(
@@ -110,13 +112,16 @@ type Props = {
   /** Mine grid: show Publish to Plaza. Recent: omit. */
   showPublish?: boolean;
   plazaStatus?: PlazaSubmissionDto | null;
+  /** Orgs the current user can attach this project to. */
+  orgOptions?: { id: string; name: string }[];
   onToggle?: () => void;
   onDelete: () => void;
-  /** Menu 鈫?rename dialog. */
+  /** Menu → rename dialog. */
   onRename: () => void;
   /** Title inline contentEditable commit. */
   onCommitRename: (name: string) => void;
   onPublish?: () => void;
+  onSetOrg?: (orgId: string | null) => void;
 };
 
 /** Shared project card for Recent projects + My projects. */
@@ -127,11 +132,13 @@ function ProjectCard({
   selectMode = false,
   showPublish = false,
   plazaStatus,
+  orgOptions = [],
   onToggle,
   onDelete,
   onRename,
   onCommitRename,
   onPublish,
+  onSetOrg,
 }: Props): ReactNode {
   const { t, i18n } = useTranslation();
   const goEditor = useGoEditor();
@@ -211,6 +218,38 @@ function ProjectCard({
           } satisfies MenuItemType,
         ]
       : []),
+    ...(onSetOrg && orgOptions.length > 0
+      ? [
+          ...orgOptions.map(
+            (o) =>
+              ({
+                key: `org:${o.id}`,
+                label: (
+                  <span className="inline-flex items-center gap-2">
+                    {item.orgId === o.id ? (
+                      <HiOutlineCheck className="h-3.5 w-3.5" />
+                    ) : (
+                      <span className="inline-block h-3.5 w-3.5" />
+                    )}
+                    {t('home.moveToOrg', { name: o.name })}
+                  </span>
+                ),
+              }) satisfies MenuItemType
+          ),
+          ...(item.orgId
+            ? [
+                {
+                  key: 'org:none',
+                  label: (
+                    <span className="inline-flex items-center gap-2 text-[var(--muted)]">
+                      {t('home.removeFromOrg')}
+                    </span>
+                  ),
+                } satisfies MenuItemType,
+              ]
+            : []),
+        ]
+      : []),
     {
       key: 'delete',
       label: (
@@ -226,6 +265,10 @@ function ProjectCard({
     if (key === 'rename') onRename();
     if (key === 'delete') onDelete();
     if (key === 'publish') onPublish?.();
+    if (key === 'org:none') onSetOrg?.(null);
+    if (key.startsWith('org:') && key !== 'org:none') {
+      onSetOrg?.(key.slice(4));
+    }
   };
 
   const onPrimary = () => {
@@ -333,6 +376,11 @@ function ProjectCard({
           {updatedLabel ? (
             <p className="mt-0.5 truncate text-[12px] text-[var(--ink)]/55">
               {t('home.updatedAt', { time: updatedLabel })}
+            </p>
+          ) : null}
+          {item.orgName ? (
+            <p className="mt-0.5 truncate text-[11px] text-[var(--muted)]">
+              {item.orgName}
             </p>
           ) : null}
         </div>

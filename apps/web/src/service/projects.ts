@@ -9,6 +9,7 @@ export type ProjectSummaryDto = {
   name: string;
   /** Team org when shared. */
   orgId?: string | null;
+  orgName?: string | null;
   /** Up to 4 cover tiles for 最近打开 / 我的项目 collage. */
   thumbnailUrl?: string | string[] | null;
   /** User-uploaded cover — auto-save must not overwrite. */
@@ -103,6 +104,17 @@ export async function deleteProjectApi(id: string): Promise<{ ok: boolean }> {
   return apiQuery.projectsRemove.call({
     params: { project_id: id },
   }) as Promise<{ ok: boolean }>;
+}
+
+/** Attach / detach team org (no revision bump). */
+export async function setProjectOrgApi(
+  id: string,
+  orgId: string | null
+): Promise<{ project: ProjectSummaryDto }> {
+  return apiClient.projectsSetProjectOrg({
+    params: { project_id: id },
+    body: { orgId },
+  }) as Promise<{ project: ProjectSummaryDto }>;
 }
 
 /** Batch delete — one request for many project ids. */
