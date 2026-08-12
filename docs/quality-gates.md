@@ -13,6 +13,7 @@ Local / CI gates for Recombyn. Monorepo foundation (Turborepo, shared configs, A
 | `npm run dev:api` / `dev:worker` | API + Celery worker (hydrate/import jobs) |
 | `npm run test:gate:a` | Gate A quality script |
 | `npm run test:canvas:stress` | Canvas store + E2E stress matrix |
+| Stress baseline notes | [`docs/stress-baselines.md`](./stress-baselines.md) |
 
 Two gates, one metrics truth. Local full matrix: **`npm run test:gate:full`** (or `test:gate` / `test:gate:a` / `test:gate:b`).
 
@@ -102,6 +103,7 @@ View in Prometheus **Alerts**. Wire Grafana contact points locally (do not commi
 |----------|------|
 | **`ci.yml`** (umbrella) | Every PR / main — `check` + web unit + API unit + web build → **`CI / gate`** |
 | `release-docker.yml` | `v*.*.*` tags / dispatch — push api/web/collab to GHCR |
+| `desktop-build.yml` | Dispatch — unsigned Windows Tauri bundle (ADR 0010) |
 | `web-tests.yml` | Path-filtered — web unit + stress + coverage |
 | `api-tests.yml` | Path-filtered — API unit + integration + cov |
 | `e2e-tests.yml` | Path-filtered — Playwright |
