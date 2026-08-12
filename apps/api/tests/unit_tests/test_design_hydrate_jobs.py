@@ -134,10 +134,17 @@ def test_run_image_hydrate_job_marks_failed(monkeypatch: pytest.MonkeyPatch):
         "app.services.design.ops.image_hydrate._hydrate_tool_ops_images",
         _boom,
     )
+    dlq: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.services.job_store.push_hydrate_dlq",
+        lambda entry: dlq.append(dict(entry)),
+    )
     result = wt.run_image_hydrate_job.run("j1")
     assert result["status"] == "failed"
+    assert result.get("dlq") is True
     assert "provider down" in str(result["error"])
     assert store["j1"]["status"] == "failed"
+    assert dlq and dlq[0]["job_id"] == "j1"
 
 
 def test_run_image_hydrate_job_rethrows_transient(monkeypatch: pytest.MonkeyPatch):

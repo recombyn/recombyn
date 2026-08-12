@@ -177,6 +177,26 @@ test.describe('canvas generators + element tools', () => {
     ).toBeVisible({ timeout: 15_000 });
   });
 
+  test('Image generator real provider finish (opt-in paid)', async ({ page }) => {
+    test.skip(
+      process.env.E2E_PAID_IMAGE_GEN !== '1',
+      'Set E2E_PAID_IMAGE_GEN=1 (+ provider keys on API) to run paid image finish'
+    );
+    // Do not mock — hits live POST /api/v1/chat/image.
+    await spawnImageGeneratorPlate(page);
+    const plate = page.locator('[data-image-generator]').first();
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e paid image promote tiny square', { delay: 4 });
+    const send = plate.locator('button:not([disabled])').last();
+    await expect(send).toBeEnabled({ timeout: 5_000 });
+    await send.click({ force: true });
+    await expect(page.locator('[data-image-generator]')).toHaveCount(0, {
+      timeout: 180_000,
+    });
+  });
+
   test('Video generator plate mounts (Shift+A)', async ({ page }) => {
     await openEditor(page);
     await focusCanvasHotkeys(page);

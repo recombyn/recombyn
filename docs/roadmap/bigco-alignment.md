@@ -67,28 +67,28 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 3) |
 |-----------|--------|----------------|
-| OTel 全链路 | Optional SDK (ADR 0011) + `trace_id` bridge | Worker/collab process instrument next |
+| OTel 全链路 | API + Celery worker + optional collab (ADR 0011) | Collector dashboards |
 | 结构化日志 | `LOG_JSON` + redaction | Keep human default locally |
-| Prometheus | `/metrics` + Grafana + hydrate fail alert | Queue depth / DLQ panels |
-| 自动告警 | Prom rules (5xx / p95 / deps / hydrate) | Webhook contact points |
+| Prometheus | `/metrics` + Grafana + hydrate fail/DLQ alerts | Queue depth panels |
+| 自动告警 | Prom rules (5xx / p95 / deps / hydrate / DLQ) | Webhook contact points |
 
 ### 6. 部署环境
 
 | Reference | Status | Next (Phase 4+) |
 |-----------|--------|-----------------|
-| K8s / 多 AZ | Compose / self-host docs | Optional k8s manifests later |
-| 扩缩容 / 灰度 / 回滚 | Manual | Docker tag + rollback runbook first |
+| K8s / 多 AZ | Starter manifests `deploy/k8s/` (ADR 0012) | HPA / ingress / multi-AZ when operated |
+| 扩缩容 / 灰度 / 回滚 | Manual + GHCR tags | Docker tag + rollback runbook first |
 | 混沌工程 | No | Only after async + obs baselines |
 
 ### 7. 安全与商业化基建
 
 | Reference | Status | Next |
 |-----------|--------|------|
-| 细粒度 RBAC | Coarse user/admin + [docs](../security-rbac.md) | Resource×action when orgs land |
+| 细粒度 RBAC | resource×action helpers + admin audit | Org roles when teams land |
 | 文件查杀 / 内容安全 | Magic sniff + optional AV hook; Compose `av` profile (ClamAV) | Wire `UPLOAD_AV_COMMAND=clamdscan` in prod |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |
-| 脱敏 / 安全审计 | Log redaction partial | SECURITY.md process + dep audit CI |
+| 脱敏 / 安全审计 | Log redaction + admin audit lines | Expand audit coverage |
 
 ---
 
@@ -139,3 +139,12 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Baseline runbook for collab/canvas/k6/agent stress — [stress-baselines.md](../stress-baselines.md)
 - [x] Mock paid-gen finish E2E (`canvas.generators` route mock) + project `baseRevision` 412 conflict (functional API + `collab.sync`)
 - [x] Dual-client Yjs merge under concurrent writes (`apps/collab/dual_client_merge.test.mjs` + Gate B CI)
+
+### Phase 6 — Operator & scale follow-through
+
+- [x] Worker + collab OTel (same enable env as API) — ADR 0011
+- [x] Kubernetes starter manifests — [0012](../adr/0012-k8s-starter-manifests.md) / `deploy/k8s/`
+- [x] Resource×action RBAC helpers + admin audit (`require_permission`, `PATCH /admin/users`)
+- [x] 5k-node interactive LOD budget Vitest (`canvas5k.interactiveBudget`)
+- [x] Opt-in paid image gen E2E (`E2E_PAID_IMAGE_GEN=1`)
+- [x] Hydrate DLQ Prometheus alert

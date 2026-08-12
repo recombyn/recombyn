@@ -1,7 +1,29 @@
-# Kubernetes manifests
+# Optional Kubernetes deploy (GHCR images)
 
-**Status:** deferred (ADR 0004 / 0009).
+**Status:** available as a thin starter (ADR 0012). Compose remains the default OSS path.
 
-OSS default deploy is **Docker Compose** + optional **GHCR** images (`docker-compose.yml`, `docker-compose.ghcr.yml`). Multi-AZ k8s manifests will land here only when an operator needs them and the compose path is stable.
+Images (from `release-docker.yml` tags):
 
-Until then: use [docs/self-hosting.md](../docs/self-hosting.md).
+- `ghcr.io/<owner>/<repo>/api:<tag>`
+- `ghcr.io/<owner>/<repo>/web:<tag>`
+- `ghcr.io/<owner>/<repo>/collab:<tag>`
+
+## Apply (example)
+
+```bash
+export IMAGE_REGISTRY=ghcr.io/recombyn/recombyn
+export IMAGE_TAG=v0.1.0
+# Fill secrets in secret.example.yaml → secret.yaml (do not commit)
+kubectl apply -f deploy/k8s/namespace.yaml
+kubectl apply -f deploy/k8s/configmap.yaml
+kubectl apply -f deploy/k8s/secret.yaml
+kubectl apply -f deploy/k8s/redis.yaml
+kubectl apply -f deploy/k8s/api.yaml
+kubectl apply -f deploy/k8s/worker.yaml
+kubectl apply -f deploy/k8s/collab.yaml
+kubectl apply -f deploy/k8s/web.yaml
+```
+
+MySQL is **not** included — point `DATABASE_URL` at a managed instance or an in-cluster operator of your choice.
+
+See [docs/self-hosting.md](../../docs/self-hosting.md) for Compose.

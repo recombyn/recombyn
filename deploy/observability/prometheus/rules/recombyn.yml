@@ -50,4 +50,13 @@ groups:
           severity: warning
         annotations:
           summary: "Hydrate job failure rate > 25% (10m)"
-          description: "Check Celery worker, image providers, and logs filtered by trace_id."
+          description: "Check Celery worker, image providers, Redis DLQ recombyn:dlq:hydrate, and logs filtered by trace_id."
+
+      - alert: RecombynHydrateDlqRising
+        expr: increase(recombyn_hydrate_dlq_total[30m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hydrate DLQ receiving failures"
+          description: "More than 5 hydrate jobs pushed to Redis DLQ in 30m."

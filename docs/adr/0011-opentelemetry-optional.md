@@ -14,6 +14,8 @@ ADR 0007 shipped app-level `trace_id` + JSON logs for hydrate correlation. Cross
 3. **Export:** OTLP/HTTP when endpoint set; otherwise ConsoleSpanExporter for local DX.
 4. **Correlation bridge:** HTTP middleware prefers the active OTel span trace id for `X-Trace-Id` when a valid span exists; otherwise keeps ADR 0007 mint/header behavior.
 5. **Service name:** `OTEL_SERVICE_NAME` / `otel_service_name` (default `recombyn-api`).
+6. **Worker:** Celery `worker_process_init` instruments tasks when OTel is enabled (`opentelemetry-instrumentation-celery` in `.[otel]`).
+7. **Collab:** optional dynamic import of Node OTel SDK when `OTEL_ENABLED` / endpoint set (packages not required for default install).
 
 ## Consequences
 
@@ -21,10 +23,11 @@ ADR 0007 shipped app-level `trace_id` + JSON logs for hydrate correlation. Cross
 
 - Collector-ready spans without rewriting hydrate job correlation.
 - Self-host stays light unless ops opts in.
+- API + worker + collab share the same enable env contract.
 
 ### Negative / trade-offs
 
-- Worker / collab process instrumentation is a follow-up (same env contract).
+- Collab OTel packages are opt-in npm installs (not in default `apps/collab` deps).
 - Instrumentator versions track OTel prereleases carefully.
 
 ## Alternatives considered
