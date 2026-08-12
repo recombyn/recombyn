@@ -22,7 +22,7 @@ Living checklist for Recombyn platform maturity. Phase 1 tooling is in flight ([
 | Turborepo / monorepo | Done (P1) | Remote cache (Vercel/Turbo) when CI time hurts |
 | Git 规范 + ADR | Done (P1) | Enforce ADR link in PR template |
 | TDD / 分层测试 | Partial (unit + e2e + gates) | Coverage floor on **new** API routes |
-| CODEOWNERS | Missing | Add `CODEOWNERS` for `apps/api`, `apps/web/src/components/rcb`, `apps/collab` |
+| CODEOWNERS | Done (P2) | Keep owners current as teams grow |
 | CI + 远程缓存 | Partial (Actions) | Unify lint→typecheck→test→e2e pipeline (P4) |
 | 内外仓隔离 | N/A for now | Keep public OSS; secrets only in private env / desktop |
 
@@ -49,7 +49,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 | Reference | Status | Next (Phase 2) |
 |-----------|--------|----------------|
 | 消息队列 / 优先级 / 重试 / DLQ | Celery+Redis configured; underused | ADR + first queue with retry/DLQ |
-| AI / 导出 / 渲染异步 | Design run mostly in-request | Hydrate / export / long paint off request |
+| AI / 导出 / 渲染异步 | Hydrate jobs API + apply enqueue | Export / long paint off request |
 | 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
 
 ### 4. 存储分层隔离
@@ -101,14 +101,14 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] `docs/adr` + seed ADRs
 - [x] `npm run dev:stack`
 - [ ] Full web `tsc` clean (tech debt)
-- [ ] `CODEOWNERS` + PR template (ADR checkbox)
+- [x] `CODEOWNERS` + PR template (ADR checkbox)
 
 ### Phase 2 — Backend productionization (async + AI platform)
 
 - [x] ADR: async job boundary (priority deferred; poll contract; Redis + Celery) — [0005](../adr/0005-async-job-boundary.md)
 - [x] First vertical async job: `POST/GET /api/v1/design/hydrate/jobs` + `run_image_hydrate_job`
 - [x] `npm run dev:worker` (+ CODEOWNERS / PR template)
-- [ ] Wire hydrate job into Design Agent apply path (replace in-request await)
+- [x] Wire hydrate job into Design Agent apply/action (`hydrate_tool_ops_images` → Celery, stall fallback)
 - [ ] LLM adapter ADR + thin façade (model 中台 **in-process** first)
 - [ ] Memory tiers (project → session → global)
 - [ ] Alembic CI gate; coverage on new routes

@@ -91,15 +91,15 @@ async def _node_apply_confirm(state: GraphState) -> Command:
         return Command(update=_bump(rt), goto="__settle__")
 
     from app.services.design.ops.image_hydrate import (
-        _hydrate_tool_ops_images,
         _image_model_from_rules,
+        hydrate_tool_ops_images,
     )
     from app.services.design.ops.lottie_hydrate import hydrate_tool_ops_lottie
 
     # Size / shimmer before hydrate so the plate is visible while images generate.
     if _ops_have_create_frame(step_ops):
         _emit_canvas_size_from_ops(rt, step_ops)
-    step_ops, n_img = await _hydrate_tool_ops_images(
+    step_ops, n_img = await hydrate_tool_ops_images(
         step_ops, limit=6, policy="auto", rules=rt.rules
     )
     step_ops, n_lottie = await hydrate_tool_ops_lottie(step_ops, limit=4)
@@ -272,15 +272,15 @@ async def _node_action(state: GraphState) -> Command:
     step_ops = rt.step_ops
     round_i = st.round
     from app.services.design.ops.image_hydrate import (
-        _hydrate_tool_ops_images,
         _image_model_from_rules,
+        hydrate_tool_ops_images,
     )
     from app.services.design.ops.lottie_hydrate import hydrate_tool_ops_lottie
 
     # Safety net: size/shimmer before hydrate (paint_ops usually already did this).
     if _ops_have_create_frame(step_ops):
         _emit_canvas_size_from_ops(rt, step_ops)
-    step_ops, n_img = await _hydrate_tool_ops_images(
+    step_ops, n_img = await hydrate_tool_ops_images(
         step_ops, limit=6, policy="auto", rules=rt.rules
     )
     step_ops, n_lottie = await hydrate_tool_ops_lottie(step_ops, limit=4)

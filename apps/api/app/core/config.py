@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     design_paint_attempt_timeout_sec: float = 90.0
     # create_image hydrate in action/apply — emit tool_ops even if providers hang.
     design_image_hydrate_timeout_sec: float = 90.0
+    # Prefer Celery+Redis for apply/action hydrate (ADR 0005); fall back in-process
+    # when Redis/worker unavailable or job stays queued past stall window.
+    design_image_hydrate_async: bool = True
+    # If job never leaves "queued", assume no worker and fall back (seconds).
+    design_image_hydrate_queue_stall_sec: float = 5.0
     # Review LLM wall clock (abandon hung streams; fail-open to settle).
     design_review_llm_timeout_sec: float = 100.0
     # Verbose [exec]/llm_step] stage timers to stdout (off by default).
