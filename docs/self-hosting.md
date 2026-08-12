@@ -391,8 +391,8 @@ API startup logs **warnings** if admin password, collab secret, default MySQL pa
 Prefer **image tags** (or digest) over floating `latest`. When a release misbehaves:
 
 1. Note the previously known-good tag (from your registry or `docker compose images`).
-4. Pin services in `docker-compose.yml` / use `docker-compose.ghcr.yml` with `RECOMBYN_TAG=vX.Y.Z`.
-5. Redeploy without wiping volumes:
+2. Pin with `docker-compose.ghcr.yml` and `RECOMBYN_TAG=vX.Y.Z`.
+3. Redeploy without wiping volumes:
 
 ```bash
 export RECOMBYN_TAG=v0.1.0   # last known-good
@@ -400,8 +400,8 @@ docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
 ```
 
-6. Confirm `/api/v1/health` (or `/metrics`) and a smoke open of the editor.
-7. Do **not** delete `mysql_data` / Redis volumes unless you intend a destructive restore from backup.
+4. Confirm `/api/v1/health` (or `/metrics`) and a smoke open of the editor.
+5. Do **not** delete `mysql_data` / Redis volumes unless you intend a destructive restore from backup.
 
 Local `--build` deploys: check out the last good git tag, then `docker compose up -d --build`.
 
