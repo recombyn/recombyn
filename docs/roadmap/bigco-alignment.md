@@ -48,7 +48,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate + export jobs / DLQ + admin hydrate replay | Long-paint off request |
+| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate + export jobs / DLQ + admin hydrate/export replay | Long-paint off request |
 | AI / 导出 / 渲染异步 | Hydrate + artboard PNG/PDF export jobs | Long paint off request |
 | 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
 
@@ -163,3 +163,4 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Admin Insights hydrate DLQ tab (list / replay / discard)
 - [x] Async artboard export jobs (`POST/GET /design/export/jobs` + `/file`, PNG/PDF with scene text)
 - [x] Editor Export menu: server PDF (poll + download)
+- [x] Export DLQ admin replay (`GET/POST/DELETE /admin/ops/export-dlq`) + depth gauge / Insights tab
