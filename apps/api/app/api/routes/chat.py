@@ -27,9 +27,7 @@ from app.core.config import is_desktop_local
 from app.services.llm.agent import stream_agent_turn, stream_official_agent
 from app.services.llm.chat import stream_chat
 from app.services.llm.design_tools import design_tool_definitions
-from app.services.llm.audio import generate_audio
-from app.services.llm.video import generate_video
-from app.services.llm.usage_log import bind_usage_context, usage_context
+from app.services.llm.usage_log import bind_usage_context
 from app.services.wallet.db import (
     consume_free_daily_quota,
     get_user_image_credits,
@@ -166,6 +164,36 @@ def _charge_image(
     )
     _charge_image_credits(user_id, cost, "AI image generation")
     return mid, cost
+
+
+def _charge_video(
+    user_id: str,
+    requested_model: str | None,
+    *,
+    resolution: str | None = None,
+) -> tuple[str | None, int]:
+    """Charge video gen from 积分 (reuses image-credit balance for now)."""
+    requested = (requested_model or "").strip() or None
+    if is_desktop_local() or uses_user_platform_byok(user_id, requested):
+        return requested, 0
+    cost = (
+        image_model_credit_cost(requested, count=1, resolution=resolution)
+        if requested
+        else DEFAULT_IMAGE_CREDITS
+    )
+    cost = max(DEFAULT_IMAGE_CREDITS, int(cost or DEFAULT_IMAGE_CREDITS))
+    _charge_image_credits(user_id, cost, "AI video generation")
+    return requested, cost
+
+
+def _charge_audio(user_id: str, requested_model: str | None) -> tuple[str | None, int]:
+    """Charge audio/TTS from 积分 (flat default for now)."""
+    requested = (requested_model or "").strip() or None
+    if is_desktop_local() or uses_user_platform_byok(user_id, requested):
+        return requested, 0
+    cost = max(DEFAULT_IMAGE_CREDITS, int(DEFAULT_IMAGE_CREDITS or 1))
+    _charge_image_credits(user_id, cost, "AI audio generation")
+    return requested, cost
 
 
 @router.get("/models")
@@ -418,84 +446,34 @@ async def post_video(
     current_user: CurrentUser,
     body: VideoGenerateIn,
 ) -> dict[str, Any]:
+    """Sync convenience. Editor uses POST /chat/video/jobs (ADR 0005)."""
     if not body.prompt.strip():
         raise HTTPException(status_code=400, detail="empty prompt")
 
-    requested = (body.model or "").strip() or None
-    # Flat video charge from 积分 (reuse image-credit balance for now).
-    if is_desktop_local() or uses_user_platform_byok(current_user.id, requested):
-        model_id = requested
-        credits_charged = 0
-    else:
-        cost = (
-            image_model_credit_cost(requested, count=1, resolution=body.resolution)
-            if requested
-            else DEFAULT_IMAGE_CREDITS
-        )
-        cost = max(DEFAULT_IMAGE_CREDITS, int(cost or DEFAULT_IMAGE_CREDITS))
-        _charge_image_credits(current_user.id, cost, "AI video generation")
-        model_id = requested
-        credits_charged = cost
+    model_id, credits_charged = _charge_video(
+        current_user.id,
+        body.model,
+        resolution=body.resolution,
+    )
 
-    byok_token = set_byok_user_id(current_user.id)
+    from app.api.routes.chat_video_jobs import execute_video_generate
+
     try:
-        with usage_context(
-            user_id=current_user.id,
-            source="video",
+        return await execute_video_generate(
+            current_user.id,
+            prompt=body.prompt.strip(),
+            model_id=model_id,
+            aspect_ratio=body.aspect_ratio,
+            resolution=body.resolution,
+            duration=body.duration,
+            images=body.images,
             credits_charged=credits_charged,
-        ):
-            result = await generate_video(
-                prompt=body.prompt.strip(),
-                model=model_id,
-                aspect_ratio=body.aspect_ratio,
-                resolution=body.resolution,
-                duration=body.duration,
-                images=body.images,
-            )
+        )
     except RuntimeError as err:
         msg = str(err)
         if "No LLM API key" in msg or "No OpenRouter" in msg:
             raise HTTPException(status_code=503, detail=msg) from err
         raise HTTPException(status_code=502, detail=msg) from err
-    finally:
-        reset_byok_user_id(byok_token)
-    from app.services.assets import create_asset_from_remote_url, create_asset_from_url
-
-    assets_out: list[dict[str, Any]] = []
-    for vid_url in result.get("videos") or []:
-        if not isinstance(vid_url, str) or not vid_url.strip():
-            continue
-        src = vid_url.strip()
-        try:
-            asset = create_asset_from_url(
-                current_user.id,
-                src,
-                kind="video",
-                source="ai_video",
-                prompt=body.prompt.strip(),
-            )
-            assets_out.append(asset)
-        except Exception as err:  # noqa: BLE001
-            logger.warning("video rehost failed (%s): %s", type(err).__name__, err)
-            try:
-                # Keep the public CDN URL so Assets dock still lists the clip.
-                asset = create_asset_from_remote_url(
-                    current_user.id,
-                    src,
-                    kind="video",
-                    source="ai_video",
-                    prompt=body.prompt.strip(),
-                    mime="video/mp4",
-                )
-                assets_out.append(asset)
-            except Exception as err2:  # noqa: BLE001
-                logger.warning(
-                    "video asset register failed (%s): %s", type(err2).__name__, err2
-                )
-                continue
-    if assets_out:
-        result = {**result, "assets": assets_out}
-    return result
 
 
 @router.post("/audio")
@@ -503,34 +481,24 @@ async def post_audio(
     current_user: CurrentUser,
     body: AudioGenerateIn,
 ) -> dict[str, Any]:
-    """OpenRouter TTS — persist mp3 into user assets (same dock as image/video/lottie)."""
+    """Sync convenience. Editor uses POST /chat/audio/jobs (ADR 0005)."""
     if not body.prompt.strip():
         raise HTTPException(status_code=400, detail="empty prompt")
 
-    requested = (body.model or "").strip() or None
-    if is_desktop_local() or uses_user_platform_byok(current_user.id, requested):
-        model_id = requested
-        credits_charged = 0
-    else:
-        cost = max(DEFAULT_IMAGE_CREDITS, int(DEFAULT_IMAGE_CREDITS or 1))
-        _charge_image_credits(current_user.id, cost, "AI audio generation")
-        model_id = requested
-        credits_charged = cost
+    model_id, credits_charged = _charge_audio(current_user.id, body.model)
 
-    byok_token = set_byok_user_id(current_user.id)
+    from app.api.routes.chat_audio_jobs import execute_audio_generate
+
     try:
-        with usage_context(
-            user_id=current_user.id,
-            source="audio",
+        return await execute_audio_generate(
+            current_user.id,
+            prompt=body.prompt.strip(),
+            model_id=model_id,
+            voice=body.voice,
+            response_format=body.response_format,
+            speed=body.speed,
             credits_charged=credits_charged,
-        ):
-            result = await generate_audio(
-                prompt=body.prompt.strip(),
-                model=model_id,
-                voice=body.voice,
-                response_format=body.response_format,
-                speed=body.speed,
-            )
+        )
     except RuntimeError as err:
         msg = str(err)
         if "No LLM API key" in msg or "No OpenRouter" in msg:
@@ -538,36 +506,3 @@ async def post_audio(
         raise HTTPException(status_code=502, detail=msg) from err
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
-    finally:
-        reset_byok_user_id(byok_token)
-
-    from app.services.assets import create_asset_from_bytes
-
-    assets_out: list[dict[str, Any]] = []
-    raw = result.pop("bytes", None)
-    mime = str(result.get("mime") or "audio/mpeg")
-    if isinstance(raw, (bytes, bytearray)) and raw:
-        try:
-            ext = "mp3"
-            if "wav" in mime:
-                ext = "wav"
-            elif "ogg" in mime:
-                ext = "ogg"
-            asset = create_asset_from_bytes(
-                current_user.id,
-                bytes(raw),
-                kind="audio",
-                mime=mime,
-                source="ai_audio",
-                prompt=body.prompt.strip()[:500] or None,
-                filename_ext=ext,
-            )
-            assets_out.append(asset)
-            # Prefer persisted URL for the client player.
-            if asset.get("url"):
-                result["audios"] = [asset["url"]]
-        except Exception as err:  # noqa: BLE001
-            logger.warning("audio asset persist failed (%s): %s", type(err).__name__, err)
-    if assets_out:
-        result = {**result, "assets": assets_out}
-    return result

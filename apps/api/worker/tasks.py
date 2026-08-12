@@ -16,6 +16,8 @@ _log = logging.getLogger(__name__)
 _HYDRATE_KIND = "hydrate"
 _EXPORT_KIND = "export"
 _IMAGE_KIND = "image"
+_VIDEO_KIND = "video"
+_AUDIO_KIND = "audio"
 _JOB_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 
 
@@ -292,56 +294,40 @@ def run_design_export_job(self, job_id: str) -> dict:
         return _fail_to_dlq(str(exc), trace_id=trace_id)
 
 
-@celery.task(
-    name="worker.tasks.run_chat_image_job",
-    bind=True,
-    autoretry_for=_JOB_TRANSIENT,
-    retry_backoff=True,
-    retry_backoff_max=60,
-    retry_jitter=True,
-    retry_kwargs={"max_retries": 2},
-)
-def run_chat_image_job(self, job_id: str) -> dict:
-    """Fill POST /chat/image/jobs via image providers (ADR 0005 long-paint)."""
+
+def _run_chat_media_job(
+    self,
+    job_id: str,
+    *,
+    kind: str,
+    execute,
+) -> dict:
+    """Shared Celery runner for chat image/video/audio jobs."""
     from app.core.metrics import observe_job
 
-    job = get_job(job_id, kind=_IMAGE_KIND)
+    job = get_job(job_id, kind=kind)
     if not job:
-        observe_job(_IMAGE_KIND, "failed")
+        observe_job(kind, "failed")
         return {"job_id": job_id, "status": "failed", "error": "job_not_found"}
 
     trace_id = str(job.get("trace_id") or "")
-    user_id = str(job.get("user_id") or "")
-    prompt = str(job.get("prompt") or "")
-    update_job(job_id, kind=_IMAGE_KIND, status="processing", progress=10, error=None)
+    update_job(job_id, kind=kind, status="processing", progress=10, error=None)
 
     try:
-        from app.api.routes.chat_image_jobs import execute_image_generate
-
-        update_job(job_id, kind=_IMAGE_KIND, progress=35)
-        result = asyncio.run(
-            execute_image_generate(
-                user_id,
-                prompt=prompt,
-                model_id=job.get("model"),
-                aspect_ratio=job.get("aspect_ratio"),
-                quality=job.get("quality"),
-                resolution=job.get("resolution"),
-                images=job.get("images") if isinstance(job.get("images"), list) else None,
-                credits_charged=int(job.get("credits_charged") or 0),
-            )
-        )
+        update_job(job_id, kind=kind, progress=35)
+        result = asyncio.run(execute(job))
         update_job(
             job_id,
-            kind=_IMAGE_KIND,
+            kind=kind,
             status="done",
             progress=100,
             result=result,
             error=None,
         )
-        observe_job(_IMAGE_KIND, "done")
+        observe_job(kind, "done")
         _log.info(
-            "image_job event=done job_id=%s trace_id=%s",
+            "%s_job event=done job_id=%s trace_id=%s",
+            kind,
             job_id,
             trace_id,
             extra={"job_id": job_id, "trace_id": trace_id, "event": "done"},
@@ -353,17 +339,17 @@ def run_chat_image_job(self, job_id: str) -> dict:
         if retries >= max_retries:
             update_job(
                 job_id,
-                kind=_IMAGE_KIND,
+                kind=kind,
                 status="failed",
                 progress=100,
                 error=f"retries exhausted: {exc}",
             )
-            observe_job(_IMAGE_KIND, "failed")
+            observe_job(kind, "failed")
             return {"job_id": job_id, "status": "failed", "error": str(exc)}
-        observe_job(_IMAGE_KIND, "retry")
+        observe_job(kind, "retry")
         update_job(
             job_id,
-            kind=_IMAGE_KIND,
+            kind=kind,
             status="processing",
             error=f"transient retry: {exc}",
         )
@@ -371,20 +357,107 @@ def run_chat_image_job(self, job_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         update_job(
             job_id,
-            kind=_IMAGE_KIND,
+            kind=kind,
             status="failed",
             progress=100,
             error=str(exc),
         )
-        observe_job(_IMAGE_KIND, "failed")
+        observe_job(kind, "failed")
         _log.error(
-            "image_job event=failed job_id=%s trace_id=%s err=%s",
+            "%s_job event=failed job_id=%s trace_id=%s err=%s",
+            kind,
             job_id,
             trace_id,
             exc,
             extra={"job_id": job_id, "trace_id": trace_id, "event": "failed"},
         )
         return {"job_id": job_id, "status": "failed", "error": str(exc)}
+
+
+@celery.task(
+    name="worker.tasks.run_chat_image_job",
+    bind=True,
+    autoretry_for=_JOB_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_chat_image_job(self, job_id: str) -> dict:
+    """Fill POST /chat/image/jobs via image providers (ADR 0005 long-paint)."""
+
+    async def _execute(job: dict) -> dict:
+        from app.api.routes.chat_image_jobs import execute_image_generate
+
+        return await execute_image_generate(
+            str(job.get("user_id") or ""),
+            prompt=str(job.get("prompt") or ""),
+            model_id=job.get("model"),
+            aspect_ratio=job.get("aspect_ratio"),
+            quality=job.get("quality"),
+            resolution=job.get("resolution"),
+            images=job.get("images") if isinstance(job.get("images"), list) else None,
+            credits_charged=int(job.get("credits_charged") or 0),
+        )
+
+    return _run_chat_media_job(self, job_id, kind=_IMAGE_KIND, execute=_execute)
+
+
+@celery.task(
+    name="worker.tasks.run_chat_video_job",
+    bind=True,
+    autoretry_for=_JOB_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_chat_video_job(self, job_id: str) -> dict:
+    """Fill POST /chat/video/jobs via video providers (ADR 0005)."""
+
+    async def _execute(job: dict) -> dict:
+        from app.api.routes.chat_video_jobs import execute_video_generate
+
+        return await execute_video_generate(
+            str(job.get("user_id") or ""),
+            prompt=str(job.get("prompt") or ""),
+            model_id=job.get("model"),
+            aspect_ratio=job.get("aspect_ratio"),
+            resolution=job.get("resolution"),
+            duration=job.get("duration") if job.get("duration") is not None else None,
+            images=job.get("images") if isinstance(job.get("images"), list) else None,
+            credits_charged=int(job.get("credits_charged") or 0),
+        )
+
+    return _run_chat_media_job(self, job_id, kind=_VIDEO_KIND, execute=_execute)
+
+
+@celery.task(
+    name="worker.tasks.run_chat_audio_job",
+    bind=True,
+    autoretry_for=_JOB_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_chat_audio_job(self, job_id: str) -> dict:
+    """Fill POST /chat/audio/jobs via TTS providers (ADR 0005)."""
+
+    async def _execute(job: dict) -> dict:
+        from app.api.routes.chat_audio_jobs import execute_audio_generate
+
+        return await execute_audio_generate(
+            str(job.get("user_id") or ""),
+            prompt=str(job.get("prompt") or ""),
+            model_id=job.get("model"),
+            voice=job.get("voice"),
+            response_format=job.get("response_format"),
+            speed=job.get("speed"),
+            credits_charged=int(job.get("credits_charged") or 0),
+        )
+
+    return _run_chat_media_job(self, job_id, kind=_AUDIO_KIND, execute=_execute)
 
 
 @celery.task(name="worker.tasks.run_db_backup_job")

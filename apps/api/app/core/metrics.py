@@ -78,6 +78,18 @@ IMAGE_JOBS_TOTAL = Counter(
     ["event"],
 )
 
+VIDEO_JOBS_TOTAL = Counter(
+    "recombyn_video_jobs_total",
+    "Chat video-generation jobs enqueued or finished",
+    ["event"],
+)
+
+AUDIO_JOBS_TOTAL = Counter(
+    "recombyn_audio_jobs_total",
+    "Chat audio-generation jobs enqueued or finished",
+    ["event"],
+)
+
 
 def observe_job(kind: str, event: str) -> None:
     """event: enqueued | done | failed | retry | dlq."""
@@ -85,6 +97,8 @@ def observe_job(kind: str, event: str) -> None:
         "hydrate": HYDRATE_JOBS_TOTAL,
         "export": EXPORT_JOBS_TOTAL,
         "image": IMAGE_JOBS_TOTAL,
+        "video": VIDEO_JOBS_TOTAL,
+        "audio": AUDIO_JOBS_TOTAL,
     }
     counter = counters.get(str(kind or "").strip().lower())
     if counter is None:
