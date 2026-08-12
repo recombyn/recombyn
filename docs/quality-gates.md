@@ -75,7 +75,7 @@ E2E workers default to **2** (`E2E_WORKERS` to override) to avoid auth rate-limi
 | **Grafana** | SLO dashboards | compose `:3001` (admin / recombyn) |
 
 ```bash
-docker compose up -d api prometheus grafana
+docker compose --profile obs up -d api prometheus grafana alertmanager
 # Heavy load: restart API with RATE_LIMIT_ENABLED=false
 curl -s http://127.0.0.1:8000/metrics | head
 
@@ -94,8 +94,11 @@ COLLAB_WS_URL=ws://127.0.0.1:1234 npm run perf:k6:collab
 - 5xx rate > 5% (5m)
 - p95 latency > 2s (10m)
 - DB / Redis gauge down (2m)
+- Hydrate job failure rate > 25% (10m)
+- Hydrate DLQ pushes > 5 / 30m
+- Hydrate DLQ depth > 20 (10m)
 
-View in Prometheus **Alerts**. Wire Grafana contact points locally (do not commit secrets).
+View in Prometheus **Alerts**. Alertmanager listens on `:9093` (compose profile `obs`). Override `deploy/observability/alertmanager/alertmanager.yml` webhook locally (do not commit secrets).
 
 ### CI workflows
 

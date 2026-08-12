@@ -25,6 +25,8 @@ Shipped admin permission strings:
 - `admin:catalog:write` / `admin:design:write` / `admin:fonts:write`
 - `admin:content:read` / `admin:notices:write` / `admin:metrics:read`
 
+Ops: `GET /admin/ops/hydrate-dlq` uses `admin:metrics:read`; replay/discard use `admin:design:write`.
+
 End-user permissions today: `project:read` / `project:write` / `upload:write` / `wallet:read`.
 
 ### Example: `PATCH /admin/users/{id}` uses `require_permission("admin:users:write")`.

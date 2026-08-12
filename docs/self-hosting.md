@@ -11,9 +11,10 @@ Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite)
 | Web editor | http://localhost:3000 |
 | API | http://localhost:8000 (`/docs`, **`/metrics`**) |
 | Collab (Yjs WS) | compose `collab` · browser via `ws://localhost:3000/collab/…` (prod: `wss://`) |
-| Prometheus | http://localhost:9090 (compose) |
-| Grafana | http://localhost:3001 (compose · default `admin` / `recombyn`) |
-| ClamAV (optional) | `docker compose --profile av up -d` + `UPLOAD_AV_*` on api |
+| Prometheus | http://localhost:9090 (`docker compose --profile obs up -d`) |
+| Grafana | http://localhost:3001 (obs profile · default `admin` / `recombyn`) |
+| Alertmanager | http://localhost:9093 (obs profile · default no-op receiver) |
+| ClamAV (optional) | `docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build` |
 | Agent seeds | prompt packs + skills + **AgentProfile** YAML from `apps/api/seeds/` |
 | **MySQL 8** | compose service + volume `mysql_data` |
 | Redis | Celery / queues |

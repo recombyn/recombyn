@@ -59,4 +59,13 @@ groups:
           severity: warning
         annotations:
           summary: "Hydrate DLQ receiving failures"
-          description: "More than 5 hydrate jobs pushed to Redis DLQ in 30m."
+          description: "More than 5 hydrate jobs pushed to Redis DLQ in 30m. Replay via POST /api/v1/admin/ops/hydrate-dlq/replay."
+
+      - alert: RecombynHydrateDlqDepth
+        expr: recombyn_hydrate_dlq_depth > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hydrate DLQ depth > 20"
+          description: "Redis list recombyn:dlq:hydrate is backing up. Check worker health and replay or discard via admin ops."

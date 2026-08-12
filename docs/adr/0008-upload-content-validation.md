@@ -11,7 +11,7 @@ Uploads already enforce auth, ownership prefixes, size caps, and declared MIME a
 
 1. **Magic-byte sniff** in `app.services.uploads` before `put_bytes`. Prefer sniffed ext/MIME when family matches claim; reject family mismatches, PE/ELF, and SVG with `<script>` / `<foreignObject>`.
 2. **Setting** `upload_require_magic_match` (default true). Unknown magic for claimed media fails closed (except Pillow-openable raster when sniff is inconclusive, e.g. some AVIF).
-3. **Optional AV hook:** `upload_av_hook_enabled` + `upload_av_command` (argv prefix; path appended). Off by default — operators wire ClamAV/etc.
+3. **Optional AV hook:** `upload_av_hook_enabled` + `upload_av_command` (argv prefix; path appended). Off by default — operators wire ClamAV via `docker-compose.av.yml` (`INSTALL_AV` + `clamdscan --host=clamav`).
 4. **No orphan scanner module** — keep helpers in `uploads.py`.
 
 ## Consequences
