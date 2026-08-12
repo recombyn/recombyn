@@ -18,6 +18,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Optional OpenTelemetry (`.[otel]`, ADR 0011); hydrate Redis DLQ; ClamAV compose profile; dual Yjs merge Gate B
 - Phase 6: k8s starter manifests, worker/collab OTel, RBAC permissions, 5k LOD budget test, paid-gen opt-in E2E
 - k8s HPA/Ingress examples; admin write audit router-wide; org_members Alembic skeleton
+- `projects.org_id` + org invite API; k8s PDB + NetworkPolicy starter manifests
 
 ### Changed
 
