@@ -14,7 +14,36 @@ from worker.celery_app import celery
 _log = logging.getLogger(__name__)
 
 _HYDRATE_KIND = "hydrate"
-_HYDRATE_TRANSIENT = (ConnectionError, TimeoutError, OSError)
+_EXPORT_KIND = "export"
+_JOB_TRANSIENT = (ConnectionError, TimeoutError, OSError)
+
+
+def _fail_job_to_dlq(
+    *,
+    kind: str,
+    job_id: str,
+    error: str,
+    retries: int,
+    extra: dict[str, Any],
+) -> dict:
+    from app.core.metrics import observe_dlq, observe_job
+    from app.services.job_store import push_dlq
+
+    update_job(job_id, kind=kind, status="failed", progress=100, error=error)
+    push_dlq(kind, {"job_id": job_id, "error": error, "retries": retries, **extra})
+    observe_job(kind, "failed")
+    observe_job(kind, "dlq")
+    observe_dlq(kind)
+    trace_id = str(extra.get("trace_id") or "")
+    _log.error(
+        "%s_job event=dlq job_id=%s trace_id=%s err=%s",
+        kind,
+        job_id,
+        trace_id,
+        error,
+        extra={"job_id": job_id, "trace_id": trace_id, "event": "dlq"},
+    )
+    return {"job_id": job_id, "status": "failed", "error": error, "dlq": True}
 
 
 @celery.task(name="worker.tasks.run_import_job", bind=True)
@@ -42,7 +71,7 @@ def run_import_job(self, job_id: str, source_type: str, file_path: str) -> dict:
 @celery.task(
     name="worker.tasks.run_image_hydrate_job",
     bind=True,
-    autoretry_for=_HYDRATE_TRANSIENT,
+    autoretry_for=_JOB_TRANSIENT,
     retry_backoff=True,
     retry_backoff_max=60,
     retry_jitter=True,
@@ -50,8 +79,7 @@ def run_import_job(self, job_id: str, source_type: str, file_path: str) -> dict:
 )
 def run_image_hydrate_job(self, job_id: str) -> dict:
     """Fill create_image genPrompt ops via image providers (ADR 0005 / 0007)."""
-    from app.core.metrics import observe_hydrate_dlq, observe_hydrate_job
-    from app.services.job_store import push_hydrate_dlq
+    from app.core.metrics import observe_job
 
     def _fail_to_dlq(
         error: str,
@@ -62,41 +90,23 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
         policy: str = "auto",
         rules: dict | None = None,
     ) -> dict:
-        update_job(
-            job_id,
+        return _fail_job_to_dlq(
             kind=_HYDRATE_KIND,
-            status="failed",
-            progress=100,
+            job_id=job_id,
             error=error,
-        )
-        push_hydrate_dlq(
-            {
-                "job_id": job_id,
+            retries=int(getattr(self.request, "retries", 0) or 0),
+            extra={
                 "trace_id": trace_id,
-                "error": error,
-                "retries": int(getattr(self.request, "retries", 0) or 0),
-                # Snapshot for admin replay if Redis job TTL already expired.
                 "ops": ops if isinstance(ops, list) else [],
                 "limit": int(limit or 6),
                 "policy": str(policy or "auto"),
                 "rules": rules if isinstance(rules, dict) else {},
-            }
+            },
         )
-        observe_hydrate_job("failed")
-        observe_hydrate_job("dlq")
-        observe_hydrate_dlq()
-        _log.error(
-            "hydrate_job event=dlq job_id=%s trace_id=%s err=%s",
-            job_id,
-            trace_id,
-            error,
-            extra={"job_id": job_id, "trace_id": trace_id, "event": "dlq"},
-        )
-        return {"job_id": job_id, "status": "failed", "error": error, "dlq": True}
 
     job = get_job(job_id, kind=_HYDRATE_KIND)
     if not job:
-        observe_hydrate_job("failed")
+        observe_job(_HYDRATE_KIND, "failed")
         _log.warning(
             "hydrate_job event=failed job_id=%s error=job_not_found",
             job_id,
@@ -142,7 +152,7 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
             result=result,
             error=None,
         )
-        observe_hydrate_job("done")
+        observe_job(_HYDRATE_KIND, "done")
         _log.info(
             "hydrate_job event=done job_id=%s trace_id=%s filled=%s",
             job_id,
@@ -151,7 +161,7 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
             extra={"job_id": job_id, "trace_id": trace_id, "event": "done"},
         )
         return {"job_id": job_id, "status": "done", "filled": filled}
-    except _HYDRATE_TRANSIENT as exc:
+    except _JOB_TRANSIENT as exc:
         retries = int(getattr(self.request, "retries", 0) or 0)
         max_retries = int(getattr(self, "max_retries", 2) or 2)
         if retries >= max_retries:
@@ -163,7 +173,7 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
                 policy=policy,
                 rules=rules,
             )
-        observe_hydrate_job("retry")
+        observe_job(_HYDRATE_KIND, "retry")
         update_job(
             job_id,
             kind=_HYDRATE_KIND,
@@ -190,13 +200,12 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
 
 
 _EXPORT_KIND = "export"
-_EXPORT_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 
 
 @celery.task(
     name="worker.tasks.run_design_export_job",
     bind=True,
-    autoretry_for=_EXPORT_TRANSIENT,
+    autoretry_for=_JOB_TRANSIENT,
     retry_backoff=True,
     retry_backoff_max=60,
     retry_jitter=True,
@@ -204,47 +213,29 @@ _EXPORT_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 )
 def run_design_export_job(self, job_id: str) -> dict:
     """Rasterize project artboards to PNG/PDF (ADR 0005 export vertical)."""
-    from app.core.metrics import observe_export_dlq, observe_export_job
+    from app.core.metrics import observe_job
     from app.services.design.export_render import render_and_store_export
-    from app.services.job_store import push_export_dlq
     from app.services.projects import get_project
 
     def _fail_to_dlq(error: str, *, trace_id: str = "") -> dict:
-        update_job(
-            job_id,
-            kind=_EXPORT_KIND,
-            status="failed",
-            progress=100,
-            error=error,
-        )
         job_now = get_job(job_id, kind=_EXPORT_KIND) or {}
-        push_export_dlq(
-            {
-                "job_id": job_id,
+        return _fail_job_to_dlq(
+            kind=_EXPORT_KIND,
+            job_id=job_id,
+            error=error,
+            retries=int(getattr(self.request, "retries", 0) or 0),
+            extra={
                 "trace_id": trace_id,
-                "error": error,
-                "retries": int(getattr(self.request, "retries", 0) or 0),
                 "project_id": job_now.get("project_id"),
                 "format": job_now.get("format"),
                 "frame_id": job_now.get("frame_id"),
                 "user_id": job_now.get("user_id"),
-            }
+            },
         )
-        observe_export_job("failed")
-        observe_export_job("dlq")
-        observe_export_dlq()
-        _log.error(
-            "export_job event=dlq job_id=%s trace_id=%s err=%s",
-            job_id,
-            trace_id,
-            error,
-            extra={"job_id": job_id, "trace_id": trace_id, "event": "dlq"},
-        )
-        return {"job_id": job_id, "status": "failed", "error": error, "dlq": True}
 
     job = get_job(job_id, kind=_EXPORT_KIND)
     if not job:
-        observe_export_job("failed")
+        observe_job(_EXPORT_KIND, "failed")
         return {"job_id": job_id, "status": "failed", "error": "job_not_found"}
 
     trace_id = str(job.get("trace_id") or "")
@@ -277,7 +268,7 @@ def run_design_export_job(self, job_id: str) -> dict:
             result=result,
             error=None,
         )
-        observe_export_job("done")
+        observe_job(_EXPORT_KIND, "done")
         _log.info(
             "export_job event=done job_id=%s pages=%s format=%s",
             job_id,
@@ -286,12 +277,12 @@ def run_design_export_job(self, job_id: str) -> dict:
             extra={"job_id": job_id, "trace_id": trace_id, "event": "done"},
         )
         return {"job_id": job_id, "status": "done", "pages": result.get("pages")}
-    except _EXPORT_TRANSIENT as exc:
+    except _JOB_TRANSIENT as exc:
         retries = int(getattr(self.request, "retries", 0) or 0)
         max_retries = int(getattr(self, "max_retries", 2) or 2)
         if retries >= max_retries:
             return _fail_to_dlq(f"retries exhausted: {exc}", trace_id=trace_id)
-        observe_export_job("retry")
+        observe_job(_EXPORT_KIND, "retry")
         update_job(
             job_id,
             kind=_EXPORT_KIND,

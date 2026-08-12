@@ -18,7 +18,7 @@ from app.services.llm import (
     list_llm_models,
     list_video_models,
     reset_byok_user_id,
-    resolve_chat_endpoint,
+    get_llm_endpoint,
     set_byok_user_id,
     user_byok_platforms,
     uses_user_platform_byok,
@@ -219,7 +219,7 @@ def get_models(
     )
     available = True
     try:
-        resolve_chat_endpoint()
+        get_llm_endpoint()
     except Exception:
         available = bool(platforms)
     return {
@@ -269,7 +269,7 @@ async def post_message(
     async def event_gen():
         byok_token = set_byok_user_id(current_user.id)
         try:
-            resolve_chat_endpoint(body.model)
+            get_llm_endpoint(body.model)
             yield f"data: {json.dumps({'type': 'start', 'model': body.model}, ensure_ascii=False)}\n\n"
             async for kind, text in stream_chat(
                 message=body.message.strip(),
@@ -337,7 +337,7 @@ async def post_agent_turn(
     async def event_gen():
         byok_token = set_byok_user_id(current_user.id)
         try:
-            resolve_chat_endpoint(body.model)
+            get_llm_endpoint(body.model)
             yield f"data: {json.dumps({'type': 'start', 'model': body.model, 'mode': mode}, ensure_ascii=False)}\n\n"
             stream = (
                 stream_official_agent(

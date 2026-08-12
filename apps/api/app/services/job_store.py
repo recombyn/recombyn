@@ -65,35 +65,39 @@ def update_job(job_id: str, *, kind: str = _DEFAULT_KIND, **fields: Any) -> dict
     return current
 
 
-_DLQ_KEY = "recombyn:dlq:hydrate"
 _DLQ_MAX = 500
+_DLQ_KINDS = ("hydrate", "export")
 
 
-def push_hydrate_dlq(entry: dict[str, Any]) -> None:
-    """Append a terminal hydrate failure for ops replay (ADR 0005 DLQ).
+def _dlq_key(kind: str) -> str:
+    k = _normalize_kind(kind)
+    if k not in _DLQ_KINDS:
+        raise ValueError(f"unknown dlq kind: {kind}")
+    return f"recombyn:dlq:{k}"
 
-    Best-effort: never raise — failure recording must not mask the original error
-    (and unit tests often run without Redis).
-    """
+
+def push_dlq(kind: str, entry: dict[str, Any]) -> None:
+    """Append a terminal job failure for ops replay. Best-effort (never raise)."""
     try:
         client = _client()
+        key = _dlq_key(kind)
         payload = json.dumps(entry, ensure_ascii=False)
-        client.lpush(_DLQ_KEY, payload)
-        client.ltrim(_DLQ_KEY, 0, _DLQ_MAX - 1)
-        # Keep list around at least as long as jobs.
-        client.expire(_DLQ_KEY, max(settings.job_ttl_seconds, 7 * 86400))
+        client.lpush(key, payload)
+        client.ltrim(key, 0, _DLQ_MAX - 1)
+        client.expire(key, max(settings.job_ttl_seconds, 7 * 86400))
     except Exception:
         import logging
 
         logging.getLogger(__name__).warning(
-            "hydrate DLQ push failed job_id=%s",
+            "%s DLQ push failed job_id=%s",
+            kind,
             entry.get("job_id"),
             exc_info=True,
         )
 
 
-def list_hydrate_dlq(*, limit: int = 50) -> list[dict[str, Any]]:
-    raw = _client().lrange(_DLQ_KEY, 0, max(0, limit - 1))
+def list_dlq(kind: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    raw = _client().lrange(_dlq_key(kind), 0, max(0, limit - 1))
     out: list[dict[str, Any]] = []
     for item in raw or []:
         try:
@@ -103,21 +107,20 @@ def list_hydrate_dlq(*, limit: int = 50) -> list[dict[str, Any]]:
     return out
 
 
-def hydrate_dlq_depth() -> int:
-    """Best-effort Redis LLEN for Grafana queue-depth panels."""
+def dlq_depth(kind: str) -> int:
     try:
-        return int(_client().llen(_DLQ_KEY) or 0)
+        return int(_client().llen(_dlq_key(kind)) or 0)
     except Exception:
         return 0
 
 
-def remove_hydrate_dlq_job(job_id: str) -> int:
-    """Remove all DLQ rows matching job_id. Returns how many list entries dropped."""
+def remove_dlq_job(kind: str, job_id: str) -> int:
     jid = str(job_id or "").strip()
     if not jid:
         return 0
     client = _client()
-    raw = client.lrange(_DLQ_KEY, 0, -1) or []
+    key = _dlq_key(kind)
+    raw = client.lrange(key, 0, -1) or []
     removed = 0
     for item in raw:
         try:
@@ -126,62 +129,5 @@ def remove_hydrate_dlq_job(job_id: str) -> int:
             continue
         if str(entry.get("job_id") or "") != jid:
             continue
-        removed += int(client.lrem(_DLQ_KEY, 0, item) or 0)
-    return removed
-
-
-_EXPORT_DLQ_KEY = "recombyn:dlq:export"
-
-
-def push_export_dlq(entry: dict[str, Any]) -> None:
-    """Append a terminal export failure for ops replay. Best-effort."""
-    try:
-        client = _client()
-        payload = json.dumps(entry, ensure_ascii=False)
-        client.lpush(_EXPORT_DLQ_KEY, payload)
-        client.ltrim(_EXPORT_DLQ_KEY, 0, _DLQ_MAX - 1)
-        client.expire(_EXPORT_DLQ_KEY, max(settings.job_ttl_seconds, 7 * 86400))
-    except Exception:
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "export DLQ push failed job_id=%s",
-            entry.get("job_id"),
-            exc_info=True,
-        )
-
-
-def list_export_dlq(*, limit: int = 50) -> list[dict[str, Any]]:
-    raw = _client().lrange(_EXPORT_DLQ_KEY, 0, max(0, limit - 1))
-    out: list[dict[str, Any]] = []
-    for item in raw or []:
-        try:
-            out.append(json.loads(item))
-        except Exception:
-            out.append({"_raw": str(item)[:200]})
-    return out
-
-
-def export_dlq_depth() -> int:
-    try:
-        return int(_client().llen(_EXPORT_DLQ_KEY) or 0)
-    except Exception:
-        return 0
-
-
-def remove_export_dlq_job(job_id: str) -> int:
-    jid = str(job_id or "").strip()
-    if not jid:
-        return 0
-    client = _client()
-    raw = client.lrange(_EXPORT_DLQ_KEY, 0, -1) or []
-    removed = 0
-    for item in raw:
-        try:
-            entry = json.loads(item)
-        except Exception:
-            continue
-        if str(entry.get("job_id") or "") != jid:
-            continue
-        removed += int(client.lrem(_EXPORT_DLQ_KEY, 0, item) or 0)
+        removed += int(client.lrem(key, 0, item) or 0)
     return removed

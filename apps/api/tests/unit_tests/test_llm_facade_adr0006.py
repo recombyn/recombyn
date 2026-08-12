@@ -5,35 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_resolve_chat_endpoint_aliases_get_llm_endpoint(monkeypatch):
+def test_llm_facade_exports_endpoint_and_chat_model():
     from app.services import llm as mod
 
-    sentinel = mod.LlmEndpoint(
-        base_url="https://example.test/v1",
-        api_key="k",
-        model_id="m",
-        provider="doubao",
-    )
-    monkeypatch.setattr(mod, "get_llm_endpoint", lambda model_string=None: sentinel)
-    assert mod.resolve_chat_endpoint("any") is sentinel
-
-
-def test_chat_model_for_delegates_to_build_chat_model(monkeypatch):
-    from app.services import llm as mod
-
-    called: dict[str, object] = {}
-
-    def _fake(model=None, **kwargs):
-        called["model"] = model
-        called["kwargs"] = kwargs
-        return "llm-stub"
-
-    monkeypatch.setattr(mod, "build_chat_model", _fake)
-    out = mod.chat_model_for("deepseek-v4-flash", streaming=True, source="test")
-    assert out == "llm-stub"
-    assert called["model"] == "deepseek-v4-flash"
-    assert called["kwargs"]["streaming"] is True
-    assert called["kwargs"]["source"] == "test"
+    assert callable(mod.get_llm_endpoint)
+    assert callable(mod.build_chat_model)
+    assert not hasattr(mod, "resolve_chat_endpoint")
+    assert not hasattr(mod, "chat_model_for")
 
 
 def test_memory_tiers_documented():

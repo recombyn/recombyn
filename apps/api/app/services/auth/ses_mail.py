@@ -139,48 +139,6 @@ def _ses_request(action: str, params: dict[str, Any]) -> dict[str, Any]:
     return response
 
 
-def send_login_link_email(*, to_email: str, username: str, activate_id: str) -> str:
-    """Send magic-link login mail (SES template {{username}} / {{id}}). Returns MessageId."""
-    s = _settings()
-    from_email = s.ses_from_email.strip()
-    from_name = (s.ses_from_name or "recombyn").strip()
-    subject = f"[{from_name}] 登录链接"
-    template_id = int(s.ses_template_id or 0)
-    if template_id <= 0:
-        raise SesError(
-            "SES_TEMPLATE_ID is required (Tencent SES rejects Simple send without permission)"
-        )
-
-    params: dict[str, Any] = {
-        "FromEmailAddress": (
-            f"{from_name} <{from_email}>" if from_name else from_email
-        ),
-        "Destination": [to_email.strip().lower()],
-        "Subject": subject,
-        "TriggerType": 1,
-        "Template": {
-            "TemplateID": template_id,
-            "TemplateData": json.dumps(
-                {
-                    "username": username or "there",
-                    "id": activate_id,
-                },
-                ensure_ascii=False,
-            ),
-        },
-    }
-
-    result = _ses_request("SendEmail", params)
-    message_id = str(result.get("MessageId") or "")
-    logger.info(
-        "SendEmail login-link ok to=%s templateId=%s messageId=%s",
-        to_email,
-        template_id,
-        message_id,
-    )
-    return message_id
-
-
 def send_verification_email(*, to_email: str, code: str) -> str:
     """Send 6-digit login code via SES template {{username}} / {{id}} (id = code)."""
     s = _settings()

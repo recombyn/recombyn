@@ -136,8 +136,8 @@ def test_run_image_hydrate_job_marks_failed(monkeypatch: pytest.MonkeyPatch):
     )
     dlq: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        "app.services.job_store.push_hydrate_dlq",
-        lambda entry: dlq.append(dict(entry)),
+        "app.services.job_store.push_dlq",
+            lambda kind, entry: dlq.append(dict(entry)),
     )
     result = wt.run_image_hydrate_job.run("j1")
     assert result["status"] == "failed"
