@@ -1,0 +1,40 @@
+groups:
+  - name: recombyn-api
+    interval: 30s
+    rules:
+      - alert: RecombynApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="recombyn-api",status=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_requests_total{job="recombyn-api"}[5m])), 0.001)
+            > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 5xx rate > 5% (5m)"
+          description: "Investigate failing handlers on recombyn-api."
+
+      - alert: RecombynApiHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="recombyn-api"}[5m])) by (le)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency > 2s"
+          description: "Sustained high latency on recombyn-api."
+
+      - alert: RecombynDependencyDown
+        expr: |
+          recombyn_dependency_db_up == 0
+          or recombyn_dependency_redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DB or Redis dependency down"
+          description: "recombyn_dependency_* gauge is 0."

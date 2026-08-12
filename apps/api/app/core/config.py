@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     # _await_or_abandon can fail-fast and empty-ops / hung-stream retries run.
     # Was 180 (== node) → first hung attempt burned the node with 0 ops.
     design_paint_attempt_timeout_sec: float = 90.0
+    # create_image hydrate in action/apply — emit tool_ops even if providers hang.
+    design_image_hydrate_timeout_sec: float = 90.0
+    # Review LLM wall clock (abandon hung streams; fail-open to settle).
+    design_review_llm_timeout_sec: float = 100.0
     # Verbose [exec]/llm_step] stage timers to stdout (off by default).
     design_exec_trace: bool = False
     # Whole run_agent_graph wall clock; 0 disables.
@@ -152,16 +156,18 @@ class Settings(BaseSettings):
     # Empty → derive from card_key_salt (dev only); set BYOK_AES_KEY in production.
     byok_aes_key: str = ""
     # API rate limits (per user id or client IP). 0 disables that bucket.
+    # Set RATE_LIMIT_ENABLED=false for local Gate B (k6) / heavy e2e (restart API).
     rate_limit_enabled: bool = True
     rate_limit_window_sec: int = 60
-    rate_limit_auth_per_window: int = 30
-    rate_limit_design_per_window: int = 20
-    rate_limit_chat_per_window: int = 40
+    # SPA + multi-tab + Playwright workers share one bearer identity; 30/min was too tight.
+    rate_limit_auth_per_window: int = 180
+    rate_limit_design_per_window: int = 40
+    rate_limit_chat_per_window: int = 60
     rate_limit_upload_per_window: int = 40
     # Project list/get/upsert — keep out of the shared default bucket so agent
     # traffic cannot starve the first cloud create (otherwise editor GETs 404 forever).
     rate_limit_projects_per_window: int = 240
-    rate_limit_default_per_window: int = 120
+    rate_limit_default_per_window: int = 180
     # LangChain SummarizationMiddleware (short-term memory docs).
     agent_summarize_enabled: bool = True
     agent_summarize_trigger_tokens: int = 4000

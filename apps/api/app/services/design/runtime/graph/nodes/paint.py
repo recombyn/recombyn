@@ -9,7 +9,10 @@ from langgraph.types import Command
 
 import logging
 
-from app.services.design.ops.tool_ops_contract import validation_failure_reason
+from app.services.design.ops.tool_ops_contract import (
+    assess_tool_ops_result,
+    validation_failure_reason,
+)
 from app.services.design.prompts.rules_text import _as_text
 from app.services.design.runtime.agent_profile import (
     resolve_contract_schema,
@@ -275,6 +278,20 @@ async def _node_paint_ops(state: GraphState) -> Command:
                 scene=rt.scene_key or "website",
                 runtime=rt,
             )
+            if step_ops:
+                dense_ok, dense_reason = assess_tool_ops_result(
+                    step_ops,
+                    intent=intent,
+                    scene=rt.scene_key or "website",
+                    nodes=rt.scene_nodes,
+                    rules=rt.rules,
+                    skill_keys=list(st.skills_loaded or []),
+                )
+                if not dense_ok:
+                    op_errors = list(op_errors or []) + [dense_reason]
+                    st.note_error(f"paint_ops density: {dense_reason}")
+                    # Never silent-settle a sparse create (dashboard one-rect case).
+                    step_ops = []
         rt.step_ops = step_ops
         rt.op_errors = list(op_errors or [])
         if not step_ops:

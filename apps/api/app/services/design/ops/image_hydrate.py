@@ -1,8 +1,11 @@
 """Hydrate create_image / gen_prompt placeholders into real image URLs."""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 def _image_model_from_rules(rules: dict[str, str] | None) -> str:
@@ -233,10 +236,40 @@ async def _hydrate_tool_ops_images(
             next_op["op_id"] = op["op_id"]
         return next_op
 
-    hydrated = await asyncio.gather(*(_one(ops[i]) for i in pending_idx))
+    try:
+        from app.core.config import settings
+
+        budget = float(
+            getattr(settings, "design_image_hydrate_timeout_sec", 90.0) or 90.0
+        )
+    except Exception:
+        budget = 90.0
+    budget = max(5.0, budget)
+
+    task_by_idx: dict[asyncio.Task[Any], int] = {
+        asyncio.create_task(_one(ops[i])): i for i in pending_idx
+    }
+    done, pending = await asyncio.wait(
+        set(task_by_idx.keys()), timeout=budget
+    )
+    for t in pending:
+        t.cancel()
+    if pending:
+        _log.warning(
+            "image hydrate budget exceeded after %.1fs pending=%s/%s",
+            budget,
+            len(pending),
+            len(pending_idx),
+        )
+
     out = list(ops)
     filled = 0
-    for i, new_op in zip(pending_idx, hydrated):
+    for t in done:
+        i = task_by_idx[t]
+        try:
+            new_op = t.result()
+        except Exception:
+            continue
         out[i] = new_op
         args = new_op.get("args") if isinstance(new_op.get("args"), dict) else {}
         if str((args or {}).get("src") or (args or {}).get("url") or "").strip():

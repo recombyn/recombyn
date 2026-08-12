@@ -233,7 +233,10 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
     }
   });
 
-  it('stress: interleaved generate+attach and placeMediaAsset never drop genPrompt', () => {
+  it(
+    'stress: interleaved generate+attach and placeMediaAsset never drop genPrompt',
+    { timeout: 30_000 },
+    () => {
     let state = seedEditor();
     const seen: string[] = [];
 

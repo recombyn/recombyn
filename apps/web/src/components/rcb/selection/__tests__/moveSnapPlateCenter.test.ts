@@ -5,6 +5,7 @@ import {
   GUIDE_COINCIDE_EPS,
   isOversizedMidSnapTarget,
   smartGuideTargetPad,
+  SMART_SNAP_MAX_SCENE,
   smartSnapThreshold,
   snapBoxToGrid,
   snapMoveToSmartGuides,
@@ -156,14 +157,18 @@ describe('move snap (points + indicators)', () => {
     expect(paint.some((g) => g.kind === 'gap' && g.dist === 11)).toBe(true);
   });
 
-  it('threshold is 8/zoom with no scene cap', () => {
+  it('threshold is 8/zoom capped at SMART_SNAP_MAX_SCENE', () => {
     const zoom = 0.05;
-    expect(smartSnapThreshold(zoom)).toBeCloseTo(8 / zoom, 9);
+    expect(smartSnapThreshold(zoom)).toBeCloseTo(SMART_SNAP_MAX_SCENE, 9);
     const left = { left: 0, top: 0, width: 120, height: 90 };
-    // Within uncapped magnet (160) — should flush.
-    const right = { left: 120 + 67, top: 0, width: 120, height: 90 };
-    const settled = productionMoveSettle({ box: right, targets: [left], zoom, gridSize: 0 });
-    expect(settled.box.left).toBe(120);
+    // Outside capped magnet — must not flush.
+    const far = { left: 120 + SMART_SNAP_MAX_SCENE + 20, top: 0, width: 120, height: 90 };
+    const farSettled = productionMoveSettle({ box: far, targets: [left], zoom, gridSize: 0 });
+    expect(farSettled.box.left).toBe(far.left);
+    // Within capped magnet — should flush.
+    const near = { left: 120 + SMART_SNAP_MAX_SCENE * 0.5, top: 0, width: 120, height: 90 };
+    const nearSettled = productionMoveSettle({ box: near, targets: [left], zoom, gridSize: 0 });
+    expect(nearSettled.box.left).toBe(120);
   });
 
   it('smartGuideTargetPad covers neighbors beyond snap radius', () => {
