@@ -189,6 +189,120 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
         )
 
 
+_EXPORT_KIND = "export"
+_EXPORT_TRANSIENT = (ConnectionError, TimeoutError, OSError)
+
+
+@celery.task(
+    name="worker.tasks.run_design_export_job",
+    bind=True,
+    autoretry_for=_EXPORT_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_design_export_job(self, job_id: str) -> dict:
+    """Rasterize project artboards to PNG/PDF (ADR 0005 export vertical)."""
+    from app.core.metrics import observe_export_dlq, observe_export_job
+    from app.services.design.export_render import render_and_store_export
+    from app.services.job_store import push_export_dlq
+    from app.services.projects import get_project
+
+    def _fail_to_dlq(error: str, *, trace_id: str = "") -> dict:
+        update_job(
+            job_id,
+            kind=_EXPORT_KIND,
+            status="failed",
+            progress=100,
+            error=error,
+        )
+        job_now = get_job(job_id, kind=_EXPORT_KIND) or {}
+        push_export_dlq(
+            {
+                "job_id": job_id,
+                "trace_id": trace_id,
+                "error": error,
+                "retries": int(getattr(self.request, "retries", 0) or 0),
+                "project_id": job_now.get("project_id"),
+                "format": job_now.get("format"),
+                "frame_id": job_now.get("frame_id"),
+                "user_id": job_now.get("user_id"),
+            }
+        )
+        observe_export_job("failed")
+        observe_export_job("dlq")
+        observe_export_dlq()
+        _log.error(
+            "export_job event=dlq job_id=%s trace_id=%s err=%s",
+            job_id,
+            trace_id,
+            error,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "dlq"},
+        )
+        return {"job_id": job_id, "status": "failed", "error": error, "dlq": True}
+
+    job = get_job(job_id, kind=_EXPORT_KIND)
+    if not job:
+        observe_export_job("failed")
+        return {"job_id": job_id, "status": "failed", "error": "job_not_found"}
+
+    trace_id = str(job.get("trace_id") or "")
+    user_id = str(job.get("user_id") or "")
+    project_id = str(job.get("project_id") or "")
+    fmt = str(job.get("format") or "png")
+    frame_id = str(job.get("frame_id") or "") or None
+    update_job(job_id, kind=_EXPORT_KIND, status="processing", progress=10, error=None)
+
+    try:
+        project = get_project(user_id, project_id)
+        if not project:
+            return _fail_to_dlq("project_not_found", trace_id=trace_id)
+        document = project.get("document")
+        if not isinstance(document, dict):
+            return _fail_to_dlq("document_missing", trace_id=trace_id)
+        update_job(job_id, kind=_EXPORT_KIND, progress=40)
+        result = render_and_store_export(
+            document=document,
+            user_id=user_id,
+            job_id=job_id,
+            fmt=fmt,
+            frame_id=frame_id,
+        )
+        update_job(
+            job_id,
+            kind=_EXPORT_KIND,
+            status="done",
+            progress=100,
+            result=result,
+            error=None,
+        )
+        observe_export_job("done")
+        _log.info(
+            "export_job event=done job_id=%s pages=%s format=%s",
+            job_id,
+            result.get("pages"),
+            fmt,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "done"},
+        )
+        return {"job_id": job_id, "status": "done", "pages": result.get("pages")}
+    except _EXPORT_TRANSIENT as exc:
+        retries = int(getattr(self.request, "retries", 0) or 0)
+        max_retries = int(getattr(self, "max_retries", 2) or 2)
+        if retries >= max_retries:
+            return _fail_to_dlq(f"retries exhausted: {exc}", trace_id=trace_id)
+        observe_export_job("retry")
+        update_job(
+            job_id,
+            kind=_EXPORT_KIND,
+            status="processing",
+            error=f"transient retry: {exc}",
+        )
+        raise
+    except Exception as exc:  # noqa: BLE001
+        return _fail_to_dlq(str(exc), trace_id=trace_id)
+
+
 @celery.task(name="worker.tasks.run_db_backup_job")
 def run_db_backup_job(reason: str = "celery") -> dict:
     """Periodic DB backup (SQLite snapshot or MySQL/Postgres dump hint)."""

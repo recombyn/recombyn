@@ -128,3 +128,60 @@ def remove_hydrate_dlq_job(job_id: str) -> int:
             continue
         removed += int(client.lrem(_DLQ_KEY, 0, item) or 0)
     return removed
+
+
+_EXPORT_DLQ_KEY = "recombyn:dlq:export"
+
+
+def push_export_dlq(entry: dict[str, Any]) -> None:
+    """Append a terminal export failure for ops replay. Best-effort."""
+    try:
+        client = _client()
+        payload = json.dumps(entry, ensure_ascii=False)
+        client.lpush(_EXPORT_DLQ_KEY, payload)
+        client.ltrim(_EXPORT_DLQ_KEY, 0, _DLQ_MAX - 1)
+        client.expire(_EXPORT_DLQ_KEY, max(settings.job_ttl_seconds, 7 * 86400))
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "export DLQ push failed job_id=%s",
+            entry.get("job_id"),
+            exc_info=True,
+        )
+
+
+def list_export_dlq(*, limit: int = 50) -> list[dict[str, Any]]:
+    raw = _client().lrange(_EXPORT_DLQ_KEY, 0, max(0, limit - 1))
+    out: list[dict[str, Any]] = []
+    for item in raw or []:
+        try:
+            out.append(json.loads(item))
+        except Exception:
+            out.append({"_raw": str(item)[:200]})
+    return out
+
+
+def export_dlq_depth() -> int:
+    try:
+        return int(_client().llen(_EXPORT_DLQ_KEY) or 0)
+    except Exception:
+        return 0
+
+
+def remove_export_dlq_job(job_id: str) -> int:
+    jid = str(job_id or "").strip()
+    if not jid:
+        return 0
+    client = _client()
+    raw = client.lrange(_EXPORT_DLQ_KEY, 0, -1) or []
+    removed = 0
+    for item in raw:
+        try:
+            entry = json.loads(item)
+        except Exception:
+            continue
+        if str(entry.get("job_id") or "") != jid:
+            continue
+        removed += int(client.lrem(_EXPORT_DLQ_KEY, 0, item) or 0)
+    return removed
