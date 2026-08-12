@@ -33,3 +33,4 @@ Cross-cutting or irreversible technical choices live here. Product feature notes
 | [0011](./0011-opentelemetry-optional.md) | Optional OpenTelemetry SDK | Accepted |
 | [0012](./0012-k8s-starter-manifests.md) | Optional Kubernetes starter manifests | Accepted |
 | [0013](./0013-skill-extensions.md) | Skill extension packs (Phase A plugins) | Accepted |
+| [0014](./0014-canvas-plugins.md) | Canvas toolbar plugins (Phase B) | Accepted |
