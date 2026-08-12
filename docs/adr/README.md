@@ -28,3 +28,4 @@ Cross-cutting or irreversible technical choices live here. Product feature notes
 | [0006](./0006-llm-facade-memory-tiers.md) | In-process LLM 中台 + memory tiers | Accepted |
 | [0007](./0007-correlation-structured-logs.md) | Correlation + structured logs (OTel later) | Accepted |
 | [0008](./0008-upload-content-validation.md) | Upload content validation + optional AV | Accepted |
+| [0009](./0009-unified-ci-rollback.md) | Unified CI gate + Docker tag rollback | Accepted |

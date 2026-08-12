@@ -28,7 +28,8 @@ Useful scripts:
 |---------|---------|
 | `npm run dev:stack` | Web + collab together |
 | `npm run dev:web` / `dev:api` / `dev:worker` / `dev:collab` | Individual local servers |
-| `npm run check` | Turbo: lint + typecheck + web/contracts tests |
+| `npm run check` | Web ESLint + contracts typecheck |
+| `npm run ci:gate` | Local mirror of GitHub `CI / gate` (check + web/API unit) |
 | `npm run lint` / `typecheck` | Turbo across JS packages |
 | `npm run dev:desktop` / `build:desktop` | Tauri **local** (SQLite API sidecar) |
 | `npm run dev:desktop:cloud` / `build:desktop:cloud` | Tauri **cloud** UI ([docs/desktop.md](./docs/desktop.md)) |
@@ -78,8 +79,10 @@ git checkout -b feat/short-description
 4. **Run checks** that match your change
 
 ```bash
-npm run test:web          # frontend
-npm run test:api:unit     # API unit
+npm run ci:gate           # preferred before PR (umbrella)
+# or scoped:
+npm run test:web
+npm run test:api:unit
 # optional: npm run test:e2e
 ```
 
