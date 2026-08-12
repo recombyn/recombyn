@@ -5,13 +5,13 @@
 
 ## Context
 
-A separate “model gateway” service is unnecessary while one API owns chat, Design Agent, and BYOK. We need a **named contract** so new call sites do not invent parallel routers, without rewriting Design Agent.
+Chat, Design Agent, and BYOK already live in one API. We need a **named contract** so new call sites do not invent parallel routers, without rewriting Design Agent.
 
 ## Decision
 
 ### LLM 中台 (in-process)
 
-1. **Deployable:** stay inside the FastAPI modular monolith — no model-gateway microservice.
+1. **Deployable:** stay inside the FastAPI app — LLM routing is in-process.
 2. **Canonical façade** (same module `app.services.llm`):
    - `get_llm_endpoint` → credentials / transport (`LlmEndpoint`)
    - `build_chat_model` → LangChain chat model
@@ -47,7 +47,7 @@ Strengthening a dedicated project store or vector index is a **later** change in
 
 ## Alternatives considered
 
-1. **Separate model-gateway service** — rejected (ADR 0004).
+1. **Move LLM routing out of the API** — not the topology; keep `app.services.llm` (ADR 0004).
 2. **Orphan `llm_adapter.py` / `model_gateway/`** — rejected (in-file / same-module rule).
 3. **Force all Design nodes through a new Protocol** — rejected; churn without benefit.
 
