@@ -155,3 +155,4 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] k8s PDB + NetworkPolicy (`deploy/k8s/pdb.yaml`, `networkpolicy.yaml`)
 - [x] Web account org tab (create / invite / preferred org) + mine org filter
 - [x] Org pending invites (search users, accept/decline) + `org_invites` Alembic
+- [x] Project org badge/move + org rename / remove member
