@@ -1,4 +1,10 @@
-"""MemoryService — load bundle, build patches, persist."""
+"""MemoryService — load bundle, build patches, persist.
+
+Tier map (ADR 0006):
+  session  → short-term dialogue + medium task_state (+ LangGraph checkpointer)
+  project  → project_id on medium / episodes (scoped fields; not a separate store)
+  global   → long-term Store / AgentLongMemory + episodes/KG by user_id
+"""
 
 from __future__ import annotations
 
@@ -20,6 +26,13 @@ from app.services.agent_memory.short_term import (
 from app.services.design.prompts.rules_text import _safe_print
 
 logger = logging.getLogger(__name__)
+
+# Roadmap labels → implementation notes (documentation + tests; not a router).
+MEMORY_TIERS: dict[str, str] = {
+    "session": "short_term + medium_term(session) + langgraph_checkpointer",
+    "project": "project_id on medium_term / episodes",
+    "global": "long_term store + AgentLongMemory + episodes/kg by user_id",
+}
 
 
 def _mem_print(msg: str) -> None:
