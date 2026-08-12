@@ -7,7 +7,7 @@
   "when_to_use": "Festival or holiday posters — Mid-Autumn, New Year, Spring Festival, Christmas, National Day, branded celebration KV",
   "author": "recombyn",
   "category": "deliverable",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "enabled": true,
   "scenes": "all",
   "sort_weight": 76,
@@ -18,8 +18,14 @@
     "create_shape",
     "update_node"
   ],
-  "allowed_resources": ["tools"],
-  "permissions": ["读取画布图层", "新建画布帧", "调用LLM生成图文"],
+  "allowed_resources": [
+    "tools"
+  ],
+  "permissions": [
+    "读取画布图层",
+    "新建画布帧",
+    "调用LLM生成图文"
+  ],
   "trigger_keywords": [
     "中秋海报",
     "中秋",

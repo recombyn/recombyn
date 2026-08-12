@@ -32,6 +32,22 @@ const SKILL_SKELETON_OFFICIAL = 5;
 const SKILL_CARD_SHELL =
   'w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3.5 py-3 text-left shadow-[0_2px_10px_rgba(15,23,42,0.06)]';
 
+/** App-store style tile — fixed square; never let flex/preflight squeeze width. */
+const SKILL_ICON_FRAME =
+  'inline-flex h-14 w-14 min-h-14 min-w-14 shrink-0 grow-0 overflow-hidden rounded-[14px] shadow-[0_1px_4px_rgba(15,23,42,0.08)]';
+const SKILL_ICON_IMG = 'h-full w-full max-w-none object-cover';
+
+/** Default picture icon when a pack has no logo — never use letter avatars. */
+const DEFAULT_SKILL_ICON_SRC = '/skill-default-icon.png';
+
+function SkillLogo({ src }: { src?: string | null }) {
+  return (
+    <span className={SKILL_ICON_FRAME} aria-hidden>
+      <img src={src?.trim() || DEFAULT_SKILL_ICON_SRC} alt="" className={SKILL_ICON_IMG} />
+    </span>
+  );
+}
+
 const SKILLS_PICKER_INPUT = { query: { manage: true as const } };
 
 /** Dashed upload tile 鈥?first cell in Mine grid (icon only, like New project). */
@@ -53,7 +69,7 @@ function UploadSkillCard({
       title={label}
       className={cn(
         SKILL_CARD_SHELL,
-        'flex min-h-[88px] flex-col items-center justify-center border-dashed shadow-none',
+        'flex min-h-[104px] flex-col items-center justify-center border-dashed shadow-none',
         'transition hover:border-[var(--muted)] hover:bg-[var(--accent-soft)] hover:shadow-none',
         'disabled:opacity-50'
       )}
@@ -74,7 +90,7 @@ function formatSkillUpdatedAt(ts: number | null | undefined, locale: string): st
 function SkillCardSkeleton(): ReactNode {
   return (
     <div
-      className={cn(SKILL_CARD_SHELL, 'rcb-skeleton-bone min-h-[88px] !rounded-xl shadow-none')}
+      className={cn(SKILL_CARD_SHELL, 'rcb-skeleton-bone min-h-[104px] !rounded-xl shadow-none')}
       aria-hidden
     />
   );
@@ -112,18 +128,12 @@ function stopCardBubble(e: { stopPropagation: () => void }) {
 
 function SkillCard({
   row,
-  canDelete,
-  deleteLabel,
   enableLabel,
-  onDelete,
   onToggle,
   onPreview,
 }: {
   row: DesignSkillCard;
-  canDelete: boolean;
-  deleteLabel: string;
   enableLabel: string;
-  onDelete: (id: number) => void;
   onToggle: (id: number, enabled: boolean) => void;
   onPreview: (row: DesignSkillCard) => void;
 }): ReactNode {
@@ -147,22 +157,9 @@ function SkillCard({
         !on && 'opacity-55'
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          {row.logo ? (
-            <img
-              src={row.logo}
-              alt=""
-              className="mt-0.5 h-9 w-9 shrink-0 rounded-[10px] object-cover"
-            />
-          ) : (
-            <div
-              aria-hidden
-              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--canvas)] text-[13px] font-semibold text-[var(--muted)]"
-            >
-              {(row.name || '?').slice(0, 1).toUpperCase()}
-            </div>
-          )}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <SkillLogo src={row.logo} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-medium leading-[21px] text-[var(--ink)]">
               {row.name}
@@ -175,22 +172,13 @@ function SkillCard({
           </div>
         </div>
         <div
-          className="flex shrink-0 items-center gap-2"
+          className="shrink-0 pt-0.5"
           onClick={stopCardBubble}
           onKeyDown={stopCardBubble}
         >
-          <span title={enableLabel} className="inline-flex shrink-0">
+          <span title={enableLabel} className="inline-flex">
             <Switch checked={on} onChange={(next) => onToggle(row.id, next)} />
           </span>
-          {canDelete ? (
-            <button
-              type="button"
-              className="text-[12px] text-[var(--muted)] hover:text-[var(--ink)]"
-              onClick={() => onDelete(row.id)}
-            >
-              {deleteLabel}
-            </button>
-          ) : null}
         </div>
       </div>
     </div>
@@ -200,11 +188,8 @@ function SkillCard({
 function SkillGroup({
   title,
   rows,
-  canDelete,
   emptyText,
-  deleteLabel,
   enableLabel,
-  onDelete,
   onToggle,
   onPreview,
   leading,
@@ -212,11 +197,8 @@ function SkillGroup({
 }: {
   title: string;
   rows: DesignSkillCard[];
-  canDelete: boolean;
   emptyText: string;
-  deleteLabel: string;
   enableLabel: string;
-  onDelete: (id: number) => void;
   onToggle: (id: number, enabled: boolean) => void;
   onPreview: (row: DesignSkillCard) => void;
   /** First cell (e.g. upload tile in Mine). */
@@ -234,10 +216,7 @@ function SkillGroup({
         <SkillCard
           key={row.id}
           row={row}
-          canDelete={canDelete}
-          deleteLabel={deleteLabel}
           enableLabel={enableLabel}
-          onDelete={onDelete}
           onToggle={onToggle}
           onPreview={onPreview}
         />
@@ -291,12 +270,10 @@ function SkillsLibraryPanel(): ReactNode {
     message.error(t('agent.requestFailed'));
   }, [skillsQuery.isError, t, userId]);
 
-  const items =
-    ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items || []) as DesignSkillCard[];
+  const items =  ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items || []) as DesignSkillCard[];
   const mine = items.filter((x) => x.mine);
   const official = items.filter((x) => !x.mine);
-  const loading =
-    skillsQuery.isPending || (skillsQuery.isFetching && items.length === 0);
+  const loading = skillsQuery.isPending || (skillsQuery.isFetching && items.length === 0);
 
   const skillsPickerQueryKey = apiQuery.designDesignSkillsPicker.queryKey({
     input: SKILLS_PICKER_INPUT,
@@ -448,11 +425,8 @@ function SkillsLibraryPanel(): ReactNode {
           <SkillGroup
             title={t('agent.skillsMine')}
             rows={mine}
-            canDelete
             emptyText={t('agent.skillsEmptyMine')}
-            deleteLabel={t('agent.skillsDelete')}
             enableLabel={t('agent.skillsEnable')}
-            onDelete={(id) => onDelete(id)}
             onToggle={(id, enabled) => onToggle(id, enabled)}
             onPreview={setPreview}
             leading={uploadTile}
@@ -467,11 +441,8 @@ function SkillsLibraryPanel(): ReactNode {
           <SkillGroup
             title={t('agent.skillsOfficial')}
             rows={official}
-            canDelete={false}
             emptyText={t('agent.mentionSkillEmpty')}
-            deleteLabel={t('agent.skillsDelete')}
             enableLabel={t('agent.skillsEnable')}
-            onDelete={() => undefined}
             onToggle={(id, enabled) => onToggle(id, enabled)}
             onPreview={setPreview}
           />
@@ -488,21 +459,33 @@ function SkillsLibraryPanel(): ReactNode {
         footerClassName="!pt-5"
         className="!overflow-visible !bg-[var(--surface)] !p-5"
         footer={
-          <Button size="small" type="primary" onClick={() => setPreview(null)}>
-            {t('common.confirm')}
-          </Button>
+          <div className="flex w-full items-center justify-between gap-3">
+            {preview?.mine ? (
+              <Button
+                size="small"
+                type="default"
+                className="!text-[var(--muted)] hover:!text-[var(--ink)]"
+                onClick={() => {
+                  const id = preview.id;
+                  setPreview(null);
+                  void onDelete(id);
+                }}
+              >
+                {t('agent.skillsDelete')}
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button size="small" type="primary" onClick={() => setPreview(null)}>
+              {t('common.confirm')}
+            </Button>
+          </div>
         }
       >
         {preview ? (
           <div className="space-y-3.5">
             <div className="flex items-start gap-3">
-              {preview.logo ? (
-                <img
-                  src={preview.logo}
-                  alt=""
-                  className="h-11 w-11 shrink-0 rounded-[12px] object-cover"
-                />
-              ) : null}
+              <SkillLogo src={preview.logo} />
               {preview.whenToUse || preview.description ? (
                 <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-[var(--muted)]">
                   {preview.whenToUse || preview.description}
