@@ -346,20 +346,23 @@ def _resolve_pack_logo(pack_dir: Path, meta: dict[str, Any]) -> str:
         candidates.append(pack_dir / p)
         candidates.append(pack_dir / Path(raw).name)
     key = pack_dir.name
+    # Prefer raster picture icons (marketplace style) over flat SVG glyphs.
     candidates.extend(
         [
-            pack_dir / "assets" / "icon.svg",
             pack_dir / "assets" / "icon.png",
-            pack_dir / "assets" / "logo.svg",
+            pack_dir / "assets" / "icon.webp",
+            pack_dir / "assets" / "icon.jpg",
+            pack_dir / "assets" / "icon.svg",
             pack_dir / "assets" / "logo.png",
             pack_dir / "assets" / "logo.webp",
+            pack_dir / "assets" / "logo.svg",
             pack_dir / f"{key}-logo.png",
-            pack_dir / f"{key}-logo.svg",
             pack_dir / f"{key}-logo.webp",
+            pack_dir / f"{key}-logo.svg",
             pack_dir / f"{key}-logo.jpg",
             pack_dir / "logo.png",
-            pack_dir / "logo.svg",
             pack_dir / "logo.webp",
+            pack_dir / "logo.svg",
             pack_dir / "logo.jpg",
         ]
     )

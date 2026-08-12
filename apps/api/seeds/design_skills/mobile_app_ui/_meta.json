@@ -7,7 +7,7 @@
   "category": "ui",
   "scenes": "all",
   "sort_weight": 82,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "preferred_tools": [
     "create_frame",
     "create_shape",

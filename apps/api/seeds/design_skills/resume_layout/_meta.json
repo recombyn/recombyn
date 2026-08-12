@@ -7,7 +7,7 @@
   "category": "deliverable",
   "scenes": "all",
   "sort_weight": 76,
-  "version": "2.0.0",
+  "version": "2.0.1",
   "preferred_tools": [
     "create_frame",
     "create_shape",

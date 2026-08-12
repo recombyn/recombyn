@@ -7,7 +7,7 @@
   "category": "deliverable",
   "scenes": "all",
   "sort_weight": 74,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "preferred_tools": [
     "create_frame",
     "create_icon",
@@ -16,10 +16,14 @@
     "create_text",
     "update_node"
   ],
-  "allowed_resources": ["tools"],
+  "allowed_resources": [
+    "tools"
+  ],
   "triggers": [
     {
-      "intent_in": ["create"],
+      "intent_in": [
+        "create"
+      ],
       "prompt_includes_any": [
         "图标",
         "icon",
