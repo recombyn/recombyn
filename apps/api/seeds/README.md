@@ -13,6 +13,7 @@ Owner docs: [self-hosting.md](../../../docs/self-hosting.md) · AgentProfile: [a
 | `agents/profiles/*.yaml`                                                 | AgentProfile YAML (`design.canvas`)               |
 | `design_prompt_packs/`                                                   | `_index.json` + `stages/*.md` + `snippets.md` (pack sections) |
 | `design_skills/<key>/`                                                   | All design skill packs (`_meta.json` + `SKILL.md`) — vision, edit, image, brush, motion, poster, resume, ecommerce, landing, UI, … |
+| Private extensions                                                       | Also `<repo>/plugins/skills/<key>/` — see [docs/skill-extensions.md](../../docs/skill-extensions.md) |
 | `canvas_actions_seed.json`                                               | Canvas tool registry                              |
 | `design_agent_stress_suite.json`                                         | Agent SSE / browser stress cases (not loaded at runtime) |
 | `fonts_seed.json` · `design_tokens_seed.json` · `design_dicts_seed.json` | Fonts / tokens / dicts                            |

@@ -104,6 +104,8 @@
 2. 填触发条件与 `preferred_tools`  
 3. 重启 / 重新 ensure seeds 后，Decide 即可按触发挂上
 
+私有扩展也可放在 [`plugins/skills/`](plugins/skills/)（Compose 已挂载）。写法见 [docs/skill-extensions.md](docs/skill-extensions.md)。
+
 环境开关（Review 开关、超时等）见 [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)；种子总览 [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。模型密钥 / OpenRouter： [docs/self-hosting.md](docs/self-hosting.md)。
 
 ## 快速开始（自托管）

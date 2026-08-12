@@ -143,6 +143,44 @@ def _agents_skills_dir() -> Path:
     """Repo-root official ext packs: ``<repo>/.agents/skills``."""
     return _repo_root() / ".agents" / "skills"
 
+
+def _default_plugin_skills_dir() -> Path:
+    """Private / self-host mount point: ``<repo>/plugins/skills``."""
+    return _repo_root() / "plugins" / "skills"
+
+
+def _plugin_skills_dirs() -> list[Path]:
+    """Configured + default plugin skill roots (exist on disk only)."""
+    from app.core.config import settings
+
+    out: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(root: Path) -> None:
+        try:
+            if not root.is_dir():
+                return
+            key = str(root.resolve()).lower()
+        except Exception:
+            return
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(root)
+
+    _add(_default_plugin_skills_dir())
+    raw = str(getattr(settings, "design_skills_plugin_dirs", "") or "").strip()
+    for part in raw.split(","):
+        p = part.strip()
+        if not p:
+            continue
+        path = Path(p)
+        if not path.is_absolute():
+            path = _repo_root() / path
+        _add(path)
+    return out
+
+
 def _file_skills_dir() -> Path:
     """Primary design_skills dir under apps/api/seeds/."""
     from app.core.config import resolve_seed_dir
@@ -150,7 +188,10 @@ def _file_skills_dir() -> Path:
     return resolve_seed_dir("design_skills")
 
 def _file_skills_dirs() -> list[Path]:
-    """``.agents/skills`` + ``apps/api/seeds/design_skills``."""
+    """``.agents/skills`` + ``seeds/design_skills`` + ``plugins/skills`` (+ env dirs).
+
+    Later roots win on duplicate ``skill_key`` (private plugins override shipped packs).
+    """
     from app.core.config import api_seeds_dir
 
     dirs: list[Path] = []
@@ -158,6 +199,7 @@ def _file_skills_dirs() -> list[Path]:
     for root in (
         _agents_skills_dir(),
         api_seeds_dir() / "design_skills",
+        *_plugin_skills_dirs(),
     ):
         try:
             resolved = root.resolve()
@@ -172,6 +214,49 @@ def _file_skills_dirs() -> list[Path]:
 
 def _pack_has_product_meta(pack_dir: Path) -> bool:
     return any((pack_dir / name).is_file() for name in _META_NAMES)
+
+
+def _normalize_pack_meta(meta: dict[str, Any], *, folder: str) -> dict[str, Any] | None:
+    """Normalize extension-friendly aliases onto the product skill meta shape.
+
+    Accepts optional plugin-style fields (``id``, ``trigger_keywords``, ``enabled``,
+    ``author``, ``permissions``) without requiring a separate plugin runtime.
+    Returns ``None`` when the pack is disabled.
+    """
+    out = dict(meta)
+    if "enabled" in out and out.get("enabled") in (False, "false", "0", 0, "no", "off"):
+        return None
+
+    if not str(out.get("skill_key") or out.get("skillKey") or "").strip():
+        alt = str(out.get("id") or out.get("name") or folder or "").strip()
+        if alt:
+            out["skill_key"] = alt
+
+    # Shortcut keywords → create-intent trigger (only when triggers absent).
+    triggers = out.get("triggers")
+    keywords = out.get("trigger_keywords") or out.get("triggerKeywords")
+    if (not triggers) and isinstance(keywords, list):
+        words = [str(x).strip() for x in keywords if str(x).strip()]
+        if words:
+            out["triggers"] = [
+                {
+                    "intent_in": ["create", "edit"],
+                    "prompt_includes_any": words,
+                }
+            ]
+
+    # permissions is documentation / future ACL; preferred_tools remains the live gate.
+    # Map a few Chinese/English labels onto allowed_resources when unset.
+    if out.get("allowed_resources") is None and out.get("allowedResources") is None:
+        perms = out.get("permissions")
+        if isinstance(perms, list) and perms:
+            out["allowed_resources"] = ["tools"]
+
+    author = str(out.get("author") or "").strip()
+    if author:
+        out["_author"] = author
+    return out
+
 
 # Legacy SOURCE_SEED / core-reserved path removed — skills ship as file packs only.
 _SEED: list[dict[str, Any]] = []
@@ -345,6 +430,11 @@ def _skill_item_from_parts(
         "namespace": NS_EXT,
         "_path": str(skill_md_path),
         "_pack": str(pack_dir),
+        **(
+            {"author": str(meta.get("_author") or meta.get("author") or "").strip()}
+            if str(meta.get("_author") or meta.get("author") or "").strip()
+            else {}
+        ),
     }
 
 def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
@@ -372,6 +462,9 @@ def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
         meta = _meta_from_agent_skill_frontmatter(fm, folder=pack_dir.name)
     if not meta:
         return None
+    meta = _normalize_pack_meta(meta, folder=pack_dir.name)
+    if not meta:
+        return None
     return _skill_item_from_parts(
         pack_dir=pack_dir,
         meta=meta,
@@ -380,7 +473,7 @@ def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
     )
 
 def _load_file_skills() -> list[dict[str, Any]]:
-    """Scan ``.agents/skills`` + design_skills dirs → skill dicts (later roots win).
+    """Scan ``.agents/skills`` + design_skills + plugins/skills → skill dicts (later roots win).
 
     Under ``.agents/skills``, only packs with product ``_meta.json`` are ingested
     (skips IDE-only docs such as ``langfuse``).

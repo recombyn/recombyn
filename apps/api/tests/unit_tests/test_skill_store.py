@@ -407,6 +407,7 @@ def test_oss_ext_packs_present():
         "icon_set",
         "type_specimen",
         "long_scroll",
+        "festival_poster",
     ):
         assert key in keys
     assert "ui_ux_pro_max" not in keys
@@ -414,3 +415,66 @@ def test_oss_ext_packs_present():
     assert "canvas_edit" not in keys
     assert "frontend_ui" not in keys
     assert "example_ext" not in keys
+
+
+def test_normalize_pack_meta_aliases():
+    from app.services.design.prompts.skill_store.pack_io import _normalize_pack_meta
+
+    meta = _normalize_pack_meta(
+        {
+            "id": "my_plugin",
+            "trigger_keywords": ["中秋海报", "holiday poster"],
+            "author": "ops",
+            "permissions": ["新建画布帧"],
+            "enabled": True,
+        },
+        folder="my_plugin",
+    )
+    assert meta is not None
+    assert meta["skill_key"] == "my_plugin"
+    assert meta["triggers"][0]["prompt_includes_any"] == ["中秋海报", "holiday poster"]
+    assert meta["allowed_resources"] == ["tools"]
+    assert meta["_author"] == "ops"
+
+
+def test_normalize_pack_meta_disabled():
+    from app.services.design.prompts.skill_store.pack_io import _normalize_pack_meta
+
+    assert (
+        _normalize_pack_meta(
+            {"id": "x", "enabled": False, "triggers": []},
+            folder="x",
+        )
+        is None
+    )
+
+
+def test_plugin_style_pack_loads(tmp_path, monkeypatch):
+    from app.services.design.prompts.skill_store import pack_io
+
+    root = tmp_path / "plugins_skills"
+    pack = root / "kw_poster"
+    pack.mkdir(parents=True)
+    (pack / "_meta.json").write_text(
+        '{"id":"kw_poster","name":"kw_poster","trigger_keywords":["春节海报"],'
+        '"preferred_tools":["create_frame","create_text"],"version":"1.0.0"}',
+        encoding="utf-8",
+    )
+    (pack / "SKILL.md").write_text("# KW poster\n\nCreate a festive board.\n", encoding="utf-8")
+
+    monkeypatch.setattr(pack_io, "_file_skills_dirs", lambda: [root])
+    items = pack_io._load_file_skills()
+    by_key = {str(x.get("skill_key")): x for x in items}
+    assert "kw_poster" in by_key
+    triggers = by_key["kw_poster"].get("triggers") or []
+    assert triggers and "春节海报" in triggers[0].get("prompt_includes_any", [])
+
+
+def test_resolve_triggered_festival_keyword():
+    keys = resolve_triggered_skill_keys(
+        prompt="帮我生成一张中秋红色海报",
+        intent="create",
+        empty_canvas=True,
+        has_images=False,
+    )
+    assert "festival_poster" in keys

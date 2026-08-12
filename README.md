@@ -105,6 +105,8 @@ Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/s
 2. Fill triggers + `preferred_tools`  
 3. Restart / re-ensure seeds — Decide can attach it
 
+Private packs can also live under [`plugins/skills/`](plugins/skills/) (Compose-mounted). Authoring: [docs/skill-extensions.md](docs/skill-extensions.md).
+
 Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models / OpenRouter: [docs/self-hosting.md](docs/self-hosting.md).
 
 ## Quick start (self-host)
