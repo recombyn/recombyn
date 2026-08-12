@@ -7,7 +7,7 @@
   "category": "deliverable",
   "scenes": "all",
   "sort_weight": 75,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "preferred_tools": [
     "create_frame",
     "create_image",
@@ -15,10 +15,14 @@
     "create_shape",
     "update_node"
   ],
-  "allowed_resources": ["tools"],
+  "allowed_resources": [
+    "tools"
+  ],
   "triggers": [
     {
-      "intent_in": ["create"],
+      "intent_in": [
+        "create"
+      ],
       "prompt_includes_any": [
         "长图",
         "long image",

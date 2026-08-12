@@ -7,7 +7,7 @@
   "category": "style",
   "scenes": "all",
   "sort_weight": 82,
-  "version": "1.4.0",
+  "version": "1.4.1",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -21,7 +21,10 @@
   ],
   "triggers": [
     {
-      "intent_in": ["create", "edit"],
+      "intent_in": [
+        "create",
+        "edit"
+      ],
       "prompt_includes_any": [
         "调性",
         "氛围感",
