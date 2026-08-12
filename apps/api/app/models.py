@@ -117,6 +117,29 @@ class User(SQLModel, table=True):
     updated_at: float = Field(default=0.0)
 
 
+class Org(SQLModel, table=True):
+    """Team / tenant container (RBAC Phase 6+)."""
+
+    __tablename__ = "orgs"
+
+    id: str = Field(primary_key=True, max_length=64)
+    name: str = Field(default="Untitled org", max_length=120)
+    created_at: float = Field(default=0.0)
+    updated_at: float = Field(default=0.0)
+
+
+class OrgMember(SQLModel, table=True):
+    """Maps user ↔ org with role owner|admin|member."""
+
+    __tablename__ = "org_members"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    org_id: str = Field(index=True, max_length=64)
+    user_id: str = Field(index=True, max_length=64)
+    role: str = Field(default="member", max_length=16)
+    created_at: float = Field(default=0.0)
+
+
 class AuthSession(SQLModel, table=True):
     """Maps ``auth_sessions`` — bearer token primary key."""
 
