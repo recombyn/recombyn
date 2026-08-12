@@ -178,6 +178,7 @@ export function sanitizeFilename(name: string) {
   return (
     String(name || 'export')
       // Windows-forbidden chars + C0 controls (keep * and - as literals, not a range).
+      // eslint-disable-next-line no-control-regex -- intentional strip of C0 controls
       .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
       .trim() || 'export'
   );

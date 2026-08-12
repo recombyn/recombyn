@@ -24,3 +24,15 @@ See [docs/self-hosting.md](docs/self-hosting.md). At minimum:
 - Rotate `CARD_KEY_SALT` / provider API keys
 - Never commit `.env` files
 - Terminate TLS in front of the stack
+- Set `LOG_JSON=true` in production log drains (ADR 0007); keep `install_log_redaction` on
+- Prefer correlating incidents with `X-Trace-Id` / hydrate `trace_id`
+- Upload policy: magic-byte match on (ADR 0008); optional `UPLOAD_AV_HOOK_ENABLED` + `UPLOAD_AV_COMMAND`
+  - Compose ClamAV: `docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build`
+- Optional OpenTelemetry: `pip install -e '.[otel]'` + `OTEL_ENABLED` / `OTEL_EXPORTER_OTLP_ENDPOINT` (ADR 0011)
+
+## Authorization
+
+Coarse `user` / `admin` roles today — see [docs/security-rbac.md](docs/security-rbac.md).
+
+CI runs `pip-audit` (API) and `npm audit --audit-level=high` (workspaces) on a soft gate
+(`.github/workflows/dependency-audit.yml`). Treat new highs as merge blockers once the backlog is green.

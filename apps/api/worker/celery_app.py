@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.signals import worker_process_init
 
 from app.core.config import settings
 
@@ -25,3 +26,55 @@ celery.conf.update(
         },
     },
 )
+
+
+@worker_process_init.connect
+def _otel_worker_init(**_kwargs) -> None:
+    """Optional OTel in Celery child processes (ADR 0011)."""
+    import logging
+    import os
+
+    endpoint = (os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or "").strip()
+    enabled_raw = (os.getenv("OTEL_ENABLED") or "").strip().lower()
+    enabled = (
+        enabled_raw in ("1", "true", "yes", "on")
+        or bool(endpoint)
+        or bool(getattr(settings, "otel_enabled", False))
+    )
+    if not enabled:
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.instrumentation.celery import CeleryInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import (
+            BatchSpanProcessor,
+            ConsoleSpanExporter,
+        )
+    except ImportError:
+        logging.getLogger(__name__).warning(
+            "Celery OTel enabled but packages missing — pip install -e '.[otel]'"
+        )
+        return
+
+    service = (
+        os.getenv("OTEL_SERVICE_NAME")
+        or f"{getattr(settings, 'otel_service_name', 'recombyn-api')}-worker"
+    )
+    if not service.endswith("-worker"):
+        service = f"{service}-worker"
+    resource = Resource.create({"service.name": service})
+    provider = TracerProvider(resource=resource)
+    if endpoint:
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    else:
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+    trace.set_tracer_provider(provider)
+    CeleryInstrumentor().instrument()
+    logging.getLogger(__name__).info(
+        "OpenTelemetry Celery tracing enabled service=%s", service
+    )

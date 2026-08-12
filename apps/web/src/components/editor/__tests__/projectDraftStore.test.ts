@@ -43,7 +43,7 @@ function sampleDoc(nodes: Record<string, unknown>, children?: string[]) {
     deltaSetLike: {
       ROOT: { id: 'ROOT', key: 'entry', children: ids },
       ...nodes,
-    },
+    } as Record<string, unknown>,
   };
 }
 

@@ -11,6 +11,7 @@ describe('cn', () => {
   });
 
   it('drops falsy values', () => {
-    expect(cn('base', false && 'x', null, undefined, 'ok')).toBe('base ok');
+    const skip = false;
+    expect(cn('base', skip && 'x', null, undefined, 'ok')).toBe('base ok');
   });
 });

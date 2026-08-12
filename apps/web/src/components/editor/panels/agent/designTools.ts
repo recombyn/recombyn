@@ -3100,7 +3100,7 @@ function execExportCanvas(
     const format = normalizeExportFormat(formatRaw);
     const nodeIds = resolveExportNodeIds(args);
     const multiplier = Math.max(0.25, Math.min(4, Number(args.multiplier) || 1));
-    const filename = String(args.filename || 'export').replace(/[^\w\-]+/g, '_');
+    const filename = String(args.filename || 'export').replace(/[^\w-]+/g, '_');
     const ok = exportFabricImage({
       format,
       multiplier,

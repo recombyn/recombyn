@@ -107,15 +107,6 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 
 Env： [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)。Seeds： [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。モデル： [docs/self-hosting.md](docs/self-hosting.md)。
 
-## 主な機能
-
-- **キャンバス編集** — 上記（ブール、内外ストローク、輪郭化、メディア、エクスポートなど）  
-- **リアルタイムコラボ** — Yjs WebSocket（`apps/collab`）；エディタの Live バー；nginx `/collab/` 経由の WSS  
-- **Design Agent** — LangGraph + 設定可能な Profile / Skills / ツール；作成・編集・ストリーミング UI  
-- **カスタムモデル & 集約プラットフォーム** — BYOK、手動 OpenAI 互換エンドポイント、OpenRouter など  
-- **画像インポート** — ローカル画像 → 編集可能なキャンバスノード  
-- **Plaza & プロジェクト** — インスピレーションフィードと保存作品（API）
-
 ## クイックスタート（セルフホスト）
 
 ```bash

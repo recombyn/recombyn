@@ -6,7 +6,7 @@ import time
 import uuid
 from typing import Any
 
-from sqlalchemy import case, delete, text, update as sa_update
+from sqlalchemy import case, delete, or_, text, update as sa_update
 from sqlmodel import Session, col, func, select
 
 from app.models import (
@@ -202,6 +202,64 @@ def list_projects_for_user(
     return list(session.exec(statement).all())
 
 
+def _org_ids_for_user(*, session: Session, user_id: str) -> list[str]:
+    from app.models import OrgMember
+
+    rows = session.exec(
+        select(OrgMember.org_id).where(OrgMember.user_id == user_id)
+    ).all()
+    return [str(x) for x in rows if x]
+
+
+def _projects_access_clause(*, user_id: str, org_ids: list[str], org_id: str | None):
+    filter_oid = (org_id or "").strip() or None
+    if filter_oid:
+        if filter_oid not in org_ids:
+            return None
+        return Project.org_id == filter_oid
+    owned = Project.user_id == user_id
+    if not org_ids:
+        return owned
+    return or_(owned, Project.org_id.in_(org_ids))
+
+
+def count_projects_accessible(
+    *,
+    session: Session,
+    user_id: str,
+    org_id: str | None = None,
+) -> int:
+    org_ids = _org_ids_for_user(session=session, user_id=user_id)
+    clause = _projects_access_clause(user_id=user_id, org_ids=org_ids, org_id=org_id)
+    if clause is None:
+        return 0
+    return int(
+        session.exec(select(func.count()).select_from(Project).where(clause)).one() or 0
+    )
+
+
+def list_projects_accessible(
+    *,
+    session: Session,
+    user_id: str,
+    offset: int = 0,
+    limit: int = 24,
+    org_id: str | None = None,
+) -> list[Project]:
+    org_ids = _org_ids_for_user(session=session, user_id=user_id)
+    clause = _projects_access_clause(user_id=user_id, org_ids=org_ids, org_id=org_id)
+    if clause is None:
+        return []
+    statement = (
+        select(Project)
+        .where(clause)
+        .order_by(col(Project.updated_at).desc())
+        .offset(max(0, offset))
+        .limit(max(1, limit))
+    )
+    return list(session.exec(statement).all())
+
+
 def get_project_for_user(
     *,
     session: Session,
@@ -213,6 +271,53 @@ def get_project_for_user(
         Project.user_id == user_id,
     )
     return session.exec(statement).first()
+
+
+def get_project_accessible(
+    *,
+    session: Session,
+    user_id: str,
+    project_id: str,
+) -> Project | None:
+    """Owner or org member may access the project row."""
+    from app.models import OrgMember
+
+    row = session.get(Project, project_id)
+    if not row:
+        return None
+    if str(row.user_id or "") == str(user_id or ""):
+        return row
+    oid = str(getattr(row, "org_id", None) or "").strip()
+    if not oid:
+        return None
+    mem = session.exec(
+        select(OrgMember).where(
+            OrgMember.org_id == oid,
+            OrgMember.user_id == user_id,
+        )
+    ).first()
+    return row if mem else None
+
+
+def update_project_if_revision_accessible(
+    *,
+    session: Session,
+    project_id: str,
+    expected_revision: int,
+    values: dict[str, Any],
+) -> bool:
+    """Optimistic lock by project id only (caller already authorized)."""
+    stmt = (
+        sa_update(Project)
+        .where(
+            Project.id == project_id,
+            Project.revision == expected_revision,
+        )
+        .values(**values)
+    )
+    result = session.execute(stmt)
+    session.commit()
+    return int(getattr(result, "rowcount", 0) or 0) > 0
 
 
 def create_project(*, session: Session, project: Project) -> Project:
@@ -258,6 +363,29 @@ def update_project_covers(
     stmt = (
         sa_update(Project)
         .where(Project.id == project_id, Project.user_id == user_id)
+        .values(
+            thumbnail_key=thumbnail_key,
+            thumbnail_custom=1 if thumbnail_custom else 0,
+            updated_at=updated_at,
+        )
+    )
+    result = session.execute(stmt)
+    session.commit()
+    return int(getattr(result, "rowcount", 0) or 0) > 0
+
+
+def update_project_covers_by_id(
+    *,
+    session: Session,
+    project_id: str,
+    thumbnail_key: str | None,
+    thumbnail_custom: bool,
+    updated_at: float,
+) -> bool:
+    """Cover update by id (caller already authorized for org/shared access)."""
+    stmt = (
+        sa_update(Project)
+        .where(Project.id == project_id)
         .values(
             thumbnail_key=thumbnail_key,
             thumbnail_custom=1 if thumbnail_custom else 0,

@@ -1,5 +1,5 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-﻿import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
+import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   useRcbCamera,

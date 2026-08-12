@@ -205,8 +205,10 @@ export function parseAndValidateSceneJson(rawText: string): ValidateSceneDocumen
  * Soft hydrate: Zod when possible, otherwise pass through for `normalizeDocument`.
  * Use at external boundaries (cloud / share / collab / import merge) — not edit hot path.
  */
-export function coerceSceneDocumentInput(raw: unknown): unknown {
-  if (raw == null) return raw;
+export function coerceSceneDocumentInput(raw: unknown): SceneDocument {
+  if (raw == null || typeof raw !== 'object') {
+    return raw as SceneDocument;
+  }
   const checked = validateSceneDocument(raw);
-  return checked.valid ? checked.data : raw;
+  return (checked.valid ? checked.data : raw) as SceneDocument;
 }

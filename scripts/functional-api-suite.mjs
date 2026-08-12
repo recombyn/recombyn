@@ -184,6 +184,29 @@ await check('projects.crud', async () => {
   assert(patched.ok, `patch status=${patched.status} ${JSON.stringify(patched.json).slice(0, 160)}`);
 });
 
+await check('projects.revision_conflict', async () => {
+  assert(projectId, 'need project');
+  const one = await req('GET', `/projects/${projectId}`);
+  assert(one.ok, `get status=${one.status}`);
+  const rev = one.json?.project?.revision ?? one.json?.revision;
+  assert(rev != null, 'revision');
+
+  const okPatch = await req('PATCH', `/projects/${projectId}`, {
+    body: { name: `func-suite-conflict-ok-${Date.now()}`, baseRevision: rev },
+    allowed: [200],
+  });
+  assert(okPatch.ok, `ok patch status=${okPatch.status}`);
+
+  // Same stale baseRevision after a successful bump → optimistic lock 412.
+  const stale = await req('PATCH', `/projects/${projectId}`, {
+    body: { name: `func-suite-conflict-stale-${Date.now()}`, baseRevision: rev },
+    allowed: [412],
+  });
+  assert(stale.ok, `stale status=${stale.status} ${JSON.stringify(stale.json).slice(0, 200)}`);
+  const code = stale.json?.detail?.code || stale.json?.code;
+  assert(code === 'project_revision_conflict', `code=${code}`);
+});
+
 await check('collab.room-token', async () => {
   assert(projectId, 'need project');
   const r = await req('POST', '/collab/room-token', {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { parseAsString, parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
@@ -76,6 +76,8 @@ type ProjectListItem = {
   openedAt: number;
   source: 'user';
   remoteOnly: boolean;
+  orgId?: string | null;
+  orgName?: string | null;
 };
 
 function projectSummaryToListItem(row: ProjectSummaryDto): ProjectListItem {
@@ -90,6 +92,8 @@ function projectSummaryToListItem(row: ProjectSummaryDto): ProjectListItem {
     openedAt: row.updatedAt || row.createdAt || Date.now(),
     source: 'user',
     remoteOnly: Boolean(row.hasDocument),
+    orgId: row.orgId ?? null,
+    orgName: row.orgName ?? null,
   };
 }
 
@@ -430,6 +434,8 @@ function HomeTemplateList({
   const authed = Boolean(userId && getToken());
   const [meMountKey, setMeMountKey] = useState(0);
   const [skillsMountKey, setSkillsMountKey] = useState(0);
+  /** Filter "我的项目" by team org (empty = all accessible). */
+  const [filterOrgId, setFilterOrgId] = useState('');
   /** Tracks Home/Projects surface enter/leave so we don't double-fetch on cold mount. */
   const onProjectsSurfaceRef = useRef(false);
   const skippedInitialProjectsRefreshRef = useRef(false);
@@ -449,11 +455,25 @@ function HomeTemplateList({
   const showHome = !showAccount && !showMine && !showSkills;
   const projectsListEnabled = Boolean(authed && (showHome || showMine));
 
+  const orgsQuery = useQuery({
+    ...apiQuery.orgsListMyOrgs.queryOptions({
+      enabled: Boolean(authed && (showMine || showHome)),
+    }),
+  });
+  const orgOptions = (() => {
+    const data = orgsQuery.data as { orgs?: { id: string; name: string }[] } | undefined;
+    return Array.isArray(data?.orgs) ? data.orgs : [];
+  })();
+
   // List SoT: Query pages — do not mirror the full library into Redux.
   const projectsQuery = useInfiniteQuery({
     ...apiQuery.projectsListMyProjects.infiniteOptions({
       input: (pageParam: number) => ({
-        query: { page: pageParam, pageSize: PROJECT_PAGE_SIZE },
+        query: {
+          page: pageParam,
+          pageSize: PROJECT_PAGE_SIZE,
+          ...(showMine && filterOrgId ? { orgId: filterOrgId } : {}),
+        },
       }),
       initialPageParam: 1,
       getNextPageParam: (last: unknown) => {
@@ -582,6 +602,26 @@ function HomeTemplateList({
       {showMine ? (
         <main className="min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-transparent">
           <div className="relative mx-auto w-full min-w-0 max-w-[1700px] space-y-8 px-5 pb-10 pt-16 sm:px-8 sm:pt-20 md:px-24 lg:px-[100px] xl:px-[120px]">
+            {orgOptions.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-[13px] text-[var(--muted)]" htmlFor="mine-org-filter">
+                  {t('home.orgFilter')}
+                </label>
+                <select
+                  id="mine-org-filter"
+                  value={filterOrgId}
+                  onChange={(e) => setFilterOrgId(e.target.value)}
+                  className="h-9 rounded-lg border-0 bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none ring-1 ring-[var(--line)]"
+                >
+                  <option value="">{t('home.orgFilterAll')}</option>
+                  {orgOptions.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <TemplateGrid
               templates={mineSkeleton ? [] : listForGrid}
               title={mineTitle}
@@ -598,6 +638,7 @@ function HomeTemplateList({
               onLoadMore={mineScrollLoad ? loadMoreProjects : undefined}
               onCreate={onCreate}
               createDisabled={importing}
+              orgOptions={orgOptions}
               gridClassName="grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
             />
           </div>

@@ -88,9 +88,16 @@ jobs:
           PORT: '1234'
           COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
         run: |
-          npm install
+          npm install --ignore-scripts
           nohup npm start > /tmp/collab.log 2>&1 &
-          sleep 2
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:1234 >/dev/null; then
+              echo "collab up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "collab failed"; tail -n 80 /tmp/collab.log; exit 1
 
       - name: Install k6
         run: |
@@ -128,3 +135,10 @@ jobs:
         env:
           COLLAB_WS_URL: ws://127.0.0.1:1234
           COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
+
+      - name: Dual Yjs merge
+        working-directory: apps/collab
+        env:
+          COLLAB_WS_URL: ws://127.0.0.1:1234
+          COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
+        run: node dual_client_merge.test.mjs

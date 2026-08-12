@@ -1,5 +1,5 @@
 /**
- * User AI asset types — register via `@/service/assets`.
+ * User AI asset types.
  */
 
 export type AssetKind = "image" | "video" | "audio" | "font" | "lottie";

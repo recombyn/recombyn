@@ -44,7 +44,7 @@ describe('collectPairSpacingGuides', () => {
     const a = { left: 0, top: 0, width: 135, height: 292 };
     const b = { left: 200, top: 283, width: 135, height: 292 };
     const guides = collectPairSpacingGuides(a, b);
-    const yGaps = guides.filter((g) => g.kind === 'gap' && g.axis === 'y');
+    const yGaps = guides.filter((g): g is Extract<typeof g, { kind: 'gap' }> => g.kind === 'gap' && g.axis === 'y');
     // Only the top-to-top offset — not a second bottom-to-bottom measure.
     expect(yGaps).toHaveLength(1);
     expect(yGaps[0]?.dist).toBe(283);

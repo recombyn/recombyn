@@ -191,6 +191,13 @@ export const zCaptchaVerifyIn = z.object({
 });
 
 /**
+ * CreateOrgIn
+ */
+export const zCreateOrgIn = z.object({
+    name: z.string().max(120).optional().default('Untitled org')
+});
+
+/**
  * CreateShareIn
  */
 export const zCreateShareIn = z.object({
@@ -261,6 +268,7 @@ export const zDesignRunIn = z.object({
     proposal_id: z.string().max(64).nullish(),
     proposal_task_id: z.string().max(64).nullish(),
     interaction_mode: z.string().nullish(),
+    paint_mode: z.string().nullish(),
     skill_refs: z.array(z.string()).nullish()
 });
 
@@ -416,6 +424,38 @@ export const zGoogleAuthIn = z.object({
 });
 
 /**
+ * HydrateJobCreateRequest
+ */
+export const zHydrateJobCreateRequest = z.object({
+    ops: z.array(z.record(z.unknown())).optional(),
+    limit: z.number().int().gte(1).lte(24).optional().default(6),
+    policy: z.string().optional().default('auto'),
+    rules: z.record(z.string()).nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * HydrateJobCreateResponse
+ */
+export const zHydrateJobCreateResponse = z.object({
+    job_id: z.string(),
+    status: z.string().optional().default('queued'),
+    trace_id: z.string().optional().default('')
+});
+
+/**
+ * HydrateJobStatusResponse
+ */
+export const zHydrateJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
  * IdsOut
  */
 export const zIdsOut = z.object({
@@ -481,6 +521,15 @@ export const zImportResponse = z.object({
     meta: zImportMeta.nullish(),
     progress: z.number().int().nullish(),
     error: z.string().nullish()
+});
+
+/**
+ * InviteMemberIn
+ */
+export const zInviteMemberIn = z.object({
+    userId: z.string().max(64).nullish(),
+    email: z.string().max(320).nullish(),
+    role: z.string().max(16).optional().default('member')
 });
 
 /**
@@ -685,7 +734,7 @@ export const zRegisterAssetIn = z.object({
     prompt: z.string().max(500).nullish(),
     width: z.number().int().nullish(),
     height: z.number().int().nullish(),
-    source: z.string().max(32).nullish().default('upload')
+    source: z.string().max(32).nullish()
 });
 
 /**
@@ -693,6 +742,13 @@ export const zRegisterAssetIn = z.object({
  */
 export const zRejectIn = z.object({
     reason: z.string().max(500).nullish()
+});
+
+/**
+ * RenameOrgIn
+ */
+export const zRenameOrgIn = z.object({
+    name: z.string().min(1).max(120)
 });
 
 /**
@@ -729,6 +785,15 @@ export const zSceneFeedbackIn = z.object({
     spatial_summary: z.record(z.unknown()).nullish(),
     op_results: z.array(z.record(z.unknown())).nullish(),
     round: z.number().int().nullish()
+});
+
+/**
+ * SetProjectOrgIn
+ *
+ * Attach project to an org, or null to detach (owner only).
+ */
+export const zSetProjectOrgIn = z.object({
+    orgId: z.string().max(64).nullish()
 });
 
 /**
@@ -804,7 +869,8 @@ export const zUpsertProjectIn = z.object({
     thumbnailDataUrls: z.array(z.string()).nullish(),
     thumbnailUrls: z.array(z.string()).nullish(),
     thumbnailCustom: z.boolean().nullish(),
-    baseRevision: z.number().int().nullish()
+    baseRevision: z.number().int().nullish(),
+    orgId: z.string().max(64).nullish()
 });
 
 /**
@@ -1943,6 +2009,122 @@ export const zNoticesNoticesListQuery = z.object({
  */
 export const zNoticesNoticesListResponse = z.record(z.unknown());
 
+export const zOrgsCreateOrgBody = zCreateOrgIn;
+
+/**
+ * Response Orgs-Create Org
+ *
+ * Successful Response
+ */
+export const zOrgsCreateOrgResponse = z.record(z.unknown());
+
+/**
+ * Response Orgs-List My Orgs
+ *
+ * Successful Response
+ */
+export const zOrgsListMyOrgsResponse = z.record(z.unknown());
+
+/**
+ * Response Orgs-List My Pending Invites
+ *
+ * Successful Response
+ */
+export const zOrgsListMyPendingInvitesResponse = z.record(z.unknown());
+
+export const zOrgsAcceptInvitePath = z.object({
+    invite_id: z.string()
+});
+
+/**
+ * Response Orgs-Accept Invite
+ *
+ * Successful Response
+ */
+export const zOrgsAcceptInviteResponse = z.record(z.unknown());
+
+export const zOrgsDeclineInvitePath = z.object({
+    invite_id: z.string()
+});
+
+/**
+ * Response Orgs-Decline Invite
+ *
+ * Successful Response
+ */
+export const zOrgsDeclineInviteResponse = z.record(z.unknown());
+
+export const zOrgsGetOrgPath = z.object({
+    org_id: z.string()
+});
+
+/**
+ * Response Orgs-Get Org
+ *
+ * Successful Response
+ */
+export const zOrgsGetOrgResponse = z.record(z.unknown());
+
+export const zOrgsRenameOrgBody = zRenameOrgIn;
+
+export const zOrgsRenameOrgPath = z.object({
+    org_id: z.string()
+});
+
+/**
+ * Response Orgs-Rename Org
+ *
+ * Successful Response
+ */
+export const zOrgsRenameOrgResponse = z.record(z.unknown());
+
+export const zOrgsListMembersPath = z.object({
+    org_id: z.string()
+});
+
+/**
+ * Response Orgs-List Members
+ *
+ * Successful Response
+ */
+export const zOrgsListMembersResponse = z.record(z.unknown());
+
+export const zOrgsInviteMemberBody = zInviteMemberIn;
+
+export const zOrgsInviteMemberPath = z.object({
+    org_id: z.string()
+});
+
+/**
+ * Response Orgs-Invite Member
+ *
+ * Successful Response
+ */
+export const zOrgsInviteMemberResponse = z.record(z.unknown());
+
+export const zOrgsRemoveMemberPath = z.object({
+    org_id: z.string(),
+    user_id: z.string()
+});
+
+/**
+ * Response Orgs-Remove Member
+ *
+ * Successful Response
+ */
+export const zOrgsRemoveMemberResponse = z.record(z.unknown());
+
+export const zOrgsListOrgPendingInvitesPath = z.object({
+    org_id: z.string()
+});
+
+/**
+ * Response Orgs-List Org Pending Invites
+ *
+ * Successful Response
+ */
+export const zOrgsListOrgPendingInvitesResponse = z.record(z.unknown());
+
 export const zPlazaPlazaSubmitBody = zSubmitIn;
 
 /**
@@ -2037,7 +2219,8 @@ export const zPlazaPlazaAdminRejectResponse = z.record(z.unknown());
 
 export const zProjectsListMyProjectsQuery = z.object({
     page: z.number().int().optional().default(1),
-    pageSize: z.number().int().optional().default(24)
+    pageSize: z.number().int().optional().default(24),
+    orgId: z.string().nullish()
 });
 
 /**
@@ -2109,6 +2292,17 @@ export const zProjectsExtractCoversPath = z.object({
  * Successful Response
  */
 export const zProjectsExtractCoversResponse = zProjectOneOut;
+
+export const zProjectsSetProjectOrgBody = zSetProjectOrgIn;
+
+export const zProjectsSetProjectOrgPath = z.object({
+    project_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zProjectsSetProjectOrgResponse = zProjectOneOut;
 
 export const zSharesSharesCreateBody = zCreateShareIn;
 
@@ -2323,6 +2517,22 @@ export const zImportJobsGetImportJobPath = z.object({
  * Successful Response
  */
 export const zImportJobsGetImportJobResponse = zJobStatusResponse;
+
+export const zDesignHydrateJobsCreateHydrateJobBody = zHydrateJobCreateRequest;
+
+/**
+ * Successful Response
+ */
+export const zDesignHydrateJobsCreateHydrateJobResponse = zHydrateJobCreateResponse;
+
+export const zDesignHydrateJobsGetHydrateJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zDesignHydrateJobsGetHydrateJobResponse = zHydrateJobStatusResponse;
 
 /**
  * Response Chat-Get Models

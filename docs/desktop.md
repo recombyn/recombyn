@@ -56,6 +56,30 @@ npm run build:desktop:cloud
 
 Cloud build uses the same `bundle/` tree; product name is **Recombyn Cloud**.
 
+## Code signing (release)
+
+Unsigned builds are fine for local QA. Store / SmartScreen / Gatekeeper need org certificates — **never commit** `.p12`, `.pem`, or notarization credentials.
+
+### Windows (Authenticode)
+
+1. Obtain a code-signing certificate (EV preferred for SmartScreen reputation).
+2. Configure Tauri / signtool per [Tauri Windows](https://v2.tauri.app/distribute/windows-installer/) (thumbprint or Azure Trusted Signing).
+3. CI secrets (when ready): store cert material in GitHub Environments, not in the repo.
+
+### macOS (Developer ID + notarization)
+
+1. Apple Developer ID Application certificate + App-specific notarization API key.
+2. Follow [Tauri macOS](https://v2.tauri.app/distribute/macos-application/).
+
+### Tauri updater signatures (optional)
+
+Env vars (local or Actions secrets):
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+See [ADR 0010](./adr/0010-desktop-signing.md). CI: **Actions → Desktop build (Tauri)** (`workflow_dispatch`) produces **unsigned** Windows artifacts by default.
+
 ## Architecture
 
 ```
@@ -97,4 +121,5 @@ Cloud desktop (dev)
 ## Related
 
 - [self-hosting.md](./self-hosting.md)（含架构 / LC·LG）
+- [ADR 0010 — desktop signing](./adr/0010-desktop-signing.md)
 - `scripts/dev-desktop.mjs` · `scripts/ensure-desktop-api.mjs`

@@ -809,15 +809,16 @@ export function computeShapeBoolean(
   const clipped = clipShapes(ordered, mode);
 
   // Hard failure only — empty subtract is a valid "nothing left", not AABB soup.
-  if (clipped.failed) {
+  if (clipped.failed === true) {
     const fallback = rectOnlyFallback(boxes, mode);
     return { result: fallback, usedFallback: Boolean(fallback), hasNonRect };
   }
-  if (!clipped.mp.length) {
+  const mp = clipped.mp;
+  if (!mp.length) {
     return { result: null, usedFallback: false, hasNonRect };
   }
 
-  const { minX, minY, maxX, maxY } = multipolygonBounds(clipped.mp);
+  const { minX, minY, maxX, maxY } = multipolygonBounds(mp);
   if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
     const fallback = rectOnlyFallback(boxes, mode);
     return { result: fallback, usedFallback: Boolean(fallback), hasNonRect };
@@ -825,7 +826,7 @@ export function computeShapeBoolean(
 
   const width = Math.max(1, maxX - minX);
   const height = Math.max(1, maxY - minY);
-  const path = multipolygonToPath(clipped.mp, minX, minY);
+  const path = multipolygonToPath(mp, minX, minY);
   if (!path) {
     const fallback = rectOnlyFallback(boxes, mode);
     return { result: fallback, usedFallback: Boolean(fallback), hasNonRect };
@@ -839,7 +840,7 @@ export function computeShapeBoolean(
       width,
       height,
       // Holes from subtract / donut operands need evenodd when windings are mixed.
-      fillRule: multipolygonHasHoles(clipped.mp) || mode === 'exclude' ? 'evenodd' : 'nonzero',
+      fillRule: multipolygonHasHoles(mp) || mode === 'exclude' ? 'evenodd' : 'nonzero',
     },
     usedFallback: false,
     hasNonRect,
