@@ -25,11 +25,30 @@ export type MarkRegion = MarkRect & {
   selected?: boolean;
 };
 
+/** Min size to *commit* a region (scene px). Preview uses a softer floor. */
 const MIN_MARK = 12;
+/** Live rubber-band can show as soon as the drag leaves a 1×1 cell. */
+const MIN_PREVIEW = 1;
 /** Scene px — below this, pointer-up on a hit region counts as click-select. */
 const CLICK_SLOP = 4;
 
-function normalizeDragBox(
+function clampDragBox(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  cw: number,
+  ch: number
+): MarkRect {
+  const left = Math.max(0, Math.min(x0, x1));
+  const top = Math.max(0, Math.min(y0, y1));
+  const right = Math.min(cw, Math.max(x0, x1));
+  const bottom = Math.min(ch, Math.max(y0, y1));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+/** Rubber-band while dragging — keep tiny boxes so the preview never blinks out. */
+export function previewDragBox(
   x0: number,
   y0: number,
   x1: number,
@@ -37,14 +56,28 @@ function normalizeDragBox(
   cw: number,
   ch: number
 ): MarkRect | null {
-  const left = Math.max(0, Math.min(x0, x1));
-  const top = Math.max(0, Math.min(y0, y1));
-  const right = Math.min(cw, Math.max(x0, x1));
-  const bottom = Math.min(ch, Math.max(y0, y1));
-  const w = right - left;
-  const h = bottom - top;
-  if (w < MIN_MARK || h < MIN_MARK) return null;
-  return { x: left, y: top, w, h };
+  const box = clampDragBox(x0, y0, x1, y1, cw, ch);
+  if (box.w < MIN_PREVIEW && box.h < MIN_PREVIEW) return null;
+  return {
+    x: box.x,
+    y: box.y,
+    w: Math.max(MIN_PREVIEW, box.w),
+    h: Math.max(MIN_PREVIEW, box.h),
+  };
+}
+
+/** Commit gate — reject clicks / sub-threshold drags. */
+export function normalizeDragBox(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  cw: number,
+  ch: number
+): MarkRect | null {
+  const box = clampDragBox(x0, y0, x1, y1, cw, ch);
+  if (box.w < MIN_MARK || box.h < MIN_MARK) return null;
+  return box;
 }
 
 function pointInRect(px: number, py: number, r: MarkRect): boolean {
@@ -119,7 +152,8 @@ function MarkRegionOverlay({
       if (dist >= CLICK_SLOP) drag.moved = true;
       // Started on an existing region → click-select only, never start a new box.
       if (drag.hitId) return;
-      onDraftChangeRef.current(normalizeDragBox(drag.x0, drag.y0, p.x, p.y, cw, ch));
+      // Soft preview (1px+) while dragging; commit still uses MIN_MARK on pointer-up.
+      onDraftChangeRef.current(previewDragBox(drag.x0, drag.y0, p.x, p.y, cw, ch));
     };
     const onUp = (e: PointerEvent) => {
       const drag = dragRef.current;
@@ -173,28 +207,37 @@ function MarkRegionOverlay({
     const top = r.y * z;
     const width = Math.max(1, r.w * z);
     const height = Math.max(1, r.h * z);
-    const borderColor =
-      selected || isDraft
-        ? 'rgba(255,255,255,0.95)'
+    // White strokes vanish on light photos — keep marks in the blue family.
+    const borderColor = isDraft
+      ? 'rgba(37,99,235,0.95)'
+      : selected
+        ? 'rgba(59,130,246,0.95)'
         : hovered
-          ? 'rgba(255,255,255,0.8)'
-          : 'rgba(255,255,255,0.65)';
-    const badgeBg = selected ? '#3b82f6' : '#60a5fa';
+          ? 'rgba(96,165,250,0.9)'
+          : 'rgba(59,130,246,0.55)';
+    const fill =
+      isDraft || selected
+        ? 'inset 0 0 0 9999px rgba(59,130,246,0.16)'
+        : hovered
+          ? 'inset 0 0 0 9999px rgba(59,130,246,0.08)'
+          : 'inset 0 0 0 9999px rgba(59,130,246,0.04)';
+    const badgeBg = selected || isDraft ? '#2563eb' : '#60a5fa';
 
     return (
       <div
         key={opts.id || 'draft'}
         data-mark-region={opts.id || 'draft'}
+        data-mark-draft={isDraft ? '1' : undefined}
         className="pointer-events-none absolute"
         style={{
           left,
           top,
           width,
           height,
-          border: `1.5px dashed ${borderColor}`,
+          border: `${isDraft ? 2 : 1.5}px dashed ${borderColor}`,
           boxShadow: selected
-            ? '0 0 0 1px rgba(59,130,246,0.35), inset 0 0 0 9999px rgba(59,130,246,0.08)'
-            : 'inset 0 0 0 9999px rgba(255,255,255,0.04)',
+            ? `0 0 0 1px rgba(59,130,246,0.35), ${fill}`
+            : fill,
           boxSizing: 'border-box',
         }}
       >
@@ -212,6 +255,14 @@ function MarkRegionOverlay({
             style={{ background: 'rgba(191,219,254,0.95)' }}
           >
             {opts.label}
+          </span>
+        ) : null}
+        {isDraft ? (
+          <span
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm"
+            style={{ background: 'rgba(37,99,235,0.92)' }}
+          >
+            {Math.round(r.w)} × {Math.round(r.h)}
           </span>
         ) : null}
       </div>

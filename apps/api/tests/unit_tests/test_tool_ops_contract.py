@@ -377,3 +377,95 @@ def test_rejects_css_gradient_fill_on_update_node():
     )
     assert not ops
     assert any("update_node_css_gradient_fill" in e for e in errs)
+
+
+def test_rejects_emoji_as_icon_create_text():
+    raw_ops = [
+        {
+            "name": "create_text",
+            "args": {"id": "e1", "text": "🔋", "x": 10, "y": 10, "fontSize": 24},
+        },
+    ]
+    ops, errs = normalize_agent_tool_ops(raw_ops)
+    assert not ops
+    assert any("create_text_emoji_as_icon" in e for e in errs)
+
+
+def test_allows_create_text_with_emoji_in_long_copy():
+    raw_ops = [
+        {
+            "name": "create_text",
+            "args": {
+                "id": "t1",
+                "text": "Summer festival 🎉 starts Friday — grab tickets",
+                "x": 10,
+                "y": 10,
+                "fontSize": 18,
+            },
+        },
+    ]
+    ops, errs = normalize_agent_tool_ops(raw_ops)
+    assert not errs
+    assert len(ops) == 1
+
+
+def test_assess_tool_ops_result_rejects_sparse_dashboard():
+    from app.services.design.ops.tool_ops_contract import assess_tool_ops_result
+
+    ok, reason = assess_tool_ops_result(
+        [{"name": "create_shape", "args": {"fill": "#eee", "x": 0, "y": 0, "w": 100, "h": 100}}],
+        intent="create",
+        scene="website",
+        skill_keys=["dashboard_ui"],
+    )
+    assert not ok
+    assert "too_few_elements" in reason
+
+
+def test_assess_tool_ops_result_allows_single_create_without_craft_skills():
+    from app.services.design.ops.tool_ops_contract import assess_tool_ops_result
+
+    ok, reason = assess_tool_ops_result(
+        [{"name": "create_text", "args": {"id": "t1", "text": "Hi", "x": 0, "y": 0}}],
+        intent="create",
+        scene="website",
+        skill_keys=[],
+    )
+    assert ok, reason
+
+
+def test_assess_tool_ops_result_create_on_empty_scene_uses_projected_ops():
+    """Empty pre-apply scene must not yield scene_too_thin:0 when ops are dense."""
+    from app.services.design.ops.tool_ops_contract import assess_tool_ops_result
+
+    ops = [
+        {
+            "name": "create_shape",
+            "args": {"id": f"s{i}", "fill": "#eee", "x": i * 10, "y": 0, "w": 40, "h": 40},
+        }
+        for i in range(8)
+    ]
+    ok, reason = assess_tool_ops_result(
+        ops,
+        intent="create",
+        scene="website",
+        nodes=[],  # blank canvas before apply
+        skill_keys=["poster_craft"],
+    )
+    assert ok, reason
+    assert reason == "ok"
+
+
+def test_assess_tool_ops_result_scene_too_thin_when_projected_still_empty():
+    from app.services.design.ops.tool_ops_contract import assess_tool_ops_result
+
+    # create_frame alone counts as a create but does not project a node id.
+    ok, reason = assess_tool_ops_result(
+        [{"name": "create_frame", "args": {"width": 1080, "height": 1920}}],
+        intent="create",
+        scene="website",
+        nodes=[],
+        rules={"validate.min_creates": "1", "validate.require_nodes": "1"},
+    )
+    assert not ok
+    assert "scene_too_thin" in reason
