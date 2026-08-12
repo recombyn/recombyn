@@ -299,8 +299,41 @@ def _locale_pick(
             return block
     return {}
 
+_LOGO_DATA_URL_MAX_BYTES = 48_000
+
+
+def _file_to_logo_data_url(path: Path) -> str | None:
+    """Inline small pack logos so FE/admin can use them as ``<img src>``."""
+    import base64
+    import urllib.parse
+
+    try:
+        raw = path.read_bytes()
+    except Exception:
+        return None
+    if not raw or len(raw) > _LOGO_DATA_URL_MAX_BYTES:
+        return None
+    suffix = path.suffix.lower()
+    if suffix == ".svg":
+        text = raw.decode("utf-8", errors="replace").strip()
+        if not text:
+            return None
+        # Prefer compact URL-encoding for SVG (readable in Admin preview).
+        return "data:image/svg+xml," + urllib.parse.quote(text, safe="")
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(suffix)
+    if not mime:
+        return None
+    return f"data:{mime};base64," + base64.b64encode(raw).decode("ascii")
+
+
 def _resolve_pack_logo(pack_dir: Path, meta: dict[str, Any]) -> str:
-    """Return path relative to design_skills root, or absolute URL, or ''."""
+    """Return usable logo URL (http/data) or '' — prefer inlined pack ``assets/icon``."""
     raw = str(meta.get("logo") or "").strip()
     if raw.startswith(("http://", "https://", "data:")):
         return raw
@@ -315,11 +348,11 @@ def _resolve_pack_logo(pack_dir: Path, meta: dict[str, Any]) -> str:
     key = pack_dir.name
     candidates.extend(
         [
-            pack_dir / "assets" / "logo.png",
-            pack_dir / "assets" / "logo.svg",
-            pack_dir / "assets" / "logo.webp",
             pack_dir / "assets" / "icon.svg",
             pack_dir / "assets" / "icon.png",
+            pack_dir / "assets" / "logo.svg",
+            pack_dir / "assets" / "logo.png",
+            pack_dir / "assets" / "logo.webp",
             pack_dir / f"{key}-logo.png",
             pack_dir / f"{key}-logo.svg",
             pack_dir / f"{key}-logo.webp",
@@ -330,18 +363,20 @@ def _resolve_pack_logo(pack_dir: Path, meta: dict[str, Any]) -> str:
             pack_dir / "logo.jpg",
         ]
     )
-    root = pack_dir.parent.resolve()
+    root = pack_dir.resolve()
     for cand in candidates:
         try:
             if not cand.is_file():
                 continue
             resolved = cand.resolve()
             try:
-                rel = resolved.relative_to(root)
-                return rel.as_posix()
+                resolved.relative_to(root)
             except ValueError:
-                # Outside this pack's design_skills root — deny.
+                # Outside this pack dir — deny.
                 continue
+            data_url = _file_to_logo_data_url(resolved)
+            if data_url:
+                return data_url
         except Exception:
             continue
     return ""

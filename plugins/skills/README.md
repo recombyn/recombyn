@@ -10,7 +10,7 @@ my_poster_plugin/
 ├── SKILL.md          # required — Agent craft rules
 ├── schema.json       # optional — input / output JSON schema
 ├── handler.py        # optional — ignored until Phase B (ops runner)
-├── assets/           # optional — logo/icon/preview (logo.png, icon.svg, …)
+├── assets/           # optional — icon.svg / logo (list + picker thumb)
 └── examples/         # optional — reference images (docs only today)
 ```
 

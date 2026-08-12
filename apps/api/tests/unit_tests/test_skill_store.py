@@ -493,6 +493,42 @@ def test_schema_json_merges_into_pack(tmp_path):
     assert "create_frame" in item["output_schema"]["allowed_ops"]
 
 
+def test_pack_icon_svg_inlines_as_data_url(tmp_path):
+    from app.services.design.prompts.skill_store.pack_io import _load_pack_dir
+
+    pack = tmp_path / "icon_pack"
+    (pack / "assets").mkdir(parents=True)
+    (pack / "_meta.json").write_text(
+        '{"skill_key":"icon_pack","name":"icon_pack",'
+        '"preferred_tools":["create_frame"],"version":"1.0.0"}',
+        encoding="utf-8",
+    )
+    (pack / "SKILL.md").write_text("# Icon pack\n\nBody.\n", encoding="utf-8")
+    (pack / "assets" / "icon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<rect width="64" height="64" fill="#123"/></svg>',
+        encoding="utf-8",
+    )
+    item = _load_pack_dir(pack)
+    assert item is not None
+    logo = str(item.get("logo") or "")
+    assert logo.startswith("data:image/svg+xml,")
+    assert "64" in logo
+
+
+def test_built_in_skills_have_icons():
+    items = {str(x.get("skill_key")): x for x in _load_file_skills()}
+    for key in (
+        "poster_craft",
+        "banner_ad",
+        "image_gen",
+        "garden_style",
+        "festival_poster",
+    ):
+        logo = str((items.get(key) or {}).get("logo") or "")
+        assert logo.startswith("data:image/"), f"{key} missing icon logo"
+
+
 def test_festival_poster_pack_has_schema():
     items = {str(x.get("skill_key")): x for x in _load_file_skills()}
     fp = items.get("festival_poster")

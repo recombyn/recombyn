@@ -60,8 +60,10 @@ See `plugins/skills/festival_poster/handler.py.example`.
 
 ## `assets/` / `examples/`
 
-- `assets/logo.png` (or `icon.svg`) — picked up as pack logo when present  
+- **`assets/icon.svg`** (or `logo.png`) — picked up as pack logo and inlined as a `data:` URL for the Skills list / `/` picker  
 - `examples/` — human reference only
+
+Shipped seeds already include `assets/icon.svg`.
 
 ## Load / reload
 
