@@ -122,8 +122,31 @@ def observe_design_run_outcome(outcome: str, duration_s: float | None = None) ->
         logger.debug("design run outcome metric failed", exc_info=True)
 
 
-def refresh_dependency_gauges() -> None:
-    """Best-effort snapshot for Grafana dependency row (before /metrics scrape)."""
+_last_dep_gauge_refresh = 0.0
+_DEP_GAUGE_TTL_SEC = 30.0
+
+
+def refresh_dependency_gauges(*, force: bool = False) -> None:
+    """Best-effort snapshot for Grafana (before /metrics scrape).
+
+    DLQ depth is cheap (Redis LLEN) and refreshes every scrape.
+    Redis/DB/worker probes are throttled — Celery inspect alone can take ~1s+.
+    """
+    global _last_dep_gauge_refresh
+    import time
+
+    try:
+        from app.services.job_store import dlq_depth
+
+        HYDRATE_DLQ_DEPTH.set(float(dlq_depth("hydrate")))
+        EXPORT_DLQ_DEPTH.set(float(dlq_depth("export")))
+    except Exception:
+        logger.debug("job dlq depth gauge failed", exc_info=True)
+
+    now = time.monotonic()
+    if not force and (now - _last_dep_gauge_refresh) < _DEP_GAUGE_TTL_SEC:
+        return
+    _last_dep_gauge_refresh = now
     try:
         from app.api.routes.health import _check_db, _check_redis, _check_worker
 
@@ -134,13 +157,6 @@ def refresh_dependency_gauges() -> None:
         DEP_DB_UP.set(1 if db.get("ok") else 0)
     except Exception:
         logger.debug("dependency gauge refresh failed", exc_info=True)
-    try:
-        from app.services.job_store import dlq_depth
-
-        HYDRATE_DLQ_DEPTH.set(float(dlq_depth("hydrate")))
-        EXPORT_DLQ_DEPTH.set(float(dlq_depth("export")))
-    except Exception:
-        logger.debug("job dlq depth gauge failed", exc_info=True)
 
 
 def setup_metrics(app: "FastAPI") -> None:

@@ -295,11 +295,12 @@ def test_org_invite_email_best_effort(
 
 
 def test_public_app_origin_derives_from_activate(monkeypatch: pytest.MonkeyPatch):
-    from app.core.config import settings
     from app.services.auth import ses_mail
 
-    monkeypatch.setattr(settings, "public_app_base_url", "")
-    monkeypatch.setattr(
-        settings, "ses_activate_base_url", "https://example.com/activate"
-    )
+    # public_app_origin reads a fresh Settings() — patch the helper, not the singleton.
+    class _FakeSettings:
+        public_app_base_url = ""
+        ses_activate_base_url = "https://example.com/activate"
+
+    monkeypatch.setattr(ses_mail, "_settings", lambda: _FakeSettings())
     assert ses_mail.public_app_origin() == "https://example.com"
