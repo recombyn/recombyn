@@ -29,6 +29,9 @@ apps/api/storage/*.alembic.lock
 !apps/api/storage/results/.gitkeep
 !apps/api/storage/backups/.gitkeep
 
+# turborepo
+.turbo/
+
 # testing
 coverage/
 e2e/test-results/

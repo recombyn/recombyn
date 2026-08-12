@@ -4,14 +4,17 @@
   "private": true,
   "description": "Recombyn — canvas editor + AI Design Agent",
   "license": "Apache-2.0",
+  "packageManager": "npm@10.9.2",
   "workspaces": [
     "apps/web",
     "apps/collab",
-    "packages/contracts"
+    "packages/*"
   ],
   "scripts": {
+    "prepare": "husky",
     "dev": "npm run dev --workspace=apps/web",
     "dev:web": "npm run dev --workspace=apps/web",
+    "dev:stack": "node scripts/dev-stack.mjs",
     "dev:desktop": "node scripts/dev-desktop.mjs",
     "dev:desktop:cloud": "node scripts/dev-desktop.mjs cloud",
     "dev:collab": "npm run dev --workspace=apps/collab",
@@ -20,8 +23,12 @@
     "build:desktop:sidecar": "node scripts/dev-desktop.mjs sidecar",
     "dev:api": "node scripts/dev-api.mjs",
     "gen:contracts": "npm run gen --workspace=@resume-scene/contracts",
-    "build": "npm run build --workspace=apps/web",
+    "build": "turbo run build --filter=@resume-scene/web",
+    "lint": "turbo run lint",
     "lint:web": "npm run lint --workspace=apps/web",
+    "typecheck": "turbo run typecheck --filter=@resume-scene/contracts",
+    "check": "turbo run lint --filter=@resume-scene/web && turbo run typecheck --filter=@resume-scene/contracts",
+    "typecheck:web": "npm run typecheck --workspace=apps/web",
     "test": "npm run test:web && npm run test:api",
     "test:web": "npm run test --workspace=apps/web",
     "test:web:watch": "npm run test:watch --workspace=apps/web",
@@ -50,5 +57,11 @@
     "perf:k6:collab": "k6 run perf/k6/collab_ws.js",
     "stress:agent": "node scripts/design-agent-stress.mjs",
     "install:api": "cd apps/api && pip install -e \".[dev]\""
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "husky": "^9.1.7",
+    "turbo": "^2.5.4"
   }
 }

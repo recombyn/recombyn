@@ -1406,7 +1406,7 @@ const en = {
     routePresetShortQuality: 'Quality',
     routePresetShortCustom: 'Custom',
     modelCategory: 'Model categories',
-    tabChat: 'Design',
+    tabDesign: 'Design',
     tabImage: 'Image',
     autoToggle: 'Auto',
     modeDesign: 'Design',
