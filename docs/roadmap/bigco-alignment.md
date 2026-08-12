@@ -48,8 +48,8 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate DLQ + admin replay API + Insights UI | Export / long-paint jobs |
-| AI / 导出 / 渲染异步 | Hydrate jobs API + apply enqueue | Export / long paint off request |
+| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate + export jobs / DLQ + admin hydrate replay | Long-paint off request |
+| AI / 导出 / 渲染异步 | Hydrate + artboard PNG/PDF export jobs | Long paint off request |
 | 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
 
 ### 4. 存储分层隔离
@@ -161,3 +161,4 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Compose `obs` profile (Prometheus / Grafana / Alertmanager) + DLQ dashboard panels
 - [x] ClamAV prod overlay (`docker-compose.av.yml` + `INSTALL_AV` / `clamdscan`)
 - [x] Admin Insights hydrate DLQ tab (list / replay / discard)
+- [x] Async artboard export jobs (`POST/GET /design/export/jobs` + `/file`, PNG/PDF)

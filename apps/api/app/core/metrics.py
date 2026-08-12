@@ -56,6 +56,17 @@ HYDRATE_DLQ_DEPTH = Gauge(
     "Current Redis hydrate DLQ list length (recombyn:dlq:hydrate)",
 )
 
+EXPORT_JOBS_TOTAL = Counter(
+    "recombyn_export_jobs_total",
+    "Design artboard export jobs enqueued or finished",
+    ["event"],
+)
+
+EXPORT_DLQ_TOTAL = Counter(
+    "recombyn_export_dlq_total",
+    "Export jobs pushed to Redis DLQ after terminal failure",
+)
+
 
 def observe_hydrate_job(event: str) -> None:
     """event: enqueued | done | failed | retry | dlq."""
@@ -70,6 +81,21 @@ def observe_hydrate_dlq() -> None:
         HYDRATE_DLQ_TOTAL.inc()
     except Exception:
         logger.debug("hydrate dlq metric failed", exc_info=True)
+
+
+def observe_export_job(event: str) -> None:
+    """event: enqueued | done | failed | retry | dlq."""
+    try:
+        EXPORT_JOBS_TOTAL.labels(event=(event or "unknown")[:32]).inc()
+    except Exception:
+        logger.debug("export job metric failed", exc_info=True)
+
+
+def observe_export_dlq() -> None:
+    try:
+        EXPORT_DLQ_TOTAL.inc()
+    except Exception:
+        logger.debug("export dlq metric failed", exc_info=True)
 
 
 def observe_design_run_start(run_mode: str = "agent") -> None:

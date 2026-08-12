@@ -16,6 +16,7 @@ from app.api.routes import (
     import_jobs,
     import_pdf,
     design_hydrate_jobs,
+    design_export_jobs,
     me,
     notices,
     orgs,
@@ -48,6 +49,7 @@ api_router.include_router(import_docx.router)
 api_router.include_router(import_image.router)
 api_router.include_router(import_jobs.router)
 api_router.include_router(design_hydrate_jobs.router)
+api_router.include_router(design_export_jobs.router)
 api_router.include_router(chat.router)
 api_router.include_router(image_tools.router)
 api_router.include_router(design.router)

@@ -26,6 +26,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Admin hydrate **DLQ replay** (`/api/v1/admin/ops/hydrate-dlq`) + `recombyn_hydrate_dlq_depth`
 - Compose **obs** profile (Prometheus / Grafana / Alertmanager) and **av** overlay (`clamdscan`)
 - Admin Insights **失败队列** tab (hydrate DLQ list / replay / discard)
+- Async **artboard export** jobs (`POST/GET /api/v1/design/export/jobs`, PNG/PDF via Celery)
 
 ### Changed
 
