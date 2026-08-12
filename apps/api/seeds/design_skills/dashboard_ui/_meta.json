@@ -12,6 +12,8 @@
     "create_frame",
     "create_shape",
     "create_text",
+    "create_icon",
+    "create_svg",
     "update_node",
     "move_nodes"
   ],

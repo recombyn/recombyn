@@ -180,14 +180,15 @@ def patch_one(
         patch["activeFrameId"] = body.activeFrameId
     if body.canvas is not None:
         patch["canvas"] = body.canvas
-    # Allow thumbnail-only patches (cover refresh with no node delta).
+    # Allow thumbnail-only / rename-only patches (no node delta).
     has_thumb = bool(
         body.thumbnailDataUrl
         or body.thumbnailDataUrls
         or body.thumbnailUrls
         or body.thumbnailCustom is not None
     )
-    if not patch and not has_thumb:
+    has_name = body.name is not None
+    if not patch and not has_thumb and not has_name:
         raise HTTPException(status_code=400, detail="Empty patch")
     if not patch:
         patch = {}

@@ -4,12 +4,22 @@ import { defineConfig, devices } from '@playwright/test';
  * Browser E2E — smoke + critical flows against the Vite web app.
  * Start web with `npm run dev:web` or let webServer boot it.
  */
+const e2eWorkers = (() => {
+  const raw = (process.env.E2E_WORKERS || '').trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  }
+  // Cap concurrency: auth rate limits + shared Vite/API make 8+ workers flaky.
+  return process.env.CI ? 2 : 2;
+})();
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  retries: process.env.CI ? 1 : 1,
+  workers: e2eWorkers,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:3000',

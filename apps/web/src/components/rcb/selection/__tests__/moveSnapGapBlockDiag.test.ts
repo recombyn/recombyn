@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SMART_SNAP_PX,
+  SMART_SNAP_MAX_SCENE,
   collectMoveSnapIndicators,
   GUIDE_COINCIDE_EPS,
   smartSnapThreshold,
@@ -50,7 +51,7 @@ function settle(opts: {
   };
 }
 
-describe('move snap gap block (8/zoom magnet)', () => {
+describe('move snap gap block (8/zoom magnet, capped)', () => {
   it('X flush magnet engages at gap ≈ threshold (proven zoom-varying 拦住)', () => {
     const left = { left: 0, top: 20, width: 200, height: 80 };
     const zooms = [0.25, 0.4, 0.5, 0.7, 1, 2, 4] as const;
@@ -58,7 +59,7 @@ describe('move snap gap block (8/zoom magnet)', () => {
 
     for (const zoom of zooms) {
       const threshold = smartSnapThreshold(zoom);
-      expect(threshold).toBeCloseTo(SMART_SNAP_PX / zoom, 6);
+      expect(threshold).toBeCloseTo(Math.min(SMART_SNAP_PX / zoom, SMART_SNAP_MAX_SCENE), 6);
 
       let firstPullGap: number | null = null;
       // 0.25 scene steps so sub-cell thresholds (high zoom) still register.

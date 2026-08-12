@@ -545,12 +545,23 @@ async def _node_review_agent(state: GraphState) -> Command:
         }
     )
 
+    verdict: dict[str, Any]
     if not _review_enabled():
         verdict = _fallback_from_signals(signals)
     else:
         try:
-            verdict = await _invoke_review_llm(
-                rt, preview_image=preview_image, signals=signals
+            from app.core.config import settings
+            from app.services.design.runtime.graph.nodes.paint import _await_or_abandon
+
+            review_budget = float(
+                getattr(settings, "design_review_llm_timeout_sec", 100.0) or 100.0
+            )
+            verdict = await _await_or_abandon(
+                _invoke_review_llm(
+                    rt, preview_image=preview_image, signals=signals
+                ),
+                timeout_sec=max(15.0, review_budget),
+                label=f"review:{st.task_id[:8]}",
             )
         except Exception as err:  # noqa: BLE001
             _log.exception("review_agent_llm_failed task=%s", st.task_id[:8])

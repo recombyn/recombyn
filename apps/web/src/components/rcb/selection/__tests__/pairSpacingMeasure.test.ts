@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SMART_SNAP_PX,
+  SMART_SNAP_MAX_SCENE,
   collectPairSpacingGuides,
   smartSnapThreshold,
 } from '../alignGuides';
@@ -105,12 +106,15 @@ describe('collectPairSpacingGuides', () => {
   });
 });
 
-describe('smartSnapThreshold (8/zoom)', () => {
-  it('keeps ~8 CSS px at every zoom — no scene cap', () => {
+describe('smartSnapThreshold (8/zoom, capped)', () => {
+  it('keeps ~8 CSS px until SMART_SNAP_MAX_SCENE', () => {
     for (const zoom of [0.05, 0.13, 0.25, 1, 2, 40]) {
-      expect(smartSnapThreshold(zoom)).toBeCloseTo(SMART_SNAP_PX / zoom, 6);
+      expect(smartSnapThreshold(zoom)).toBeCloseTo(
+        Math.min(SMART_SNAP_PX / zoom, SMART_SNAP_MAX_SCENE),
+        6
+      );
     }
-    expect(smartSnapThreshold(0.05)).toBeCloseTo(160, 9);
+    expect(smartSnapThreshold(0.05)).toBeCloseTo(SMART_SNAP_MAX_SCENE, 9);
     expect(smartSnapThreshold(1)).toBe(SMART_SNAP_PX);
   });
 });

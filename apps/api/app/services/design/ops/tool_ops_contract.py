@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 TOOL_OPS_SCHEMA_VERSION = "2026-08-01-v3"
 
+# Soft-forbid emoji-as-icon in create_text (stress craftFlags: emoji_text_ops).
+_EMOJI_AS_ICON_RE = re.compile(
+    r"[\U0001F300-\U0001FAFF\u2600-\u27BF\U0001F1E0-\U0001F1FF]"
+)
+
 
 def format_op_error(code: str, *, fix: str = "", detail: str = "") -> str:
     """Stable error line for LAST_ERROR / paint retry — model can parse code + fix."""
@@ -548,6 +553,16 @@ def _validate_single_op(
                 return format_op_error(
                     "create_text_missing_text_or_position",
                     fix="re-emit create_text with args.text and x/y",
+                )
+        text_s = str(args.get("text") if args.get("text") is not None else args.get("content") or "")
+        if _EMOJI_AS_ICON_RE.search(text_s):
+            stripped = _EMOJI_AS_ICON_RE.sub("", text_s).strip()
+            # Short / emoji-only labels are marks — use create_icon / create_svg.
+            if len(stripped) <= 2 and len(text_s.strip()) <= 8:
+                return format_op_error(
+                    "create_text_emoji_as_icon",
+                    fix="use create_icon or create_svg for marks; create_text for real labels only",
+                    detail=text_s.strip()[:40],
                 )
         return None
     if name == "create_image":
@@ -1466,18 +1481,29 @@ def assess_tool_ops_result(
     scene: str | None,
     nodes: list[dict[str, Any]] | None = None,
     rules: dict[str, str] | None = None,
+    skill_keys: list[str] | None = None,
 ) -> tuple[bool, str]:
     """Post-validate tool_ops result (density + light structure). Admin rules only."""
     intent_l = (intent or "").strip().lower()
     if intent_l not in ("create", "sibling"):
         return True, "ok"
 
-    rules = rules or {}
+    rules = dict(rules or {})
     create_names = {
         x.strip()
         for x in str(rules.get("validate.create_op_names") or "").split("|")
         if x.strip()
     }
+    if not create_names:
+        create_names = {
+            "create_shape",
+            "create_text",
+            "create_icon",
+            "create_image",
+            "create_svg",
+            "create_lottie",
+            "create_frame",
+        }
     creates = [
         o
         for o in (ops or [])
@@ -1497,6 +1523,15 @@ def assess_tool_ops_result(
             min_creates = max(0, int(raw_min))
         except ValueError:
             min_creates = 0
+    if not min_creates:
+        # Soft defaults so one-shape "dashboards" cannot silent-settle (stress craft).
+        skills = {str(k).strip() for k in (skill_keys or []) if str(k).strip()}
+        if skills & {"dashboard_ui", "landing_page", "mobile_app_ui"}:
+            min_creates = 8
+        elif skills & {"poster_craft", "banner_ad", "ecommerce_surface", "resume_layout"}:
+            min_creates = 5
+        else:
+            min_creates = 3
 
     min_texts = 0
     try:
@@ -1510,19 +1545,39 @@ def assess_tool_ops_result(
     if min_texts and len(texts) < min_texts:
         return False, f"sparse_tool_ops:missing_ui_copy:{len(texts)}<{min_texts}"
 
-    # Structure: prefer non-empty scene inventory when present.
+    # Structure: projected inventory (pre-apply scene + creates − deletes).
+    # Do NOT use empty pre-apply scene alone — that false-fails every create-on-blank
+    # with sparse_tool_ops:scene_too_thin:0 and clears valid tool_ops (stress 0/10).
     if (
         min_creates
         and nodes is not None
         and _rule_flag(rules, "validate.require_nodes", "1")
     ):
-        living = [
-            n
+        living_ids = {
+            str(n.get("id") or "").strip()
             for n in nodes
             if isinstance(n, dict) and str(n.get("id") or "").strip()
-        ]
-        if len(living) < max(1, min_creates // 2):
-            return False, f"sparse_tool_ops:scene_too_thin:{len(living)}"
+        }
+        for o in ops or []:
+            if not isinstance(o, dict):
+                continue
+            name = str(o.get("name") or "").strip()
+            args = o.get("args") if isinstance(o.get("args"), dict) else {}
+            if name in create_names:
+                cid = str(args.get("id") or args.get("nodeId") or "").strip()
+                if cid:
+                    living_ids.add(cid)
+                elif name != "create_frame":
+                    # Anonymous create still counts toward projected density.
+                    living_ids.add(f"__anon_{len(living_ids)}")
+            if name in ("delete_node", "remove_node", "delete_nodes"):
+                rid = str(args.get("id") or args.get("nodeId") or "").strip()
+                if rid:
+                    living_ids.discard(rid)
+                for x in args.get("ids") or args.get("nodeIds") or []:
+                    living_ids.discard(str(x or "").strip())
+        if len(living_ids) < max(1, min_creates // 2):
+            return False, f"sparse_tool_ops:scene_too_thin:{len(living_ids)}"
 
     return True, "ok"
 

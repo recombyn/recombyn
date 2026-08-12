@@ -647,7 +647,8 @@ def _build_lc_design_graph():
     g.add_node("intent_classify", _node_intent_classify, **io_kw)
     g.add_node("design_agent", _node_design_agent, **io_kw)
     g.add_node("paint_ops", _node_paint_ops, **paint_kw)
-    g.add_node("action", _node_action, destinations=dest)
+    # action: hydrate can hang on image providers — apply same once timeout as review.
+    g.add_node("action", _node_action, **once_kw)
     g.add_node("observe", _node_observe, **once_kw)
     g.add_node("review", _node_review_agent, **once_kw)
     g.add_node("propose", _node_propose, destinations=dest)

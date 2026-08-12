@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SMART_SNAP_PX,
+  SMART_SNAP_MAX_SCENE,
   GUIDE_COINCIDE_EPS,
   smartSnapThreshold,
   snapMoveToSmartGuides,
@@ -57,10 +58,10 @@ function settleMove(opts: {
   return { box: next, guides, threshold };
 }
 
-describe('smartSnapThreshold @ all canvas zooms (8/zoom)', () => {
+describe('smartSnapThreshold @ all canvas zooms (8/zoom, capped)', () => {
   it.each([...CANVAS_ZOOMS])('is screen-constant (px/zoom) at zoom %s', (zoom) => {
     const threshold = smartSnapThreshold(zoom);
-    expect(threshold).toBeCloseTo(SMART_SNAP_PX / zoom, 6);
+    expect(threshold).toBeCloseTo(Math.min(SMART_SNAP_PX / zoom, SMART_SNAP_MAX_SCENE), 6);
   });
 
   it.each([...CANVAS_ZOOMS])(
@@ -109,19 +110,28 @@ describe('smartSnapThreshold @ all canvas zooms (8/zoom)', () => {
     }
   );
 
-  it('at 5% zoom magnet is large (8/0.05=160) — no scene cap', () => {
+  it('at 5% zoom magnet is capped (SMART_SNAP_MAX_SCENE) — no distant yank', () => {
     const zoom = 0.05;
     const left = { left: 0, top: 0, width: 120, height: 90 };
-    const gap = 67; // inside uncapped magnet
-    expect(smartSnapThreshold(zoom)).toBeCloseTo(160, 9);
-    const right = {
-      left: left.left + left.width + gap,
+    expect(smartSnapThreshold(zoom)).toBeCloseTo(SMART_SNAP_MAX_SCENE, 9);
+    // Outside capped magnet — must not flush.
+    const far = {
+      left: left.left + left.width + SMART_SNAP_MAX_SCENE + 20,
       top: 0,
       width: 120,
       height: 90,
     };
-    const settled = settleMove({ box: right, targets: [left], zoom, gridSize: 0 });
-    expect(settled.box.left).toBeCloseTo(left.left + left.width, 6);
+    const farSettled = settleMove({ box: far, targets: [left], zoom, gridSize: 0 });
+    expect(farSettled.box.left).toBeCloseTo(far.left, 6);
+    // Inside capped magnet — flush.
+    const near = {
+      left: left.left + left.width + SMART_SNAP_MAX_SCENE * 0.5,
+      top: 0,
+      width: 120,
+      height: 90,
+    };
+    const nearSettled = settleMove({ box: near, targets: [left], zoom, gridSize: 0 });
+    expect(nearSettled.box.left).toBeCloseTo(left.left + left.width, 6);
   });
 
   it.each([0.13, 0.25, 0.31, 0.5, 1])(
@@ -145,7 +155,7 @@ describe('smartSnapThreshold @ all canvas zooms (8/zoom)', () => {
   it('at 31% zoom does not paint distant edges as aligned (old threshold-as-eps)', () => {
     const zoom = 0.31;
     const threshold = smartSnapThreshold(zoom);
-    expect(threshold).toBeCloseTo(SMART_SNAP_PX / zoom, 6);
+    expect(threshold).toBeCloseTo(Math.min(SMART_SNAP_PX / zoom, SMART_SNAP_MAX_SCENE), 6);
     expect(threshold).toBeGreaterThan(0);
     const left = { left: 0, top: 0, width: 100, height: 80 };
     // Gap inside magnet radius but outside paint coincide eps.

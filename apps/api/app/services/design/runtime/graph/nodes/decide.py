@@ -292,14 +292,32 @@ async def _node_design_agent(state: GraphState) -> Command:
             or turn.get("need_subagents")
         )
         if need_any:
+            skills_before = set(st.skills_loaded or [])
+            tools_before = set(st.tools_loaded or [])
+            subs_before = set(getattr(st, "subagents_loaded", None) or [])
+            had_skill_details = bool(
+                str(getattr(rt, "pending_skill_details", "") or "").strip()
+            )
             await _node_resource(state)
+            gained = bool(
+                set(st.skills_loaded or []) - skills_before
+                or set(st.tools_loaded or []) - tools_before
+                or set(getattr(st, "subagents_loaded", None) or []) - subs_before
+                or (
+                    not had_skill_details
+                    and bool(str(getattr(rt, "pending_skill_details", "") or "").strip())
+                )
+            )
             # Ask: after tools/skills land, decide again (clarify or paint).
-            if ask_mode:
+            # Agent: only re-decide when something new was actually injected —
+            # otherwise need_* echoes cause an empty design-pipeline spin (landing).
+            if gained or ask_mode:
                 st.round = round_i + 1
                 continue
-            # Agent: skills/tools just landed — decide again for design_brief; no paint skip.
-            st.round = round_i + 1
-            continue
+            turn["need_tools"] = []
+            turn["need_skills"] = []
+            turn["need_subagents"] = []
+            # Fall through to brief / paint on this same decide turn.
 
         # Ask mode only: intent=ask → wait on user (chips and/or open reply).
         if ask_mode and intent == "ask" and reply:
