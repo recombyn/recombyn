@@ -84,8 +84,8 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next |
 |-----------|--------|------|
-| 细粒度 RBAC | Coarse auth / admin | Resource×action matrix incremental |
-| 文件查杀 / 内容安全 | Skill zip checks partial | Upload MIME/size + optional AV hook |
+| 细粒度 RBAC | Coarse user/admin + [docs](../security-rbac.md) | Resource×action when orgs land |
+| 文件查杀 / 内容安全 | Magic sniff + optional AV hook (ADR 0008) | Wire ClamAV in prod compose optionally |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |
 | 脱敏 / 安全审计 | Log redaction partial | SECURITY.md process + dep audit CI |
@@ -120,8 +120,8 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Correlation + structured logs (ADR 0007; `trace_id` on hydrate API→worker; `LOG_JSON`)
 - [x] Prometheus hydrate failure alert (+ existing RED / dep rules)
 - [x] Dependency audit CI (pip-audit + npm audit, soft gate)
-- [ ] Upload hardening (MIME sniff / optional AV hook)
-- [ ] RBAC incremental + security process docs
+- [x] Upload hardening (MIME magic sniff + optional AV hook) — [0008](../adr/0008-upload-content-validation.md)
+- [x] RBAC notes + security process docs — [security-rbac.md](../security-rbac.md)
 - [ ] Full OTel SDK when cross-service spans are required
 
 ### Phase 4 — CI/CD & deploy options
