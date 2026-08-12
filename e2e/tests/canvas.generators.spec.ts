@@ -194,10 +194,13 @@ test.describe('canvas generators + element tools', () => {
     await expect(send).toBeEnabled({ timeout: 5_000 });
     await send.click({ force: true });
 
-    // Promote clears generator chrome; media node keeps the same id.
+    // Promote clears generator chrome; canvas paints via scene (preload <img> may be !hidden).
     await expect(page.locator('[data-image-generator]')).toHaveCount(0, { timeout: 20_000 });
     await expect(
       page.locator('img[src*="data:image/png"], image[href*="data:image/png"]').first()
+    ).toBeAttached({ timeout: 15_000 });
+    await expect(
+      page.getByRole('button', { name: /Quick edit|快速编辑|Upscale|高清放大/i }).first()
     ).toBeVisible({ timeout: 15_000 });
   });
 

@@ -8,7 +8,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, type Page, type Request } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { E2E_TOKEN_SKIP_REASON, resolveE2EToken } from './e2eAuth';
 
 const ROOT = path.resolve(__dirname, '../..');
@@ -52,37 +52,42 @@ async function dismissTour(page: Page) {
   }
 }
 
+async function seedAuthSession(page: Page) {
+  const api = (process.env.E2E_API || 'http://127.0.0.1:8000').replace(/\/$/, '');
+  const me = await page.request.get(`${api}/api/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    timeout: 45_000,
+  });
+  if (!me.ok()) throw new Error(`auth/me ${me.status()}`);
+  const body = await me.json();
+  const user = body?.user;
+  if (!user?.id) throw new Error('auth/me missing user');
+  await page.goto('/home', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.evaluate(
+    ({ tok, user: u }) => {
+      localStorage.setItem('recombine-auth-token-v1', tok);
+      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
+      localStorage.setItem('recombyn-editor-tour-v3', '1');
+      localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
+    },
+    { tok: TOKEN, user }
+  );
+}
+
 async function openEditor(page: Page) {
   const known = process.env.E2E_EDITOR_PATH || '/editor/aZ0FRsXFkjbQtnPFmohSZ';
-  await page.goto(known);
-  await page.waitForURL(/\/editor\//, { timeout: 60_000 });
-  await page.waitForLoadState('domcontentloaded');
+  await seedAuthSession(page);
+  await page.goto(known, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await expect(page).toHaveURL(/\/editor\//, { timeout: 45_000 });
   await dismissTour(page);
   await sleep(500);
 }
 
-/** Open Settings → Agent (account AgentModelsPanel). */
+/** Open Account → Agent (full AgentRoutePrefsEditor with board paint control). */
 async function openAgentSettings(page: Page) {
-  const accountBtn = page
-    .getByRole('button', { name: /Super Admin|Account|账户|账号|Settings|设置/i })
-    .first();
-  await expect(accountBtn).toBeVisible({ timeout: 20_000 });
-  await accountBtn.click({ force: true });
-  await sleep(400);
-
-  const dialog = page.locator('[role="dialog"]').first();
-  if (await dialog.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    const tabInDialog = dialog.getByRole('tab', { name: /^Agent$/i });
-    if (await tabInDialog.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await tabInDialog.click({ force: true });
-    } else {
-      const btn = dialog.getByRole('button', { name: /^Agent$/i });
-      if (await btn.isVisible({ timeout: 1_000 }).catch(() => false)) {
-        await btn.click({ force: true });
-      }
-    }
-  }
-
+  await page.goto('/account?tab=agent', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await expect(page).toHaveURL(/\/account/, { timeout: 20_000 });
+  await dismissTour(page);
   const paint = page.getByRole('tablist', { name: /板式生成|Board paint/i });
   await expect(paint).toBeVisible({ timeout: 20_000 });
   return paint;
@@ -100,49 +105,80 @@ async function setPaintModeInSettings(page: Page, mode: 'ops' | 'img_layers') {
   await sleep(200);
   const stored = await page.evaluate(() => localStorage.getItem('resume.agentPaintMode.v1'));
   expect(stored).toBe(mode);
-  await page.keyboard.press('Escape');
-  await sleep(300);
 }
 
 async function ensureAgentDock(page: Page) {
   await dismissTour(page);
-  const byName = page.getByRole('textbox', {
-    name: /@Search for image, model, or project|Search|Ask|Design|描述/i,
+  await page.evaluate(() => {
+    for (const el of Array.from(document.querySelectorAll('[role="dialog"]'))) {
+      const t = el.textContent || '';
+      if (/Welcome to the editor|欢迎/i.test(t)) el.remove();
+    }
   });
-  if (await byName.isVisible({ timeout: 2_000 }).catch(() => false)) return byName;
-  const agentBtn = page.getByRole('button', { name: /^Agent$/i }).first();
-  if (await agentBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await agentBtn.click({ force: true });
+
+  // Placeholder is a sibling overlay — textbox itself often has no accessible name.
+  let composer = page.locator('aside [role="textbox"], [data-agent-composer][role="textbox"]').last();
+  if (!(await composer.isVisible({ timeout: 2_000 }).catch(() => false))) {
+    const agentBtn = page.getByRole('button', { name: /^Agent$/i }).first();
+    if (await agentBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await agentBtn.click({ force: true });
+      await sleep(400);
+      await dismissTour(page);
+    }
+    composer = page.locator('aside [role="textbox"], [data-agent-composer][role="textbox"]').last();
   }
-  const fallback = page
-    .locator('aside [role="textbox"], [data-agent-composer] [role="textbox"]')
-    .last();
-  if (await fallback.isVisible({ timeout: 5_000 }).catch(() => false)) return fallback;
-  return byName;
+  await expect(composer).toBeVisible({ timeout: 20_000 });
+  return composer;
 }
 
-function isDesignRun(req: Request): boolean {
-  const u = req.url();
-  return req.method() === 'POST' && /\/design\/run\b/.test(u);
+async function ensureAgentInteractionMode(page: Page) {
+  const modeBtn = page.locator('aside button[aria-label]').filter({
+    has: page.locator('svg'),
+  });
+  // Mode picker is the first toolbar icon whose label is Agent/Ask/Image/Video.
+  const picker = page
+    .locator('aside')
+    .getByRole('button', { name: /^(Agent|Ask|Image|Video|智能体|提问|图片|视频)$/i })
+    .first();
+  if (!(await picker.isVisible({ timeout: 5_000 }).catch(() => false))) return;
+  const label = ((await picker.getAttribute('aria-label')) || '').trim();
+  if (/^Agent$|^智能体$/i.test(label)) return;
+  await picker.click({ force: true });
+  await sleep(200);
+  const agentItem = page
+    .getByRole('button', { name: /^Agent$|^智能体$/i })
+    .or(page.getByText(/^Agent$|^智能体$/i))
+    .last();
+  if (await agentItem.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await agentItem.click({ force: true });
+    await sleep(300);
+  }
+  void modeBtn;
 }
 
 async function sendShortPrompt(page: Page, prompt: string) {
   const composer = await ensureAgentDock(page);
-  await expect(composer).toBeVisible({ timeout: 20_000 });
+  await ensureAgentInteractionMode(page);
+  // Models catalog must resolve before send() will hit /design/run.
+  await page
+    .waitForResponse(
+      (r) => r.url().includes('/chat/models') && r.ok(),
+      { timeout: 60_000 }
+    )
+    .catch(() => undefined);
   await composer.click({ force: true });
   await sleep(200);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
-  await page.keyboard.type(prompt, { delay: 3 });
-  await sleep(300);
-  const send = page.getByRole('button', { name: /send|发送/i }).first();
-  for (let i = 0; i < 40; i += 1) {
-    if (!(await send.isDisabled().catch(() => true))) {
-      await send.click();
-      return;
-    }
-    await sleep(400);
-  }
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Backspace');
+  await composer.pressSequentially(prompt, { delay: 8 });
+  await expect
+    .poll(async () => ((await composer.textContent()) || '').trim().length, {
+      timeout: 10_000,
+    })
+    .toBeGreaterThan(5);
+  const send = page.locator('aside').getByRole('button', { name: /send|发送/i }).first();
+  await expect(send).toBeEnabled({ timeout: 30_000 });
+  await send.click({ force: true });
 }
 
 test.describe('agent paint_mode browser E2E', () => {
@@ -154,7 +190,7 @@ test.describe('agent paint_mode browser E2E', () => {
 
   test('A: Agent settings toggles paint_mode into localStorage', async ({ page }) => {
     await injectAuth(page);
-    await openEditor(page);
+    await seedAuthSession(page);
     await setPaintModeInSettings(page, 'img_layers');
     await setPaintModeInSettings(page, 'ops');
     await setPaintModeInSettings(page, 'img_layers');
@@ -164,18 +200,36 @@ test.describe('agent paint_mode browser E2E', () => {
   test('B: /design/run carries paint_mode=img_layers', async ({ page }) => {
     await injectAuth(page, 'img_layers');
     await openEditor(page);
+    await ensureAgentDock(page);
 
-    const bodyPromise = page.waitForRequest(isDesignRun, { timeout: 90_000 }).then(async (req) => {
-      try {
-        return req.postDataJSON() as Record<string, unknown>;
-      } catch {
-        const raw = req.postData() || '';
-        return JSON.parse(raw) as Record<string, unknown>;
-      }
+    const posts: string[] = [];
+    page.on('request', (req) => {
+      if (req.method() === 'POST') posts.push(req.url());
     });
 
+    const bodyPromise = page
+      .waitForRequest(
+        (req) => req.method() === 'POST' && /\/design\/run(?:\?|$)/.test(req.url()),
+        { timeout: 90_000 }
+      )
+      .then(async (req) => {
+        try {
+          return req.postDataJSON() as Record<string, unknown>;
+        } catch {
+          const raw = req.postData() || '';
+          return JSON.parse(raw) as Record<string, unknown>;
+        }
+      });
+
     await sendShortPrompt(page, '做一张极简海报：大标题 Hello，白底黑字，390x844');
-    const body = await bodyPromise;
+    let body: Record<string, unknown>;
+    try {
+      body = await bodyPromise;
+    } catch (err) {
+      throw new Error(
+        `design/run not seen. recent POSTs=${JSON.stringify(posts.slice(-12))}. cause=${err}`
+      );
+    }
     fs.writeFileSync(path.join(OUT, 'b-design-run-body.json'), JSON.stringify(body, null, 2));
     expect(body.paint_mode).toBe('img_layers');
     expect(String(body.prompt || '')).toMatch(/Hello|海报/);
@@ -189,7 +243,7 @@ test.describe('agent paint_mode browser E2E', () => {
 
   test('D: UI stress — settings paint mode 8×', async ({ page }) => {
     await injectAuth(page);
-    await openEditor(page);
+    await seedAuthSession(page);
     for (let i = 0; i < 8; i += 1) {
       const mode = i % 2 === 0 ? 'img_layers' : 'ops';
       await setPaintModeInSettings(page, mode);

@@ -3279,7 +3279,7 @@ function AgentDock({
         placeholder={composerPlaceholder}
         flyLandId="agent"
         canSend={
-          !sending && !!editDraft.trim() && !attachmentsUploading
+          !sending && !!editDraft.trim() && !attachmentsUploading && available !== false
         }
         sendVariant="circle"
         sendTone="ink"
@@ -3380,7 +3380,8 @@ function AgentDock({
               canSend={
                 !sending &&
                 (!!input.trim() || contextChips.length > 0) &&
-                !attachmentsUploading
+                !attachmentsUploading &&
+                available !== false
               }
               sendDisabledReason={composerSendDisabledReason({
                 t,
