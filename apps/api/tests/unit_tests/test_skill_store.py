@@ -407,6 +407,7 @@ def test_oss_ext_packs_present():
         "icon_set",
         "type_specimen",
         "long_scroll",
+        "festival_poster",
     ):
         assert key in keys
     assert "ui_ux_pro_max" not in keys
@@ -414,3 +415,133 @@ def test_oss_ext_packs_present():
     assert "canvas_edit" not in keys
     assert "frontend_ui" not in keys
     assert "example_ext" not in keys
+
+
+def test_normalize_pack_meta_aliases():
+    from app.services.design.prompts.skill_store.pack_io import _normalize_pack_meta
+
+    meta = _normalize_pack_meta(
+        {
+            "id": "my_plugin",
+            "trigger_keywords": ["中秋海报", "holiday poster"],
+            "author": "ops",
+            "permissions": ["新建画布帧"],
+            "enabled": True,
+        },
+        folder="my_plugin",
+    )
+    assert meta is not None
+    assert meta["skill_key"] == "my_plugin"
+    assert meta["triggers"][0]["prompt_includes_any"] == ["中秋海报", "holiday poster"]
+    assert meta["allowed_resources"] == ["tools"]
+    assert meta["_author"] == "ops"
+
+
+def test_normalize_pack_meta_disabled():
+    from app.services.design.prompts.skill_store.pack_io import _normalize_pack_meta
+
+    assert (
+        _normalize_pack_meta(
+            {"id": "x", "enabled": False, "triggers": []},
+            folder="x",
+        )
+        is None
+    )
+
+
+def test_plugin_style_pack_loads(tmp_path, monkeypatch):
+    from app.services.design.prompts.skill_store import pack_io
+
+    root = tmp_path / "plugins_skills"
+    pack = root / "kw_poster"
+    pack.mkdir(parents=True)
+    (pack / "_meta.json").write_text(
+        '{"id":"kw_poster","name":"kw_poster","trigger_keywords":["春节海报"],'
+        '"preferred_tools":["create_frame","create_text"],"version":"1.0.0"}',
+        encoding="utf-8",
+    )
+    (pack / "SKILL.md").write_text("# KW poster\n\nCreate a festive board.\n", encoding="utf-8")
+
+    monkeypatch.setattr(pack_io, "_file_skills_dirs", lambda: [root])
+    items = pack_io._load_file_skills()
+    by_key = {str(x.get("skill_key")): x for x in items}
+    assert "kw_poster" in by_key
+    triggers = by_key["kw_poster"].get("triggers") or []
+    assert triggers and "春节海报" in triggers[0].get("prompt_includes_any", [])
+
+
+def test_schema_json_merges_into_pack(tmp_path):
+    from app.services.design.prompts.skill_store.pack_io import _load_pack_dir
+
+    pack = tmp_path / "schema_pack"
+    pack.mkdir()
+    (pack / "_meta.json").write_text(
+        '{"skill_key":"schema_pack","name":"schema_pack",'
+        '"preferred_tools":["create_frame"],"version":"1.0.0"}',
+        encoding="utf-8",
+    )
+    (pack / "SKILL.md").write_text("# Schema pack\n\nBody.\n", encoding="utf-8")
+    (pack / "schema.json").write_text(
+        '{"input":{"type":"object","properties":{"festival":{"type":"string"}},'
+        '"required":["festival"]},'
+        '"output":{"type":"object","allowed_ops":["create_frame","create_text"]}}',
+        encoding="utf-8",
+    )
+    item = _load_pack_dir(pack)
+    assert item is not None
+    assert item["input_schema"]["required"] == ["festival"]
+    assert "create_frame" in item["output_schema"]["allowed_ops"]
+
+
+def test_pack_icon_svg_inlines_as_data_url(tmp_path):
+    from app.services.design.prompts.skill_store.pack_io import _load_pack_dir
+
+    pack = tmp_path / "icon_pack"
+    (pack / "assets").mkdir(parents=True)
+    (pack / "_meta.json").write_text(
+        '{"skill_key":"icon_pack","name":"icon_pack",'
+        '"preferred_tools":["create_frame"],"version":"1.0.0"}',
+        encoding="utf-8",
+    )
+    (pack / "SKILL.md").write_text("# Icon pack\n\nBody.\n", encoding="utf-8")
+    (pack / "assets" / "icon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<rect width="64" height="64" fill="#123"/></svg>',
+        encoding="utf-8",
+    )
+    item = _load_pack_dir(pack)
+    assert item is not None
+    logo = str(item.get("logo") or "")
+    assert logo.startswith("data:image/svg+xml,")
+    assert "64" in logo
+
+
+def test_built_in_skills_have_icons():
+    items = {str(x.get("skill_key")): x for x in _load_file_skills()}
+    for key in (
+        "poster_craft",
+        "banner_ad",
+        "image_gen",
+        "garden_style",
+        "festival_poster",
+    ):
+        logo = str((items.get(key) or {}).get("logo") or "")
+        assert logo.startswith("data:image/"), f"{key} missing icon logo"
+
+
+def test_festival_poster_pack_has_schema():
+    items = {str(x.get("skill_key")): x for x in _load_file_skills()}
+    fp = items.get("festival_poster")
+    assert fp is not None
+    assert isinstance(fp.get("input_schema"), dict)
+    assert "festival" in (fp["input_schema"].get("properties") or {})
+
+
+def test_resolve_triggered_festival_keyword():
+    keys = resolve_triggered_skill_keys(
+        prompt="帮我生成一张中秋红色海报",
+        intent="create",
+        empty_canvas=True,
+        has_images=False,
+    )
+    assert "festival_poster" in keys

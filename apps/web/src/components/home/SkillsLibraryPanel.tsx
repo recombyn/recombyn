@@ -148,15 +148,31 @@ function SkillCard({
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-medium leading-[21px] text-[var(--ink)]">
-            {row.name}
-          </div>
-          {row.whenToUse ? (
-            <div className="mt-1 line-clamp-2 text-[12px] leading-[18px] text-[var(--muted)]">
-              {row.whenToUse}
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          {row.logo ? (
+            <img
+              src={row.logo}
+              alt=""
+              className="mt-0.5 h-9 w-9 shrink-0 rounded-[10px] object-cover"
+            />
+          ) : (
+            <div
+              aria-hidden
+              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--canvas)] text-[13px] font-semibold text-[var(--muted)]"
+            >
+              {(row.name || '?').slice(0, 1).toUpperCase()}
             </div>
-          ) : null}
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-medium leading-[21px] text-[var(--ink)]">
+              {row.name}
+            </div>
+            {row.whenToUse ? (
+              <div className="mt-1 line-clamp-2 text-[12px] leading-[18px] text-[var(--muted)]">
+                {row.whenToUse}
+              </div>
+            ) : null}
+          </div>
         </div>
         <div
           className="flex shrink-0 items-center gap-2"
@@ -479,11 +495,20 @@ function SkillsLibraryPanel(): ReactNode {
       >
         {preview ? (
           <div className="space-y-3.5">
-            {preview.whenToUse || preview.description ? (
-              <p className="text-[13px] leading-relaxed text-[var(--muted)]">
-                {preview.whenToUse || preview.description}
-              </p>
-            ) : null}
+            <div className="flex items-start gap-3">
+              {preview.logo ? (
+                <img
+                  src={preview.logo}
+                  alt=""
+                  className="h-11 w-11 shrink-0 rounded-[12px] object-cover"
+                />
+              ) : null}
+              {preview.whenToUse || preview.description ? (
+                <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-[var(--muted)]">
+                  {preview.whenToUse || preview.description}
+                </p>
+              ) : null}
+            </div>
             <div className="max-h-[min(52vh,420px)] overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--canvas)] px-3.5 py-3">
               <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
                 {t('agent.skillsPreviewBody')}

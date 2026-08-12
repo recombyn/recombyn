@@ -32,3 +32,4 @@ Cross-cutting or irreversible technical choices live here. Product feature notes
 | [0010](./0010-desktop-signing.md) | Desktop (Tauri) release signing | Accepted |
 | [0011](./0011-opentelemetry-optional.md) | Optional OpenTelemetry SDK | Accepted |
 | [0012](./0012-k8s-starter-manifests.md) | Optional Kubernetes starter manifests | Accepted |
+| [0013](./0013-skill-extensions.md) | Skill extension packs (Phase A plugins) | Accepted |

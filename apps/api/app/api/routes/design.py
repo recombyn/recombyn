@@ -299,7 +299,7 @@ class UserSkillIn(BaseModel):
     promptPositive: str = Field(..., min_length=1, max_length=120_000)
     promptNegative: str | None = Field(default=None, max_length=40_000)
     skillKey: str | None = Field(default=None, max_length=64)
-    logo: str | None = Field(default=None, max_length=512)
+    logo: str | None = Field(default=None, max_length=80_000)
     category: str | None = Field(default=None, max_length=64)
     enabled: bool = True
 

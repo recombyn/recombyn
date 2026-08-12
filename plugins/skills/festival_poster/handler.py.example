@@ -1,0 +1,11 @@
+# Reserved — Skill ops runner (Phase B)
+
+# This file is NOT executed yet. Packs may include `handler.py` for forward
+# compatibility; the loader only logs that it was found.
+#
+# Future contract (tentative):
+#   def run(ctx, payload: dict) -> list[dict]:
+#       """Return tool_ops only — never mutate Redis/DB/canvas directly."""
+#       ...
+#
+# Until Phase B ships, craft lives entirely in SKILL.md + preferred_tools.

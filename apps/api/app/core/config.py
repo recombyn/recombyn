@@ -198,9 +198,12 @@ class Settings(BaseSettings):
     langfuse_tracing: bool = False
     langfuse_project_id: str = ""
 
-    # Design skills: poll seed JSON + .agents/skills + seeds/design_skills for hot reload.
+    # Design skills: poll seeds/design_skills + plugins/skills (hot reload).
     design_skills_hot_reload: bool = True
     design_skills_hot_reload_interval_sec: float = 2.0
+    # Extra skill pack roots (comma-separated). Always also scans <repo>/plugins/skills when present.
+    # Self-host: mount host ./plugins/skills → container /app/plugins/skills.
+    design_skills_plugin_dirs: str = ""
 
     # Active AgentProfile id (seeds/agents/profiles/{id}.yaml). Empty → bindings.default.
     agent_profile_id: str = "design.canvas"
