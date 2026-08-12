@@ -100,7 +100,7 @@ async def _node_apply_confirm(state: GraphState) -> Command:
     if _ops_have_create_frame(step_ops):
         _emit_canvas_size_from_ops(rt, step_ops)
     step_ops, n_img = await hydrate_tool_ops_images(
-        step_ops, limit=6, policy="auto", rules=rt.rules
+        step_ops, limit=6, policy="auto", rules=rt.rules, trace_id=st.trace_id
     )
     step_ops, n_lottie = await hydrate_tool_ops_lottie(step_ops, limit=4)
     img_mid = _image_model_from_rules(rt.rules) if n_img else ""
@@ -281,7 +281,7 @@ async def _node_action(state: GraphState) -> Command:
     if _ops_have_create_frame(step_ops):
         _emit_canvas_size_from_ops(rt, step_ops)
     step_ops, n_img = await hydrate_tool_ops_images(
-        step_ops, limit=6, policy="auto", rules=rt.rules
+        step_ops, limit=6, policy="auto", rules=rt.rules, trace_id=st.trace_id
     )
     step_ops, n_lottie = await hydrate_tool_ops_lottie(step_ops, limit=4)
     rt.step_ops = step_ops

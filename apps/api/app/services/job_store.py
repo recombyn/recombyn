@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 import redis
@@ -10,6 +11,19 @@ import redis
 from app.core.config import settings
 
 _DEFAULT_KIND = "import"
+
+
+def new_trace_id() -> str:
+    return uuid.uuid4().hex
+
+
+def normalize_trace_id(raw: str | None) -> str:
+    """Safe correlation id for logs / job payloads (ADR 0007)."""
+    t = str(raw or "").strip()
+    if not t:
+        return new_trace_id()
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "" for ch in t)[:64]
+    return cleaned or new_trace_id()
 
 
 def _normalize_kind(kind: str | None) -> str:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,12 +22,41 @@ def custom_generate_unique_id(route: APIRoute) -> str:
     tag = route.tags[0] if route.tags else "api"
     return f"{tag}-{route.name}"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    stream=sys.stdout,
-    force=True,
-)
+
+class _JsonLogFormatter(logging.Formatter):
+    """Optional JSON stdout lines (LOG_JSON / settings.log_json) — ADR 0007."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        for key in ("trace_id", "job_id", "event", "user_id"):
+            val = getattr(record, key, None)
+            if val is not None and str(val):
+                payload[key] = val
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def _configure_logging() -> None:
+    root = logging.getLogger()
+    handler = logging.StreamHandler(sys.stdout)
+    if bool(getattr(settings, "log_json", False)):
+        handler.setFormatter(_JsonLogFormatter())
+    else:
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+        )
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
+_configure_logging()
 try:
     from app.services.security import install_log_redaction
 
@@ -199,6 +230,19 @@ app = FastAPI(
     generate_unique_id_function=custom_generate_unique_id,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def correlate_trace_middleware(request: Request, call_next):
+    """Propagate X-Trace-Id / X-Request-Id (ADR 0007)."""
+    from app.services.job_store import normalize_trace_id
+
+    incoming = request.headers.get("x-trace-id") or request.headers.get("x-request-id")
+    trace_id = normalize_trace_id(incoming)
+    request.state.trace_id = trace_id
+    response = await call_next(request)
+    response.headers["X-Trace-Id"] = trace_id
+    return response
 
 
 @app.middleware("http")

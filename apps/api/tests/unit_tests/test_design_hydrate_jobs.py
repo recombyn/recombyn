@@ -18,6 +18,16 @@ def test_job_store_kind_prefixes_keys():
     assert js.job_key("abc", kind="Hydrate!") == "hydrate__job:abc"
 
 
+def test_normalize_trace_id():
+    from app.services.job_store import normalize_trace_id
+
+    assert normalize_trace_id("abc-123_XYZ") == "abc-123_XYZ"
+    assert normalize_trace_id("bad!@#") != "bad!@#"
+    tid = normalize_trace_id(None)
+    assert len(tid) >= 16
+    assert normalize_trace_id("x" * 100) == "x" * 64
+
+
 @contextmanager
 def _auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     from fastapi.testclient import TestClient
@@ -179,13 +189,18 @@ def test_create_hydrate_job_enqueues(monkeypatch: pytest.MonkeyPatch):
             json={
                 "ops": [{"name": "create_image", "args": {"genPrompt": "cat"}}],
                 "limit": 2,
+                "trace_id": "trace-from-client",
             },
+            headers={"X-Trace-Id": "header-should-lose"},
         )
         assert res.status_code == 200, res.text
         body = res.json()
         assert body["status"] == "queued"
         assert body["job_id"]
+        assert body["trace_id"] == "trace-from-client"
         assert saved["kind"] == "hydrate"
+        assert saved["payload"]["trace_id"] == "trace-from-client"
+        assert res.headers.get("x-trace-id")
         delay.assert_called_once()
 
 
@@ -223,6 +238,7 @@ def test_get_hydrate_job_ok(monkeypatch: pytest.MonkeyPatch):
             "progress": 100,
             "result": {"filled": 1},
             "error": None,
+            "trace_id": "t-1",
         },
     )
     with _auth_client(monkeypatch) as client:
@@ -232,6 +248,7 @@ def test_get_hydrate_job_ok(monkeypatch: pytest.MonkeyPatch):
         assert body["status"] == "done"
         assert body["progress"] == 100
         assert body["result"]["filled"] == 1
+        assert body["trace_id"] == "t-1"
 
 
 def test_get_hydrate_job_404(monkeypatch: pytest.MonkeyPatch):
