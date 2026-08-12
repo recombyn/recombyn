@@ -18,7 +18,8 @@
   "scripts": {
     "export-openapi": "node ./scripts/export-openapi.mjs",
     "gen": "npm run export-openapi && openapi-ts -f openapi-ts.config.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@orpc/contract": "^1.15.0",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "^0.99.0",
+    "@repo/tsconfig": "*",
     "@types/node": "^26.1.1",
     "typescript": "^5.9.0"
   }

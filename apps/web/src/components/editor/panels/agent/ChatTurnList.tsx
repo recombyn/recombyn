@@ -296,8 +296,6 @@ function exploreItemKindKey(id: string): string {
   if (id === 'lookup-rule' || id.startsWith('lookup-rule')) {
     return 'agent.lookupKindRule';
   }
-  if (id === 'lookup' || id.startsWith('lookup')) {
-  }
   if (id === 'lookup-gate') return 'agent.lookupGate';
   if (id === 'stage-lookup' || id.startsWith('stage-lookup')) {
     return 'agent.stageLookup';
