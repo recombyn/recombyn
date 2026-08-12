@@ -204,8 +204,9 @@ app = FastAPI(
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path or ""
-    if path in ("/", "/docs", "/openapi.json", "/redoc") or path.startswith(
-        f"{settings.API_V1_STR}/health"
+    if (
+        path in ("/", "/docs", "/openapi.json", "/redoc", "/metrics")
+        or path.startswith(f"{settings.API_V1_STR}/health")
     ):
         return await call_next(request)
     try:
@@ -259,6 +260,13 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+try:
+    from app.core.metrics import setup_metrics
+
+    setup_metrics(app)
+except Exception:
+    logger.exception("Prometheus /metrics setup failed")
 
 
 @app.get("/")

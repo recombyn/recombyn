@@ -48,8 +48,8 @@ def _fresh_skill_keys(
         return []
     if "*" in need_skills:
         return list(need_skills)
-    fresh = [k for k in need_skills if k not in skills_loaded]
-    return fresh or list(need_skills)
+    # Only keys not yet loaded — never re-queue already-injected skills (avoids decide spin).
+    return [k for k in need_skills if k not in skills_loaded]
 
 
 def _fetch_deferred_skills(
@@ -336,9 +336,7 @@ async def load_deferred_resources(
     if not load_skills:
         fresh_s = []
     fresh_tools = (
-        [k for k in need_tools if k not in st.tools_loaded] or list(need_tools)
-        if need_tools
-        else []
+        [k for k in need_tools if k not in st.tools_loaded] if need_tools else []
     )
 
     if load_skills:
