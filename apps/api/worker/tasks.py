@@ -50,7 +50,36 @@ def run_import_job(self, job_id: str, source_type: str, file_path: str) -> dict:
 )
 def run_image_hydrate_job(self, job_id: str) -> dict:
     """Fill create_image genPrompt ops via image providers (ADR 0005 / 0007)."""
-    from app.core.metrics import observe_hydrate_job
+    from app.core.metrics import observe_hydrate_dlq, observe_hydrate_job
+    from app.services.job_store import push_hydrate_dlq
+
+    def _fail_to_dlq(error: str, *, trace_id: str = "") -> dict:
+        update_job(
+            job_id,
+            kind=_HYDRATE_KIND,
+            status="failed",
+            progress=100,
+            error=error,
+        )
+        push_hydrate_dlq(
+            {
+                "job_id": job_id,
+                "trace_id": trace_id,
+                "error": error,
+                "retries": int(getattr(self.request, "retries", 0) or 0),
+            }
+        )
+        observe_hydrate_job("failed")
+        observe_hydrate_job("dlq")
+        observe_hydrate_dlq()
+        _log.error(
+            "hydrate_job event=dlq job_id=%s trace_id=%s err=%s",
+            job_id,
+            trace_id,
+            error,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "dlq"},
+        )
+        return {"job_id": job_id, "status": "failed", "error": error, "dlq": True}
 
     job = get_job(job_id, kind=_HYDRATE_KIND)
     if not job:
@@ -110,7 +139,10 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
         )
         return {"job_id": job_id, "status": "done", "filled": filled}
     except _HYDRATE_TRANSIENT as exc:
-        # Leave status=processing so clients keep polling; Celery will retry.
+        retries = int(getattr(self.request, "retries", 0) or 0)
+        max_retries = int(getattr(self, "max_retries", 2) or 2)
+        if retries >= max_retries:
+            return _fail_to_dlq(f"retries exhausted: {exc}", trace_id=trace_id)
         observe_hydrate_job("retry")
         update_job(
             job_id,
@@ -127,21 +159,7 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
         )
         raise
     except Exception as exc:  # noqa: BLE001
-        update_job(
-            job_id,
-            kind=_HYDRATE_KIND,
-            status="failed",
-            progress=100,
-            error=str(exc),
-        )
-        observe_hydrate_job("failed")
-        _log.exception(
-            "hydrate_job event=failed job_id=%s trace_id=%s",
-            job_id,
-            trace_id,
-            extra={"job_id": job_id, "trace_id": trace_id, "event": "failed"},
-        )
-        return {"job_id": job_id, "status": "failed", "error": str(exc)}
+        return _fail_to_dlq(str(exc), trace_id=trace_id)
 
 
 @celery.task(name="worker.tasks.run_db_backup_job")

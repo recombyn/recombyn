@@ -60,7 +60,7 @@ Canvas Image/Video/Audio/Lottie generator plates + text tool (browser): `npm run
 
 Full canvas stress matrix (store + RCB + foundations/generators/ops/deep/tools E2E): `npm run test:canvas:stress`. Deep: `npm run test:canvas:deep`. Tools: `npm run test:canvas:tools` (image AI panels, align/boolean, density, video trim).
 
-Project optimistic lock (`baseRevision` → 412 `project_revision_conflict`): functional API suite + `e2e/tests/collab.sync.spec.ts`. Real provider paid gen, OCR worker, OAuth/OTP, and dual-browser Yjs conflict under load remain later Gate A journeys.
+Project optimistic lock (`baseRevision` → 412 `project_revision_conflict`): functional API suite + `e2e/tests/collab.sync.spec.ts`. Dual-client Yjs concurrent merge: `npm run test:collab:merge` / Gate B. Real provider paid gen, OCR worker, and OAuth/OTP remain later Gate A journeys.
 
 CI mints `E2E_TOKEN` via `scripts/ci-mint-token.mjs` (`SUPER_ADMIN_TEST_CODE`, **max 8 chars**).
 Collab dual-WS: set `E2E_COLLAB_WS` (CI sets this). Category eval: `E2E_EVAL=1`.

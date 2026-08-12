@@ -12,6 +12,7 @@ Phase 5 living notes. Tools already exist; this doc records **how to capture a b
 | API k6 smoke | `npm run perf:k6:smoke` | k6 summary; CI: `perf-k6.yml` |
 | API CRUD load | `PERF_TOKEN=… npm run perf:k6:api` | k6 |
 | Collab WS | `COLLAB_WS_URL=ws://127.0.0.1:1234 npm run perf:k6:collab` | k6 |
+| Dual Yjs merge | `COLLAB_WS_URL=… npm run test:collab:merge` | Console `ok` / exit 0 |
 | Soak | `npm run perf:k6:soak` (nightly) | `nightly-quality.yml` |
 | Agent craft stress | `npm run stress:agent` | Script stdout / eval hooks |
 
@@ -25,7 +26,9 @@ Phase 5 living notes. Tools already exist; this doc records **how to capture a b
 ## Intentional gaps (still)
 
 - Real provider paid image/video gen finish (E2E uses route mock only)
-- Dual-browser Yjs conflict resolution under load (HTTP `baseRevision` 412 is covered; live two-editor merge is not)
 - True 5k-node SvgCanvas interactive mount
+- OTel spans inside Celery worker / collab Node process (API SDK is live — ADR 0011)
+
+Dual-client Yjs concurrent merge: `npm run test:collab:merge` (also Gate B `perf-k6.yml`).
 
 See [quality-gates.md](./quality-gates.md) Gate A/B and [bigco-alignment.md](./roadmap/bigco-alignment.md) Phase 5.

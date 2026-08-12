@@ -234,11 +234,20 @@ app = FastAPI(
 
 @app.middleware("http")
 async def correlate_trace_middleware(request: Request, call_next):
-    """Propagate X-Trace-Id / X-Request-Id (ADR 0007)."""
+    """Propagate X-Trace-Id / X-Request-Id; prefer active OTel span when present (ADR 0007 / 0011)."""
     from app.services.job_store import normalize_trace_id
 
     incoming = request.headers.get("x-trace-id") or request.headers.get("x-request-id")
     trace_id = normalize_trace_id(incoming)
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        ctx = span.get_span_context() if span is not None else None
+        if ctx is not None and getattr(ctx, "is_valid", False):
+            trace_id = format(int(ctx.trace_id), "032x")
+    except Exception:
+        pass
     request.state.trace_id = trace_id
     response = await call_next(request)
     response.headers["X-Trace-Id"] = trace_id
@@ -306,11 +315,12 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 try:
-    from app.core.metrics import setup_metrics
+    from app.core.metrics import setup_metrics, setup_otel
 
     setup_metrics(app)
+    setup_otel(app)
 except Exception:
-    logger.exception("Prometheus /metrics setup failed")
+    logger.exception("Prometheus / OTel setup failed")
 
 
 @app.get("/")

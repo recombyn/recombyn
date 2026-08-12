@@ -48,7 +48,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate autoretry + metrics | DLQ when failure rate known |
+| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate autoretry + Redis DLQ list | Replay tooling / admin UI |
 | AI / 导出 / 渲染异步 | Hydrate jobs API + apply enqueue | Export / long paint off request |
 | 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
 
@@ -67,9 +67,9 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 3) |
 |-----------|--------|----------------|
-| OTel 全链路 | Correlation `trace_id` (ADR 0007) | Full OTel SDK later |
+| OTel 全链路 | Optional SDK (ADR 0011) + `trace_id` bridge | Worker/collab process instrument next |
 | 结构化日志 | `LOG_JSON` + redaction | Keep human default locally |
-| Prometheus | `/metrics` + Grafana + hydrate fail alert | Queue depth panels |
+| Prometheus | `/metrics` + Grafana + hydrate fail alert | Queue depth / DLQ panels |
 | 自动告警 | Prom rules (5xx / p95 / deps / hydrate) | Webhook contact points |
 
 ### 6. 部署环境
@@ -85,7 +85,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 | Reference | Status | Next |
 |-----------|--------|------|
 | 细粒度 RBAC | Coarse user/admin + [docs](../security-rbac.md) | Resource×action when orgs land |
-| 文件查杀 / 内容安全 | Magic sniff + optional AV hook (ADR 0008) | Wire ClamAV in prod compose optionally |
+| 文件查杀 / 内容安全 | Magic sniff + optional AV hook; Compose `av` profile (ClamAV) | Wire `UPLOAD_AV_COMMAND=clamdscan` in prod |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |
 | 脱敏 / 安全审计 | Log redaction partial | SECURITY.md process + dep audit CI |
@@ -113,7 +113,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Memory tiers documented (session / project / global → `agent_memory`) — same ADR
 - [x] Alembic single-head CI gate (`test_alembic_single_head`)
 - [x] Coverage floor on hydrate jobs route (`--cov-fail-under=95`)
-- [x] Celery transient retry + `recombyn_hydrate_jobs_total` metrics (DLQ still deferred)
+- [x] Celery transient retry + `recombyn_hydrate_jobs_total` metrics + Redis hydrate DLQ
 
 ### Phase 3 — Observability & security
 
@@ -122,7 +122,8 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Dependency audit CI (pip-audit + npm audit, soft gate)
 - [x] Upload hardening (MIME magic sniff + optional AV hook) — [0008](../adr/0008-upload-content-validation.md)
 - [x] RBAC notes + security process docs — [security-rbac.md](../security-rbac.md)
-- [ ] Full OTel SDK when cross-service spans are required
+- [x] Optional OpenTelemetry SDK — [0011](../adr/0011-opentelemetry-optional.md) (`pip install -e '.[otel]'`)
+- [x] Compose ClamAV profile (`docker compose --profile av`)
 
 ### Phase 4 — CI/CD & deploy options
 
@@ -137,4 +138,4 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 - [x] Baseline runbook for collab/canvas/k6/agent stress — [stress-baselines.md](../stress-baselines.md)
 - [x] Mock paid-gen finish E2E (`canvas.generators` route mock) + project `baseRevision` 412 conflict (functional API + `collab.sync`)
-- [ ] Dual-browser Yjs conflict under load (beyond WS auth / HTTP 412)
+- [x] Dual-client Yjs merge under concurrent writes (`apps/collab/dual_client_merge.test.mjs` + Gate B CI)

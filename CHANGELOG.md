@@ -15,11 +15,13 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - GHCR publish on `v*.*.*` tags (`release-docker.yml`) + `docker-compose.ghcr.yml` pull path
 - Desktop unsigned CI build (dispatch) + signing checklist (ADR 0010); stress baseline runbook
 - Mock image-gen promote E2E + project `baseRevision` 412 conflict coverage (Phase 5 slice)
+- Optional OpenTelemetry (`.[otel]`, ADR 0011); hydrate Redis DLQ; ClamAV compose profile; dual Yjs merge Gate B
 
 ### Changed
 
 - Self-host docs: Docker Compose image tag rollback procedure
 - Cleared Phase 1 web `tsc` debt; `npm run typecheck:web` required in CI / `ci:gate`
+- Perf k6 collab install uses `--ignore-scripts` (husky prepare no longer breaks Gate B)
 
 ## [0.1.0] — 2026-08-12
 

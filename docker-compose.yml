@@ -100,6 +100,13 @@ services:
       - AUTH_CONSOLE_LOGIN_CODE=${AUTH_CONSOLE_LOGIN_CODE:-true}
       # Self-host default: no platform credit wallet. Set true only if you want SaaS-style billing.
       - WALLET_BILLING_ENABLED=${WALLET_BILLING_ENABLED:-false}
+      # Optional AV (profile `av`): docker compose --profile av up -d
+      - UPLOAD_AV_HOOK_ENABLED=${UPLOAD_AV_HOOK_ENABLED:-false}
+      - UPLOAD_AV_COMMAND=${UPLOAD_AV_COMMAND:-}
+      # Optional OTel (pip install -e '.[otel]' in image / sidecar collector)
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-recombyn-api}
 
     depends_on:
       redis:
@@ -108,6 +115,23 @@ services:
         condition: service_healthy
       collab:
         condition: service_started
+
+  # Optional ClamAV — enable with: docker compose --profile av up -d
+  # Then set UPLOAD_AV_HOOK_ENABLED=true and
+  #   UPLOAD_AV_COMMAND=clamdscan --fdpass --no-summary
+  # (or clamscan) on the api service.
+  clamav:
+    profiles: ["av"]
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
 
   worker:
     build:
@@ -143,3 +167,4 @@ services:
 volumes:
   redis_data:
   mysql_data:
+  clamav_data:

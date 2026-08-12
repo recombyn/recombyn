@@ -11,7 +11,7 @@
     "packages/*"
   ],
   "scripts": {
-    "prepare": "husky",
+    "prepare": "node -e \"try{require('child_process').execSync('husky',{stdio:'inherit'})}catch(e){process.exit(0)}\"",
     "dev": "npm run dev --workspace=apps/web",
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:stack": "node scripts/dev-stack.mjs",
@@ -57,8 +57,10 @@
     "perf:k6:api": "k6 run perf/k6/api_crud.js",
     "perf:k6:soak": "k6 run perf/k6/soak.js",
     "perf:k6:collab": "k6 run perf/k6/collab_ws.js",
+    "test:collab:merge": "npm run test:merge --workspace=apps/collab",
     "stress:agent": "node scripts/design-agent-stress.mjs",
-    "install:api": "cd apps/api && pip install -e \".[dev]\""
+    "install:api": "cd apps/api && pip install -e \".[dev]\"",
+    "install:api:otel": "cd apps/api && pip install -e \".[dev,otel]\""
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
