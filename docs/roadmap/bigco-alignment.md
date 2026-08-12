@@ -48,7 +48,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate autoretry + Redis DLQ + admin replay API | Admin UI in recombyn-admin |
+| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate DLQ + admin replay API + Insights UI | Export / long-paint jobs |
 | AI / 导出 / 渲染异步 | Hydrate jobs API + apply enqueue | Export / long paint off request |
 | 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
 
@@ -160,3 +160,4 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Hydrate DLQ admin replay (`GET/POST/DELETE /admin/ops/hydrate-dlq`) + depth gauge
 - [x] Compose `obs` profile (Prometheus / Grafana / Alertmanager) + DLQ dashboard panels
 - [x] ClamAV prod overlay (`docker-compose.av.yml` + `INSTALL_AV` / `clamdscan`)
+- [x] Admin Insights hydrate DLQ tab (list / replay / discard)
