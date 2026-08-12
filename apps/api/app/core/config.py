@@ -198,7 +198,7 @@ class Settings(BaseSettings):
     langfuse_tracing: bool = False
     langfuse_project_id: str = ""
 
-    # Design skills: poll seed JSON + .agents/skills + seeds/design_skills for hot reload.
+    # Design skills: poll seeds/design_skills + plugins/skills (hot reload).
     design_skills_hot_reload: bool = True
     design_skills_hot_reload_interval_sec: float = 2.0
     # Extra skill pack roots (comma-separated). Always also scans <repo>/plugins/skills when present.

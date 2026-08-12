@@ -1,72 +1,86 @@
 # Skill extensions (authoring)
 
-Skill packs teach the Design Agent **how** to do a class of work. They are **not** executable plugins.
+Skill packs teach the Design Agent **how** to do a class of work.
 
-## Pack layout
+## Two roots only
+
+| Path | Role |
+|------|------|
+| `apps/api/seeds/design_skills/<key>/` | Shipped product skills |
+| `plugins/skills/<key>/` | Private / self-host extensions (Compose-mounted) |
+
+Do **not** put product skills in `.agents/skills/` — that tree is for Cursor/IDE coding agents only.
+
+## Canonical layout
 
 ```
-plugins/skills/my_pack/          # or apps/api/seeds/design_skills/my_pack/
-  _meta.json                     # required for plugins/ + .agents/
-  SKILL.md                       # craft rules (required body)
+my_poster_plugin/
+├── _meta.json        # required
+├── SKILL.md          # required
+├── schema.json       # optional — input / output JSON Schema
+├── handler.py        # optional — reserved (Phase B runner; not executed yet)
+├── assets/           # optional — logo / icon / previews
+└── examples/         # optional — reference art (not loaded by runtime)
 ```
 
-Optional later (not Phase A): `assets/`, examples — ignored by the loader today except logos referenced from `_meta`.
+Required today: `_meta.json` + `SKILL.md`.  
+Everything else is optional; missing files are fine.
 
-## `_meta.json` (product fields)
+## `_meta.json`
 
 | Field | Required | Notes |
 |-------|----------|--------|
-| `skill_key` / `id` / `name` | yes | Technical id; folder name used as fallback |
-| `when_to_use` | recommended | Catalog + routing hint |
-| `preferred_tools` | recommended | Live op allowlist for this skill |
-| `triggers` **or** `trigger_keywords` | recommended | When Decide auto-attaches the skill |
-| `version` | optional | e.g. `1.0.0` |
-| `enabled` | optional | `false` skips the pack |
-| `author` | optional | Metadata only |
-| `permissions` | optional | Docs / future ACL; does **not** replace `preferred_tools` |
-| `locales` | optional | `displayName` / `description` |
+| `skill_key` / `id` / `name` | yes | Technical id |
+| `when_to_use` | recommended | Catalog + routing |
+| `preferred_tools` | recommended | Live op allowlist |
+| `triggers` **or** `trigger_keywords` | recommended | Auto-attach |
+| `version` / `enabled` / `author` | optional | `enabled: false` skips pack |
+| `permissions` | optional | Docs only for now |
 
 ### `trigger_keywords` shortcut
 
-```json
-"trigger_keywords": ["中秋海报", "festival poster"]
-```
+Expands to a `create`/`edit` trigger with `prompt_includes_any` when `triggers` is absent.
 
-expands to:
+## `schema.json` (optional)
 
 ```json
-"triggers": [
-  {
-    "intent_in": ["create", "edit"],
-    "prompt_includes_any": ["中秋海报", "festival poster"]
-  }
-]
+{
+  "input": { "type": "object", "properties": { "...": {} }, "required": [] },
+  "output": { "type": "object", "allowed_ops": ["create_frame", "create_text"] }
+}
 ```
 
-Prefer full `triggers` when you need `empty_canvas`, `min_prompt_chars`, etc. (see existing seed packs).
+Aliases: `input_schema` / `output_schema`. Values merge into the skill row (meta fields win if both set). Used for validation hints / future runners — Phase A still relies on `preferred_tools` for live op gating.
 
-## `SKILL.md`
+## `handler.py` (optional, not run yet)
 
-Natural-language craft: when to use images vs vectors, hierarchy, honesty rules, related skills. Keep it actionable — the model reads this in `SKILL_DETAILS`.
+If present, the loader logs that it was found and continues. Phase B will allow a runner that **returns `tool_ops` only**. Until then, put craft in `SKILL.md`.
+
+See `plugins/skills/festival_poster/handler.py.example`.
+
+## `assets/` / `examples/`
+
+- `assets/logo.png` (or `icon.svg`) — picked up as pack logo when present  
+- `examples/` — human reference only
 
 ## Load / reload
 
 | Mode | Behavior |
 |------|----------|
-| Local API | Scans dirs on ensure; hot reload polls disk (default every 2s) |
-| Docker | Mount `./plugins/skills:/app/plugins/skills`; set `DESIGN_SKILLS_PLUGIN_DIRS` for extra paths |
-| Admin | Zip import still available (`POST /api/v1/design/skills/import`) |
+| Local API | Hot reload polls disk (default 2s) |
+| Docker | `./plugins/skills:/app/plugins/skills` |
+| Extra dirs | `DESIGN_SKILLS_PLUGIN_DIRS` |
+| Admin zip | Still available |
 
 Duplicate `skill_key`: **later root wins** (plugins override seeds).
 
 ## Sample
 
-See [`plugins/skills/festival_poster/`](../plugins/skills/festival_poster/) — chat: 「生成中秋红色海报」.
+[`plugins/skills/festival_poster/`](../plugins/skills/festival_poster/) — 「生成中秋红色海报」.
 
-## Out of scope (later)
+## Out of scope here
 
-- `handler.py` / Python canvas SDK  
-- Frontend toolbar plugins  
-- `.recombyn-plugin` installer / signature  
+- Frontend toolbar plugins (`manifest.json` + TypeScript) — separate Phase C  
+- Executing `handler.py` / sandboxes / `.recombyn-plugin` zip install — Phase B/D  
 
 → [ADR 0013](./adr/0013-skill-extensions.md)

@@ -39,7 +39,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 | AI 模型入口 | In-process façade (`get_llm_endpoint` / `build_chat_model`) |
 | 异步任务 | Celery worker sharing the API codebase (hydrate / export / image) |
 | 协同 | `apps/collab` WebSocket process |
-| 扩展（Skill） | File packs: seeds + `.agents/skills` + `plugins/skills` ([ADR 0013](../adr/0013-skill-extensions.md)) |
+| 扩展（Skill） | File packs: `seeds/design_skills` + `plugins/skills` ([ADR 0013](../adr/0013-skill-extensions.md)) |
 
 → See [ADR 0004](../adr/0004-modular-monolith-first.md).
 

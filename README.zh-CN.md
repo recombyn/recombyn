@@ -70,7 +70,7 @@
 
 ### Skills 是什么
 
-每个技能一个目录：`apps/api/seeds/design_skills/<key>/`（`_meta.json` + `SKILL.md`）。
+每个技能一个目录：`apps/api/seeds/design_skills/<key>/`（规范：`_meta.json` + `SKILL.md`；可选 `schema.json`、`assets/` 等）。
 
 - **`_meta.json`**：`when_to_use`、触发词、`preferred_tools`、互斥组等 —— Decide 用它选技能
 - **`SKILL.md`**：该品类怎么做（落地页 / 海报 / 简历 / 仪表盘 / 动效……）

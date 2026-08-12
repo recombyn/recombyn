@@ -470,6 +470,37 @@ def test_plugin_style_pack_loads(tmp_path, monkeypatch):
     assert triggers and "春节海报" in triggers[0].get("prompt_includes_any", [])
 
 
+def test_schema_json_merges_into_pack(tmp_path):
+    from app.services.design.prompts.skill_store.pack_io import _load_pack_dir
+
+    pack = tmp_path / "schema_pack"
+    pack.mkdir()
+    (pack / "_meta.json").write_text(
+        '{"skill_key":"schema_pack","name":"schema_pack",'
+        '"preferred_tools":["create_frame"],"version":"1.0.0"}',
+        encoding="utf-8",
+    )
+    (pack / "SKILL.md").write_text("# Schema pack\n\nBody.\n", encoding="utf-8")
+    (pack / "schema.json").write_text(
+        '{"input":{"type":"object","properties":{"festival":{"type":"string"}},'
+        '"required":["festival"]},'
+        '"output":{"type":"object","allowed_ops":["create_frame","create_text"]}}',
+        encoding="utf-8",
+    )
+    item = _load_pack_dir(pack)
+    assert item is not None
+    assert item["input_schema"]["required"] == ["festival"]
+    assert "create_frame" in item["output_schema"]["allowed_ops"]
+
+
+def test_festival_poster_pack_has_schema():
+    items = {str(x.get("skill_key")): x for x in _load_file_skills()}
+    fp = items.get("festival_poster")
+    assert fp is not None
+    assert isinstance(fp.get("input_schema"), dict)
+    assert "festival" in (fp["input_schema"].get("properties") or {})
+
+
 def test_resolve_triggered_festival_keyword():
     keys = resolve_triggered_skill_keys(
         prompt="帮我生成一张中秋红色海报",

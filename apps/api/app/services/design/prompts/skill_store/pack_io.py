@@ -140,7 +140,7 @@ def _repo_root() -> Path:
     return _API_ROOT.parent.parent
 
 def _agents_skills_dir() -> Path:
-    """Repo-root official ext packs: ``<repo>/.agents/skills``."""
+    """Cursor/IDE skills tree — not scanned by the Design Agent."""
     return _repo_root() / ".agents" / "skills"
 
 
@@ -188,7 +188,10 @@ def _file_skills_dir() -> Path:
     return resolve_seed_dir("design_skills")
 
 def _file_skills_dirs() -> list[Path]:
-    """``.agents/skills`` + ``seeds/design_skills`` + ``plugins/skills`` (+ env dirs).
+    """``seeds/design_skills`` + ``plugins/skills`` (+ env dirs).
+
+    Product skills live only under seeds (shipped) and plugins (private mount).
+    ``.agents/skills`` is IDE/Cursor tooling — not scanned by the Design Agent.
 
     Later roots win on duplicate ``skill_key`` (private plugins override shipped packs).
     """
@@ -197,7 +200,6 @@ def _file_skills_dirs() -> list[Path]:
     dirs: list[Path] = []
     seen: set[str] = set()
     for root in (
-        _agents_skills_dir(),
         api_seeds_dir() / "design_skills",
         *_plugin_skills_dirs(),
     ):
@@ -313,6 +315,11 @@ def _resolve_pack_logo(pack_dir: Path, meta: dict[str, Any]) -> str:
     key = pack_dir.name
     candidates.extend(
         [
+            pack_dir / "assets" / "logo.png",
+            pack_dir / "assets" / "logo.svg",
+            pack_dir / "assets" / "logo.webp",
+            pack_dir / "assets" / "icon.svg",
+            pack_dir / "assets" / "icon.png",
             pack_dir / f"{key}-logo.png",
             pack_dir / f"{key}-logo.svg",
             pack_dir / f"{key}-logo.webp",
@@ -437,8 +444,33 @@ def _skill_item_from_parts(
         ),
     }
 
+def _load_schema_json(pack_dir: Path) -> tuple[Any, Any]:
+    """Optional ``schema.json`` → (input_schema, output_schema)."""
+    path = pack_dir / "schema.json"
+    if not path.is_file():
+        return None, None
+    data = _read_json_file(path)
+    if not data:
+        return None, None
+    inp = data.get("input_schema") or data.get("input") or data.get("inputSchema")
+    out = data.get("output_schema") or data.get("output") or data.get("outputSchema")
+    # Whole file is a single object schema → treat as input.
+    if inp is None and out is None and ("type" in data or "properties" in data):
+        inp = data
+    return inp, out
+
+
+def _note_deferred_handler(pack_dir: Path) -> None:
+    """``handler.py`` is reserved for Phase B ops runners — do not execute yet."""
+    if (pack_dir / "handler.py").is_file():
+        logger.info(
+            "skill pack %s has handler.py (ignored until skill runner Phase B)",
+            pack_dir.name,
+        )
+
+
 def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
-    """Load one skill pack: ``_meta.json`` + ``SKILL.md``, or frontmatter-only ``SKILL.md``."""
+    """Load one skill pack: ``_meta.json`` + ``SKILL.md``, optional ``schema.json``."""
     if not pack_dir.is_dir():
         return None
     skill_md = _skill_md_path(pack_dir)
@@ -465,6 +497,18 @@ def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
     meta = _normalize_pack_meta(meta, folder=pack_dir.name)
     if not meta:
         return None
+
+    schema_in, schema_out = _load_schema_json(pack_dir)
+    if schema_in is not None and not (
+        meta.get("input_schema") or meta.get("inputSchema")
+    ):
+        meta["input_schema"] = schema_in
+    if schema_out is not None and not (
+        meta.get("output_schema") or meta.get("outputSchema")
+    ):
+        meta["output_schema"] = schema_out
+
+    _note_deferred_handler(pack_dir)
     return _skill_item_from_parts(
         pack_dir=pack_dir,
         meta=meta,
@@ -472,27 +516,12 @@ def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
         skill_md_path=skill_md,
     )
 
-def _load_file_skills() -> list[dict[str, Any]]:
-    """Scan ``.agents/skills`` + design_skills + plugins/skills → skill dicts (later roots win).
 
-    Under ``.agents/skills``, only packs with product ``_meta.json`` are ingested
-    (skips IDE-only docs such as ``langfuse``).
-    """
+def _load_file_skills() -> list[dict[str, Any]]:
+    """Scan design_skills + plugins/skills → skill dicts (later roots win)."""
     by_key: dict[str, dict[str, Any]] = {}
-    agents_root = _agents_skills_dir()
-    try:
-        agents_resolved = agents_root.resolve()
-    except Exception:
-        agents_resolved = agents_root
     for root in _file_skills_dirs():
-        try:
-            root_resolved = root.resolve()
-        except Exception:
-            root_resolved = root
-        require_product_meta = root_resolved == agents_resolved
         for pack_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-            if require_product_meta and not _pack_has_product_meta(pack_dir):
-                continue
             item = _load_pack_dir(pack_dir)
             if not item:
                 continue

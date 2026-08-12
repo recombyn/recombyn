@@ -71,7 +71,7 @@ Typical turn: `intent` → (chat settle / lean `paint` / design `decide`) → `p
 
 ### What Skills are
 
-One folder per skill: `apps/api/seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`).
+One folder per skill: `apps/api/seeds/design_skills/<key>/` (canonical: `_meta.json` + `SKILL.md`; optional `schema.json`, `assets/`, …).
 
 - **`_meta.json`** — `when_to_use`, triggers, `preferred_tools`, mutex — Decide picks skills from this
 - **`SKILL.md`** — how to craft that deliverable (landing, poster, resume, dashboard, motion, …)

@@ -225,12 +225,12 @@ User turn
 | Namespace | Source | Notes |
 |-----------|--------|--------|
 | `core` | Legacy `source=seed` only (not shipped) | Prefer file packs; bare keys stay BC aliases |
-| `ext` | `seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`) | Deliverable/tool playbooks; also `.agents/skills/` and **`plugins/skills/`** (private mount) |
+| `ext` | `seeds/design_skills/<key>/` + **`plugins/skills/`** | Same canonical layout; `.agents/skills` is IDE-only |
 | `user` | Admin API | Always `user.<local>`; cannot claim core keys |
 
 Env: `DESIGN_SKILLS_HOT_RELOAD` (default true), `DESIGN_SKILLS_HOT_RELOAD_INTERVAL_SEC`, `DESIGN_SKILLS_PLUGIN_DIRS` (extra roots). Manual: Admin `POST /api/v1/admin/design/skills/resync`.
 
-Pack layout: `_meta.json` + `SKILL.md`. Authoring + aliases: [skill-extensions.md](./skill-extensions.md) · sample [`plugins/skills/festival_poster/`](../plugins/skills/festival_poster/).
+Canonical layout: `_meta.json` + `SKILL.md` (+ optional `schema.json`, `handler.py`, `assets/`, `examples/`). Authoring: [skill-extensions.md](./skill-extensions.md) · sample [`plugins/skills/festival_poster/`](../plugins/skills/festival_poster/).
 
 Compose mounts `./plugins/skills` into the API container so private packs survive image upgrades.
 
