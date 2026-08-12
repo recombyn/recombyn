@@ -178,6 +178,7 @@ User-facing help **source** is private; CI publishes only the built static site 
 |--|--|
 | User docs | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
+| Skill extensions | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | AgentProfile / sub-agents | [docs/agent-profile.md](docs/agent-profile.md) |
 | Canvas (RCB / SVG / Path2D / LOD) | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
 | Web data layer (Query / oRPC / nuqs) | [docs/web-frontend.md](docs/web-frontend.md) |
