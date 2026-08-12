@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import Column, LargeBinary, Text
+from sqlalchemy import BigInteger, Column, LargeBinary, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -266,8 +266,10 @@ class EmailCode(SQLModel, table=True):
 
     email: str = Field(primary_key=True, max_length=320)
     code_hash: str = Field(max_length=128)
-    expires_at: float = 0.0
-    sent_at: float = 0.0
+    # Unix seconds as BIGINT — MySQL FLOAT lacks second precision; DOUBLE is ok but
+    # integer seconds match the OTP TTL math and avoid float edge cases.
+    expires_at: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
+    sent_at: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
     attempts: int = Field(default=0)
 
 
@@ -276,7 +278,7 @@ class EmailTicket(SQLModel, table=True):
 
     ticket: str = Field(primary_key=True, max_length=128)
     email: str = Field(max_length=320)
-    expires_at: float = 0.0
+    expires_at: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
 
 
 class EmailActivateToken(SQLModel, table=True):
@@ -284,8 +286,8 @@ class EmailActivateToken(SQLModel, table=True):
 
     token_id: str = Field(primary_key=True, max_length=64)
     email: str = Field(index=True, max_length=320)
-    expires_at: float = 0.0
-    created_at: float = 0.0
+    expires_at: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
+    created_at: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
 
 
 class CardKey(SQLModel, table=True):

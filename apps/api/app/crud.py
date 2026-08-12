@@ -926,22 +926,22 @@ def upsert_email_code(
     session: Session,
     email: str,
     code_hash: str,
-    expires_at: float,
-    sent_at: float,
+    expires_at: int,
+    sent_at: int,
 ) -> EmailCode:
     email_n = email.strip().lower()
     row = get_email_code(session=session, email=email_n)
     if row:
         row.code_hash = code_hash
-        row.expires_at = expires_at
-        row.sent_at = sent_at
+        row.expires_at = int(expires_at)
+        row.sent_at = int(sent_at)
         row.attempts = 0
     else:
         row = EmailCode(
             email=email_n,
             code_hash=code_hash,
-            expires_at=expires_at,
-            sent_at=sent_at,
+            expires_at=int(expires_at),
+            sent_at=int(sent_at),
             attempts=0,
         )
     session.add(row)
@@ -962,9 +962,11 @@ def create_email_ticket(
     session: Session,
     ticket: str,
     email: str,
-    expires_at: float,
+    expires_at: int,
 ) -> EmailTicket:
-    row = EmailTicket(ticket=ticket, email=email.strip().lower(), expires_at=expires_at)
+    row = EmailTicket(
+        ticket=ticket, email=email.strip().lower(), expires_at=int(expires_at)
+    )
     session.add(row)
     session.commit()
     return row
@@ -981,7 +983,7 @@ def delete_email_ticket(*, session: Session, ticket: str) -> None:
         session.commit()
 
 
-def latest_activate_token_created_at(*, session: Session, email: str) -> float | None:
+def latest_activate_token_created_at(*, session: Session, email: str) -> int | None:
     email_n = (email or "").strip().lower()
     row = session.exec(
         select(EmailActivateToken)
@@ -989,7 +991,7 @@ def latest_activate_token_created_at(*, session: Session, email: str) -> float |
         .order_by(col(EmailActivateToken.created_at).desc())
         .limit(1)
     ).first()
-    return float(row.created_at) if row else None
+    return int(row.created_at) if row else None
 
 
 def replace_activate_token(
@@ -997,8 +999,8 @@ def replace_activate_token(
     session: Session,
     email: str,
     token_id: str,
-    expires_at: float,
-    created_at: float,
+    expires_at: int,
+    created_at: int,
 ) -> EmailActivateToken:
     email_n = email.strip().lower()
     old = list(
@@ -1013,8 +1015,8 @@ def replace_activate_token(
     row = EmailActivateToken(
         token_id=token_id,
         email=email_n,
-        expires_at=expires_at,
-        created_at=created_at,
+        expires_at=int(expires_at),
+        created_at=int(created_at),
     )
     session.add(row)
     session.commit()
