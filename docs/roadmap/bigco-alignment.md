@@ -136,4 +136,5 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 ### Phase 5 — Stress
 
 - [x] Baseline runbook for collab/canvas/k6/agent stress — [stress-baselines.md](../stress-baselines.md)
-- [ ] Dual-client collab conflict + paid-gen E2E (tracked gaps)
+- [x] Mock paid-gen finish E2E (`canvas.generators` route mock) + project `baseRevision` 412 conflict (functional API + `collab.sync`)
+- [ ] Dual-browser Yjs conflict under load (beyond WS auth / HTTP 412)
