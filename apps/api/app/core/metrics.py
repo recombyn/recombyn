@@ -72,10 +72,20 @@ EXPORT_DLQ_DEPTH = Gauge(
     "Current Redis export DLQ list length (recombyn:dlq:export)",
 )
 
+IMAGE_JOBS_TOTAL = Counter(
+    "recombyn_image_jobs_total",
+    "Chat image-generation jobs enqueued or finished",
+    ["event"],
+)
+
 
 def observe_job(kind: str, event: str) -> None:
     """event: enqueued | done | failed | retry | dlq."""
-    counters = {"hydrate": HYDRATE_JOBS_TOTAL, "export": EXPORT_JOBS_TOTAL}
+    counters = {
+        "hydrate": HYDRATE_JOBS_TOTAL,
+        "export": EXPORT_JOBS_TOTAL,
+        "image": IMAGE_JOBS_TOTAL,
+    }
     counter = counters.get(str(kind or "").strip().lower())
     if counter is None:
         return

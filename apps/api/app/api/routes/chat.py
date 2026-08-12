@@ -27,7 +27,6 @@ from app.core.config import is_desktop_local
 from app.services.llm.agent import stream_agent_turn, stream_official_agent
 from app.services.llm.chat import stream_chat
 from app.services.llm.design_tools import design_tool_definitions
-from app.services.llm.image import generate_image
 from app.services.llm.audio import generate_audio
 from app.services.llm.video import generate_video
 from app.services.llm.usage_log import bind_usage_context, usage_context
@@ -394,49 +393,24 @@ async def post_image(
         count=int(body.n or 1),
     )
 
-    byok_token = set_byok_user_id(current_user.id)
+    from app.api.routes.chat_image_jobs import execute_image_generate
+
     try:
-        with usage_context(
-            user_id=current_user.id,
-            source="image",
+        return await execute_image_generate(
+            current_user.id,
+            prompt=body.prompt.strip(),
+            model_id=model_id,
+            aspect_ratio=body.aspect_ratio,
+            quality=body.quality,
+            resolution=body.resolution,
+            images=body.images,
             credits_charged=credits_charged,
-        ):
-            result = await generate_image(
-                prompt=body.prompt.strip(),
-                model=model_id,
-                aspect_ratio=body.aspect_ratio,
-                quality=body.quality,
-                resolution=body.resolution,
-                images=body.images,
-            )
+        )
     except RuntimeError as err:
         msg = str(err)
         if "No LLM API key" in msg:
             raise HTTPException(status_code=503, detail=msg) from err
         raise HTTPException(status_code=502, detail=msg) from err
-    finally:
-        reset_byok_user_id(byok_token)
-    from app.services.assets import create_asset_from_url
-
-    assets_out: list[dict[str, Any]] = []
-    for img_url in result.get("images") or []:
-        if not isinstance(img_url, str) or not img_url.strip():
-            continue
-        try:
-            asset = create_asset_from_url(
-                current_user.id,
-                img_url.strip(),
-                kind="image",
-                source="ai_image",
-                prompt=body.prompt.strip(),
-            )
-            assets_out.append(asset)
-        except Exception as err:  # noqa: BLE001 — keep raw CDN url when rehost fails
-            logger.warning("image rehost failed (%s): %s", type(err).__name__, err)
-            continue
-    if assets_out:
-        result = {**result, "assets": assets_out}
-    return result
 
 
 @router.post("/video")

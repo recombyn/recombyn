@@ -98,6 +98,9 @@ def get_hydrate_job(_current_user: CurrentUser, job_id: str):
         raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    owner = str(job.get("user_id") or "")
+    if owner and owner != str(_current_user.id):
+        raise HTTPException(status_code=404, detail="Job not found")
     return HydrateJobStatusResponse(
         job_id=job_id,
         status=str(job.get("status") or "queued"),

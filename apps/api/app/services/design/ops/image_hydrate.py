@@ -213,6 +213,12 @@ async def _hydrate_via_celery(
     }
     save_job(job_id, payload, kind=_HYDRATE_KIND)
     run_image_hydrate_job.delay(job_id)
+    try:
+        from app.core.metrics import observe_job
+
+        observe_job(_HYDRATE_KIND, "enqueued")
+    except Exception:
+        pass
     if on_progress:
         on_progress(0, "queued")
     _log.info(
