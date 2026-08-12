@@ -49,8 +49,10 @@ describe('patch undo history', () => {
     );
     expect(s1.document.deltaSetLike[id].attrs['fill-color']).toBe('#00ff00');
     expect(s1.historyPast).toHaveLength(1);
-    expect(s1.historyPast[0].kind).toBe('nodes');
-    expect(s1.historyPast[0].before[id].attrs.path).toBe(pathRef);
+    const past0 = s1.historyPast[0];
+    expect(past0.kind).toBe('nodes');
+    if (past0.kind !== 'nodes') throw new Error('expected nodes history');
+    expect(past0.before[id].attrs.path).toBe(pathRef);
 
     const s2 = reducer(s1, undo());
     expect(s2.document.deltaSetLike[id].attrs['fill-color']).toBe('#ff0000');

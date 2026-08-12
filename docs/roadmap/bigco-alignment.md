@@ -23,7 +23,7 @@ Living checklist for Recombyn platform maturity. Phase 1 tooling is in flight ([
 | Git 规范 + ADR | Done (P1) | Enforce ADR link in PR template |
 | TDD / 分层测试 | Partial (unit + e2e + gates) | Coverage floor on **new** API routes |
 | CODEOWNERS | Done (P2) | Keep owners current as teams grow |
-| CI + 远程缓存 | Partial (Actions) | Unify lint→typecheck→test→e2e pipeline (P4) |
+| CI + 远程缓存 | Partial (Actions + web `tsc` in umbrella) | Remote cache when CI time hurts |
 | 内外仓隔离 | N/A for now | Keep public OSS; secrets only in private env / desktop |
 
 ### 2. 架构形态（勿一上来微服务）
@@ -100,7 +100,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] husky + commitlint
 - [x] `docs/adr` + seed ADRs
 - [x] `npm run dev:stack`
-- [ ] Full web `tsc` clean (tech debt)
+- [x] Full web `tsc` clean (`npm run typecheck:web`)
 - [x] `CODEOWNERS` + PR template (ADR checkbox)
 
 ### Phase 2 — Backend productionization (async + AI platform)
@@ -131,7 +131,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] GHCR / Docker publish workflow on tags (`release-docker.yml` + `docker-compose.ghcr.yml`)
 - [x] Tauri signing docs + unsigned `desktop-build.yml` (dispatch) — [0010](../adr/0010-desktop-signing.md)
 - [x] k8s deferred (compose/GHCR default) — `deploy/k8s/README.md`
-- [ ] Require `typecheck:web` once Phase 1 tsc debt is cleared
+- [x] Require `typecheck:web` in umbrella CI + `npm run ci:gate` (Phase 1 tsc debt cleared)
 
 ### Phase 5 — Stress
 

@@ -236,9 +236,16 @@ function StylePanelShell({
   );
 }
 
-const MemoizedPanelSegmentedIcons = memo(PanelSegmentedIcons);
+const MemoizedPanelSegmentedIcons = memo(PanelSegmentedIcons) as <T extends string>(
+  props: {
+    value: T;
+    options: Array<{ id: T; tip: string; Icon: (p: { className?: string }) => ReactNode }>;
+    onChange: (next: T) => void;
+    className?: string;
+  }
+) => ReactNode;
 export { MemoizedPanelSegmentedIcons as PanelSegmentedIcons };
-const MemoizedPanelToggleIcons = memo(PanelToggleIcons);
+const MemoizedPanelToggleIcons = memo(PanelToggleIcons) as typeof PanelToggleIcons;
 export { MemoizedPanelToggleIcons as PanelToggleIcons };
 const MemoizedStylePanelShell = memo(StylePanelShell);
 export { MemoizedStylePanelShell as StylePanelShell };

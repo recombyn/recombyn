@@ -14,7 +14,6 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       // Only files imported by tests — avoids instrumenting the whole app tree.
-      all: false,
       reporter: ['text', 'lcov'],
       exclude: [
         'src/**/*.{test,spec}.{ts,tsx}',

@@ -131,7 +131,7 @@ describe('resume open pen from endpoint (link later stroke)', () => {
     // eslint-disable-next-line no-console
     console.log('[test:pen-resume:end]', hit);
     expect(hit?.nodeId).toBe('pen1');
-    expect(hit?.anchors.at(-1)).toEqual({ x: 40, y: 10 });
+    expect(hit?.anchors[hit.anchors.length - 1]).toEqual({ x: 40, y: 10 });
     expect(hit?.anchors).toHaveLength(3);
   });
 
@@ -157,7 +157,7 @@ describe('resume open pen from endpoint (link later stroke)', () => {
     // eslint-disable-next-line no-console
     console.log('[test:pen-resume:start]', hit);
     expect(hit?.nodeId).toBe('pen1');
-    expect(hit?.anchors.at(-1)).toEqual({ x: 5, y: 5 });
+    expect(hit?.anchors[hit.anchors.length - 1]).toEqual({ x: 5, y: 5 });
     expect(hit?.anchors[0]).toEqual({ x: 35, y: 5 });
   });
 

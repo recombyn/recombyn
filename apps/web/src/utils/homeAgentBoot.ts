@@ -10,7 +10,7 @@ export type HomeAgentBoot = {
   /** Home Agent / Ask / Image switch. */
   interactionMode?: 'agent' | 'ask' | 'image' | 'video' | null;
   imageAspectRatio?: string | null;
-  scene?: 'website' | 'mobile' | 'image' | 'poster' | 'drawing' | null;
+  scene?: 'website' | 'mobile' | 'image' | 'poster' | 'drawing' | 'video' | null;
   stylePackId?: number | null;
   templateId?: number | null;
   promptPatternId?: number | null;
