@@ -7,6 +7,7 @@ Local / CI gates for Recombyn. Monorepo foundation (Turborepo, shared configs, A
 | Command | Purpose |
 |---------|---------|
 | `npm run check` | Web ESLint + contracts `tsc` (via Turborepo) |
+| `npm run ci:gate` | Local mirror of CI umbrella (check + web unit + API unit) |
 | `npm run lint` / `typecheck` | Turbo lint / contracts typecheck |
 | `npm run dev:stack` | Vite web + collab WS together |
 | `npm run dev:api` / `dev:worker` | API + Celery worker (hydrate/import jobs) |
@@ -99,9 +100,16 @@ View in Prometheus **Alerts**. Wire Grafana contact points locally (do not commi
 
 | Workflow | When |
 |----------|------|
-| `e2e-tests.yml` | PR — API + collab + minted token + Playwright |
-| `perf-k6.yml` | PR — smoke + api_crud + collab_ws |
-| `nightly-quality.yml` | Nightly — eval suite shape + k6 soak |
+| **`ci.yml`** (umbrella) | Every PR / main — `check` + web unit + API unit + web build → **`CI / gate`** |
+| `web-tests.yml` | Path-filtered — web unit + stress + coverage |
+| `api-tests.yml` | Path-filtered — API unit + integration + cov |
+| `e2e-tests.yml` | Path-filtered — Playwright |
+| `perf-k6.yml` | Path-filtered / dispatch — k6 smoke |
+| `dependency-audit.yml` | Lockfile PRs + weekly — soft audit |
+| `nightly-quality.yml` | Nightly — eval shape + soak |
+| `block-cursor-coauthor.yml` | All PRs — reject Cursor co-author trailer |
+
+Branch protection should require **`CI / gate`**. Full web `tsc` is intentionally **not** in the gate yet (tracked Phase 1 debt). Rollback: [self-hosting.md § Rollback](./self-hosting.md#rollback-docker-compose).
 
 ## Layout
 

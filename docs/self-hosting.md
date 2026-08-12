@@ -373,6 +373,26 @@ Do this **before** exposing port 3000 / 8000 to the internet:
 
 API startup logs **warnings** if admin password, collab secret, default MySQL password, card salt, or BYOK key look like local defaults.
 
+## Rollback (Docker Compose)
+
+Prefer **image tags** (or digest) over floating `latest`. When a release misbehaves:
+
+1. Note the previously known-good tag (from your registry or `docker compose images`).
+2. Pin services in `docker-compose.yml` / override file, e.g. `image: ghcr.io/org/recombyn-api:v0.1.0`.
+3. Redeploy without wiping volumes:
+
+```bash
+docker compose pull api web collab   # if using a registry
+docker compose up -d api web collab
+```
+
+4. Confirm `/api/v1/health` (or `/metrics`) and a smoke open of the editor.
+5. Do **not** delete `mysql_data` / Redis volumes unless you intend a destructive restore from backup.
+
+Local `--build` deploys: check out the last good git tag, then `docker compose up -d --build`.
+
+See [ADR 0009](./adr/0009-unified-ci-rollback.md). Semver notes live in root [CHANGELOG.md](../CHANGELOG.md).
+
 ## License
 
 **Apache License 2.0** — full terms in root [`LICENSE`](../LICENSE); copyright / attribution in [`NOTICE`](../NOTICE).

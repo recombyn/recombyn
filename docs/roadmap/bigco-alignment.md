@@ -126,10 +126,12 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 ### Phase 4 — CI/CD & deploy options
 
-- [ ] Unified lint→typecheck→unit→e2e→build
-- [ ] Semver / CHANGELOG / Docker publish + rollback runbook
+- [x] Unified CI umbrella (`ci.yml`: lint → contracts typecheck → unit → web build) — [0009](../adr/0009-unified-ci-rollback.md)
+- [x] CHANGELOG + semver tagging convention; Docker Compose rollback runbook
+- [ ] GHCR / Docker publish workflow on tags
 - [ ] Tauri signed builds (separate)
 - [ ] Optional: k8s manifests (not required for OSS default)
+- [ ] Require `typecheck:web` once Phase 1 tsc debt is cleared
 
 ### Phase 5 — Stress
 
