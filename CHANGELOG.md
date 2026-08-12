@@ -20,6 +20,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - k8s HPA/Ingress examples; admin write audit router-wide; org_members Alembic skeleton
 - `projects.org_id` + org invite API; k8s PDB + NetworkPolicy starter manifests
 - Account **Organization** tab (create / invite / preferred org) + Projects org filter; contracts regen for `/orgs`
+- Org **pending invites** (user search, accept/decline) + Alembic `0008_org_invites`
 
 ### Changed
 

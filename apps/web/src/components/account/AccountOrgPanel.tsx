@@ -1,4 +1,4 @@
-import { useEffect, useState, memo } from 'react';
+import { useEffect, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, apiQuery, getHttpStatus } from '@/service/client';
@@ -37,6 +37,22 @@ type MemberRow = {
   role: string;
 };
 
+type InviteRow = {
+  id: string;
+  orgId: string;
+  orgName?: string | null;
+  email?: string | null;
+  userId?: string | null;
+  role: string;
+  status: string;
+};
+
+type DirectoryUser = {
+  id: string;
+  email?: string | null;
+  name?: string | null;
+};
+
 function roleLabel(role: string | undefined, t: (k: string) => string): string {
   const r = (role || '').toLowerCase();
   if (r === 'owner') return t('account.orgRoleOwner');
@@ -49,13 +65,16 @@ function canInvite(role: string | undefined): boolean {
   return r === 'owner' || r === 'admin';
 }
 
-/** Team orgs — create, prefer for new projects, invite by email. */
+/** Team orgs — create, prefer for new projects, search+pending invites. */
 function AccountOrgPanel() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const searchTimer = useRef<number | null>(null);
   const [name, setName] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [inviteSearchQ, setInviteSearchQ] = useState('');
+  const [selectedInvitee, setSelectedInvitee] = useState<DirectoryUser | null>(null);
   const [preferredId, setPreferredId] = useState<string | null>(() => readPreferredOrgId());
 
   const orgsQuery = useQuery({
@@ -76,6 +95,14 @@ function AccountOrgPanel() {
 
   const selected = orgs.find((o) => o.id === selectedId) || null;
 
+  const myInvitesQuery = useQuery({
+    ...apiQuery.orgsListMyPendingInvites.queryOptions({}),
+  });
+  const myInvites: InviteRow[] = (() => {
+    const data = myInvitesQuery.data as { invites?: InviteRow[] } | undefined;
+    return Array.isArray(data?.invites) ? data.invites : [];
+  })();
+
   const membersQuery = useQuery({
     ...apiQuery.orgsListMembers.queryOptions({
       input: { params: { org_id: selectedId || '' } },
@@ -87,6 +114,55 @@ function AccountOrgPanel() {
     const data = membersQuery.data as { members?: MemberRow[] } | undefined;
     return Array.isArray(data?.members) ? data.members : [];
   })();
+
+  const outgoingQuery = useQuery({
+    ...apiQuery.orgsListOrgPendingInvites.queryOptions({
+      input: { params: { org_id: selectedId || '' } },
+      enabled: Boolean(selectedId && canInvite(selected?.role)),
+    }),
+  });
+  const outgoing: InviteRow[] = (() => {
+    const data = outgoingQuery.data as { invites?: InviteRow[] } | undefined;
+    return Array.isArray(data?.invites) ? data.invites : [];
+  })();
+
+  useEffect(() => {
+    const q = inviteQuery.trim();
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    if (q.length < 1 || selectedInvitee) {
+      setInviteSearchQ('');
+      return;
+    }
+    searchTimer.current = window.setTimeout(() => {
+      setInviteSearchQ(q);
+    }, 280);
+    return () => {
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    };
+  }, [inviteQuery, selectedInvitee]);
+
+  const inviteSearch = useQuery({
+    ...apiQuery.usersUsersSearch.queryOptions({
+      input: { query: { q: inviteSearchQ, limit: 12 } },
+      enabled: inviteSearchQ.length >= 1 && !selectedInvitee,
+    }),
+    staleTime: 15_000,
+  });
+  const searchHits =
+    ((inviteSearch.data as { items?: DirectoryUser[] } | undefined)?.items || []);
+  const searching =
+    !selectedInvitee &&
+    inviteQuery.trim().length >= 1 &&
+    (inviteSearchQ !== inviteQuery.trim() || inviteSearch.isFetching);
+
+  const invalidateOrgQueries = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: apiQuery.orgsListMyOrgs.key() }),
+      qc.invalidateQueries({ queryKey: apiQuery.orgsListMyPendingInvites.key() }),
+      qc.invalidateQueries({ queryKey: apiQuery.orgsListMembers.key() }),
+      qc.invalidateQueries({ queryKey: apiQuery.orgsListOrgPendingInvites.key() }),
+    ]);
+  };
 
   const createMut = useMutation({
     mutationFn: async (orgName: string) =>
@@ -104,24 +180,58 @@ function AccountOrgPanel() {
   });
 
   const inviteMut = useMutation({
-    mutationFn: async (opts: { orgId: string; email: string }) =>
+    mutationFn: async (opts: {
+      orgId: string;
+      userId?: string;
+      email?: string;
+    }) =>
       apiClient.orgsInviteMember({
         params: { org_id: opts.orgId },
-        body: { email: opts.email, role: 'member' },
+        body: {
+          userId: opts.userId,
+          email: opts.email,
+          role: 'member',
+        },
       }),
     onSuccess: async () => {
-      message.success(t('account.orgInviteOk'));
-      setInviteEmail('');
-      if (selectedId) {
-        await qc.invalidateQueries({ queryKey: apiQuery.orgsListMembers.key() });
-      }
+      message.success(t('account.orgInviteSent'));
+      setInviteQuery('');
+      setSelectedInvitee(null);
+      await invalidateOrgQueries();
     },
     onError: (err) => {
       const status = getHttpStatus(err);
-      if (status === 404) message.error(t('account.orgInviteUserMissing'));
+      const body = (err as { data?: { body?: { detail?: { code?: string } } } })?.data
+        ?.body?.detail;
+      const code =
+        typeof body === 'object' && body && 'code' in body
+          ? String((body as { code?: string }).code || '')
+          : '';
+      if (code === 'already_member') message.warning(t('account.orgInviteAlreadyMember'));
+      else if (status === 404) message.error(t('account.orgInviteUserMissing'));
       else if (status === 403) message.error(t('account.orgInviteForbidden'));
       else message.error(t('account.orgInviteFailed'));
     },
+  });
+
+  const acceptMut = useMutation({
+    mutationFn: async (inviteId: string) =>
+      apiClient.orgsAcceptInvite({ params: { invite_id: inviteId } }),
+    onSuccess: async () => {
+      message.success(t('account.orgInviteAccepted'));
+      await invalidateOrgQueries();
+    },
+    onError: () => message.error(t('account.orgInviteAcceptFailed')),
+  });
+
+  const declineMut = useMutation({
+    mutationFn: async (inviteId: string) =>
+      apiClient.orgsDeclineInvite({ params: { invite_id: inviteId } }),
+    onSuccess: async () => {
+      message.success(t('account.orgInviteDeclined'));
+      await invalidateOrgQueries();
+    },
+    onError: () => message.error(t('account.orgInviteDeclineFailed')),
   });
 
   const onCreate = () => {
@@ -135,12 +245,20 @@ function AccountOrgPanel() {
 
   const onInvite = () => {
     if (!selectedId) return;
-    const email = inviteEmail.trim().toLowerCase();
-    if (!email || !email.includes('@')) {
-      message.warning(t('account.orgInviteEmailInvalid'));
+    if (selectedInvitee?.id) {
+      inviteMut.mutate({
+        orgId: selectedId,
+        userId: selectedInvitee.id,
+        email: selectedInvitee.email || undefined,
+      });
       return;
     }
-    inviteMut.mutate({ orgId: selectedId, email });
+    const q = inviteQuery.trim();
+    if (q.includes('@')) {
+      inviteMut.mutate({ orgId: selectedId, email: q.toLowerCase() });
+      return;
+    }
+    message.warning(t('account.orgInvitePickOrEmail'));
   };
 
   const onTogglePreferred = (orgId: string) => {
@@ -159,6 +277,52 @@ function AccountOrgPanel() {
 
   return (
     <div className="space-y-6">
+      {myInvites.length > 0 ? (
+        <section className="rounded-xl bg-[var(--account-card)] p-6 ring-1 ring-[var(--line)]">
+          <h2 className="mb-1 text-[15px] font-semibold text-[var(--ink)]">
+            {t('account.orgPendingForYou')}
+          </h2>
+          <p className="mb-4 text-[13px] text-[var(--muted)]">
+            {t('account.orgPendingForYouHint')}
+          </p>
+          <ul className="space-y-2">
+            {myInvites.map((inv) => (
+              <li
+                key={inv.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[var(--account-main)] px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-[14px] font-medium text-[var(--ink)]">
+                    {inv.orgName || inv.orgId}
+                  </div>
+                  <div className="text-[12px] text-[var(--muted)]">
+                    {roleLabel(inv.role, t)}
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    shape="round"
+                    disabled={acceptMut.isPending || declineMut.isPending}
+                    onClick={() => declineMut.mutate(inv.id)}
+                  >
+                    {t('account.orgInviteDecline')}
+                  </Button>
+                  <Button
+                    type="primary"
+                    shape="round"
+                    loading={acceptMut.isPending}
+                    disabled={acceptMut.isPending || declineMut.isPending}
+                    onClick={() => acceptMut.mutate(inv.id)}
+                  >
+                    {t('account.orgInviteAccept')}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <section className="rounded-xl bg-[var(--account-card)] p-6 ring-1 ring-[var(--line)]">
         <h2 className="mb-1 text-[15px] font-semibold text-[var(--ink)]">
           {t('account.orgCreateTitle')}
@@ -291,17 +455,61 @@ function AccountOrgPanel() {
           )}
 
           {canInvite(selected.role) ? (
-            <div className="flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">
-              <input
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value.slice(0, 320))}
-                disabled={inviteMut.isPending}
-                className={cn(inputClass, 'max-w-md flex-1')}
-                placeholder={t('account.orgInvitePlaceholder')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onInvite();
-                }}
-              />
+            <div className="space-y-4 border-t border-[var(--line)] pt-5">
+              <div className="relative max-w-md">
+                <input
+                  value={
+                    selectedInvitee
+                      ? selectedInvitee.name ||
+                        selectedInvitee.email ||
+                        selectedInvitee.id
+                      : inviteQuery
+                  }
+                  onChange={(e) => {
+                    setSelectedInvitee(null);
+                    setInviteQuery(e.target.value.slice(0, 320));
+                  }}
+                  disabled={inviteMut.isPending}
+                  className={inputClass}
+                  placeholder={t('account.orgInvitePlaceholder')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onInvite();
+                  }}
+                />
+                {(searching || searchHits.length > 0) &&
+                inviteQuery.trim() &&
+                !selectedInvitee ? (
+                  <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-lg bg-[var(--account-card)] py-1 shadow-lg ring-1 ring-[var(--line)]">
+                    {searchHits.map((u) => (
+                      <li key={u.id}>
+                        <button
+                          type="button"
+                          className="flex w-full flex-col px-3 py-2 text-left text-[13px] hover:bg-[var(--account-main)]"
+                          onClick={() => {
+                            setSelectedInvitee(u);
+                            setInviteQuery('');
+                            setInviteSearchQ('');
+                          }}
+                        >
+                          <span className="font-medium text-[var(--ink)]">
+                            {u.name || u.email || u.id}
+                          </span>
+                          {u.email ? (
+                            <span className="text-[12px] text-[var(--muted)]">
+                              {u.email}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                    {!searching && searchHits.length === 0 ? (
+                      <li className="px-3 py-2 text-[12px] text-[var(--muted)]">
+                        {t('account.orgInviteSearchEmpty')}
+                      </li>
+                    ) : null}
+                  </ul>
+                ) : null}
+              </div>
               <Button
                 type="primary"
                 shape="round"
@@ -311,6 +519,29 @@ function AccountOrgPanel() {
               >
                 {t('account.orgInviteAction')}
               </Button>
+
+              {outgoing.length > 0 ? (
+                <div className="pt-2">
+                  <h3 className="mb-2 text-[13px] font-medium text-[var(--ink)]">
+                    {t('account.orgOutgoingPending')}
+                  </h3>
+                  <ul className="space-y-1.5">
+                    {outgoing.map((inv) => (
+                      <li
+                        key={inv.id}
+                        className="flex items-center justify-between gap-3 rounded-lg bg-[var(--account-main)] px-3 py-2 text-[13px]"
+                      >
+                        <span className="min-w-0 truncate text-[var(--ink)]">
+                          {inv.email || inv.userId || inv.id}
+                        </span>
+                        <span className="shrink-0 text-[var(--muted)]">
+                          {t('account.orgInvitePendingBadge')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="border-t border-[var(--line)] pt-4 text-[13px] text-[var(--muted)]">
