@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/classnames';
 
@@ -10,33 +10,61 @@ type Props = {
   className?: string;
   bordered?: boolean;
   /**
-   * `dark` — white feather on dark plate (`/logo-mark.png`), for light rails.
-   * `light` — dark feather on light plate (`/logo-mark-light.png`), for dark rails (e.g. login art).
-   * `auto` / omit — same as `dark`.
+   * `dark` — white feather on dark plate (`/logo-mark.png`), for light chrome.
+   * `light` — dark feather on light plate (`/logo-mark-light.png`), for dark chrome.
+   * `auto` / omit — follow `html[data-theme]` (light UI → dark plate, dark UI → light plate).
    */
   scheme?: LogoScheme | 'auto';
 };
 
-function markSrc(scheme: LogoScheme | 'auto' | undefined): string {
-  if (scheme === 'light') return '/logo-mark-light.png';
-  return '/logo-mark.png';
+function readUiTheme(): 'light' | 'dark' {
+  if (typeof document === 'undefined') return 'light';
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function useUiTheme(): 'light' | 'dark' {
+  const [theme, setTheme] = useState<'light' | 'dark'>(readUiTheme);
+  useEffect(() => {
+    const sync = () => setTheme(readUiTheme());
+    sync();
+    const root = document.documentElement;
+    const obs = new MutationObserver(sync);
+    obs.observe(root, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+    return () => obs.disconnect();
+  }, []);
+  return theme;
+}
+
+function resolveScheme(
+  scheme: LogoScheme | 'auto' | undefined,
+  uiTheme: 'light' | 'dark',
+): LogoScheme {
+  if (scheme === 'dark' || scheme === 'light') return scheme;
+  // Dark UI chrome → light plate mark; light UI → dark plate mark.
+  return uiTheme === 'dark' ? 'light' : 'dark';
+}
+
+function markSrc(scheme: LogoScheme): string {
+  return scheme === 'light' ? '/logo-mark-light.png' : '/logo-mark.png';
 }
 
 /**
- * Brand mark — scheme picks the fixed plate (not CSS theme).
- * Used by: HomeBody, LoginDialog, EditorBootOverlay.
+ * Brand mark — scheme picks the fixed plate (or follows theme when `auto`).
+ * Used by: HomeBody, LoginDialog, EditorBootOverlay, DesktopTitlebar.
  */
 function AppLogo({
   size = 36,
   className,
   bordered = false,
-  scheme = 'dark',
+  scheme = 'auto',
 }: Props) {
   const { t } = useTranslation();
+  const uiTheme = useUiTheme();
+  const resolved = resolveScheme(scheme, uiTheme);
 
   return (
     <img
-      src={markSrc(scheme)}
+      src={markSrc(resolved)}
       alt={t('app.name')}
       width={size}
       height={size}
