@@ -14,11 +14,11 @@ def test_push_and_list_hydrate_dlq():
         "not-json",
     ]
     with patch.object(job_store, "_client", return_value=fake):
-        job_store.push_hydrate_dlq({"job_id": "j1", "error": "boom", "trace_id": "t1"})
+        job_store.push_dlq("hydrate", {"job_id": "j1", "error": "boom", "trace_id": "t1"})
         fake.lpush.assert_called_once()
         fake.ltrim.assert_called_once()
         fake.expire.assert_called_once()
-        rows = job_store.list_hydrate_dlq(limit=10)
+        rows = job_store.list_dlq("hydrate", limit=10)
     assert rows[0]["job_id"] == "j1"
     assert rows[1]["_raw"] == "not-json"
 
@@ -57,8 +57,8 @@ def test_hydrate_dlq_depth_and_remove():
     ]
     fake.lrem.return_value = 1
     with patch.object(job_store, "_client", return_value=fake):
-        assert job_store.hydrate_dlq_depth() == 2
-        removed = job_store.remove_hydrate_dlq_job("j1")
+        assert job_store.dlq_depth("hydrate") == 2
+        removed = job_store.remove_dlq_job("hydrate", "j1")
     assert removed == 2
     assert fake.lrem.call_count == 2
 
@@ -67,8 +67,8 @@ def test_hydrate_dlq_depth_returns_zero_on_error():
     from app.services import job_store
 
     with patch.object(job_store, "_client", side_effect=RuntimeError("down")):
-        assert job_store.hydrate_dlq_depth() == 0
-        assert job_store.export_dlq_depth() == 0
+        assert job_store.dlq_depth("hydrate") == 0
+        assert job_store.dlq_depth("export") == 0
 
 
 def test_export_dlq_depth_and_remove():
@@ -81,12 +81,13 @@ def test_export_dlq_depth_and_remove():
     ]
     fake.lrem.return_value = 1
     with patch.object(job_store, "_client", return_value=fake):
-        job_store.push_export_dlq(
-            {"job_id": "e1", "error": "boom", "project_id": "p1", "user_id": "u1"}
+        job_store.push_dlq(
+            "export",
+            {"job_id": "e1", "error": "boom", "project_id": "p1", "user_id": "u1"},
         )
         fake.lpush.assert_called()
-        assert job_store.export_dlq_depth() == 1
-        removed = job_store.remove_export_dlq_job("e1")
+        assert job_store.dlq_depth("export") == 1
+        removed = job_store.remove_dlq_job("export", "e1")
     assert removed == 1
 
 
@@ -126,11 +127,11 @@ def test_admin_hydrate_dlq_list_replay_discard():
     }
     delay = MagicMock()
     with (
-        patch("app.api.routes.admin.ops.list_hydrate_dlq", return_value=[entry]),
-        patch("app.api.routes.admin.ops.hydrate_dlq_depth", return_value=1),
+        patch("app.api.routes.admin.ops.list_dlq", return_value=[entry]),
+        patch("app.api.routes.admin.ops.dlq_depth", return_value=1),
         patch("app.api.routes.admin.ops.get_job", return_value=None),
         patch("app.api.routes.admin.ops.save_job") as save,
-        patch("app.api.routes.admin.ops.remove_hydrate_dlq_job", return_value=1),
+        patch("app.api.routes.admin.ops.remove_dlq_job", return_value=1),
         patch("worker.tasks.run_image_hydrate_job") as task,
     ):
         task.delay = delay
@@ -191,11 +192,11 @@ def test_admin_export_dlq_list_replay_discard():
     }
     delay = MagicMock()
     with (
-        patch("app.api.routes.admin.ops.list_export_dlq", return_value=[entry]),
-        patch("app.api.routes.admin.ops.export_dlq_depth", return_value=1),
+        patch("app.api.routes.admin.ops.list_dlq", return_value=[entry]),
+        patch("app.api.routes.admin.ops.dlq_depth", return_value=1),
         patch("app.api.routes.admin.ops.get_job", return_value=None),
         patch("app.api.routes.admin.ops.save_job") as save,
-        patch("app.api.routes.admin.ops.remove_export_dlq_job", return_value=1),
+        patch("app.api.routes.admin.ops.remove_dlq_job", return_value=1),
         patch("worker.tasks.run_design_export_job") as task,
     ):
         task.delay = delay

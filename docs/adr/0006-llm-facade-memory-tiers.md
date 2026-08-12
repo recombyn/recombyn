@@ -5,7 +5,7 @@
 
 ## Context
 
-Big-co reference models treat “AI 模型中台” and layered memory as separate services. We already have a working in-process stack (`app.services.llm`, `agent_memory`, Design Agent `models_route`) and ADR 0004 forbids premature extraction. We need a **named contract** so new call sites do not invent parallel routers, without rewriting Design Agent.
+A separate “model gateway” service is unnecessary while one API owns chat, Design Agent, and BYOK. We need a **named contract** so new call sites do not invent parallel routers, without rewriting Design Agent.
 
 ## Decision
 
@@ -13,13 +13,13 @@ Big-co reference models treat “AI 模型中台” and layered memory as separa
 
 1. **Deployable:** stay inside the FastAPI modular monolith — no model-gateway microservice.
 2. **Canonical façade** (same module `app.services.llm`):
-   - `resolve_chat_endpoint` → credentials / transport (`LlmEndpoint`)
-   - `chat_model_for` → LangChain chat model
+   - `get_llm_endpoint` → credentials / transport (`LlmEndpoint`)
+   - `build_chat_model` → LangChain chat model
    - Modalities keep their modules: `generate_image` / video / audio
 3. **Ownership split:**
    - Design Agent owns **which** model (`models_route` + Admin rules).
    - Façade owns **how** to reach the provider (catalog, env keys, BYOK contextvars).
-4. Prefer façade names on **new** HTTP/job paths; existing `get_llm_endpoint` / `build_chat_model` remain aliases of the same implementation (no dual stacks).
+4. HTTP/job paths call the same two functions — no parallel alias layer.
 
 ### Memory tiers
 

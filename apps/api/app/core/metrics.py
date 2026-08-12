@@ -73,34 +73,27 @@ EXPORT_DLQ_DEPTH = Gauge(
 )
 
 
-def observe_hydrate_job(event: str) -> None:
+def observe_job(kind: str, event: str) -> None:
     """event: enqueued | done | failed | retry | dlq."""
+    counters = {"hydrate": HYDRATE_JOBS_TOTAL, "export": EXPORT_JOBS_TOTAL}
+    counter = counters.get(str(kind or "").strip().lower())
+    if counter is None:
+        return
     try:
-        HYDRATE_JOBS_TOTAL.labels(event=(event or "unknown")[:32]).inc()
+        counter.labels(event=(event or "unknown")[:32]).inc()
     except Exception:
-        logger.debug("hydrate job metric failed", exc_info=True)
+        logger.debug("%s job metric failed", kind, exc_info=True)
 
 
-def observe_hydrate_dlq() -> None:
+def observe_dlq(kind: str) -> None:
+    totals = {"hydrate": HYDRATE_DLQ_TOTAL, "export": EXPORT_DLQ_TOTAL}
+    total = totals.get(str(kind or "").strip().lower())
+    if total is None:
+        return
     try:
-        HYDRATE_DLQ_TOTAL.inc()
+        total.inc()
     except Exception:
-        logger.debug("hydrate dlq metric failed", exc_info=True)
-
-
-def observe_export_job(event: str) -> None:
-    """event: enqueued | done | failed | retry | dlq."""
-    try:
-        EXPORT_JOBS_TOTAL.labels(event=(event or "unknown")[:32]).inc()
-    except Exception:
-        logger.debug("export job metric failed", exc_info=True)
-
-
-def observe_export_dlq() -> None:
-    try:
-        EXPORT_DLQ_TOTAL.inc()
-    except Exception:
-        logger.debug("export dlq metric failed", exc_info=True)
+        logger.debug("%s dlq metric failed", kind, exc_info=True)
 
 
 def observe_design_run_start(run_mode: str = "agent") -> None:
@@ -132,10 +125,10 @@ def refresh_dependency_gauges() -> None:
     except Exception:
         logger.debug("dependency gauge refresh failed", exc_info=True)
     try:
-        from app.services.job_store import export_dlq_depth, hydrate_dlq_depth
+        from app.services.job_store import dlq_depth
 
-        HYDRATE_DLQ_DEPTH.set(float(hydrate_dlq_depth()))
-        EXPORT_DLQ_DEPTH.set(float(export_dlq_depth()))
+        HYDRATE_DLQ_DEPTH.set(float(dlq_depth("hydrate")))
+        EXPORT_DLQ_DEPTH.set(float(dlq_depth("export")))
     except Exception:
         logger.debug("job dlq depth gauge failed", exc_info=True)
 
@@ -160,6 +153,13 @@ def setup_metrics(app: "FastAPI") -> None:
         include_in_schema=True,
         tags=["health"],
     )
+
+    @app.middleware("http")
+    async def _refresh_gauges_on_scrape(request, call_next):
+        if str(request.url.path).rstrip("/").endswith("/metrics"):
+            refresh_dependency_gauges()
+        return await call_next(request)
+
     logger.info("Prometheus metrics exposed at /metrics")
 
 

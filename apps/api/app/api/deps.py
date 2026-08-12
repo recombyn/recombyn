@@ -222,7 +222,7 @@ def user_has_org_permission(
     return False
 
 
-def require_org_permission(permission: Permission, *, org_id_param: str = "org_id"):
+def require_org_permission(permission: Permission):
     """Depends factory — resolves org membership then checks permission."""
 
     def _dep(

@@ -294,8 +294,8 @@ def test_run_export_job_dlq(monkeypatch: pytest.MonkeyPatch):
         _boom,
     )
     monkeypatch.setattr(
-        "app.services.job_store.push_export_dlq",
-        lambda entry: dlq.append(dict(entry)),
+        "app.services.job_store.push_dlq",
+            lambda kind, entry: dlq.append(dict(entry)),
     )
     result = wt.run_design_export_job.run("j1")
     assert result.get("dlq") is True

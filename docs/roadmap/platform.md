@@ -36,7 +36,7 @@ Bounded contexts inside the modular monolith, plus the already-split collab proc
 | 用户权限 | Auth + wallet flags | Dedicated identity / multi-tenant org RBAC |
 | 画布存储 | Projects API + scene doc | Shard / multi-region document service |
 | 素材资产 | Uploads / object-storage hooks | CDN + virus scan + huge media pipeline |
-| AI 模型入口 | In-process façade (`resolve_chat_endpoint` / `chat_model_for`) | Extract gateway only with multi-product scale |
+| AI 模型入口 | In-process façade (`get_llm_endpoint` / `build_chat_model`) | Extract gateway only with multi-product scale |
 | 异步任务 | Worker deps present; most still sync | First job vertical (export / hydrate) |
 | 协同 | **`apps/collab` already separate** | Scale WS fleet independently (already can) |
 

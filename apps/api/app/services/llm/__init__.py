@@ -639,11 +639,6 @@ def get_llm_endpoint(model_string: str | None = None) -> LlmEndpoint:
     )
 
 
-def resolve_chat_endpoint(model_string: str | None = None) -> LlmEndpoint:
-    """Public model-中台 entry: resolve credentials/transport (ADR 0006)."""
-    return get_llm_endpoint(model_string)
-
-
 # ---------------------------------------------------------------------------
 # LangChain chat model (text only — not image /images/generations)
 # ---------------------------------------------------------------------------
@@ -814,38 +809,6 @@ def build_chat_model(
         api_model=api_model,
     )
     return llm.with_config(callbacks=[handler])
-
-
-def chat_model_for(
-    model: str | None = None,
-    *,
-    endpoint: LlmEndpoint | None = None,
-    max_tokens: int | None = None,
-    streaming: bool = False,
-    stream_usage: bool = True,
-    extra_body: Mapping[str, Any] | None = None,
-    timeout: float = 180.0,
-    stream_chunk_timeout: float | None = None,
-    model_id_override: str | None = None,
-    source: str | None = None,
-    catalog_model_id: str | None = None,
-    with_usage_callback: bool = True,
-):
-    """Public model-中台 entry: LangChain chat model (ADR 0006)."""
-    return build_chat_model(
-        model,
-        endpoint=endpoint,
-        max_tokens=max_tokens,
-        streaming=streaming,
-        stream_usage=stream_usage,
-        extra_body=extra_body,
-        timeout=timeout,
-        stream_chunk_timeout=stream_chunk_timeout,
-        model_id_override=model_id_override,
-        source=source,
-        catalog_model_id=catalog_model_id,
-        with_usage_callback=with_usage_callback,
-    )
 
 
 def usage_callback_handler(

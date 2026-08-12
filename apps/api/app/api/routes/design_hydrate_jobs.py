@@ -76,9 +76,9 @@ async def create_hydrate_job(
             detail=f"Job queue unavailable (start Redis + worker). {exc}",
         ) from exc
     try:
-        from app.core.metrics import observe_hydrate_job
+        from app.core.metrics import observe_job
 
-        observe_hydrate_job("enqueued")
+        observe_job("hydrate", "enqueued")
     except Exception:
         pass
     _log.info(

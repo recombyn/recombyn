@@ -82,9 +82,9 @@ async def create_export_job(
             detail=f"Job queue unavailable (start Redis + worker). {exc}",
         ) from exc
     try:
-        from app.core.metrics import observe_export_job
+        from app.core.metrics import observe_job
 
-        observe_export_job("enqueued")
+        observe_job("export", "enqueued")
     except Exception:
         pass
     _log.info(
