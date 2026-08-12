@@ -52,11 +52,23 @@ Expands to a `create`/`edit` trigger with `prompt_includes_any` when `triggers` 
 
 Aliases: `input_schema` / `output_schema`. Values merge into the skill row (meta fields win if both set). Used for validation hints / future runners — Phase A still relies on `preferred_tools` for live op gating.
 
-## `handler.py` (optional, not run yet)
+## `handler.py` (optional ops runner)
 
-If present, the loader logs that it was found and continues. Phase B will allow a runner that **returns `tool_ops` only**. Until then, put craft in `SKILL.md`.
+When **`DESIGN_SKILL_OPS_RUNNER=true`**, Paint will try the first loaded skill that has `handler.py` **before** the LLM:
 
-See `plugins/skills/festival_poster/handler.py.example`.
+```python
+def run(ctx: dict, payload: dict) -> list[dict]:
+    """Return tool_ops only — never mutate Redis/DB/canvas directly."""
+    return [{"name": "create_frame", "args": {...}}, ...]
+```
+
+- Subprocess + timeout (`DESIGN_SKILL_OPS_RUNNER_TIMEOUT_SEC`, default 8s)
+- Output always passes `validate_ops` (`preferred_tools` / contract)
+- Empty or invalid → fall through to normal LLM paint
+
+Sample: [`plugins/skills/festival_poster/handler.py`](../plugins/skills/festival_poster/handler.py) · [ADR 0015](./adr/0015-skill-ops-runner.md)
+
+Default is **off** — craft in `SKILL.md` still works without a handler.
 
 ## `assets/` / `examples/`
 
@@ -82,7 +94,7 @@ Duplicate `skill_key`: **later root wins** (plugins override seeds).
 
 ## Out of scope here
 
-- Frontend toolbar plugins (`manifest.json` + TypeScript) — [canvas-plugins.md](./canvas-plugins.md) (Phase B)
-- Executing `handler.py` / sandboxes / `.recombyn-plugin` zip install — Phase C/D
+- Frontend toolbar plugins — [canvas-plugins.md](./canvas-plugins.md) / ADR 0014  
+- Full process sandbox / `.recombyn-plugin` zip install — later  
 
-→ [ADR 0013](./adr/0013-skill-extensions.md)
+→ [ADR 0013](./adr/0013-skill-extensions.md) · [ADR 0015](./adr/0015-skill-ops-runner.md)
