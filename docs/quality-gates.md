@@ -101,6 +101,7 @@ View in Prometheus **Alerts**. Wire Grafana contact points locally (do not commi
 | Workflow | When |
 |----------|------|
 | **`ci.yml`** (umbrella) | Every PR / main — `check` + web unit + API unit + web build → **`CI / gate`** |
+| `release-docker.yml` | `v*.*.*` tags / dispatch — push api/web/collab to GHCR |
 | `web-tests.yml` | Path-filtered — web unit + stress + coverage |
 | `api-tests.yml` | Path-filtered — API unit + integration + cov |
 | `e2e-tests.yml` | Path-filtered — Playwright |

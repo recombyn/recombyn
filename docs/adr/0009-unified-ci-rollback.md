@@ -19,6 +19,7 @@ Phase 1–3 left us with path-filtered workflows (web / api / e2e / perf) but no
 3. **Do not** gate on `typecheck:web` until Phase 1 debt is cleared.
 4. **Semver / CHANGELOG:** Keep a Changelog at repo root; tags `vMAJOR.MINOR.PATCH` when cutting releases (manual until a release workflow exists).
 5. **Rollback:** Docker Compose image/tag rollback documented in `docs/self-hosting.md` (previous known-good tag → `up -d`). No k8s manifests in this phase.
+6. **GHCR publish:** `.github/workflows/release-docker.yml` on `v*.*.*` tags pushes `ghcr.io/<owner>/<repo>/{api,web,collab}`; `docker-compose.ghcr.yml` pulls them.
 
 ## Consequences
 

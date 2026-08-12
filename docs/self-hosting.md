@@ -268,6 +268,19 @@ docker compose up -d --build
 
 On first API start, schema + seed data are applied automatically.
 
+### Pre-built images (GHCR)
+
+Tagged releases (`vMAJOR.MINOR.PATCH`) publish `api` / `web` / `collab` to GitHub Container Registry via [`.github/workflows/release-docker.yml`](../.github/workflows/release-docker.yml). Worker reuses the `api` image.
+
+```bash
+# after: git tag v0.1.0 && git push origin v0.1.0  (and the workflow succeeds)
+export RECOMBYN_TAG=v0.1.0
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Images: `ghcr.io/<owner>/<repo>/{api,web,collab}` (default `ghcr.io/recombyn/recombyn/...`). Private packages need `docker login ghcr.io`. Compose override needs **Compose ≥ 2.24** (`build: !reset`).
+
 ### First login (no mail provider)
 
 Self-host only (`AUTH_CONSOLE_LOGIN_CODE=true`, set by default in `docker-compose.yml`).  
@@ -378,16 +391,17 @@ API startup logs **warnings** if admin password, collab secret, default MySQL pa
 Prefer **image tags** (or digest) over floating `latest`. When a release misbehaves:
 
 1. Note the previously known-good tag (from your registry or `docker compose images`).
-2. Pin services in `docker-compose.yml` / override file, e.g. `image: ghcr.io/org/recombyn-api:v0.1.0`.
-3. Redeploy without wiping volumes:
+4. Pin services in `docker-compose.yml` / use `docker-compose.ghcr.yml` with `RECOMBYN_TAG=vX.Y.Z`.
+5. Redeploy without wiping volumes:
 
 ```bash
-docker compose pull api web collab   # if using a registry
-docker compose up -d api web collab
+export RECOMBYN_TAG=v0.1.0   # last known-good
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
 ```
 
-4. Confirm `/api/v1/health` (or `/metrics`) and a smoke open of the editor.
-5. Do **not** delete `mysql_data` / Redis volumes unless you intend a destructive restore from backup.
+6. Confirm `/api/v1/health` (or `/metrics`) and a smoke open of the editor.
+7. Do **not** delete `mysql_data` / Redis volumes unless you intend a destructive restore from backup.
 
 Local `--build` deploys: check out the last good git tag, then `docker compose up -d --build`.
 
