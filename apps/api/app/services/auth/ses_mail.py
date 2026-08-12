@@ -224,3 +224,106 @@ def send_verification_email(*, to_email: str, code: str) -> str:
         message_id,
     )
     return message_id
+
+
+def public_app_origin() -> str:
+    """Web origin for deep links (no trailing slash)."""
+    s = _settings()
+    explicit = (s.public_app_base_url or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    activate = (s.ses_activate_base_url or "").strip()
+    if "/activate" in activate:
+        return activate.split("/activate", 1)[0].rstrip("/") or "https://recombyn.com"
+    if activate.startswith("http"):
+        # origin only
+        try:
+            from urllib.parse import urlparse
+
+            p = urlparse(activate)
+            if p.scheme and p.netloc:
+                return f"{p.scheme}://{p.netloc}"
+        except Exception:
+            pass
+    return "https://recombyn.com"
+
+
+def send_org_invite_email(
+    *,
+    to_email: str,
+    org_name: str,
+    inviter_name: str,
+    accept_path: str = "/account?tab=org",
+) -> str:
+    """Notify invitee about a pending org invite. Prefers SES Simple; Template fallback."""
+    s = _settings()
+    if not ses_configured():
+        raise SesError("Email sending is not configured")
+
+    from_email = s.ses_from_email.strip()
+    from_name = (s.ses_from_name or "recombyn").strip()
+    org = (org_name or "a team").strip()[:120]
+    inviter = (inviter_name or "A teammate").strip()[:80]
+    username = (to_email.split("@", 1)[0] or "there").strip()
+    accept_url = f"{public_app_origin()}{accept_path if accept_path.startswith('/') else '/' + accept_path}"
+    subject = f"[{from_name}] Invitation to join {org}"
+    text_body = (
+        f"Hi {username},\n\n"
+        f"{inviter} invited you to join “{org}” on Recombyn.\n"
+        f"Sign in and open Account → Organization to accept:\n"
+        f"{accept_url}\n\n"
+        f"— {from_name}\n"
+    )
+    html_body = (
+        f"<p>Hi {username},</p>"
+        f"<p><strong>{inviter}</strong> invited you to join "
+        f"<strong>{org}</strong> on Recombyn.</p>"
+        f"<p><a href=\"{accept_url}\">Open Account → Organization</a> to accept.</p>"
+        f"<p style=\"color:#666;font-size:12px\">{accept_url}</p>"
+    )
+
+    params: dict[str, Any] = {
+        "FromEmailAddress": (
+            f"{from_name} <{from_email}>" if from_name else from_email
+        ),
+        "Destination": [to_email.strip().lower()],
+        "Subject": subject,
+        "TriggerType": 1,
+        "Simple": {
+            "Html": html_body,
+            "Text": text_body,
+        },
+    }
+
+    try:
+        result = _ses_request("SendEmail", params)
+    except SesError as exc:
+        # Some tenants only allow Template sends — reuse login template vars.
+        logger.warning(
+            "org invite Simple send failed (%s); trying template fallback", exc
+        )
+        template_id = int(s.ses_template_id or 0)
+        if template_id <= 0:
+            raise
+        params.pop("Simple", None)
+        params["Template"] = {
+            "TemplateID": template_id,
+            "TemplateData": json.dumps(
+                {
+                    "username": username,
+                    # Template {{id}} often becomes the CTA body / path segment.
+                    "id": f"org-invite:{org}|{accept_url}",
+                },
+                ensure_ascii=False,
+            ),
+        }
+        result = _ses_request("SendEmail", params)
+
+    message_id = str(result.get("MessageId") or "")
+    logger.info(
+        "SendEmail org-invite ok to=%s org=%s messageId=%s",
+        to_email,
+        org,
+        message_id,
+    )
+    return message_id

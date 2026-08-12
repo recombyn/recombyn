@@ -654,6 +654,7 @@ const ja = {
     orgInviteAction: '招待を送る',
     orgInviteOk: '招待しました',
     orgInviteSent: '招待を送信しました（承認待ち）',
+    orgInviteSentEmail: '招待メールを送信しました（承認待ち）',
     orgInviteFailed: '招待に失敗しました',
     orgInviteUserMissing: 'そのメールのユーザーが見つかりません',
     orgInviteForbidden: 'オーナー/管理者のみ招待できます',

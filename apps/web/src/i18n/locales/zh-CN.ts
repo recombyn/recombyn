@@ -667,6 +667,7 @@ const zhCN = {
     orgInviteAction: '发送邀请',
     orgInviteOk: '已邀请',
     orgInviteSent: '邀请已发送，等待对方接受',
+    orgInviteSentEmail: '邀请邮件已发送，等待对方接受',
     orgInviteFailed: '邀请失败',
     orgInviteUserMissing: '找不到该邮箱用户',
     orgInviteForbidden: '仅所有者与管理员可邀请',
