@@ -1,16 +1,16 @@
 # Quality gates
 
-Local / CI gates for Recombyn. Monorepo foundation (Turborepo, shared configs, ADR): see [`docs/roadmap/bigco-alignment.md`](./roadmap/bigco-alignment.md) and [`docs/adr/`](./adr/README.md).
+Local / CI gates for Recombyn. Monorepo foundation (shared configs, ADR): see [`docs/roadmap/platform.md`](./roadmap/platform.md) and [`docs/adr/`](./adr/README.md).
 
 ## Quick commands
 
 | Command | Purpose |
 |---------|---------|
-| `npm run check` | Web ESLint + contracts `tsc` (via Turborepo) |
+| `npm run check` | Web ESLint + contracts `tsc` |
 | `npm run ci:gate` | Local mirror of CI umbrella (check + web unit + API unit) |
-| `npm run lint` / `typecheck` | Turbo lint / contracts typecheck |
+| `npm run lint` / `typecheck` | Workspace lint / contracts typecheck |
 | `npm run dev:stack` | Vite web + collab WS together |
-| `npm run dev:api` / `dev:worker` | API + Celery worker (hydrate/import jobs) |
+| `npm run dev:api` / `dev:worker` | API + background worker (hydrate/import jobs) |
 | `npm run test:gate:a` | Gate A quality script |
 | `npm run test:canvas:stress` | Canvas store + E2E stress matrix |
 | Stress baseline notes | [`docs/stress-baselines.md`](./stress-baselines.md) |

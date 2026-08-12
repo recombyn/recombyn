@@ -1,6 +1,6 @@
 """Server-side artboard export (PNG / PDF) for async jobs (ADR 0005).
 
-Not a full Fabric/SVG replay — composites artboard background, solid rects,
+Not a full canvas-engine replay — composites artboard background, solid rects,
 image nodes, and scene text (wrapped to the node box). Interactive canvas
 export stays in the browser.
 """

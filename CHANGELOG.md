@@ -10,7 +10,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 
 ### Added
 
-- Phase 1–3 foundation: Turborepo / ADR / async hydrate jobs / LLM façade / correlation logs / upload magic sniff
+- Phase 1–3 foundation: monorepo / ADR / async hydrate jobs / LLM façade / correlation logs / upload magic sniff
 - Unified CI umbrella (`.github/workflows/ci.yml`) — lint, contracts typecheck, **web `tsc`**, unit tests, web build (ADR 0009)
 - GHCR publish on `v*.*.*` tags (`release-docker.yml`) + `docker-compose.ghcr.yml` pull path
 - Desktop unsigned CI build (dispatch) + signing checklist (ADR 0010); stress baseline runbook

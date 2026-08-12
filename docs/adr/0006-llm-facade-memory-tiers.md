@@ -56,4 +56,4 @@ Strengthening a dedicated project store or vector index is a **later** change in
 - [ADR 0004](./0004-modular-monolith-first.md)
 - `apps/api/app/services/llm/__init__.py`
 - `apps/api/app/services/agent_memory/service.py`
-- [Roadmap Phase 2](../roadmap/bigco-alignment.md)
+- [Roadmap Phase 2](../roadmap/platform.md)

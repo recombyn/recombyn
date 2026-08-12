@@ -5,7 +5,7 @@
 
 ## Context
 
-Big-co AI canvas platforms often publish a reference topology: API gateway, identity, canvas store, asset service, AI model mid-platform, async workers, and collab — each a microservice. Recombyn already has a **Node collab process** and a **Python API** that owns auth, projects, wallet, and the Design Agent. Prematurely splitting the API would multiply ops cost without proven scale or team boundaries.
+Splitting gateway, identity, canvas store, assets, model routing, workers, and collab into separate deployables too early multiplies ops cost. Recombyn already has a **Node collab process** and a **Python API** that owns auth, projects, wallet, and the Design Agent. Extract services only with proven scale or team boundaries.
 
 ## Decision
 
@@ -16,7 +16,7 @@ Big-co AI canvas platforms often publish a reference topology: API gateway, iden
    - Separate release cadence / ownership
    - Clear data ownership that must not share the API DB transactionally
 4. **AI “模型中台”** starts as an **in-process adapter layer** (provider interface + routing), not a standalone gateway service.
-5. **Async work** uses Celery/Redis **workers sharing the API codebase** first; split worker images only if deploy/scaling needs diverge.
+5. **Async work** uses **workers sharing the API codebase** first; split worker images only if deploy/scaling needs diverge.
 
 ## Consequences
 
@@ -24,7 +24,7 @@ Big-co AI canvas platforms often publish a reference topology: API gateway, iden
 
 - Matches current team size and OSS self-host story.
 - Faster feature delivery; one schema / one migration story.
-- Still aligns with big-co *domain* thinking via ADR + CODEOWNERS + tests.
+- Domain boundaries stay explicit via ADR + CODEOWNERS + tests.
 
 ### Negative / trade-offs
 
@@ -38,5 +38,5 @@ Big-co AI canvas platforms often publish a reference topology: API gateway, iden
 
 ## References
 
-- [Roadmap mapping](../roadmap/bigco-alignment.md)
-- Celery settings already in `apps/api/app/core/config.py`
+- [Roadmap](../roadmap/platform.md)
+- Worker settings already in `apps/api/app/core/config.py`

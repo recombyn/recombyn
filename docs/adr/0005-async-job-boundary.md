@@ -16,7 +16,7 @@ Long-running work (PDF import, image hydrate, future export/render) must not blo
    - `GET …/jobs/{id}` → `{ job_id, status, progress, result?, error? }`
    - Status: `queued | processing | done | failed`
 4. **Progress streaming:** keep Design Agent SSE for interactive agent turns; **do not** invent a second SSE protocol for hydrate v1. Optional later: SSE `hydrate_progress` if poll UX is insufficient.
-5. **First verticals:** hydrate (`POST/GET /api/v1/design/hydrate/jobs`) and export (`POST/GET /api/v1/design/export/jobs` + `/file`). Export rasterizes stored artboards (background + rects + images + wrapped scene text) — not a full Fabric replay; interactive canvas export stays in the browser.
+5. **First verticals:** hydrate (`POST/GET /api/v1/design/hydrate/jobs`) and export (`POST/GET /api/v1/design/export/jobs` + `/file`). Export rasterizes stored artboards (background + rects + images + wrapped scene text) — not a full canvas-engine replay; interactive canvas export stays in the browser.
 6. **Retry / metrics / DLQ:** hydrate and export tasks use Celery `autoretry_for` on transient `ConnectionError` / `TimeoutError` / `OSError` (max 2, backoff). Counters `recombyn_hydrate_jobs_total{event}` / `recombyn_export_jobs_total{event}` (`enqueued|done|failed|retry|dlq`). Terminal failures `LPUSH` Redis lists `recombyn:dlq:hydrate` / `recombyn:dlq:export` (+ `*_dlq_total`, gauges `*_dlq_depth`). Admin replay: `GET/POST/DELETE /api/v1/admin/ops/hydrate-dlq` and `/export-dlq`.
 7. **Local DX:** `npm run dev:worker` starts Celery (`--pool=solo` on Windows). Settings: `design_image_hydrate_async`, `design_image_hydrate_queue_stall_sec`.
 
@@ -42,4 +42,4 @@ Long-running work (PDF import, image hydrate, future export/render) must not blo
 
 - `apps/api/app/api/routes/import_jobs.py`
 - `apps/api/worker/tasks.py`
-- [Roadmap Phase 2](../roadmap/bigco-alignment.md)
+- [Roadmap Phase 2](../roadmap/platform.md)
