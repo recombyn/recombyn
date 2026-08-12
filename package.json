@@ -22,6 +22,7 @@
     "build:desktop:cloud": "node scripts/dev-desktop.mjs build cloud",
     "build:desktop:sidecar": "node scripts/dev-desktop.mjs sidecar",
     "dev:api": "node scripts/dev-api.mjs",
+    "dev:worker": "node scripts/dev-worker.mjs",
     "gen:contracts": "npm run gen --workspace=@resume-scene/contracts",
     "build": "turbo run build --filter=@resume-scene/web",
     "lint": "turbo run lint",

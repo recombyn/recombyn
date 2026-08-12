@@ -9,6 +9,7 @@ Local / CI gates for Recombyn. Monorepo foundation (Turborepo, shared configs, A
 | `npm run check` | Web ESLint + contracts `tsc` (via Turborepo) |
 | `npm run lint` / `typecheck` | Turbo lint / contracts typecheck |
 | `npm run dev:stack` | Vite web + collab WS together |
+| `npm run dev:api` / `dev:worker` | API + Celery worker (hydrate/import jobs) |
 | `npm run test:gate:a` | Gate A quality script |
 | `npm run test:canvas:stress` | Canvas store + E2E stress matrix |
 

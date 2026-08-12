@@ -105,11 +105,14 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 ### Phase 2 — Backend productionization (async + AI platform)
 
-- [ ] ADR: async job boundary (priority, retry, DLQ, SSE progress)
-- [ ] First vertical async job (prefer export or image hydrate)
+- [x] ADR: async job boundary (priority deferred; poll contract; Redis + Celery) — [0005](../adr/0005-async-job-boundary.md)
+- [x] First vertical async job: `POST/GET /api/v1/design/hydrate/jobs` + `run_image_hydrate_job`
+- [x] `npm run dev:worker` (+ CODEOWNERS / PR template)
+- [ ] Wire hydrate job into Design Agent apply path (replace in-request await)
 - [ ] LLM adapter ADR + thin façade (model 中台 **in-process** first)
 - [ ] Memory tiers (project → session → global)
 - [ ] Alembic CI gate; coverage on new routes
+- [ ] Celery retry / DLQ metrics when failure rate known
 
 ### Phase 3 — Observability & security
 

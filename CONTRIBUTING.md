@@ -27,7 +27,7 @@ Useful scripts:
 | Command | Purpose |
 |---------|---------|
 | `npm run dev:stack` | Web + collab together |
-| `npm run dev:web` / `dev:api` / `dev:collab` | Individual local servers |
+| `npm run dev:web` / `dev:api` / `dev:worker` / `dev:collab` | Individual local servers |
 | `npm run check` | Turbo: lint + typecheck + web/contracts tests |
 | `npm run lint` / `typecheck` | Turbo across JS packages |
 | `npm run dev:desktop` / `build:desktop` | Tauri **local** (SQLite API sidecar) |

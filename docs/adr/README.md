@@ -24,3 +24,4 @@ Cross-cutting or irreversible technical choices live here. Product feature notes
 | [0002](./0002-canvas-rcb-runtime.md) | Custom RCB canvas runtime | Accepted |
 | [0003](./0003-yjs-collab-service.md) | Yjs collab as a separate Node service | Accepted |
 | [0004](./0004-modular-monolith-first.md) | Modular monolith first; defer microservices | Accepted |
+| [0005](./0005-async-job-boundary.md) | Async job boundary (Celery + Redis poll) | Accepted |
