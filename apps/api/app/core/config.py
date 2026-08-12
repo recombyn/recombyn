@@ -207,6 +207,10 @@ class Settings(BaseSettings):
     # Opt-in: run pack handler.py → tool_ops before LLM paint (subprocess, validated).
     design_skill_ops_runner: bool = False
     design_skill_ops_runner_timeout_sec: float = 8.0
+    # .recombyn-plugin: optional HMAC secret (empty = signature not required).
+    design_plugin_hmac_secret: str = ""
+    # Allow kind=canvas / install=disk to write under <repo>/plugins/{skills,canvas}.
+    design_plugin_disk_install: bool = False
 
     # Active AgentProfile id (seeds/agents/profiles/{id}.yaml). Empty → bindings.default.
     agent_profile_id: str = "design.canvas"
