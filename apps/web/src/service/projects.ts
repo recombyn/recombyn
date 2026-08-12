@@ -7,6 +7,8 @@ import { apiClient, apiQuery, queryClient } from '@/service/client';
 export type ProjectSummaryDto = {
   id: string;
   name: string;
+  /** Team org when shared. */
+  orgId?: string | null;
   /** Up to 4 cover tiles for 最近打开 / 我的项目 collage. */
   thumbnailUrl?: string | string[] | null;
   /** User-uploaded cover — auto-save must not overwrite. */
@@ -39,6 +41,8 @@ export type UpsertProjectBody = {
   thumbnailUrls?: string[] | null;
   thumbnailCustom?: boolean;
   baseRevision?: number;
+  /** Attach to team on create (requires org:project:write). */
+  orgId?: string | null;
 };
 
 export type PatchProjectBody = {

@@ -258,6 +258,15 @@ export async function pushProjectToCloud(payload: {
   };
   if (payload.thumb) applyThumbUpload(data, payload.thumb);
   if (base != null) data.baseRevision = base;
+  // First cloud write — attach preferred team org when set in Account → Organization.
+  if (base == null) {
+    try {
+      const orgId = localStorage.getItem('recombyn.preferredOrgId')?.trim();
+      if (orgId) data.orgId = orgId;
+    } catch {
+      /* ignore */
+    }
+  }
 
   const outcome = await tryCloudApi(() =>
     upsertProjectApi(data, base != null ? { 'If-Match': `"${base}"` } : undefined)

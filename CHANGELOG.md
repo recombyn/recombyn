@@ -19,6 +19,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Phase 6: k8s starter manifests, worker/collab OTel, RBAC permissions, 5k LOD budget test, paid-gen opt-in E2E
 - k8s HPA/Ingress examples; admin write audit router-wide; org_members Alembic skeleton
 - `projects.org_id` + org invite API; k8s PDB + NetworkPolicy starter manifests
+- Account **Organization** tab (create / invite / preferred org) + Projects org filter; contracts regen for `/orgs`
 
 ### Changed
 

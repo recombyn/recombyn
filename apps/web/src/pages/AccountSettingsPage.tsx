@@ -10,6 +10,7 @@ import WalletLedgerPanel from '@/components/layout/WalletLedgerPanel';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import AgentModelsPanel from '@/components/editor/panels/agent/AgentModelsPanel';
 import AccountProfileTab from '@/components/account/AccountProfileTab';
+import AccountOrgPanel from '@/components/account/AccountOrgPanel';
 import { apiQuery } from '@/service/client';
 import { useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
 import { setSession, type AuthUser } from '@/store/modules/auth';
@@ -18,7 +19,7 @@ import { readReturnToParam } from '@/utils/authReturnTo';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
-const ACCOUNT_TABS = ['profile', 'usage', 'agent'] as const;
+const ACCOUNT_TABS = ['profile', 'usage', 'agent', 'org'] as const;
 type AccountTab = (typeof ACCOUNT_TABS)[number];
 
 const accountTabParser = parseAsStringLiteral(ACCOUNT_TABS)
@@ -31,6 +32,8 @@ function accountPageTitle(tab: AccountTab, t: (key: string) => string): string {
       return t('wallet.billingTitle');
     case 'agent':
       return t('account.agentTitle');
+    case 'org':
+      return t('account.orgTitle');
     default:
       return t('account.title');
   }
@@ -42,13 +45,15 @@ function accountPageSubtitle(tab: AccountTab, t: (key: string) => string): strin
       return t('wallet.billingHint');
     case 'agent':
       return t('account.agentSubtitle');
+    case 'org':
+      return t('account.orgSubtitle');
     default:
       return t('account.subtitle');
   }
 }
 
 function accountShowsSubtitle(tab: AccountTab): boolean {
-  return tab === 'profile' || tab === 'agent';
+  return tab === 'profile' || tab === 'agent' || tab === 'org';
 }
 
 /** Account hub — left nav + profile / usage / agent panels. */
@@ -120,6 +125,7 @@ function AccountSettingsPage(): ReactNode {
 
   const navItems: { id: AccountTab; label: string }[] = [
     { id: 'profile', label: t('account.navProfile') },
+    { id: 'org', label: t('account.navOrg') },
     { id: 'agent', label: t('account.navAgent') },
     ...(!hideBillingUi ? [{ id: 'usage' as const, label: t('account.navUsage') }] : []),
   ];
@@ -189,6 +195,7 @@ function AccountSettingsPage(): ReactNode {
 
           {tab === 'usage' && !hideBillingUi ? <WalletLedgerPanel /> : null}
           {tab === 'agent' ? <AgentModelsPanel /> : null}
+          {tab === 'org' ? <AccountOrgPanel /> : null}
           {tab === 'profile' ? (
             <AccountProfileTab
               user={user}

@@ -3,7 +3,7 @@
 import { oc } from '@orpc/contract';
 import { z } from 'zod';
 
-import { zAdminAdminAdjustTokensBody, zAdminAdminAdjustTokensPath, zAdminAdminApplyOptimizePatchPath, zAdminAdminDeleteAssetPath, zAdminAdminDeleteDesignDictPath, zAdminAdminDeleteDesignDictQuery, zAdminAdminDeleteDesignDictTypePath, zAdminAdminDeleteDesignSkillPath, zAdminAdminDeleteFontFacePath, zAdminAdminDeleteFontPath, zAdminAdminDeleteKgTriplePath, zAdminAdminDeleteLikeQuery, zAdminAdminDeleteModelPath, zAdminAdminDeleteNoticePath, zAdminAdminDesignContentResyncQuery, zAdminAdminDesignDecisionLogDetailPath, zAdminAdminDesignDecisionLogsQuery, zAdminAdminDesignDictsQuery, zAdminAdminDesignDictTypesQuery, zAdminAdminDesignSkillsQuery, zAdminAdminDesignStageReviewsQuery, zAdminAdminDesignSystemPromptsQuery, zAdminAdminDismissOptimizePatchPath, zAdminAdminFontsUploadBody, zAdminAdminGenerateCardKeysBody, zAdminAdminGetNoticePath, zAdminAdminGetUserPath, zAdminAdminListAssetsQuery, zAdminAdminListCardKeysQuery, zAdminAdminListFontsQuery, zAdminAdminListKgTriplesQuery, zAdminAdminListLikesQuery, zAdminAdminListModelsQuery, zAdminAdminListNoticesQuery, zAdminAdminListOptimizePatchesQuery, zAdminAdminListProjectsQuery, zAdminAdminListUsersQuery, zAdminAdminModelUsageListQuery, zAdminAdminModelUsageSummaryQuery, zAdminAdminPatchUserBody, zAdminAdminPatchUserPath, zAdminAdminPlazaApprovePath, zAdminAdminPlazaCoverBody, zAdminAdminPlazaCoverPath, zAdminAdminPlazaDeletePath, zAdminAdminPlazaDetailPath, zAdminAdminPlazaFeedQuery, zAdminAdminPlazaListQuery, zAdminAdminPlazaPublishedQuery, zAdminAdminPlazaRejectBody, zAdminAdminPlazaRejectPath, zAdminAdminPlazaTitleBody, zAdminAdminPlazaTitlePath, zAdminAdminPlazaVisibilityBody, zAdminAdminPlazaVisibilityPath, zAdminAdminRevokeCardKeysBody, zAdminAdminRunColdArchiveQuery, zAdminAdminSyncModelPricesBody, zAdminAdminUpsertDesignCanvasToolBody, zAdminAdminUpsertDesignDictBody, zAdminAdminUpsertDesignDictTypeBody, zAdminAdminUpsertDesignRuntimeSettingBody, zAdminAdminUpsertDesignSkillBody, zAdminAdminUpsertDesignSystemPromptBody, zAdminAdminUpsertFontBody, zAdminAdminUpsertModelBody, zAdminAdminUpsertNoticeBody, zAdminAdminUserLedgerPath, zAdminAdminUserLedgerQuery, zAssetsDeleteMyAssetPath, zAssetsListMyAssetsQuery, zAssetsRegisterMyAssetBody, zAuthAuthGoogleBody, zAuthAuthPatchProfileBody, zAuthCaptchaVerifyBody, zAuthDesktopLocalLoginBody, zAuthEmailActivateBody, zAuthEmailLoginBody, zAuthEmailSendCodeBody, zAuthEmailVerifyCodeBody, zChatPostAgentTurnBody, zChatPostAudioBody, zChatPostImageBody, zChatPostMessageBody, zChatPostVideoBody, zChatSessionsGetSessionsQuery, zChatSessionsPutSessionBody, zChatSessionsRemoveSessionPath, zCollabCollabRoomTokenBody, zDesignDesignLongMemoryBody, zDesignDesignLottieGenerateBody, zDesignDesignRunBody, zDesignDesignRunCancelPath, zDesignDesignRunPausePath, zDesignDesignRunResumeBody, zDesignDesignRunResumePath, zDesignDesignRunSceneFeedbackBody, zDesignDesignRunSceneFeedbackPath, zDesignDesignRunStatusPath, zDesignDesignSkillsDeletePath, zDesignDesignSkillsImportZipBody, zDesignDesignSkillsPickerQuery, zDesignDesignSkillsSetEnabledBody, zDesignDesignSkillsSetEnabledPath, zDesignDesignSkillsUpsertBody, zFontsListFontsEndpointQuery, zFontsRegisterFontBody, zFontsUploadFontFileBody, zImageToolsPostImageProcessBody, zImportImportDocxBody, zImportImportImageBody, zImportImportPdfBody, zImportJobsCreateImportJobBody, zImportJobsGetImportJobPath, zMeMeByokDeletePath, zMeMeByokUpsertBody, zMeMeLikedListQuery, zMeMeLikedSyncBody, zMeMeLikePath, zMeMeUnlikePath, zNoticesNoticesListQuery, zPlazaPlazaAdminApprovePath, zPlazaPlazaAdminListQuery, zPlazaPlazaAdminRejectBody, zPlazaPlazaAdminRejectPath, zPlazaPlazaFeedQuery, zPlazaPlazaItemPath, zPlazaPlazaItemUsePath, zPlazaPlazaSubmitBody, zProjectsBatchRemoveBody, zProjectsExtractCoversBody, zProjectsExtractCoversPath, zProjectsGetOnePath, zProjectsListMyProjectsQuery, zProjectsPatchOneBody, zProjectsPatchOneHeaders, zProjectsPatchOnePath, zProjectsRemovePath, zProjectsUpsertBody, zProjectsUpsertHeaders, zSharesSharesCreateBody, zSharesSharesGetPath, zSharesSharesPatchBody, zSharesSharesPatchPath, zSharesSharesUpdateDocumentBody, zSharesSharesUpdateDocumentPath, zUploadsDeleteUploadedFilePath, zUploadsGetUploadContentByUrlQuery, zUploadsGetUploadedFilePath, zUploadsUploadFilesBody, zUsersUsersLookupQuery, zUsersUsersSearchQuery, zWalletWalletLedgerQuery, zWalletWalletRedeemBody } from './zod.gen';
+import { zAdminAdminAdjustTokensBody, zAdminAdminAdjustTokensPath, zAdminAdminApplyOptimizePatchPath, zAdminAdminDeleteAssetPath, zAdminAdminDeleteDesignDictPath, zAdminAdminDeleteDesignDictQuery, zAdminAdminDeleteDesignDictTypePath, zAdminAdminDeleteDesignSkillPath, zAdminAdminDeleteFontFacePath, zAdminAdminDeleteFontPath, zAdminAdminDeleteKgTriplePath, zAdminAdminDeleteLikeQuery, zAdminAdminDeleteModelPath, zAdminAdminDeleteNoticePath, zAdminAdminDesignContentResyncQuery, zAdminAdminDesignDecisionLogDetailPath, zAdminAdminDesignDecisionLogsQuery, zAdminAdminDesignDictsQuery, zAdminAdminDesignDictTypesQuery, zAdminAdminDesignSkillsQuery, zAdminAdminDesignStageReviewsQuery, zAdminAdminDesignSystemPromptsQuery, zAdminAdminDismissOptimizePatchPath, zAdminAdminFontsUploadBody, zAdminAdminGenerateCardKeysBody, zAdminAdminGetNoticePath, zAdminAdminGetUserPath, zAdminAdminListAssetsQuery, zAdminAdminListCardKeysQuery, zAdminAdminListFontsQuery, zAdminAdminListKgTriplesQuery, zAdminAdminListLikesQuery, zAdminAdminListModelsQuery, zAdminAdminListNoticesQuery, zAdminAdminListOptimizePatchesQuery, zAdminAdminListProjectsQuery, zAdminAdminListUsersQuery, zAdminAdminModelUsageListQuery, zAdminAdminModelUsageSummaryQuery, zAdminAdminPatchUserBody, zAdminAdminPatchUserPath, zAdminAdminPlazaApprovePath, zAdminAdminPlazaCoverBody, zAdminAdminPlazaCoverPath, zAdminAdminPlazaDeletePath, zAdminAdminPlazaDetailPath, zAdminAdminPlazaFeedQuery, zAdminAdminPlazaListQuery, zAdminAdminPlazaPublishedQuery, zAdminAdminPlazaRejectBody, zAdminAdminPlazaRejectPath, zAdminAdminPlazaTitleBody, zAdminAdminPlazaTitlePath, zAdminAdminPlazaVisibilityBody, zAdminAdminPlazaVisibilityPath, zAdminAdminRevokeCardKeysBody, zAdminAdminRunColdArchiveQuery, zAdminAdminSyncModelPricesBody, zAdminAdminUpsertDesignCanvasToolBody, zAdminAdminUpsertDesignDictBody, zAdminAdminUpsertDesignDictTypeBody, zAdminAdminUpsertDesignRuntimeSettingBody, zAdminAdminUpsertDesignSkillBody, zAdminAdminUpsertDesignSystemPromptBody, zAdminAdminUpsertFontBody, zAdminAdminUpsertModelBody, zAdminAdminUpsertNoticeBody, zAdminAdminUserLedgerPath, zAdminAdminUserLedgerQuery, zAssetsDeleteMyAssetPath, zAssetsListMyAssetsQuery, zAssetsRegisterMyAssetBody, zAuthAuthGoogleBody, zAuthAuthPatchProfileBody, zAuthCaptchaVerifyBody, zAuthDesktopLocalLoginBody, zAuthEmailActivateBody, zAuthEmailLoginBody, zAuthEmailSendCodeBody, zAuthEmailVerifyCodeBody, zChatPostAgentTurnBody, zChatPostAudioBody, zChatPostImageBody, zChatPostMessageBody, zChatPostVideoBody, zChatSessionsGetSessionsQuery, zChatSessionsPutSessionBody, zChatSessionsRemoveSessionPath, zCollabCollabRoomTokenBody, zDesignDesignLongMemoryBody, zDesignDesignLottieGenerateBody, zDesignDesignRunBody, zDesignDesignRunCancelPath, zDesignDesignRunPausePath, zDesignDesignRunResumeBody, zDesignDesignRunResumePath, zDesignDesignRunSceneFeedbackBody, zDesignDesignRunSceneFeedbackPath, zDesignDesignRunStatusPath, zDesignDesignSkillsDeletePath, zDesignDesignSkillsImportZipBody, zDesignDesignSkillsPickerQuery, zDesignDesignSkillsSetEnabledBody, zDesignDesignSkillsSetEnabledPath, zDesignDesignSkillsUpsertBody, zDesignHydrateJobsCreateHydrateJobBody, zDesignHydrateJobsGetHydrateJobPath, zFontsListFontsEndpointQuery, zFontsRegisterFontBody, zFontsUploadFontFileBody, zImageToolsPostImageProcessBody, zImportImportDocxBody, zImportImportImageBody, zImportImportPdfBody, zImportJobsCreateImportJobBody, zImportJobsGetImportJobPath, zMeMeByokDeletePath, zMeMeByokUpsertBody, zMeMeLikedListQuery, zMeMeLikedSyncBody, zMeMeLikePath, zMeMeUnlikePath, zNoticesNoticesListQuery, zOrgsCreateOrgBody, zOrgsGetOrgPath, zOrgsInviteMemberBody, zOrgsInviteMemberPath, zOrgsListMembersPath, zPlazaPlazaAdminApprovePath, zPlazaPlazaAdminListQuery, zPlazaPlazaAdminRejectBody, zPlazaPlazaAdminRejectPath, zPlazaPlazaFeedQuery, zPlazaPlazaItemPath, zPlazaPlazaItemUsePath, zPlazaPlazaSubmitBody, zProjectsBatchRemoveBody, zProjectsExtractCoversBody, zProjectsExtractCoversPath, zProjectsGetOnePath, zProjectsListMyProjectsQuery, zProjectsPatchOneBody, zProjectsPatchOneHeaders, zProjectsPatchOnePath, zProjectsRemovePath, zProjectsUpsertBody, zProjectsUpsertHeaders, zSharesSharesCreateBody, zSharesSharesGetPath, zSharesSharesPatchBody, zSharesSharesPatchPath, zSharesSharesUpdateDocumentBody, zSharesSharesUpdateDocumentPath, zUploadsDeleteUploadedFilePath, zUploadsGetUploadContentByUrlQuery, zUploadsGetUploadedFilePath, zUploadsUploadFilesBody, zUsersUsersLookupQuery, zUsersUsersSearchQuery, zWalletWalletLedgerQuery, zWalletWalletRedeemBody } from './zod.gen';
 
 /**
  * Health
@@ -1256,6 +1256,66 @@ export const noticesNoticesList = oc.route({
 }).input(z.object({ query: zNoticesNoticesListQuery.optional() }).optional());
 
 /**
+ * Create Org
+ */
+export const orgsCreateOrg = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'orgs-create_org',
+    path: '/orgs',
+    summary: 'Create Org',
+    tags: ['orgs']
+}).input(z.object({ body: zOrgsCreateOrgBody }));
+
+/**
+ * List My Orgs
+ */
+export const orgsListMyOrgs = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'orgs-list_my_orgs',
+    path: '/orgs/mine',
+    summary: 'List My Orgs',
+    tags: ['orgs']
+});
+
+/**
+ * Get Org
+ */
+export const orgsGetOrg = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'orgs-get_org',
+    path: '/orgs/{org_id}',
+    summary: 'Get Org',
+    tags: ['orgs']
+}).input(z.object({ params: zOrgsGetOrgPath }));
+
+/**
+ * List Members
+ */
+export const orgsListMembers = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'orgs-list_members',
+    path: '/orgs/{org_id}/members',
+    summary: 'List Members',
+    tags: ['orgs']
+}).input(z.object({ params: zOrgsListMembersPath }));
+
+/**
+ * Invite Member
+ */
+export const orgsInviteMember = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'orgs-invite_member',
+    path: '/orgs/{org_id}/members',
+    summary: 'Invite Member',
+    tags: ['orgs']
+}).input(z.object({ body: zOrgsInviteMemberBody, params: zOrgsInviteMemberPath }));
+
+/**
  * Plaza Submit
  */
 export const plazaPlazaSubmit = oc.route({
@@ -1756,6 +1816,30 @@ export const importJobsGetImportJob = oc.route({
 }).input(z.object({ params: zImportJobsGetImportJobPath }));
 
 /**
+ * Create Hydrate Job
+ */
+export const designHydrateJobsCreateHydrateJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'design-hydrate-jobs-create_hydrate_job',
+    path: '/design/hydrate/jobs',
+    summary: 'Create Hydrate Job',
+    tags: ['design-hydrate-jobs']
+}).input(z.object({ body: zDesignHydrateJobsCreateHydrateJobBody }));
+
+/**
+ * Get Hydrate Job
+ */
+export const designHydrateJobsGetHydrateJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'design-hydrate-jobs-get_hydrate_job',
+    path: '/design/hydrate/jobs/{job_id}',
+    summary: 'Get Hydrate Job',
+    tags: ['design-hydrate-jobs']
+}).input(z.object({ params: zDesignHydrateJobsGetHydrateJobPath }));
+
+/**
  * Get Models
  */
 export const chatGetModels = oc.route({
@@ -2077,6 +2161,21 @@ export const designDesignLongMemory = oc.route({
 }).input(z.object({ body: zDesignDesignLongMemoryBody }));
 
 /**
+ * Metrics
+ *
+ * Endpoint that serves Prometheus metrics.
+ */
+export const healthMetrics = oc.route({
+    description: 'Endpoint that serves Prometheus metrics.',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'health-metrics',
+    path: '/metrics',
+    summary: 'Metrics',
+    tags: ['health']
+});
+
+/**
  * Root
  */
 export const apiRoot = oc.route({
@@ -2187,6 +2286,11 @@ export const contract = {
     usersUsersSearch,
     usersUsersLookup,
     noticesNoticesList,
+    orgsCreateOrg,
+    orgsListMyOrgs,
+    orgsGetOrg,
+    orgsListMembers,
+    orgsInviteMember,
     plazaPlazaSubmit,
     plazaPlazaMine,
     plazaPlazaFeed,
@@ -2225,6 +2329,8 @@ export const contract = {
     importImportImage,
     importJobsCreateImportJob,
     importJobsGetImportJob,
+    designHydrateJobsCreateHydrateJob,
+    designHydrateJobsGetHydrateJob,
     chatGetModels,
     chatPostMessage,
     chatGetAgentTools,
@@ -2249,5 +2355,6 @@ export const contract = {
     designDesignRunResume,
     designDesignLottieGenerate,
     designDesignLongMemory,
+    healthMetrics,
     apiRoot
 };
