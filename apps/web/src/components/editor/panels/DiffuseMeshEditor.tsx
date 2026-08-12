@@ -284,10 +284,10 @@ function DiffuseMeshEditor({
         size="sm"
         fullWidth
         value={tab}
-        onChange={setTab}
+        onChange={(next) => setTab(next)}
         options={[
-          { value: 'settings', label: t('editor.fillDiffuseSettings') },
-          { value: 'presets', label: t('editor.fillDiffusePresets') },
+          { value: 'settings' as const, label: t('editor.fillDiffuseSettings') },
+          { value: 'presets' as const, label: t('editor.fillDiffusePresets') },
         ]}
       />
 

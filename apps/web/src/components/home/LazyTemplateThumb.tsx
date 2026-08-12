@@ -5,6 +5,7 @@ import {
   projectThumbZoomLayerClass,
 } from '@/utils/projectThumb';
 import { nearestScrollRoot } from '@/components/home/InfiniteScroll';
+import { cn } from '@/utils/classnames';
 
 type Props = {
   document?: unknown;

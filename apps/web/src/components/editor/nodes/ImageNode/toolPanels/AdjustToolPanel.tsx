@@ -139,12 +139,12 @@ function AdjustToolPanel({
         size="sm"
         fullWidth
         value={tab}
-        onChange={setTab}
+        onChange={(next) => setTab(next)}
         options={[
-          { value: 'light', label: <HiOutlineSun className="h-3.5 w-3.5" /> },
-          { value: 'color', label: <HiOutlineSwatch className="h-3.5 w-3.5" /> },
-          { value: 'detail', label: <TbContrast className="h-3.5 w-3.5" /> },
-          { value: 'effects', label: <TbDroplet className="h-3.5 w-3.5" /> },
+          { value: 'light' as const, label: <HiOutlineSun className="h-3.5 w-3.5" /> },
+          { value: 'color' as const, label: <HiOutlineSwatch className="h-3.5 w-3.5" /> },
+          { value: 'detail' as const, label: <TbContrast className="h-3.5 w-3.5" /> },
+          { value: 'effects' as const, label: <TbDroplet className="h-3.5 w-3.5" /> },
         ]}
       />
 

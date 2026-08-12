@@ -29,7 +29,7 @@
     "lint:web": "npm run lint --workspace=apps/web",
     "typecheck": "turbo run typecheck --filter=@resume-scene/contracts",
     "check": "turbo run lint --filter=@resume-scene/web && turbo run typecheck --filter=@resume-scene/contracts",
-    "ci:gate": "npm run check && npm run test:web && npm run test:api:unit",
+    "ci:gate": "npm run check && npm run typecheck:web && npm run test:web && npm run test:api:unit",
     "typecheck:web": "npm run typecheck --workspace=apps/web",
     "test": "npm run test:web && npm run test:api",
     "test:web": "npm run test --workspace=apps/web",

@@ -403,7 +403,7 @@ function CircleShapeHandlesOverlay({
   };
 
   /** Double-click 内半径 → solid disk (restore after opening a hole). */
-  const resetInnerSolid = (e: ReactPointerEvent<SVGElement>) => {
+  const resetInnerSolid = (e: React.MouseEvent<SVGElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -446,7 +446,7 @@ function CircleShapeHandlesOverlay({
   };
 
   /** Double-click 弧度 → full circle (keep prior CW/CCW sign). */
-  const resetArcFull = (e: ReactPointerEvent<SVGElement>) => {
+  const resetArcFull = (e: React.MouseEvent<SVGElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -474,7 +474,7 @@ function CircleShapeHandlesOverlay({
     interactive: boolean;
     isActive: boolean;
     onDown?: (e: ReactPointerEvent<SVGElement>) => void;
-    onDoubleClick?: (e: ReactPointerEvent<SVGElement>) => void;
+    onDoubleClick?: (e: React.MouseEvent<SVGGElement>) => void;
     onEnter?: () => void;
     onLeave?: () => void;
   };

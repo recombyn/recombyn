@@ -16,7 +16,8 @@ export type SegmentedOption<T extends string = string> = {
 export type SegmentedRadius = 'xl' | 'full';
 
 export type SegmentedControlProps<T extends string = string> = {
-  options: SegmentedOption<T>[];
+  /** Option ids — `NoInfer` so T is driven by `value` / `onChange`, not widened option literals. */
+  options: SegmentedOption<NoInfer<T>>[];
   value: T;
   onChange: (value: T) => void;
   className?: string;
@@ -83,7 +84,7 @@ type ThumbBox = { left: number; top: number; width: number; height: number };
  * Unified segmented tabs — notices / wallet / multi-angle / fill / adjust / home.
  * Active pill slides with a short transform transition.
  */
-function SegmentedControl<T extends string = string>({
+function SegmentedControlInner<const T extends string = string>({
   options,
   value,
   onChange,
@@ -221,6 +222,16 @@ function SegmentedControl<T extends string = string>({
   );
 }
 
-export default memo(SegmentedControl);
-const MemoizedSegmentedControl = memo(SegmentedControl);
-export { MemoizedSegmentedControl as SegmentedControl };
+const SegmentedControlMemo = memo(SegmentedControlInner);
+
+/**
+ * Generic wrapper around the memoized control — `memo()` erases type params, so call sites
+ * would otherwise see `onChange: (value: string) => void` and reject `setState` setters.
+ */
+export function SegmentedControl<const T extends string = string>(
+  props: SegmentedControlProps<T>
+): ReactNode {
+  return <SegmentedControlMemo {...(props as SegmentedControlProps<string>)} />;
+}
+
+export default SegmentedControl;

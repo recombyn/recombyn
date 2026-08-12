@@ -26,6 +26,8 @@ jobs:
         run: npm ci
       - name: Lint + contracts typecheck
         run: npm run check
+      - name: Web typecheck
+        run: npm run typecheck:web
 
   web-unit:
     runs-on: ubuntu-latest

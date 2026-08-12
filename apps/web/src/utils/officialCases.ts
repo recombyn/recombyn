@@ -61,7 +61,7 @@ export function resolveCaseTitle(
 /** Agent prompt prefill when user taps 「做同款」. */
 export function resolveCasePrompt(
   meta: OfficialCaseMeta,
-  t: (key: string, opts?: { defaultValue?: string }) => string
+  t: (key: string, opts?: Record<string, unknown>) => string
 ): string {
   if (meta.nameKey) {
     return t(`home.cases.prompt.${meta.nameKey}`, {
