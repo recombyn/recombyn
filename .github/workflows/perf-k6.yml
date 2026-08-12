@@ -69,6 +69,7 @@ jobs:
           SUPER_ADMIN_TEST_CODE: ${{ env.SUPER_ADMIN_TEST_CODE }}
           COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
           COLLAB_PUBLIC_WS_URL: ws://127.0.0.1:1234
+          RATE_LIMIT_ENABLED: 'false'
         run: |
           nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/api.log 2>&1 &
           for i in $(seq 1 60); do
@@ -103,6 +104,13 @@ jobs:
         run: |
           TOKEN=$(SUPER_ADMIN_TEST_CODE="$SUPER_ADMIN_TEST_CODE" node scripts/ci-mint-token.mjs)
           echo "PERF_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Verify PERF_TOKEN
+        run: |
+          code=$(curl -s -o /tmp/me.json -w "%{http_code}" -H "Authorization: Bearer $PERF_TOKEN" http://127.0.0.1:8000/api/v1/auth/me)
+          echo "auth/me => $code"
+          cat /tmp/me.json
+          test "$code" = "200"
 
       - name: k6 smoke
         run: k6 run perf/k6/smoke.js
