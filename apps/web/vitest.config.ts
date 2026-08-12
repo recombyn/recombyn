@@ -26,9 +26,13 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
+      '@canvas-plugins': path.resolve(__dirname, '../../plugins/canvas'),
     },
   },
   define: {
     __GOOGLE_CLIENT_ID__: JSON.stringify(''),
+    __DOCS_URL__: JSON.stringify(''),
+    __DESKTOP_MODE__: JSON.stringify(''),
+    __API_BASE_URL__: JSON.stringify(''),
   },
 });

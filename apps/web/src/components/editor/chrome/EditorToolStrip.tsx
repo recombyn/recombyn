@@ -43,6 +43,12 @@ import {
   failImageProcess,
 } from '@/store/modules/editor';
 import {
+  ensureCanvasPlugins,
+  listCanvasToolbarButtons,
+  buildCanvasPluginRuntime,
+  type CanvasToolbarButton,
+} from '@/plugins/canvas/host';
+import {
   fitImageSize,
   measureImageNaturalSize,
   prepareVideoUploadPreview
@@ -319,7 +325,21 @@ function EditorToolStrip({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [pluginButtons, setPluginButtons] = useState<CanvasToolbarButton[]>([]);
   const toolsLocked = Boolean(selectOnly);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPlugins() {
+      await ensureCanvasPlugins();
+      if (cancelled) return;
+      setPluginButtons(listCanvasToolbarButtons());
+    }
+    void loadPlugins();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!toolsLocked) return;
@@ -837,6 +857,31 @@ function EditorToolStrip({
           <LuImagePlus className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
         </ToolIcon>
       </ToolBtn>
+
+      {pluginButtons.map((btn) => (
+        <ToolBtn
+          key={btn.id}
+          tip={btn.tip}
+          disabled={toolsLocked}
+          onClick={() => {
+            const runtime = buildCanvasPluginRuntime(dispatch as any, () => store.getState(), {
+              camera,
+              stageEl,
+            });
+            btn.onClick(runtime);
+          }}
+        >
+          <ToolIcon>
+            {btn.icon ? (
+              btn.icon
+            ) : btn.iconSrc ? (
+              <img src={btn.iconSrc} alt="" className={TOOL_ICON_CLASS} />
+            ) : (
+              <LuHexagon className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
+            )}
+          </ToolIcon>
+        </ToolBtn>
+      ))}
 
       <input
         ref={imageInputRef}
