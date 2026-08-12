@@ -76,7 +76,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 4+) |
 |-----------|--------|-----------------|
-| K8s / 多 AZ | Starter manifests `deploy/k8s/` (ADR 0012) | HPA / ingress / multi-AZ when operated |
+| K8s / 多 AZ | Starter manifests + HPA/Ingress (ADR 0012) | Multi-AZ when operated |
 | 扩缩容 / 灰度 / 回滚 | Manual + GHCR tags | Docker tag + rollback runbook first |
 | 混沌工程 | No | Only after async + obs baselines |
 
@@ -84,11 +84,11 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next |
 |-----------|--------|------|
-| 细粒度 RBAC | resource×action helpers + admin audit | Org roles when teams land |
+| 细粒度 RBAC | resource×action + org_members skeleton | Wire org_id on projects / invites UI |
 | 文件查杀 / 内容安全 | Magic sniff + optional AV hook; Compose `av` profile (ClamAV) | Wire `UPLOAD_AV_COMMAND=clamdscan` in prod |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |
-| 脱敏 / 安全审计 | Log redaction + admin audit lines | Expand audit coverage |
+| 脱敏 / 安全审计 | Log redaction + admin write audit (router-wide) | Product audit log UI |
 
 ---
 
@@ -148,3 +148,6 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] 5k-node interactive LOD budget Vitest (`canvas5k.interactiveBudget`)
 - [x] Opt-in paid image gen E2E (`E2E_PAID_IMAGE_GEN=1`)
 - [x] Hydrate DLQ Prometheus alert
+- [x] k8s HPA + Ingress examples (`deploy/k8s/hpa.yaml`, `ingress.yaml`)
+- [x] Admin write audit on all `/admin/**` mutating routes (`audit_admin_writes`)
+- [x] Org membership skeleton (`orgs` / `org_members` + permission helpers)

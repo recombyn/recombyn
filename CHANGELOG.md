@@ -17,6 +17,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Mock image-gen promote E2E + project `baseRevision` 412 conflict coverage (Phase 5 slice)
 - Optional OpenTelemetry (`.[otel]`, ADR 0011); hydrate Redis DLQ; ClamAV compose profile; dual Yjs merge Gate B
 - Phase 6: k8s starter manifests, worker/collab OTel, RBAC permissions, 5k LOD budget test, paid-gen opt-in E2E
+- k8s HPA/Ingress examples; admin write audit router-wide; org_members Alembic skeleton
 
 ### Changed
 

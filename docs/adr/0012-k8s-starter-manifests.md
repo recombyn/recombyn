@@ -9,7 +9,7 @@ Compose + GHCR cover OSS self-host. Operators still ask for a k8s starting point
 
 ## Decision
 
-1. Ship **thin** manifests under `deploy/k8s/` (namespace, config, secret example, redis, api, worker, collab, web).
+1. Ship **thin** manifests under `deploy/k8s/` (namespace, config, secret example, redis, api, worker, collab, web, **HPA**, **Ingress example**).
 2. **No in-cluster MySQL** — `DATABASE_URL` points at managed/external DB.
 3. Images assume GHCR tags from `release-docker.yml`.
 4. Compose remains the documented default (ADR 0004 / 0009).
@@ -19,10 +19,11 @@ Compose + GHCR cover OSS self-host. Operators still ask for a k8s starting point
 ### Positive
 
 - Operators can `kubectl apply` without inventing topology from scratch.
+- CPU HPA + nginx Ingress example cover the common next asks.
 
 ### Negative / trade-offs
 
-- Not production-hardened (no HPA, PDB, network policies, ingress TLS examples yet).
+- Not production-hardened (no PDB, network policies, or multi-AZ topology yet).
 
 ## References
 

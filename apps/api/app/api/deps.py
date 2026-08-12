@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session
 
@@ -146,3 +146,111 @@ def audit_admin_mutation(
             "resource": resource,
         },
     )
+
+
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+async def audit_admin_writes(
+    request: Request,
+    response: Response,
+    admin: AdminUser,
+):
+    """Router-level dependency: audit successful admin mutating requests."""
+    yield
+    if request.method not in _WRITE_METHODS:
+        return
+    if int(getattr(response, "status_code", 500) or 500) >= 400:
+        return
+    path = request.url.path or ""
+    # /api/v1/admin/users/xyz → resource hint
+    parts = [p for p in path.split("/") if p]
+    resource = "admin"
+    resource_id = None
+    if "admin" in parts:
+        i = parts.index("admin")
+        if i + 1 < len(parts):
+            resource = parts[i + 1]
+        if i + 2 < len(parts):
+            resource_id = parts[i + 2]
+    audit_admin_mutation(
+        actor=admin,
+        action=f"{request.method} {path}",
+        resource=resource,
+        resource_id=resource_id,
+        trace_id=getattr(request.state, "trace_id", None),
+    )
+
+
+# ----- Org roles (skeleton) -----
+
+OrgRole = str  # owner | admin | member
+
+_ORG_ROLE_RANK: dict[str, int] = {
+    "member": 1,
+    "admin": 2,
+    "owner": 3,
+}
+
+
+def org_role_at_least(have: str | None, need: OrgRole) -> bool:
+    return _ORG_ROLE_RANK.get(str(have or "").lower(), 0) >= _ORG_ROLE_RANK.get(
+        str(need).lower(), 99
+    )
+
+
+def user_has_org_permission(
+    *,
+    user: SessionUser,
+    org_id: str,
+    permission: Permission,
+    member_role: str | None,
+) -> bool:
+    """Org-scoped check. Platform admins still bypass. member_role from org_members."""
+    if is_admin_user(user):
+        return True
+    if not org_id or not member_role:
+        return False
+    role = str(member_role).lower()
+    if permission.startswith("org:") and role in _ORG_ROLE_RANK:
+        # org:project:write needs member+; org:members:write needs admin+
+        if permission in {"org:project:read", "org:project:write", "org:billing:read"}:
+            return org_role_at_least(role, "member")
+        if permission in {"org:members:write", "org:settings:write", "org:billing:write"}:
+            return org_role_at_least(role, "admin")
+        return org_role_at_least(role, "owner")
+    return False
+
+
+def require_org_permission(permission: Permission, *, org_id_param: str = "org_id"):
+    """Depends factory — resolves org membership then checks permission."""
+
+    def _dep(
+        current_user: CurrentUser,
+        org_id: str,
+    ) -> SessionUser:
+        from app.services.auth.orgs import get_org_member_role
+
+        if not org_id:
+            raise HTTPException(status_code=400, detail="org_id required")
+        role = get_org_member_role(org_id=org_id, user_id=current_user.id)
+        if not user_has_org_permission(
+            user=current_user,
+            org_id=org_id,
+            permission=permission,
+            member_role=role,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "org_permission_denied",
+                    "permission": permission,
+                    "org_id": org_id,
+                },
+            )
+        return current_user
+
+    # Bind path/query org_id via explicit signature name expected by FastAPI.
+    _dep.__name__ = f"require_org_{permission.replace(':', '_')}"
+    return _dep
+

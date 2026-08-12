@@ -27,19 +27,26 @@ Shipped admin permission strings:
 
 End-user permissions today: `project:read` / `project:write` / `upload:write` / `wallet:read`.
 
-Example: `PATCH /admin/users/{id}` uses `require_permission("admin:users:write")` + audit line.
+### Example: `PATCH /admin/users/{id}` uses `require_permission("admin:users:write")`.
 
-Source of truth:
+All `/api/v1/admin/**` mutating methods (POST/PUT/PATCH/DELETE) emit `admin_audit` lines via router dependency `audit_admin_writes` (success only).
 
-- Role string on user: `user` \| `admin` (`app.services.auth.admin.is_admin_user`)
-- Bootstrap env: `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_ID`, `SUPER_ADMIN_BOOTSTRAP_PASSWORD`
-- HTTP deps: `app.api.deps.CurrentUser` / `AdminUser` / `require_permission`
+### Org roles (skeleton)
+
+Tables `orgs` / `org_members` (Alembic `0006_org_members`). Roles: `owner` > `admin` > `member`.
+
+| Helper | Meaning |
+|--------|---------|
+| `get_org_member_role` / `create_org` / `upsert_org_member` | `app.services.auth.orgs` |
+| `user_has_org_permission` / `require_org_permission` | `app.api.deps` |
+
+Org permissions: `org:project:*`, `org:members:write`, `org:settings:write`, `org:billing:*`. Platform `admin` bypasses org checks.
 
 ## Incremental next steps
 
-1. When org/teams land: introduce `org_role` table + checks beside `is_admin_user`, not a parallel auth stack.
-2. Prefer deny-by-default helpers next to the owning router (in-file), not a mega `rbac.py` until 3+ domains share more than the matrix above.
-3. Expand `audit_admin_mutation` to remaining admin write routes.
+1. Wire org_id onto projects and expose org admin HTTP routes.
+2. Prefer deny-by-default helpers next to the owning router (in-file).
+3. Expand product UI for team invites.
 
 ## Process
 
