@@ -141,7 +141,8 @@ export function applyFrameContentClip(
     );
     defs.appendChild(clip);
 
-    let wrap = el.parentElement;
+    // SVG parentElement is typed as HTMLElement in DOM lib; clip wrap is an SVG `<g>`.
+    let wrap: Element | null = el.parentElement;
     if (wrap?.getAttribute('data-frame-clip-wrap') !== '1') {
       const parent = el.parentNode;
       if (!parent) return;

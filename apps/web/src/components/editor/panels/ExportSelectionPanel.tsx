@@ -37,6 +37,9 @@ import {
   type ExportImageFormat,
   type ExportSlotConfig,
 } from '@/components/rcb/scene/paint/exportImage';
+import { pushProjectToCloud } from '@/components/editor/useProjectCloudSync';
+import { createExportJob, downloadExportJobFile, waitForExportJob } from '@/service/exportJobs';
+import { getToken } from '@/utils/token';
 import {
   normalizeDocument
 } from '@/components/rcb/scene/document/sceneDocument';
@@ -774,6 +777,8 @@ function EditorTopExportButton({
 }) {
   const { t } = useTranslation();
   const document = useSelector((s: any) => s.editor.document);
+  const dirty = useSelector((s: any) => Boolean(s.editor.dirty));
+  const currentId = useSelector((s: any) => s.editor.currentId as string | null);
   const selectedNodeIds = useSelector(
     (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
   );
@@ -887,6 +892,55 @@ function EditorTopExportButton({
     void run();
   }, [document, projectName, t]);
 
+  const runServerPdf = useCallback(() => {
+    setMenuOpen(false);
+    const projectId = String(currentId || '').trim();
+    if (!getToken()) {
+      message.warning(t('editor.exportNeedLogin'));
+      return;
+    }
+    if (!projectId || projectId.startsWith('share_')) {
+      message.warning(t('editor.exportNeedProject'));
+      return;
+    }
+    if (!document) {
+      message.error(t('editor.exportFailed'));
+      return;
+    }
+    if (!pageCrops.length) {
+      message.warning(t('editor.noPagesExport'));
+      return;
+    }
+    async function run() {
+      setBusy(true);
+      try {
+        if (dirty) {
+          const pushed = await pushProjectToCloud({
+            id: projectId,
+            name: projectName,
+            document,
+          });
+          if (pushed.status !== 'ok') {
+            message.error(t('editor.exportNeedSave'));
+            return;
+          }
+        }
+        const created = await createExportJob({ projectId, format: 'pdf' });
+        await waitForExportJob(created.job_id);
+        const blob = await downloadExportJobFile(created.job_id);
+        const result = await downloadFileBlob(blob, `${projectName || 'export'}.pdf`);
+        if (result === 'saved') message.success(t('editor.exportedServerPdf'));
+        else if (result !== 'cancelled') message.error(t('editor.exportFailed'));
+      } catch (err) {
+        console.warn('[export-pdf]', err);
+        message.error(t('editor.exportFailed'));
+      } finally {
+        setBusy(false);
+      }
+    }
+    void run();
+  }, [currentId, dirty, document, pageCrops.length, projectName, t]);
+
   const panelNodeIds = mode === 'selected' ? exportableSelectedIds : undefined;
   const panelCrops = mode === 'all' ? pageCrops : undefined;
   const panelBaseName = mode === 'all' ? t('editor.pageExportName') : t('editor.selectionExportName');
@@ -954,6 +1008,14 @@ function EditorTopExportButton({
               >
                 <HiOutlineCodeBracket className="h-4 w-4 shrink-0 text-[var(--muted)]" />
                 {t('editor.exportJson')}
+              </DropdownPanelItem>
+              <DropdownPanelItem
+                role="menuitem"
+                onClick={runServerPdf}
+                className="gap-2.5 hover:text-[var(--accent)] [&:hover_svg]:text-[var(--accent)]"
+              >
+                <HiOutlineArrowDownTray className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+                {t('editor.exportServerPdf')}
               </DropdownPanelItem>
             </DropdownPanel>
           </div>

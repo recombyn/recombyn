@@ -554,7 +554,7 @@ function EditorPage() {
   >(null);
   const [agentDraftImageAspect, setAgentDraftImageAspect] = useState<string | null>(null);
   const [agentDraftScene, setAgentDraftScene] = useState<
-    'website' | 'mobile' | 'image' | 'poster' | 'drawing' | null
+    'website' | 'mobile' | 'image' | 'poster' | 'drawing' | 'video' | null
   >(null);
   const [attachToChat, setAttachToChat] = useState<string | string[] | null>(null);
   // Layers / assets docks stay closed by default (open only via HUD toggle).

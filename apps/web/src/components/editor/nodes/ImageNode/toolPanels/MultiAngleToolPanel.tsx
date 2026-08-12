@@ -131,10 +131,10 @@ function MultiAngleToolPanel({
               size="sm"
               fullWidth
               value={tab}
-              onChange={setTab}
+              onChange={(next) => setTab(next)}
               options={[
-                { value: 'skybox', label: t('editor.imageToolbar.skybox') },
-                { value: 'camera', label: t('editor.imageToolbar.camera') },
+                { value: 'skybox' as const, label: t('editor.imageToolbar.skybox') },
+                { value: 'camera' as const, label: t('editor.imageToolbar.camera') },
               ]}
             />
 

@@ -1,6 +1,6 @@
 /**
  * Canvas element + generator plates (browser).
- * Does not call paid gen APIs (composer mount + type only).
+ * Mount/type by default; one case mocks POST /chat/image/jobs (no provider keys).
  */
 import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
@@ -104,11 +104,14 @@ test.describe('canvas generators + element tools', () => {
     await injectAuth(page);
   });
 
-  test('Image generator plate mounts (toolbar)', async ({ page }) => {
+  /** Tiny 1×1 PNG — enough for promote after mocked /chat/image. */
+  const MOCK_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  async function spawnImageGeneratorPlate(page: Page) {
     await openEditor(page);
     await focusCanvasHotkeys(page);
 
-    // Open layers so we can assert the spawned node even if the world chrome is off-screen.
     const layersBtn = page.getByRole('button', { name: /^Layers$|^图层$/i }).first();
     if (await layersBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await layersBtn.click({ force: true });
@@ -121,7 +124,6 @@ test.describe('canvas generators + element tools', () => {
     await genBtn.click({ force: true });
     await sleep(500);
 
-    // Layer row or composer chrome.
     const layerHit = page.getByText(/^Image generator$|^图像生成器$/i).first();
     const plate = page.locator('[data-image-generator]').first();
     const spawned =
@@ -134,13 +136,89 @@ test.describe('canvas generators + element tools', () => {
       await sleep(400);
     }
     await expect(page.locator('[data-image-generator]').first()).toBeVisible({ timeout: 15_000 });
-    // Prefer contenteditable / textarea; never match hidden file inputs.
+  }
+
+  test('Image generator plate mounts (toolbar)', async ({ page }) => {
+    await spawnImageGeneratorPlate(page);
     const input = page
       .locator('[data-image-generator] [contenteditable="true"], [data-image-generator] textarea')
       .first();
     await expect(input).toBeVisible({ timeout: 10_000 });
     await input.click({ force: true });
     await page.keyboard.type('e2e canvas image gen smoke', { delay: 4 });
+  });
+
+  test('Image generator mock finish promotes plate (no paid API)', async ({ page }) => {
+    await page.route('**/api/v1/chat/image**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/image/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-img', status: 'queued' }),
+        });
+        return;
+      }
+      if (url.includes('/chat/image/jobs/') && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            job_id: 'e2e-img',
+            status: 'done',
+            progress: 100,
+            result: { images: [MOCK_PNG], model: 'e2e-mock' },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ images: [MOCK_PNG], model: 'e2e-mock' }),
+      });
+    });
+
+    await spawnImageGeneratorPlate(page);
+    const plate = page.locator('[data-image-generator]').first();
+    const input = plate
+      .locator('[contenteditable="true"], textarea')
+      .first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e mock image promote', { delay: 4 });
+
+    const send = plate.locator('button:not([disabled])').last();
+    await expect(send).toBeEnabled({ timeout: 5_000 });
+    await send.click({ force: true });
+
+    // Promote clears generator chrome; media node keeps the same id.
+    await expect(page.locator('[data-image-generator]')).toHaveCount(0, { timeout: 20_000 });
+    await expect(
+      page.locator('img[src*="data:image/png"], image[href*="data:image/png"]').first()
+    ).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('Image generator real provider finish (opt-in paid)', async ({ page }) => {
+    test.skip(
+      process.env.E2E_PAID_IMAGE_GEN !== '1',
+      'Set E2E_PAID_IMAGE_GEN=1 (+ provider keys on API) to run paid image finish'
+    );
+    // Do not mock — hits live POST /api/v1/chat/image/jobs.
+    await spawnImageGeneratorPlate(page);
+    const plate = page.locator('[data-image-generator]').first();
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e paid image promote tiny square', { delay: 4 });
+    const send = plate.locator('button:not([disabled])').last();
+    await expect(send).toBeEnabled({ timeout: 5_000 });
+    await send.click({ force: true });
+    await expect(page.locator('[data-image-generator]')).toHaveCount(0, {
+      timeout: 180_000,
+    });
   });
 
   test('Video generator plate mounts (Shift+A)', async ({ page }) => {

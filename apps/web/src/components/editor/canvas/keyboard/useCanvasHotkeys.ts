@@ -130,7 +130,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
         const frameIds = (Array.isArray(doc?.frames) ? doc.frames : [])
           .filter((f: any) => f?.id && !f.locked)
           .map((f: any) => String(f.id));
-        onSelectMixed(nodeIds, frameIds);
+        onSelectMixed([...nodeIds], frameIds);
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'i') {
         e.preventDefault();

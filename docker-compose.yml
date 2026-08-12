@@ -3,6 +3,8 @@
 #
 #   cp apps/api/.env.example apps/api/.env   # LLM keys etc.
 #   docker compose up -d --build
+#   docker compose --profile obs up -d          # Prometheus :9090 / Grafana :3001 / Alertmanager :9093
+#   docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build
 #
 # Defaults: MySQL user/password/db = recombyn / recombyn / recombyn
 # Override: MYSQL_PASSWORD=...  DATABASE_URL=mysql://...
@@ -76,6 +78,7 @@ services:
       dockerfile: deploy/docker/Dockerfile.api
       args:
         INSTALL_OCR: "${INSTALL_OCR:-false}"
+        INSTALL_AV: "${INSTALL_AV:-false}"
     ports:
       - "8000:8000"
     env_file:
@@ -100,6 +103,13 @@ services:
       - AUTH_CONSOLE_LOGIN_CODE=${AUTH_CONSOLE_LOGIN_CODE:-true}
       # Self-host default: no platform credit wallet. Set true only if you want SaaS-style billing.
       - WALLET_BILLING_ENABLED=${WALLET_BILLING_ENABLED:-false}
+      # Optional AV: docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build
+      - UPLOAD_AV_HOOK_ENABLED=${UPLOAD_AV_HOOK_ENABLED:-false}
+      - UPLOAD_AV_COMMAND=${UPLOAD_AV_COMMAND:-}
+      # Optional OTel (pip install -e '.[otel]' in image / sidecar collector)
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-recombyn-api}
 
     depends_on:
       redis:
@@ -108,6 +118,65 @@ services:
         condition: service_healthy
       collab:
         condition: service_started
+
+  # Optional ClamAV — wire the API client with docker-compose.av.yml:
+  #   docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build
+  clamav:
+    profiles: ["av"]
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+
+  alertmanager:
+    profiles: ["obs"]
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./deploy/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  grafana:
+    profiles: ["obs"]
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: recombyn
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
 
   worker:
     build:
@@ -143,3 +212,6 @@ services:
 volumes:
   redis_data:
   mysql_data:
+  clamav_data:
+  prometheus_data:
+  grafana_data:

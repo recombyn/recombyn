@@ -107,15 +107,6 @@ Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/s
 
 Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models / OpenRouter: [docs/self-hosting.md](docs/self-hosting.md).
 
-## Core features
-
-- **Canvas editing** — see above (booleans, inside/outside stroke, outline, media, export, …)  
-- **Realtime collab** — Yjs WebSocket room (`apps/collab`); Live bar in the editor; WSS via nginx `/collab/`  
-- **Design Agent** — LangGraph + configurable Profile / Skills / tools; create, edit, and chat with streaming UI  
-- **Custom models & aggregators** — BYOK providers, manual OpenAI-compatible endpoints, OpenRouter and other multi-model platforms  
-- **Image import** — local images → editable canvas nodes  
-- **Plaza & projects** — inspiration feed and saved work (API)
-
 ## Quick start (self-host)
 
 ```bash

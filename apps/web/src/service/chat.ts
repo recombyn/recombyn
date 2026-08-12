@@ -3,6 +3,7 @@
  */
 
 import { abortAfter, apiClient, apiQuery, queryClient } from '@/service/client';
+import { request } from '@/utils/request';
 
 export type ModelReferenceType = 'text' | 'vision' | 'image';
 
@@ -145,15 +146,70 @@ export async function listModels(opts?: { force?: boolean }): Promise<ChatModels
   }) as Promise<ChatModelsResponse>;
 }
 
-/** POST /api/v1/chat/image */
-export const generateImage = (
+type ImageJobCreate = {
+  job_id: string;
+  status: 'queued';
+};
+
+type ImageJobState = {
+  job_id: string;
+  status: 'queued' | 'processing' | 'done' | 'failed';
+  progress?: number;
+  result?: GenerateImageResult | null;
+  error?: string | null;
+};
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function waitForImageJob(
+  jobId: string,
+  opts?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<GenerateImageResult> {
+  const timeoutMs = opts?.timeoutMs ?? 180_000;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (opts?.signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    const job = await request<ImageJobState>({
+      url: `/api/v1/chat/image/jobs/${encodeURIComponent(jobId)}`,
+      method: 'get',
+      skipInflightDedupe: true,
+      signal: opts?.signal,
+    });
+    if (job.status === 'done') {
+      const result = job.result;
+      if (!result || !Array.isArray(result.images)) {
+        throw new Error(job.error || 'image job missing result');
+      }
+      return result;
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'image generation failed');
+    }
+    await sleep(800);
+  }
+  throw new Error('image generation timed out');
+}
+
+/** POST /api/v1/chat/image/jobs + poll (keeps API workers free). */
+export async function generateImage(
   data: GenerateImageInput,
-  opts?: { signal?: AbortSignal }
-) =>
-  apiClient.chatPostImage(
-    { body: data as never },
-    { signal: opts?.signal }
-  ) as Promise<GenerateImageResult>;
+  opts?: { signal?: AbortSignal },
+): Promise<GenerateImageResult> {
+  const signal = abortAfter(180_000, opts?.signal);
+  const created = await request<ImageJobCreate>({
+    url: '/api/v1/chat/image/jobs',
+    method: 'post',
+    data,
+    signal,
+  });
+  return waitForImageJob(created.job_id, { signal });
+}
 
 export type GenerateVideoInput = {
   prompt: string;

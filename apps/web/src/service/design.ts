@@ -8,7 +8,7 @@ import { request } from '@/utils/request';
 import { sse } from '@/utils/sse';
 
 export type DesignRunMode = 'agent' | 'single_model' | 'partial';
-export type DesignScene = 'website' | 'mobile' | 'image' | 'poster' | 'drawing';
+export type DesignScene = 'website' | 'mobile' | 'image' | 'poster' | 'drawing' | 'video';
 
 export type DesignCatalog = {
   scenes: DesignScene[];

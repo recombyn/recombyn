@@ -24,6 +24,44 @@ const SECRET = Buffer.from(
   'utf8'
 );
 
+/** Optional OTel (ADR 0011) — same env contract as the API/worker. */
+async function maybeStartOtel() {
+  const endpoint = String(process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '').trim();
+  const enabledRaw = String(process.env.OTEL_ENABLED || '').trim().toLowerCase();
+  const enabled =
+    ['1', 'true', 'yes', 'on'].includes(enabledRaw) || Boolean(endpoint);
+  if (!enabled) return null;
+  try {
+    const { NodeSDK } = await import('@opentelemetry/sdk-node');
+    const { OTLPTraceExporter } = await import(
+      '@opentelemetry/exporter-trace-otlp-http'
+    );
+    const { resourceFromAttributes } = await import('@opentelemetry/resources');
+    const { ATTR_SERVICE_NAME } = await import(
+      '@opentelemetry/semantic-conventions'
+    );
+    const service =
+      process.env.OTEL_SERVICE_NAME || 'recombyn-collab';
+    const sdk = new NodeSDK({
+      resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: service }),
+      traceExporter: endpoint
+        ? new OTLPTraceExporter({ url: `${endpoint.replace(/\/$/, '')}/v1/traces` })
+        : undefined,
+    });
+    sdk.start();
+    console.info('[collab] OpenTelemetry enabled', { service, endpoint: endpoint || 'noop' });
+    return sdk;
+  } catch (err) {
+    console.warn(
+      '[collab] OTel enabled but packages missing — npm i @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/semantic-conventions',
+      err?.message || err
+    );
+    return null;
+  }
+}
+
+await maybeStartOtel();
+
 const messageSync = 0;
 const messageAwareness = 1;
 const wsConnecting = 0;

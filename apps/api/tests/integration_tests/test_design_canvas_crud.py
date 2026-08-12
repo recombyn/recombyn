@@ -693,7 +693,7 @@ def test_agent_all_canvas_ops(
         return list(step_ops or []), 0
 
     monkeypatch.setattr(
-        "app.services.design.ops.image_hydrate._hydrate_tool_ops_images",
+        "app.services.design.ops.image_hydrate.hydrate_tool_ops_images",
         _hydrate,
     )
     _mock_paint_path(monkeypatch, intent=intent, ops=ops)
@@ -745,7 +745,7 @@ def test_ask_all_canvas_ops_propose(
         return list(step_ops or []), 0
 
     monkeypatch.setattr(
-        "app.services.design.ops.image_hydrate._hydrate_tool_ops_images",
+        "app.services.design.ops.image_hydrate.hydrate_tool_ops_images",
         _hydrate,
     )
     _mock_paint_path(monkeypatch, intent=intent, ops=ops)

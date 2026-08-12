@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
-from app.api.deps import AdminUser
+from app.api.deps import AdminUser, audit_admin_mutation, require_permission
 from app.api.routes.admin.common import *  # noqa: F403
 from app.core.config import settings
+from app.services.auth import SessionUser
 
 router = APIRouter()
 
@@ -49,9 +50,10 @@ def admin_get_user(
 
 @router.patch("/users/{user_id}")
 def admin_patch_user(
-    _admin: AdminUser,
+    request: Request,
     user_id: str,
     body: UserPatchIn,
+    admin: SessionUser = Depends(require_permission("admin:users:write")),
 ) -> dict[str, Any]:
     try:
         item = update_user(
@@ -64,6 +66,13 @@ def admin_patch_user(
         raise HTTPException(status_code=400, detail=str(err)) from err
     if not item:
         raise HTTPException(status_code=404, detail="User not found")
+    audit_admin_mutation(
+        actor=admin,
+        action="users.patch",
+        resource="user",
+        resource_id=user_id,
+        trace_id=getattr(request.state, "trace_id", None),
+    )
     return {"item": item}
 
 @router.post("/users/{user_id}/adjust-tokens")

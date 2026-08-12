@@ -16,7 +16,8 @@ export const options = {
     checks: ['rate>0.99'],
     // Split: /health may wait on Redis/worker; root+metrics stay reasonable on local Windows.
     'http_req_duration{name:root}': ['p(95)<3000'],
-    'http_req_duration{name:metrics}': ['p(95)<1500'],
+    // /metrics may refresh dep gauges (throttled); allow cold-scrape cost.
+    'http_req_duration{name:metrics}': ['p(95)<3000'],
     'http_req_duration{name:health}': ['p(95)<8000'],
   },
 };

@@ -14,7 +14,10 @@ cp apps/api/.env.example apps/api/.env   # fill LLM keys as needed
 npm install
 npm run install:api                      # Python API deps
 npm run dev:api                          # http://127.0.0.1:8000
-npm run dev:web                          # http://localhost:3000
+npm run dev:stack                        # web :3000 + collab :1234
+# or separately:
+# npm run dev:web
+# npm run dev:collab
 # optional desktop (Rust + platform toolchain required):
 # npm run dev:desktop
 ```
@@ -23,7 +26,11 @@ Useful scripts:
 
 | Command | Purpose |
 |---------|---------|
-| `npm run dev:web` / `dev:api` | Local servers |
+| `npm run dev:stack` | Web + collab together |
+| `npm run dev:web` / `dev:api` / `dev:worker` / `dev:collab` | Individual local servers |
+| `npm run check` | Web ESLint + contracts typecheck |
+| `npm run ci:gate` | Local mirror of GitHub `CI / gate` (check + web/API unit) |
+| `npm run lint` / `typecheck` | Turbo across JS packages |
 | `npm run dev:desktop` / `build:desktop` | Tauri **local** (SQLite API sidecar) |
 | `npm run dev:desktop:cloud` / `build:desktop:cloud` | Tauri **cloud** UI ([docs/desktop.md](./docs/desktop.md)) |
 | `npm run test` | Web + API tests |
@@ -31,18 +38,25 @@ Useful scripts:
 | `npm run test:e2e` | Playwright (under `e2e/`) |
 | `npm run build` | Production web build |
 
-## Git identity (required)
+## Commits
 
-Commits must use an email verified on your GitHub account, or GitHub will not attribute them to you.
+Use [Conventional Commits](https://www.conventionalcommits.org/): `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`.
+
+`husky` + `commitlint` run on `commit-msg`. Examples:
 
 ```bash
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
-# or GitHub noreply: 12345678+username@users.noreply.github.com
-git config --global --get user.email
+feat(canvas): show mark-region live preview while dragging
+fix(api): skip soft min_creates without craft skills
+chore: add workspace task runner and shared tsconfig
 ```
 
-Do **not** add AI-assistant `Co-authored-by` trailers unless you intentionally want that co-author on the commit.
+Do **not** add AI-assistant `Co-authored-by` trailers (CI rejects `Co-authored-by: Cursor`).
+
+## Architecture decisions (ADR)
+
+Cross-cutting changes need an ADR under [`docs/adr/`](./docs/adr/README.md) (copy the template). Seed docs: monorepo boundaries, RCB canvas, collab. Roadmap: [`docs/roadmap/platform.md`](./docs/roadmap/platform.md).
+
+## Git identity (required)
 
 ## Branch & pull request flow (CLI)
 
@@ -65,8 +79,10 @@ git checkout -b feat/short-description
 4. **Run checks** that match your change
 
 ```bash
-npm run test:web          # frontend
-npm run test:api:unit     # API unit
+npm run ci:gate           # preferred before PR (umbrella)
+# or scoped:
+npm run test:web
+npm run test:api:unit
 # optional: npm run test:e2e
 ```
 

@@ -29,6 +29,9 @@ apps/api/storage/*.alembic.lock
 !apps/api/storage/results/.gitkeep
 !apps/api/storage/backups/.gitkeep
 
+# turborepo
+.turbo/
+
 # testing
 coverage/
 e2e/test-results/
@@ -100,6 +103,12 @@ apps/api/list_packs.py
 # Local agent smoke / stress scratch (never commit)
 .tmp-*
 .tmp_*
+test-results/
+.tools/
+packages/contracts/openapi-ts-error-*.log
+**/canvasStress.results.json
+**/canvas.stress.browser.results.json
+e2e/tests/*.results.json
 
 # Cursor IDE local (rules / skills / plans — do not publish)
 .cursor/

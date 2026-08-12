@@ -51,11 +51,14 @@ async function fetchSpec() {
 function exportViaPython() {
   const apiRoot = path.resolve(root, '../../apps/api');
   const py = process.env.PYTHON || 'python';
+  const tmpOut = path.join(outDir, '_raw-openapi.json');
+  fs.mkdirSync(outDir, { recursive: true });
   const code = `
-import json, sys
+import json, sys, logging
+logging.disable(logging.CRITICAL)
 sys.path.insert(0, r${JSON.stringify(apiRoot)})
 from app.main import app
-print(json.dumps(app.openapi()))
+open(r${JSON.stringify(tmpOut)}, "w", encoding="utf-8").write(json.dumps(app.openapi()))
 `;
   const r = spawnSync(py, ['-c', code], {
     encoding: 'utf8',
@@ -65,7 +68,7 @@ print(json.dumps(app.openapi()))
   if (r.status !== 0) {
     throw new Error(r.stderr || r.stdout || 'python openapi export failed');
   }
-  return JSON.parse(r.stdout);
+  return JSON.parse(fs.readFileSync(tmpOut, 'utf8'));
 }
 
 async function main() {

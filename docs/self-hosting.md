@@ -11,8 +11,10 @@ Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite)
 | Web editor | http://localhost:3000 |
 | API | http://localhost:8000 (`/docs`, **`/metrics`**) |
 | Collab (Yjs WS) | compose `collab` · browser via `ws://localhost:3000/collab/…` (prod: `wss://`) |
-| Prometheus | http://localhost:9090 (compose) |
-| Grafana | http://localhost:3001 (compose · default `admin` / `recombyn`) |
+| Prometheus | http://localhost:9090 (`docker compose --profile obs up -d`) |
+| Grafana | http://localhost:3001 (obs profile · default `admin` / `recombyn`) |
+| Alertmanager | http://localhost:9093 (obs profile · default no-op receiver) |
+| ClamAV (optional) | `docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build` |
 | Agent seeds | prompt packs + skills + **AgentProfile** YAML from `apps/api/seeds/` |
 | **MySQL 8** | compose service + volume `mysql_data` |
 | Redis | Celery / queues |
@@ -268,6 +270,19 @@ docker compose up -d --build
 
 On first API start, schema + seed data are applied automatically.
 
+### Pre-built images (GHCR)
+
+Tagged releases (`vMAJOR.MINOR.PATCH`) publish `api` / `web` / `collab` to GitHub Container Registry via [`.github/workflows/release-docker.yml`](../.github/workflows/release-docker.yml). Worker reuses the `api` image.
+
+```bash
+# after: git tag v0.1.0 && git push origin v0.1.0  (and the workflow succeeds)
+export RECOMBYN_TAG=v0.1.0
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Images: `ghcr.io/<owner>/<repo>/{api,web,collab}` (default `ghcr.io/recombyn/recombyn/...`). Private packages need `docker login ghcr.io`. Compose override needs **Compose ≥ 2.24** (`build: !reset`).
+
 ### First login (no mail provider)
 
 Self-host only (`AUTH_CONSOLE_LOGIN_CODE=true`, set by default in `docker-compose.yml`).  
@@ -372,6 +387,27 @@ Do this **before** exposing port 3000 / 8000 to the internet:
 11. Set `AUTH_CONSOLE_LOGIN_CODE=false` (or unset) once SES/Google auth is configured — never leave log OTPs on a public host.
 
 API startup logs **warnings** if admin password, collab secret, default MySQL password, card salt, or BYOK key look like local defaults.
+
+## Rollback (Docker Compose)
+
+Prefer **image tags** (or digest) over floating `latest`. When a release misbehaves:
+
+1. Note the previously known-good tag (from your registry or `docker compose images`).
+2. Pin with `docker-compose.ghcr.yml` and `RECOMBYN_TAG=vX.Y.Z`.
+3. Redeploy without wiping volumes:
+
+```bash
+export RECOMBYN_TAG=v0.1.0   # last known-good
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+4. Confirm `/api/v1/health` (or `/metrics`) and a smoke open of the editor.
+5. Do **not** delete `mysql_data` / Redis volumes unless you intend a destructive restore from backup.
+
+Local `--build` deploys: check out the last good git tag, then `docker compose up -d --build`.
+
+See [ADR 0009](./adr/0009-unified-ci-rollback.md). Semver notes live in root [CHANGELOG.md](../CHANGELOG.md).
 
 ## License
 

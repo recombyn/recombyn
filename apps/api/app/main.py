@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,12 +22,41 @@ def custom_generate_unique_id(route: APIRoute) -> str:
     tag = route.tags[0] if route.tags else "api"
     return f"{tag}-{route.name}"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    stream=sys.stdout,
-    force=True,
-)
+
+class _JsonLogFormatter(logging.Formatter):
+    """Optional JSON stdout lines (LOG_JSON / settings.log_json) — ADR 0007."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        for key in ("trace_id", "job_id", "event", "user_id"):
+            val = getattr(record, key, None)
+            if val is not None and str(val):
+                payload[key] = val
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def _configure_logging() -> None:
+    root = logging.getLogger()
+    handler = logging.StreamHandler(sys.stdout)
+    if bool(getattr(settings, "log_json", False)):
+        handler.setFormatter(_JsonLogFormatter())
+    else:
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+        )
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
+_configure_logging()
 try:
     from app.services.security import install_log_redaction
 
@@ -202,6 +233,28 @@ app = FastAPI(
 
 
 @app.middleware("http")
+async def correlate_trace_middleware(request: Request, call_next):
+    """Propagate X-Trace-Id / X-Request-Id; prefer active OTel span when present (ADR 0007 / 0011)."""
+    from app.services.job_store import normalize_trace_id
+
+    incoming = request.headers.get("x-trace-id") or request.headers.get("x-request-id")
+    trace_id = normalize_trace_id(incoming)
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        ctx = span.get_span_context() if span is not None else None
+        if ctx is not None and getattr(ctx, "is_valid", False):
+            trace_id = format(int(ctx.trace_id), "032x")
+    except Exception:
+        pass
+    request.state.trace_id = trace_id
+    response = await call_next(request)
+    response.headers["X-Trace-Id"] = trace_id
+    return response
+
+
+@app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path or ""
     if (
@@ -262,11 +315,12 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 try:
-    from app.core.metrics import setup_metrics
+    from app.core.metrics import setup_metrics, setup_otel
 
     setup_metrics(app)
+    setup_otel(app)
 except Exception:
-    logger.exception("Prometheus /metrics setup failed")
+    logger.exception("Prometheus / OTel setup failed")
 
 
 @app.get("/")

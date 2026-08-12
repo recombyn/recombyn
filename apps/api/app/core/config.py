@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     result_dir: str = "storage/results"
     max_upload_mb: int = 20
     max_video_upload_mb: int = 100
+    # Reject uploads whose magic bytes disagree with claimed image/video/audio type.
+    upload_require_magic_match: bool = True
+    # Optional external scanner (e.g. clamscan); off by default.
+    upload_av_hook_enabled: bool = False
+    upload_av_command: str = ""
+
+    # Observability (ADR 0007 / 0011) — JSON lines when true; human text otherwise.
+    log_json: bool = False
+    # OpenTelemetry — off by default; enable via OTEL_ENABLED or OTEL_EXPORTER_OTLP_ENDPOINT.
+    otel_enabled: bool = False
+    otel_service_name: str = "recombyn-api"
 
     # Phase 1: Celery + Redis + preprocess
     redis_url: str = "redis://localhost:6379/0"
@@ -122,6 +133,11 @@ class Settings(BaseSettings):
     design_paint_attempt_timeout_sec: float = 90.0
     # create_image hydrate in action/apply — emit tool_ops even if providers hang.
     design_image_hydrate_timeout_sec: float = 90.0
+    # Prefer Celery+Redis for apply/action hydrate (ADR 0005); fall back in-process
+    # when Redis/worker unavailable or job stays queued past stall window.
+    design_image_hydrate_async: bool = True
+    # If job never leaves "queued", assume no worker and fall back (seconds).
+    design_image_hydrate_queue_stall_sec: float = 5.0
     # Review LLM wall clock (abandon hung streams; fail-open to settle).
     design_review_llm_timeout_sec: float = 100.0
     # Verbose [exec]/llm_step] stage timers to stdout (off by default).
@@ -264,6 +280,8 @@ class Settings(BaseSettings):
     ses_template_id: int = 0
     # Used only when TemplateID is unset (Simple HTML fallback).
     ses_activate_base_url: str = "https://recombyn.com/activate"
+    # Public web origin for deep links (org invite → /account?tab=org). Empty → derive from activate URL.
+    public_app_base_url: str = ""
 
 settings = Settings()
 
