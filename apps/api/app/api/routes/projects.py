@@ -10,7 +10,11 @@ from pydantic import BaseModel, Field
 from app.api.deps import CurrentUser
 from app.models import BatchDeleteOut, OkOut, ProjectListOut, ProjectOneOut
 from app.services import projects as project_store
-from app.services.projects import ProjectConflictError, ProjectNotFoundError
+from app.services.projects import (
+    ProjectConflictError,
+    ProjectForbiddenError,
+    ProjectNotFoundError,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -57,6 +61,8 @@ class UpsertProjectIn(BaseModel):
     thumbnailCustom: bool | None = None
     """Client's last known revision — must match server or 412."""
     baseRevision: int | None = None
+    """Optional team org — requires org:project:write on create."""
+    orgId: str | None = Field(default=None, max_length=64)
 
 
 class PatchProjectIn(BaseModel):
@@ -88,8 +94,11 @@ def list_my_projects(
     current_user: CurrentUser,
     page: int = 1,
     pageSize: int = 24,
+    orgId: str | None = None,
 ) -> dict[str, Any]:
-    return project_store.list_projects(current_user.id, page=page, page_size=pageSize)
+    return project_store.list_projects(
+        current_user.id, page=page, page_size=pageSize, org_id=orgId
+    )
 
 
 @router.post("/batch-delete", response_model=BatchDeleteOut)
@@ -127,6 +136,11 @@ def extract_covers(
         )
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Not found") from exc
+    except ProjectForbiddenError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "id": exc.project_id},
+        ) from exc
     return {"project": row}
 
 
@@ -150,9 +164,15 @@ def upsert(
             thumbnail_urls=body.thumbnailUrls,
             thumbnail_custom=body.thumbnailCustom,
             base_revision=base_rev,
+            org_id=body.orgId,
         )
     except ProjectConflictError as exc:
         raise _conflict_http(exc) from exc
+    except ProjectForbiddenError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "id": exc.project_id},
+        ) from exc
     return {"project": row}
 
 
@@ -206,6 +226,11 @@ def patch_one(
         )
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Not found") from exc
+    except ProjectForbiddenError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "id": exc.project_id},
+        ) from exc
     except ProjectConflictError as exc:
         raise _conflict_http(exc) from exc
     return {"project": row}

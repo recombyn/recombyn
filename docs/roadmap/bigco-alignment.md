@@ -76,7 +76,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 4+) |
 |-----------|--------|-----------------|
-| K8s / 多 AZ | Starter manifests + HPA/Ingress (ADR 0012) | Multi-AZ when operated |
+| K8s / 多 AZ | Starter manifests + HPA/Ingress/PDB/NetworkPolicy (ADR 0012) | Multi-AZ when operated |
 | 扩缩容 / 灰度 / 回滚 | Manual + GHCR tags | Docker tag + rollback runbook first |
 | 混沌工程 | No | Only after async + obs baselines |
 
@@ -84,7 +84,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next |
 |-----------|--------|------|
-| 细粒度 RBAC | resource×action + org_members skeleton | Wire org_id on projects / invites UI |
+| 细粒度 RBAC | resource×action + org_members + project.org_id + invite API | Project↔org UI / invite UX |
 | 文件查杀 / 内容安全 | Magic sniff + optional AV hook; Compose `av` profile (ClamAV) | Wire `UPLOAD_AV_COMMAND=clamdscan` in prod |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |
@@ -151,3 +151,5 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] k8s HPA + Ingress examples (`deploy/k8s/hpa.yaml`, `ingress.yaml`)
 - [x] Admin write audit on all `/admin/**` mutating routes (`audit_admin_writes`)
 - [x] Org membership skeleton (`orgs` / `org_members` + permission helpers)
+- [x] `projects.org_id` + org invite API (`POST/GET /orgs`, members invite)
+- [x] k8s PDB + NetworkPolicy (`deploy/k8s/pdb.yaml`, `networkpolicy.yaml`)

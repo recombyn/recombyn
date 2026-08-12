@@ -8,14 +8,14 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from app.core.db import engine
+from app.core import db as core_db
 from app.models import Org, OrgMember
 
 
 def create_org(*, name: str, owner_user_id: str) -> dict[str, Any]:
     org_id = f"org_{uuid.uuid4().hex[:16]}"
     now = time.time()
-    with Session(engine) as session:
+    with Session(core_db.engine) as session:
         session.add(
             Org(
                 id=org_id,
@@ -41,7 +41,7 @@ def get_org_member_role(*, org_id: str, user_id: str) -> str | None:
     uid = (user_id or "").strip()
     if not oid or not uid:
         return None
-    with Session(engine) as session:
+    with Session(core_db.engine) as session:
         row = session.exec(
             select(OrgMember).where(
                 OrgMember.org_id == oid,
@@ -67,7 +67,7 @@ def upsert_org_member(
     if not oid or not uid:
         raise ValueError("org_id_and_user_required")
     now = time.time()
-    with Session(engine) as session:
+    with Session(core_db.engine) as session:
         row = session.exec(
             select(OrgMember).where(
                 OrgMember.org_id == oid,
@@ -89,9 +89,79 @@ def list_org_members(*, org_id: str) -> list[dict[str, Any]]:
     oid = (org_id or "").strip()
     if not oid:
         return []
-    with Session(engine) as session:
+    with Session(core_db.engine) as session:
         rows = session.exec(select(OrgMember).where(OrgMember.org_id == oid)).all()
         return [
             {"org_id": r.org_id, "user_id": r.user_id, "role": r.role, "created_at": r.created_at}
             for r in rows
         ]
+
+
+def list_orgs_for_user(*, user_id: str) -> list[dict[str, Any]]:
+    uid = (user_id or "").strip()
+    if not uid:
+        return []
+    with Session(core_db.engine) as session:
+        rows = session.exec(
+            select(OrgMember, Org)
+            .join(Org, Org.id == OrgMember.org_id)
+            .where(OrgMember.user_id == uid)
+        ).all()
+        out: list[dict[str, Any]] = []
+        for mem, org in rows:
+            out.append(
+                {
+                    "id": org.id,
+                    "name": org.name,
+                    "role": mem.role,
+                    "createdAt": int(float(org.created_at or 0) * 1000),
+                    "updatedAt": int(float(org.updated_at or 0) * 1000),
+                }
+            )
+        return out
+
+
+def get_org(*, org_id: str) -> dict[str, Any] | None:
+    oid = (org_id or "").strip()
+    if not oid:
+        return None
+    with Session(core_db.engine) as session:
+        row = session.get(Org, oid)
+        if not row:
+            return None
+        return {
+            "id": row.id,
+            "name": row.name,
+            "createdAt": int(float(row.created_at or 0) * 1000),
+            "updatedAt": int(float(row.updated_at or 0) * 1000),
+        }
+
+
+def invite_org_member(
+    *,
+    org_id: str,
+    actor_user_id: str,
+    user_id: str | None = None,
+    email: str | None = None,
+    role: str = "member",
+) -> dict[str, Any]:
+    """Invite by userId or email. Caller must already have org:members:write."""
+    from app import crud
+
+    oid = (org_id or "").strip()
+    uid = (user_id or "").strip() or None
+    em = (email or "").strip().lower() or None
+    if not oid:
+        raise ValueError("org_id_required")
+    if not uid and not em:
+        raise ValueError("user_id_or_email_required")
+
+    if not uid and em:
+        with Session(core_db.engine) as session:
+            user = crud.get_user_by_email(session=session, email=em)
+            if not user:
+                raise LookupError("user_not_found")
+            uid = str(user.id)
+
+    assert uid
+    return upsert_org_member(org_id=oid, user_id=uid, role=role)

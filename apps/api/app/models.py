@@ -158,6 +158,8 @@ class Project(SQLModel, table=True):
 
     id: str = Field(primary_key=True, max_length=64)
     user_id: str = Field(index=True, max_length=64)
+    """Optional team container — members may read/write per org role."""
+    org_id: Optional[str] = Field(default=None, index=True, max_length=64)
     name: str = Field(default="Untitled", max_length=255)
     thumbnail_key: Optional[str] = Field(default=None, max_length=512)
     thumbnail_custom: int = Field(default=0)

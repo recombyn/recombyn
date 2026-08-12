@@ -44,6 +44,68 @@ class ProjectNotFoundError(Exception):
         self.project_id = project_id
 
 
+class ProjectForbiddenError(Exception):
+    def __init__(self, project_id: str = "", *, code: str = "project_forbidden"):
+        super().__init__(code)
+        self.project_id = project_id
+        self.code = code
+
+
+def _can_write_project(*, user_id: str, row: Any) -> bool:
+    if str(getattr(row, "user_id", "") or "") == str(user_id or ""):
+        return True
+    oid = str(getattr(row, "org_id", None) or "").strip()
+    if not oid:
+        return False
+    from types import SimpleNamespace
+
+    from app.api.deps import user_has_org_permission
+    from app.services.auth.orgs import get_org_member_role
+
+    role = get_org_member_role(org_id=oid, user_id=user_id)
+    user = SimpleNamespace(id=user_id, role="user", email="")
+    return user_has_org_permission(
+        user=user,  # type: ignore[arg-type]
+        org_id=oid,
+        permission="org:project:write",
+        member_role=role,
+    )
+
+
+def _require_org_project_write(*, user_id: str, org_id: str) -> None:
+    from types import SimpleNamespace
+
+    from app.api.deps import user_has_org_permission
+    from app.services.auth.orgs import get_org_member_role
+
+    oid = (org_id or "").strip()
+    if not oid:
+        raise ProjectForbiddenError("", code="org_id_required")
+    role = get_org_member_role(org_id=oid, user_id=user_id)
+    user = SimpleNamespace(id=user_id, role="user", email="")
+    if not user_has_org_permission(
+        user=user,  # type: ignore[arg-type]
+        org_id=oid,
+        permission="org:project:write",
+        member_role=role,
+    ):
+        raise ProjectForbiddenError("", code="org_permission_denied")
+
+
+def _project_out_meta(row: Any, *, thumb_key: str | None, thumb_custom: bool) -> dict[str, Any]:
+    oid = getattr(row, "org_id", None)
+    return {
+        "id": row.id,
+        "name": row.name,
+        "orgId": str(oid) if oid else None,
+        "thumbnailUrl": _thumbnail_urls_out(thumb_key),
+        "thumbnailCustom": bool(thumb_custom),
+        "revision": int(row.revision or 1),
+        "updatedAt": int(float(row.updated_at) * 1000),
+        "createdAt": int(float(row.created_at) * 1000),
+    }
+
+
 def _decode_document_row(row: Any) -> dict[str, Any] | None:
     doc_json = _row_field(row, "document_json")
     doc_key = _row_field(row, "document_key")
@@ -778,11 +840,13 @@ def patch_project(
     now = time.time()
 
     with Session(engine) as session:
-        existing = crud.get_project_for_user(
+        existing = crud.get_project_accessible(
             session=session, user_id=user_id, project_id=pid
         )
         if not existing:
             raise ProjectNotFoundError(pid)
+        if not _can_write_project(user_id=user_id, row=existing):
+            raise ProjectForbiddenError(pid)
 
         cur_rev = int(existing.revision or 1)
         if base_revision is None or int(base_revision) != cur_rev:
@@ -800,7 +864,9 @@ def patch_project(
                 updated_at_ms=int(float(existing.updated_at) * 1000),
             )
         merged = apply_document_patch(base_doc, patch or {})
-        doc_json, doc_key = _encode_document(user_id, pid, merged)
+        # Encode under document owner id so COS keys stay stable for org collaborators.
+        owner_id = str(existing.user_id or user_id)
+        doc_json, doc_key = _encode_document(owner_id, pid, merged)
         next_rev = cur_rev + 1
         name_n = (
             (name or "").strip()[:255]
@@ -809,7 +875,7 @@ def patch_project(
         )
         # Rebuild covers from merged document on every PATCH (same as full upsert).
         thumb_key, thumb_custom = _next_thumbnail(
-            user_id,
+            owner_id,
             pid,
             thumbnail_data_url,
             existing.thumbnail_key,
@@ -821,10 +887,10 @@ def patch_project(
         )
         old_key = existing.document_key
         created_at = float(existing.created_at)
+        org_id_out = getattr(existing, "org_id", None)
 
-        ok = crud.update_project_if_revision(
+        ok = crud.update_project_if_revision_accessible(
             session=session,
-            user_id=user_id,
             project_id=pid,
             expected_revision=cur_rev,
             values={
@@ -838,7 +904,7 @@ def patch_project(
             },
         )
         if not ok:
-            latest = crud.get_project_for_user(
+            latest = crud.get_project_accessible(
                 session=session, user_id=user_id, project_id=pid
             )
             raise ProjectConflictError(
@@ -857,7 +923,7 @@ def patch_project(
         from app.services.shares.store import sync_project_share_documents
 
         sync_project_share_documents(
-            owner_id=user_id, project_id=pid, document=merged
+            owner_id=owner_id, project_id=pid, document=merged
         )
     except Exception:
         pass
@@ -865,6 +931,7 @@ def patch_project(
     return {
         "id": pid,
         "name": name_n,
+        "orgId": str(org_id_out) if org_id_out else None,
         "thumbnailUrl": _thumbnail_urls_out(thumb_key),
         "thumbnailCustom": bool(thumb_custom),
         "revision": next_rev,
@@ -878,6 +945,7 @@ def list_projects(
     *,
     page: int = 1,
     page_size: int = 24,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     from sqlmodel import Session
 
@@ -889,28 +957,24 @@ def list_projects(
     page_size_n = max(1, min(int(page_size or 24), 100))
     offset = (page_n - 1) * page_size_n
     with Session(engine) as session:
-        total = crud.count_projects_for_user(session=session, user_id=user_id)
-        rows = crud.list_projects_for_user(
+        total = crud.count_projects_accessible(
+            session=session, user_id=user_id, org_id=org_id
+        )
+        rows = crud.list_projects_accessible(
             session=session,
             user_id=user_id,
             offset=offset,
             limit=page_size_n,
+            org_id=org_id,
         )
         projects: list[dict[str, Any]] = []
         for r in rows:
-            thumb_key, thumb_custom = _reconcile_stale_auto_covers(session, user_id, r)
-            projects.append(
-                {
-                    "id": r.id,
-                    "name": r.name,
-                    "thumbnailUrl": _thumbnail_urls_out(thumb_key),
-                    "thumbnailCustom": bool(thumb_custom),
-                    "revision": int(r.revision or 1),
-                    "updatedAt": int(float(r.updated_at) * 1000),
-                    "createdAt": int(float(r.created_at) * 1000),
-                    "hasDocument": bool(r.document_key or r.document_json),
-                }
+            thumb_key, thumb_custom = _reconcile_stale_auto_covers(
+                session, str(r.user_id or user_id), r
             )
+            item = _project_out_meta(r, thumb_key=thumb_key, thumb_custom=thumb_custom)
+            item["hasDocument"] = bool(r.document_key or r.document_json)
+            projects.append(item)
     return {
         "projects": projects,
         "page": page_n,
@@ -928,23 +992,18 @@ def get_project(user_id: str, project_id: str) -> dict[str, Any] | None:
 
     init_schema()
     with Session(engine) as session:
-        row = crud.get_project_for_user(
+        row = crud.get_project_accessible(
             session=session, user_id=user_id, project_id=project_id
         )
         if not row:
             return None
-        thumb_key, thumb_custom = _reconcile_stale_auto_covers(session, user_id, row)
+        thumb_key, thumb_custom = _reconcile_stale_auto_covers(
+            session, str(row.user_id or user_id), row
+        )
         document = _decode_document_row(row)
-        return {
-            "id": row.id,
-            "name": row.name,
-            "thumbnailUrl": _thumbnail_urls_out(thumb_key),
-            "thumbnailCustom": bool(thumb_custom),
-            "document": document,
-            "revision": int(row.revision or 1),
-            "updatedAt": int(float(row.updated_at) * 1000),
-            "createdAt": int(float(row.created_at) * 1000),
-        }
+        out = _project_out_meta(row, thumb_key=thumb_key, thumb_custom=thumb_custom)
+        out["document"] = document
+        return out
 
 
 def upsert_project(
@@ -958,6 +1017,7 @@ def upsert_project(
     thumbnail_urls: list[str] | None = None,
     thumbnail_custom: bool | None = None,
     base_revision: int | None = None,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     from sqlmodel import Session
 
@@ -969,6 +1029,7 @@ def upsert_project(
     pid = (project_id or "").strip() or f"proj_{uuid.uuid4().hex[:16]}"
     name_n = (name or "").strip()[:255] or "Untitled"
     now = time.time()
+    want_org = (org_id or "").strip() or None
 
     doc_json: str | None = None
     doc_key: str | None = None
@@ -976,10 +1037,15 @@ def upsert_project(
         doc_json, doc_key = _encode_document(user_id, pid, document)
 
     with Session(engine) as session:
-        existing = crud.get_project_for_user(
+        existing = crud.get_project_accessible(
             session=session, user_id=user_id, project_id=pid
         )
         if existing:
+            if not _can_write_project(user_id=user_id, row=existing):
+                raise ProjectForbiddenError(pid)
+            owner_id = str(existing.user_id or user_id)
+            if document is not None:
+                doc_json, doc_key = _encode_document(owner_id, pid, document)
             cur_rev = int(existing.revision or 1)
             if base_revision is not None and int(base_revision) != cur_rev:
                 raise ProjectConflictError(
@@ -995,7 +1061,7 @@ def upsert_project(
             if document is not None and next_doc_key:
                 next_doc_json = None
             next_thumb, next_custom = _next_thumbnail(
-                user_id,
+                owner_id,
                 pid,
                 thumbnail_data_url,
                 existing.thumbnail_key,
@@ -1006,9 +1072,8 @@ def upsert_project(
                 document=document,
             )
             old_doc_key = existing.document_key
-            ok = crud.update_project_if_revision(
+            ok = crud.update_project_if_revision_accessible(
                 session=session,
-                user_id=user_id,
                 project_id=pid,
                 expected_revision=cur_rev,
                 values={
@@ -1022,7 +1087,7 @@ def upsert_project(
                 },
             )
             if not ok:
-                latest = crud.get_project_for_user(
+                latest = crud.get_project_accessible(
                     session=session, user_id=user_id, project_id=pid
                 )
                 raise ProjectConflictError(
@@ -1043,7 +1108,14 @@ def upsert_project(
             revision = next_rev
             thumb_key = next_thumb
             thumb_custom = next_custom
+            org_id_out = getattr(existing, "org_id", None)
         else:
+            # Creating a new id — deny if another user's project already occupies it.
+            occupied = session.get(Project, pid)
+            if occupied:
+                raise ProjectForbiddenError(pid)
+            if want_org:
+                _require_org_project_write(user_id=user_id, org_id=want_org)
             thumb_key, thumb_custom = _next_thumbnail(
                 user_id,
                 pid,
@@ -1060,6 +1132,7 @@ def upsert_project(
                 project=Project(
                     id=pid,
                     user_id=user_id,
+                    org_id=want_org,
                     name=name_n,
                     thumbnail_key=thumb_key,
                     thumbnail_custom=1 if thumb_custom else 0,
@@ -1072,13 +1145,15 @@ def upsert_project(
             )
             created = now
             revision = 1
+            org_id_out = want_org
+            owner_id = user_id
 
     if document is not None:
         try:
             from app.services.shares.store import sync_project_share_documents
 
             sync_project_share_documents(
-                owner_id=user_id, project_id=pid, document=document
+                owner_id=owner_id, project_id=pid, document=document
             )
         except Exception:
             # Share snapshot sync must not fail the project save.
@@ -1087,6 +1162,7 @@ def upsert_project(
     return {
         "id": pid,
         "name": name_n,
+        "orgId": str(org_id_out) if org_id_out else None,
         "thumbnailUrl": _thumbnail_urls_out(thumb_key),
         "thumbnailCustom": bool(thumb_custom),
         "revision": revision,
@@ -1113,24 +1189,28 @@ def extract_project_covers(
         raise ProjectNotFoundError("")
 
     with Session(engine) as session:
-        existing = crud.get_project_for_user(
+        existing = crud.get_project_accessible(
             session=session, user_id=user_id, project_id=pid
         )
         if not existing:
             raise ProjectNotFoundError(pid)
+        if not _can_write_project(user_id=user_id, row=existing):
+            raise ProjectForbiddenError(pid)
 
+        owner_id = str(existing.user_id or user_id)
         name_n = str(existing.name or "Untitled")
         created_at = float(existing.created_at)
         revision = int(existing.revision or 1)
         custom = _row_thumb_custom(existing)
         thumb_key = existing.thumbnail_key
         now = float(existing.updated_at)
+        org_id_out = getattr(existing, "org_id", None)
 
         if not custom:
             doc = document if isinstance(document, dict) else _decode_document_row(existing)
             now = time.time()
             next_key, next_custom = _next_thumbnail(
-                user_id,
+                owner_id,
                 pid,
                 None,
                 existing.thumbnail_key,
@@ -1143,9 +1223,8 @@ def extract_project_covers(
             if nxt != prev or bool(next_custom) != bool(custom):
                 thumb_key = next_key
                 custom = bool(next_custom)
-                crud.update_project_covers(
+                crud.update_project_covers_by_id(
                     session=session,
-                    user_id=user_id,
                     project_id=pid,
                     thumbnail_key=thumb_key,
                     thumbnail_custom=bool(next_custom),
@@ -1155,6 +1234,7 @@ def extract_project_covers(
     return {
         "id": pid,
         "name": name_n,
+        "orgId": str(org_id_out) if org_id_out else None,
         "thumbnailUrl": _thumbnail_urls_out(thumb_key),
         "thumbnailCustom": bool(custom),
         "revision": revision,

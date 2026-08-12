@@ -18,6 +18,7 @@ from app.api.routes import (
     design_hydrate_jobs,
     me,
     notices,
+    orgs,
     plaza,
     projects,
     shares,
@@ -33,6 +34,7 @@ api_router.include_router(admin.router)
 api_router.include_router(me.router)
 api_router.include_router(users.router)
 api_router.include_router(notices.router)
+api_router.include_router(orgs.router)
 api_router.include_router(plaza.router)
 api_router.include_router(projects.router)
 api_router.include_router(shares.router)

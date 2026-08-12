@@ -23,6 +23,8 @@ kubectl apply -f deploy/k8s/worker.yaml
 kubectl apply -f deploy/k8s/collab.yaml
 kubectl apply -f deploy/k8s/web.yaml
 kubectl apply -f deploy/k8s/hpa.yaml
+kubectl apply -f deploy/k8s/pdb.yaml
+kubectl apply -f deploy/k8s/networkpolicy.yaml
 # Optional edge:
 # kubectl apply -f deploy/k8s/ingress.yaml
 ```
@@ -30,5 +32,6 @@ kubectl apply -f deploy/k8s/hpa.yaml
 MySQL is **not** included — point `DATABASE_URL` at a managed instance or an in-cluster operator of your choice.
 
 HPA targets require metrics-server. Ingress example assumes ingress-nginx; edit host / TLS before apply.
+PDB keeps `minAvailable: 1` for api/web/collab/worker/redis. NetworkPolicy defaults to deny-ingress in-namespace with allowlists for web→api and */redis.
 
 See [docs/self-hosting.md](../../docs/self-hosting.md) for Compose.
