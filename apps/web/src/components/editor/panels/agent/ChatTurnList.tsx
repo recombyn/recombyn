@@ -1047,15 +1047,15 @@ function AssistantTurn({
       ) : null}
 
       {!streaming && assistant.canResume && assistant.designTaskId && onResume ? (
-        <div className="flex items-center gap-1 px-0.5">
+        <div className="flex justify-start px-0.5">
           <button
             type="button"
             disabled={sending}
             onClick={() => onResume(assistant.id)}
             className={cn(
-              'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[12px] text-[var(--muted)]',
-              'hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
-              'disabled:cursor-not-allowed disabled:opacity-40'
+              'inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-[var(--muted)]',
+              'hover:text-[var(--ink)] hover:underline',
+              'disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline'
             )}
           >
             <HiOutlinePlay className="h-3.5 w-3.5" aria-hidden />

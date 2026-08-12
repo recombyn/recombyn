@@ -363,6 +363,11 @@ type AgentDockProps = {
   draftPrompt?: string | null;
   /** When true with draftPrompt, auto-send after models are ready (home → editor). */
   autoSubmitDraft?: boolean;
+  /**
+   * Hold home-agent auto-send (boot overlay / first-run tour still open).
+   * Prompt stays queued in the composer until this clears.
+   */
+  holdAutoSubmit?: boolean;
   onDraftConsumed?: () => void;
   draftAttachments?: ComposerContext[];
   /** Home → editor: inline skill / context pills (e.g. plaza 「做同款」). */
@@ -587,6 +592,7 @@ function AgentDock({
   allowedInteractionModes,
   draftPrompt,
   autoSubmitDraft = false,
+  holdAutoSubmit = false,
   onDraftConsumed,
   draftAttachments,
   draftContexts,
@@ -2737,6 +2743,7 @@ function AgentDock({
   /** Flush home-agent auto-submit once model list has settled (ready or error). */
   useEffect(() => {
     if (!open) return;
+    if (holdAutoSubmit) return;
     if (new URLSearchParams(location.search).get('createNew') === '1') return;
     // Prefer scoped project id so the user message is not wiped by createTemplate scope switch.
     const routeId = decodeURIComponent((routeProjectId || '').trim());
@@ -2747,7 +2754,15 @@ function AgentDock({
     pendingAutoSubmitRef.current = null;
     send(text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, modelsStatus, draftPrompt, location.search, currentId, routeProjectId]);
+  }, [
+    open,
+    holdAutoSubmit,
+    modelsStatus,
+    draftPrompt,
+    location.search,
+    currentId,
+    routeProjectId,
+  ]);
 
   const dismissPendingReview = (opts?: { dropCheckpoint?: boolean }) => {
     if (opts?.dropCheckpoint && pendingReview) {
