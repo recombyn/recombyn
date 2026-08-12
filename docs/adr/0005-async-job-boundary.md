@@ -37,7 +37,7 @@ Long-running work (PDF import, image hydrate, future export/render) must not blo
 
 1. **Only SSE for hydrate** — rejected for v1; couples FE and job lifecycle too early.
 2. **In-process asyncio background tasks** — rejected for multi-worker deploy (lost on restart).
-3. **Split hydrate microservice** — rejected per ADR 0004.
+3. **Separate hydrate process** — not needed; jobs stay in the API worker (ADR 0004).
 
 ## References
 

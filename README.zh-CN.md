@@ -106,15 +106,6 @@
 
 环境开关（Review 开关、超时等）见 [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)；种子总览 [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。模型密钥 / OpenRouter： [docs/self-hosting.md](docs/self-hosting.md)。
 
-## 核心能力
-
-- **画布编辑** — 见上（布尔、内外描边、轮廓化、媒体与导出等）  
-- **实时协作** — Yjs WebSocket（`apps/collab`）；编辑器 Live 状态条；生产经 nginx `/collab/` 走 WSS  
-- **Design Agent** — LangGraph + 可配置 Profile / Skills / 工具；创建 / 编辑 / 闲聊，流式对话 UI  
-- **自定义模型与聚合平台** — BYOK、手动 OpenAI 兼容端点，以及 OpenRouter 等多模型网关  
-- **图片导入** — 本地图片 → 可编辑画布节点  
-- **广场与项目** — 灵感流与作品（API）
-
 ## 快速开始（自托管）
 
 ```bash

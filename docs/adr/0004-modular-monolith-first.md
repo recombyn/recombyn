@@ -1,22 +1,18 @@
-# ADR 0004: Modular monolith first (defer microservices)
+# ADR 0004: One API, domain modules
 
 - **Status:** Accepted
 - **Date:** 2026-08-12
 
 ## Context
 
-Splitting gateway, identity, canvas store, assets, model routing, workers, and collab into separate deployables too early multiplies ops cost. Recombyn already has a **Node collab process** and a **Python API** that owns auth, projects, wallet, and the Design Agent. Extract services only with proven scale or team boundaries.
+Recombyn runs a Python API (auth, projects, wallet, Design Agent, jobs) and a Node collab process. That is the topology.
 
 ## Decision
 
-1. **Keep a modular monolith for `apps/api`**: enforce domain folders / clear module boundaries (auth, projects, design, wallet, assets) rather than new deployables by default.
-2. **Keep `apps/collab` separate** (already justified by WS fanout and token boundary) — see [ADR 0003](./0003-yjs-collab-service.md).
-3. **Extract a new service only when ≥2 hold**:
-   - Independent scale or failure domain (e.g. GPU render farm)
-   - Separate release cadence / ownership
-   - Clear data ownership that must not share the API DB transactionally
-4. **AI “模型中台”** starts as an **in-process adapter layer** (provider interface + routing), not a standalone gateway service.
-5. **Async work** uses **workers sharing the API codebase** first; split worker images only if deploy/scaling needs diverge.
+1. **Keep domain folders in `apps/api`** (auth, projects, design, wallet, assets) — one deployable, clear module boundaries.
+2. **Keep `apps/collab` as its own process** (WS fanout and token boundary) — see [ADR 0003](./0003-yjs-collab-service.md).
+3. **LLM routing is in-process** (provider interface + `get_llm_endpoint` / `build_chat_model`), not a separate gateway.
+4. **Async work uses workers that share the API codebase**; split worker images only if deploy/scaling needs diverge.
 
 ## Consequences
 
@@ -33,8 +29,7 @@ Splitting gateway, identity, canvas store, assets, model routing, workers, and c
 
 ## Alternatives considered
 
-1. **Split all seven services now** — rejected; ops and contract surface explode.
-2. **Merge collab into API** — rejected; WS and Python workers couple poorly.
+1. **Merge collab into the API** — rejected; WS and Python workers couple poorly.
 
 ## References
 

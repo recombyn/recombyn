@@ -6,8 +6,8 @@ Living checklist for Recombyn. Phase 1 tooling is in flight ([PR](https://github
 
 | Principle | Meaning |
 |-----------|---------|
-| **Standards first, topology second** | Commitlint / ADR / workspace tasks / gates before splitting repos or services |
-| **Modular monolith → extract** | Keep one deployable API until a domain has a clear scale, failure, or team boundary |
+| **Standards first** | Commitlint / ADR / workspace tasks / gates |
+| **One API** | Domain modules in `apps/api`; collab is its own WebSocket process |
 | **Vertical slice** | Each async / observability / security item ships one production path, not a rewrite |
 | **Self-host honesty** | High-availability cluster options stay *deploy choices*, not hard requirements for every install |
 
@@ -28,17 +28,17 @@ Living checklist for Recombyn. Phase 1 tooling is in flight ([PR](https://github
 
 ### 2. 架构形态
 
-Bounded contexts inside the modular monolith, plus the already-split collab process:
+One FastAPI app with domain modules, plus the collab WebSocket process:
 
-| Domain | Today | Extract when… |
-|--------|-------|----------------|
-| 网关 | API router + rate limit | Multi-region / multi-product edge |
-| 用户权限 | Auth + wallet flags | Dedicated identity / multi-tenant org RBAC |
-| 画布存储 | Projects API + scene doc | Shard / multi-region document service |
-| 素材资产 | Uploads / object-storage hooks | CDN + virus scan + huge media pipeline |
-| AI 模型入口 | In-process façade (`get_llm_endpoint` / `build_chat_model`) | Extract gateway only with multi-product scale |
-| 异步任务 | Worker deps present; most still sync | First job vertical (export / hydrate) |
-| 协同 | **`apps/collab` already separate** | Scale WS fleet independently (already can) |
+| Domain | Today |
+|--------|-------|
+| 网关 | API router + rate limit |
+| 用户权限 | Auth + wallet flags |
+| 画布存储 | Projects API + scene doc |
+| 素材资产 | Uploads / object-storage hooks |
+| AI 模型入口 | In-process façade (`get_llm_endpoint` / `build_chat_model`) |
+| 异步任务 | Celery worker sharing the API codebase (hydrate / export / image) |
+| 协同 | `apps/collab` WebSocket process |
 
 → See [ADR 0004](../adr/0004-modular-monolith-first.md).
 
