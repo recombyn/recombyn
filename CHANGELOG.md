@@ -29,6 +29,8 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Async **artboard export** jobs (`POST/GET /api/v1/design/export/jobs`, PNG/PDF via Celery)
 - Editor **Export PDF (server)** menu item (save → enqueue → poll → download)
 - Admin **export DLQ** replay (`/api/v1/admin/ops/export-dlq`) + `recombyn_export_dlq_depth`
+- Async **chat image** jobs (`POST/GET /api/v1/chat/image/jobs`) so editor generate does not hold API workers
+- Design Agent hydrate **progress** on the existing SSE (`activity` + `task_id`)
 
 ### Changed
 

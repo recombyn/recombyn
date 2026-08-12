@@ -15,6 +15,7 @@ _log = logging.getLogger(__name__)
 
 _HYDRATE_KIND = "hydrate"
 _EXPORT_KIND = "export"
+_IMAGE_KIND = "image"
 _JOB_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 
 
@@ -199,9 +200,6 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
         )
 
 
-_EXPORT_KIND = "export"
-
-
 @celery.task(
     name="worker.tasks.run_design_export_job",
     bind=True,
@@ -292,6 +290,101 @@ def run_design_export_job(self, job_id: str) -> dict:
         raise
     except Exception as exc:  # noqa: BLE001
         return _fail_to_dlq(str(exc), trace_id=trace_id)
+
+
+@celery.task(
+    name="worker.tasks.run_chat_image_job",
+    bind=True,
+    autoretry_for=_JOB_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_chat_image_job(self, job_id: str) -> dict:
+    """Fill POST /chat/image/jobs via image providers (ADR 0005 long-paint)."""
+    from app.core.metrics import observe_job
+
+    job = get_job(job_id, kind=_IMAGE_KIND)
+    if not job:
+        observe_job(_IMAGE_KIND, "failed")
+        return {"job_id": job_id, "status": "failed", "error": "job_not_found"}
+
+    trace_id = str(job.get("trace_id") or "")
+    user_id = str(job.get("user_id") or "")
+    prompt = str(job.get("prompt") or "")
+    update_job(job_id, kind=_IMAGE_KIND, status="processing", progress=10, error=None)
+
+    try:
+        from app.api.routes.chat_image_jobs import execute_image_generate
+
+        update_job(job_id, kind=_IMAGE_KIND, progress=35)
+        result = asyncio.run(
+            execute_image_generate(
+                user_id,
+                prompt=prompt,
+                model_id=job.get("model"),
+                aspect_ratio=job.get("aspect_ratio"),
+                quality=job.get("quality"),
+                resolution=job.get("resolution"),
+                images=job.get("images") if isinstance(job.get("images"), list) else None,
+                credits_charged=int(job.get("credits_charged") or 0),
+            )
+        )
+        update_job(
+            job_id,
+            kind=_IMAGE_KIND,
+            status="done",
+            progress=100,
+            result=result,
+            error=None,
+        )
+        observe_job(_IMAGE_KIND, "done")
+        _log.info(
+            "image_job event=done job_id=%s trace_id=%s",
+            job_id,
+            trace_id,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "done"},
+        )
+        return {"job_id": job_id, "status": "done"}
+    except _JOB_TRANSIENT as exc:
+        retries = int(getattr(self.request, "retries", 0) or 0)
+        max_retries = int(getattr(self, "max_retries", 2) or 2)
+        if retries >= max_retries:
+            update_job(
+                job_id,
+                kind=_IMAGE_KIND,
+                status="failed",
+                progress=100,
+                error=f"retries exhausted: {exc}",
+            )
+            observe_job(_IMAGE_KIND, "failed")
+            return {"job_id": job_id, "status": "failed", "error": str(exc)}
+        observe_job(_IMAGE_KIND, "retry")
+        update_job(
+            job_id,
+            kind=_IMAGE_KIND,
+            status="processing",
+            error=f"transient retry: {exc}",
+        )
+        raise
+    except Exception as exc:  # noqa: BLE001
+        update_job(
+            job_id,
+            kind=_IMAGE_KIND,
+            status="failed",
+            progress=100,
+            error=str(exc),
+        )
+        observe_job(_IMAGE_KIND, "failed")
+        _log.error(
+            "image_job event=failed job_id=%s trace_id=%s err=%s",
+            job_id,
+            trace_id,
+            exc,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "failed"},
+        )
+        return {"job_id": job_id, "status": "failed", "error": str(exc)}
 
 
 @celery.task(name="worker.tasks.run_db_backup_job")

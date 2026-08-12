@@ -279,6 +279,24 @@ def test_get_hydrate_job_store_unavailable(monkeypatch: pytest.MonkeyPatch):
         assert res.status_code == 503
 
 
+def test_get_hydrate_job_wrong_owner(monkeypatch: pytest.MonkeyPatch):
+    from app.api.routes import design_hydrate_jobs as route_mod
+
+    monkeypatch.setattr(
+        route_mod,
+        "get_job",
+        lambda job_id, *, kind="import": {
+            "job_id": job_id,
+            "status": "done",
+            "user_id": "other",
+            "progress": 100,
+        },
+    )
+    with _auth_client(monkeypatch) as client:
+        res = client.get("/api/v1/design/hydrate/jobs/abc123")
+        assert res.status_code == 404
+
+
 def test_hydrate_tool_ops_images_uses_celery_result(monkeypatch: pytest.MonkeyPatch):
     from app.services.design.ops import image_hydrate as mod
 

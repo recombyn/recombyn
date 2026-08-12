@@ -1,6 +1,6 @@
 /**
  * Canvas element + generator plates (browser).
- * Mount/type by default; one case mocks POST /chat/image (no provider keys).
+ * Mount/type by default; one case mocks POST /chat/image/jobs (no provider keys).
  */
 import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
@@ -150,6 +150,30 @@ test.describe('canvas generators + element tools', () => {
 
   test('Image generator mock finish promotes plate (no paid API)', async ({ page }) => {
     await page.route('**/api/v1/chat/image**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/image/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-img', status: 'queued' }),
+        });
+        return;
+      }
+      if (url.includes('/chat/image/jobs/') && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            job_id: 'e2e-img',
+            status: 'done',
+            progress: 100,
+            result: { images: [MOCK_PNG], model: 'e2e-mock' },
+          }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -182,7 +206,7 @@ test.describe('canvas generators + element tools', () => {
       process.env.E2E_PAID_IMAGE_GEN !== '1',
       'Set E2E_PAID_IMAGE_GEN=1 (+ provider keys on API) to run paid image finish'
     );
-    // Do not mock — hits live POST /api/v1/chat/image.
+    // Do not mock — hits live POST /api/v1/chat/image/jobs.
     await spawnImageGeneratorPlate(page);
     const plate = page.locator('[data-image-generator]').first();
     const input = plate.locator('[contenteditable="true"], textarea').first();

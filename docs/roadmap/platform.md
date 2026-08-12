@@ -26,7 +26,7 @@ Living checklist for Recombyn. Phase 1 tooling is in flight ([PR](https://github
 | CI | Partial (Actions + web `tsc` in umbrella) | Remote cache when CI time hurts |
 | 内外仓隔离 | N/A for now | Keep public OSS; secrets only in private env / desktop |
 
-### 2. 架构形态（勿一上来微服务）
+### 2. 架构形态
 
 Bounded contexts inside the modular monolith, plus the already-split collab process:
 
@@ -46,9 +46,9 @@ Bounded contexts inside the modular monolith, plus the already-split collab proc
 
 | Capability | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Hydrate + export jobs / DLQ + admin hydrate/export replay | Long-paint off request |
-| AI / 导出 / 渲染异步 | Hydrate + artboard PNG/PDF export jobs | Long paint off request |
-| 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
+| 消息队列 / 优先级 / 重试 / DLQ | Hydrate + export jobs / DLQ + admin hydrate/export replay; image gen jobs | Video/audio off request |
+| AI / 导出 / 渲染异步 | Hydrate + artboard PNG/PDF export + chat image jobs | Video/audio off request |
+| 前端流式进度 | SSE / agent stream exists; hydrate `activity` + job poll `progress` | Video/audio job progress |
 
 ### 4. 存储分层隔离
 
@@ -162,3 +162,5 @@ Bounded contexts inside the modular monolith, plus the already-split collab proc
 - [x] Async artboard export jobs (`POST/GET /design/export/jobs` + `/file`, PNG/PDF with scene text)
 - [x] Editor Export menu: server PDF (poll + download)
 - [x] Export DLQ admin replay (`GET/POST/DELETE /admin/ops/export-dlq`) + depth gauge / Insights tab
+- [x] Chat image gen jobs (`POST/GET /chat/image/jobs`) — editor polls; sync `POST /chat/image` kept for scripts
+- [x] Hydrate job progress on Design Agent SSE (`activity` + `task_id`)

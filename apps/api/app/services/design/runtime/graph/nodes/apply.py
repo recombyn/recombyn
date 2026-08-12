@@ -39,6 +39,24 @@ from app.services.design.runtime.graph.support import (
 )
 
 
+def _emit_hydrate_job_progress(rt: AgentRuntime, progress: int, status: str) -> None:
+    st = rt.run
+    done = status in ("done", "failed")
+    _emit(
+        {
+            "type": "activity",
+            "id": f"hydrate-job-{st.task_id}",
+            "kind": "tool",
+            "status": "done" if done else "running",
+            "count": int(progress),
+            "detail": f"image hydrate {int(progress)}%",
+            "task_id": st.task_id,
+            "trace_id": st.trace_id,
+            "stage": "ops",
+        }
+    )
+
+
 def _op_id_of(op: dict[str, Any]) -> str:
     raw = op.get("op_id") or (op.get("args") or {}).get("op_id") or ""
     oid = str(raw).strip()
@@ -100,7 +118,14 @@ async def _node_apply_confirm(state: GraphState) -> Command:
     if _ops_have_create_frame(step_ops):
         _emit_canvas_size_from_ops(rt, step_ops)
     step_ops, n_img = await hydrate_tool_ops_images(
-        step_ops, limit=6, policy="auto", rules=rt.rules, trace_id=st.trace_id
+        step_ops,
+        limit=6,
+        policy="auto",
+        rules=rt.rules,
+        trace_id=st.trace_id,
+        on_progress=lambda progress, status: _emit_hydrate_job_progress(
+            rt, progress, status
+        ),
     )
     step_ops, n_lottie = await hydrate_tool_ops_lottie(step_ops, limit=4)
     img_mid = _image_model_from_rules(rt.rules) if n_img else ""
@@ -281,7 +306,14 @@ async def _node_action(state: GraphState) -> Command:
     if _ops_have_create_frame(step_ops):
         _emit_canvas_size_from_ops(rt, step_ops)
     step_ops, n_img = await hydrate_tool_ops_images(
-        step_ops, limit=6, policy="auto", rules=rt.rules, trace_id=st.trace_id
+        step_ops,
+        limit=6,
+        policy="auto",
+        rules=rt.rules,
+        trace_id=st.trace_id,
+        on_progress=lambda progress, status: _emit_hydrate_job_progress(
+            rt, progress, status
+        ),
     )
     step_ops, n_lottie = await hydrate_tool_ops_lottie(step_ops, limit=4)
     rt.step_ops = step_ops

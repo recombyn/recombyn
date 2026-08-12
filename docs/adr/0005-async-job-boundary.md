@@ -16,9 +16,10 @@ Long-running work (PDF import, image hydrate, future export/render) must not blo
    - `GET …/jobs/{id}` → `{ job_id, status, progress, result?, error? }`
    - Status: `queued | processing | done | failed`
 4. **Progress streaming:** keep Design Agent SSE for interactive agent turns; **do not** invent a second SSE protocol for hydrate v1. Optional later: SSE `hydrate_progress` if poll UX is insufficient.
-5. **First verticals:** hydrate (`POST/GET /api/v1/design/hydrate/jobs`) and export (`POST/GET /api/v1/design/export/jobs` + `/file`). Export rasterizes stored artboards (background + rects + images + wrapped scene text) — not a full canvas-engine replay; interactive canvas export stays in the browser.
-6. **Retry / metrics / DLQ:** hydrate and export tasks use Celery `autoretry_for` on transient `ConnectionError` / `TimeoutError` / `OSError` (max 2, backoff). Counters `recombyn_hydrate_jobs_total{event}` / `recombyn_export_jobs_total{event}` (`enqueued|done|failed|retry|dlq`). Terminal failures `LPUSH` Redis lists `recombyn:dlq:hydrate` / `recombyn:dlq:export` (+ `*_dlq_total`, gauges `*_dlq_depth`). Admin replay: `GET/POST/DELETE /api/v1/admin/ops/hydrate-dlq` and `/export-dlq`.
-7. **Local DX:** `npm run dev:worker` starts Celery (`--pool=solo` on Windows). Settings: `design_image_hydrate_async`, `design_image_hydrate_queue_stall_sec`.
+5. **First verticals:** hydrate (`POST/GET /api/v1/design/hydrate/jobs`), export (`POST/GET /api/v1/design/export/jobs` + `/file`), and interactive image gen (`POST/GET /api/v1/chat/image/jobs`). Export rasterizes stored artboards (background + rects + images + wrapped scene text) — not a full canvas-engine replay; interactive canvas export stays in the browser. `POST /chat/image` remains a sync convenience for scripts; the editor uses jobs so API workers are not held for provider latency.
+6. **Retry / metrics / DLQ:** hydrate and export tasks use Celery `autoretry_for` on transient `ConnectionError` / `TimeoutError` / `OSError` (max 2, backoff). Counters `recombyn_hydrate_jobs_total{event}` / `recombyn_export_jobs_total{event}` / `recombyn_image_jobs_total{event}` (`enqueued|done|failed|retry|dlq`). Terminal hydrate/export failures `LPUSH` Redis lists `recombyn:dlq:hydrate` / `recombyn:dlq:export` (+ `*_dlq_total`, gauges `*_dlq_depth`). Admin replay: `GET/POST/DELETE /api/v1/admin/ops/hydrate-dlq` and `/export-dlq`. Image jobs fail in place (no DLQ) — provider errors are not ops-replayable.
+7. **Progress:** job records expose `progress` for poll. Design Agent hydrate emits `activity` SSE (`task_id`, percent) on the existing agent stream — no second SSE protocol.
+8. **Local DX:** `npm run dev:worker` starts Celery (`--pool=solo` on Windows). Settings: `design_image_hydrate_async`, `design_image_hydrate_queue_stall_sec`.
 
 ## Consequences
 
@@ -30,7 +31,7 @@ Long-running work (PDF import, image hydrate, future export/render) must not blo
 ### Negative / trade-offs
 
 - Requires Redis + worker process locally (document clearly).
-- Poll UX is coarser than SSE until phase 2 wiring.
+- Poll UX for export/image jobs; Design Agent hydrate progress rides the existing SSE.
 
 ## Alternatives considered
 
