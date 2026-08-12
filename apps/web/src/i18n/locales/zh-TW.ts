@@ -94,7 +94,7 @@ const zhTW = {
     railAdd: '新增',
     railSkills: '技能',
     skillsTitle: '技能工具箱',
-    skillsHint: '上傳技能壓縮包（.zip），或關閉不需要的官方技能；Chat 裡輸入 / 可為當前回合固定使用。',
+    skillsHint: '上傳技能包（.zip / .recombyn-plugin），或關閉不需要的官方技能；Chat 裡輸入 / 可為當前回合固定使用。',
     viewAll: '查看全部',
     inspiration: '靈感發現',
     updatedAt: '更新於 {{time}}',
