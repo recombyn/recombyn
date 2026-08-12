@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +16,28 @@ def test_job_store_kind_prefixes_keys():
     assert js.job_key("abc", kind="import") == "import_job:abc"
     assert js.job_key("abc", kind="hydrate") == "hydrate_job:abc"
     assert js.job_key("abc", kind="Hydrate!") == "hydrate__job:abc"
+
+
+@contextmanager
+def _auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.api import deps
+    from app.services.auth import SessionUser
+
+    app.dependency_overrides[deps.get_current_user] = lambda: SessionUser(
+        id="u1",
+        email="t@example.com",
+        name="t",
+        avatar=None,
+        provider="email",
+        role="user",
+    )
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_run_image_hydrate_job_persists_result(monkeypatch: pytest.MonkeyPatch):
@@ -69,12 +92,75 @@ def test_run_image_hydrate_job_persists_result(monkeypatch: pytest.MonkeyPatch):
     assert store["j1"]["result"]["ops"][0]["args"]["src"].startswith("https://")
 
 
-def test_create_hydrate_job_enqueues(monkeypatch: pytest.MonkeyPatch):
-    from fastapi.testclient import TestClient
+def test_run_image_hydrate_job_not_found(monkeypatch: pytest.MonkeyPatch):
+    from worker import tasks as wt
 
-    from app.main import app
-    from app.api import deps
-    from app.services.auth import SessionUser
+    monkeypatch.setattr(wt, "get_job", lambda *_a, **_k: None)
+    result = wt.run_image_hydrate_job.run("missing")
+    assert result["status"] == "failed"
+    assert result["error"] == "job_not_found"
+
+
+def test_run_image_hydrate_job_marks_failed(monkeypatch: pytest.MonkeyPatch):
+    from worker import tasks as wt
+
+    store: dict[str, dict[str, Any]] = {
+        "j1": {"job_id": "j1", "ops": [{"name": "create_image", "args": {"genPrompt": "x"}}]}
+    }
+
+    def _get(job_id: str, *, kind: str = "import"):
+        return store.get(job_id)
+
+    def _update(job_id: str, *, kind: str = "import", **fields: Any):
+        store.setdefault(job_id, {"job_id": job_id}).update(fields)
+        return store[job_id]
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(wt, "get_job", _get)
+    monkeypatch.setattr(wt, "update_job", _update)
+    monkeypatch.setattr(
+        "app.services.design.ops.image_hydrate._hydrate_tool_ops_images",
+        _boom,
+    )
+    result = wt.run_image_hydrate_job.run("j1")
+    assert result["status"] == "failed"
+    assert "provider down" in str(result["error"])
+    assert store["j1"]["status"] == "failed"
+
+
+def test_run_image_hydrate_job_rethrows_transient(monkeypatch: pytest.MonkeyPatch):
+    from worker import tasks as wt
+
+    store: dict[str, dict[str, Any]] = {
+        "j1": {"job_id": "j1", "ops": [{"name": "create_image", "args": {"genPrompt": "x"}}]}
+    }
+
+    def _get(job_id: str, *, kind: str = "import"):
+        return store.get(job_id)
+
+    def _update(job_id: str, *, kind: str = "import", **fields: Any):
+        store.setdefault(job_id, {"job_id": job_id}).update(fields)
+        return store[job_id]
+
+    async def _transient(*_a, **_k):
+        raise ConnectionError("broker blip")
+
+    monkeypatch.setattr(wt, "get_job", _get)
+    monkeypatch.setattr(wt, "update_job", _update)
+    monkeypatch.setattr(
+        "app.services.design.ops.image_hydrate._hydrate_tool_ops_images",
+        _transient,
+    )
+    with pytest.raises(ConnectionError):
+        wt.run_image_hydrate_job.run("j1")
+    assert store["j1"]["status"] == "processing"
+    assert "retry" in str(store["j1"].get("error") or "")
+
+
+def test_create_hydrate_job_enqueues(monkeypatch: pytest.MonkeyPatch):
+    from app.api.routes import design_hydrate_jobs as route_mod
 
     saved: dict[str, Any] = {}
 
@@ -84,20 +170,10 @@ def test_create_hydrate_job_enqueues(monkeypatch: pytest.MonkeyPatch):
         saved["payload"] = payload
 
     delay = MagicMock()
+    monkeypatch.setattr(route_mod, "save_job", _save)
+    monkeypatch.setattr(route_mod.run_image_hydrate_job, "delay", delay)
 
-    monkeypatch.setattr("app.api.routes.design_hydrate_jobs.save_job", _save)
-    monkeypatch.setattr("app.api.routes.design_hydrate_jobs.run_image_hydrate_job.delay", delay)
-    app.dependency_overrides[deps.get_current_user] = lambda: SessionUser(
-        id="u1",
-        email="t@example.com",
-        name="t",
-        avatar=None,
-        provider="email",
-        role="user",
-    )
-
-    try:
-        client = TestClient(app)
+    with _auth_client(monkeypatch) as client:
         res = client.post(
             "/api/v1/design/hydrate/jobs",
             json={
@@ -111,8 +187,72 @@ def test_create_hydrate_job_enqueues(monkeypatch: pytest.MonkeyPatch):
         assert body["job_id"]
         assert saved["kind"] == "hydrate"
         delay.assert_called_once()
-    finally:
-        app.dependency_overrides.clear()
+
+
+def test_create_hydrate_job_requires_ops(monkeypatch: pytest.MonkeyPatch):
+    with _auth_client(monkeypatch) as client:
+        res = client.post("/api/v1/design/hydrate/jobs", json={"ops": []})
+        assert res.status_code == 400
+        assert "ops" in res.text.lower()
+
+
+def test_create_hydrate_job_queue_unavailable(monkeypatch: pytest.MonkeyPatch):
+    from app.api.routes import design_hydrate_jobs as route_mod
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(route_mod, "save_job", _boom)
+    with _auth_client(monkeypatch) as client:
+        res = client.post(
+            "/api/v1/design/hydrate/jobs",
+            json={"ops": [{"name": "create_image", "args": {"genPrompt": "x"}}]},
+        )
+        assert res.status_code == 503
+
+
+def test_get_hydrate_job_ok(monkeypatch: pytest.MonkeyPatch):
+    from app.api.routes import design_hydrate_jobs as route_mod
+
+    monkeypatch.setattr(
+        route_mod,
+        "get_job",
+        lambda job_id, *, kind="import": {
+            "job_id": job_id,
+            "status": "done",
+            "progress": 100,
+            "result": {"filled": 1},
+            "error": None,
+        },
+    )
+    with _auth_client(monkeypatch) as client:
+        res = client.get("/api/v1/design/hydrate/jobs/abc123")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["status"] == "done"
+        assert body["progress"] == 100
+        assert body["result"]["filled"] == 1
+
+
+def test_get_hydrate_job_404(monkeypatch: pytest.MonkeyPatch):
+    from app.api.routes import design_hydrate_jobs as route_mod
+
+    monkeypatch.setattr(route_mod, "get_job", lambda *_a, **_k: None)
+    with _auth_client(monkeypatch) as client:
+        res = client.get("/api/v1/design/hydrate/jobs/missing")
+        assert res.status_code == 404
+
+
+def test_get_hydrate_job_store_unavailable(monkeypatch: pytest.MonkeyPatch):
+    from app.api.routes import design_hydrate_jobs as route_mod
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(route_mod, "get_job", _boom)
+    with _auth_client(monkeypatch) as client:
+        res = client.get("/api/v1/design/hydrate/jobs/abc")
+        assert res.status_code == 503
 
 
 def test_hydrate_tool_ops_images_uses_celery_result(monkeypatch: pytest.MonkeyPatch):

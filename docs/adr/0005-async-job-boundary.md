@@ -17,7 +17,7 @@ Long-running work (PDF import, image hydrate, future export/render) must not blo
    - Status: `queued | processing | done | failed`
 4. **Progress streaming:** keep Design Agent SSE for interactive agent turns; **do not** invent a second SSE protocol for hydrate v1. Optional later: SSE `hydrate_progress` if poll UX is insufficient.
 5. **First vertical:** `POST/GET /api/v1/design/hydrate/jobs` + `worker.tasks.run_image_hydrate_job` wrapping `_hydrate_tool_ops_images`. Design Agent `apply` / `action` call `hydrate_tool_ops_images` which **enqueues + polls** (stall → in-process fallback when no worker).
-6. **Retry / DLQ:** start with explicit `failed` + error string; add Celery `autoretry_for` / dead-letter queue in a later ADR when we have failure metrics.
+6. **Retry / metrics:** hydrate task uses Celery `autoretry_for` on transient `ConnectionError` / `TimeoutError` / `OSError` (max 2, backoff). Counter `recombyn_hydrate_jobs_total{event}` (`enqueued|done|failed|retry`). Full DLQ deferred until failure rate justifies it.
 7. **Local DX:** `npm run dev:worker` starts Celery (`--pool=solo` on Windows). Settings: `design_image_hydrate_async`, `design_image_hydrate_queue_stall_sec`.
 
 ## Consequences
