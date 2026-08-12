@@ -72,6 +72,45 @@
           "refId": "B"
         }
       ]
+    },
+    {
+      "title": "Hydrate jobs by event",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum(rate(recombyn_hydrate_jobs_total[5m])) by (event)",
+          "legendFormat": "{{event}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Hydrate DLQ depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 16 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "recombyn_hydrate_dlq_depth",
+          "legendFormat": "depth",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Hydrate DLQ pushes",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 16 },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "increase(recombyn_hydrate_dlq_total[1h])",
+          "legendFormat": "1h",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
@@ -80,5 +119,5 @@
   "time": { "from": "now-1h", "to": "now" },
   "title": "Recombyn API SLO",
   "uid": "recombyn-api-slo",
-  "version": 1
+  "version": 2
 }

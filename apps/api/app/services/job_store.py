@@ -101,3 +101,30 @@ def list_hydrate_dlq(*, limit: int = 50) -> list[dict[str, Any]]:
         except Exception:
             out.append({"_raw": str(item)[:200]})
     return out
+
+
+def hydrate_dlq_depth() -> int:
+    """Best-effort Redis LLEN for Grafana queue-depth panels."""
+    try:
+        return int(_client().llen(_DLQ_KEY) or 0)
+    except Exception:
+        return 0
+
+
+def remove_hydrate_dlq_job(job_id: str) -> int:
+    """Remove all DLQ rows matching job_id. Returns how many list entries dropped."""
+    jid = str(job_id or "").strip()
+    if not jid:
+        return 0
+    client = _client()
+    raw = client.lrange(_DLQ_KEY, 0, -1) or []
+    removed = 0
+    for item in raw:
+        try:
+            entry = json.loads(item)
+        except Exception:
+            continue
+        if str(entry.get("job_id") or "") != jid:
+            continue
+        removed += int(client.lrem(_DLQ_KEY, 0, item) or 0)
+    return removed

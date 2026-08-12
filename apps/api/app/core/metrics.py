@@ -51,6 +51,11 @@ HYDRATE_DLQ_TOTAL = Counter(
     "Hydrate jobs pushed to Redis DLQ after terminal failure",
 )
 
+HYDRATE_DLQ_DEPTH = Gauge(
+    "recombyn_hydrate_dlq_depth",
+    "Current Redis hydrate DLQ list length (recombyn:dlq:hydrate)",
+)
+
 
 def observe_hydrate_job(event: str) -> None:
     """event: enqueued | done | failed | retry | dlq."""
@@ -95,6 +100,12 @@ def refresh_dependency_gauges() -> None:
         DEP_DB_UP.set(1 if db.get("ok") else 0)
     except Exception:
         logger.debug("dependency gauge refresh failed", exc_info=True)
+    try:
+        from app.services.job_store import hydrate_dlq_depth
+
+        HYDRATE_DLQ_DEPTH.set(float(hydrate_dlq_depth()))
+    except Exception:
+        logger.debug("hydrate dlq depth gauge failed", exc_info=True)
 
 
 def setup_metrics(app: "FastAPI") -> None:

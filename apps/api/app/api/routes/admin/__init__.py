@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.deps import audit_admin_writes
-from app.api.routes.admin import catalog, content, design, fonts, users
+from app.api.routes.admin import catalog, content, design, fonts, ops, users
 
 router = APIRouter(
     prefix="/admin",
@@ -15,3 +15,4 @@ router.include_router(content.router)
 router.include_router(catalog.router)
 router.include_router(design.router)
 router.include_router(fonts.router)
+router.include_router(ops.router)

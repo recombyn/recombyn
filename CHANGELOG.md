@@ -23,6 +23,8 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Org **pending invites** (user search, accept/decline) + Alembic `0008_org_invites`
 - Project org badge / move-to-org; org rename + remove member APIs
 - Org invite **email notify** (Tencent SES best-effort; response `emailSent`)
+- Admin hydrate **DLQ replay** (`/api/v1/admin/ops/hydrate-dlq`) + `recombyn_hydrate_dlq_depth`
+- Compose **obs** profile (Prometheus / Grafana / Alertmanager) and **av** overlay (`clamdscan`)
 
 ### Changed
 

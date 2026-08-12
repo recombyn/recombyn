@@ -48,7 +48,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 2) |
 |-----------|--------|----------------|
-| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate autoretry + Redis DLQ list | Replay tooling / admin UI |
+| 消息队列 / 优先级 / 重试 / DLQ | Celery hydrate autoretry + Redis DLQ + admin replay API | Admin UI in recombyn-admin |
 | AI / 导出 / 渲染异步 | Hydrate jobs API + apply enqueue | Export / long paint off request |
 | 前端流式进度 | SSE / agent stream exists | Unify **task_id → progress events** for jobs |
 
@@ -69,8 +69,8 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 |-----------|--------|----------------|
 | OTel 全链路 | API + Celery worker + optional collab (ADR 0011) | Collector dashboards |
 | 结构化日志 | `LOG_JSON` + redaction | Keep human default locally |
-| Prometheus | `/metrics` + Grafana + hydrate fail/DLQ alerts | Queue depth panels |
-| 自动告警 | Prom rules (5xx / p95 / deps / hydrate / DLQ) | Webhook contact points |
+| Prometheus | `/metrics` + Grafana hydrate/DLQ depth panels + compose `obs` | Remote cache / multi-cluster |
+| 自动告警 | Prom rules + Alertmanager (no-op receiver; webhook override) | Production contact points |
 
 ### 6. 部署环境
 
@@ -85,7 +85,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 | Reference | Status | Next |
 |-----------|--------|------|
 | 细粒度 RBAC | org invite email (SES best-effort) + pending accept + project org move | Dedicated invite SES template |
-| 文件查杀 / 内容安全 | Magic sniff + optional AV hook; Compose `av` profile (ClamAV) | Wire `UPLOAD_AV_COMMAND=clamdscan` in prod |
+| 文件查杀 / 内容安全 | Magic sniff + `docker-compose.av.yml` (`clamdscan` → clamav:3310) | Tune scan timeout / fail-open policy |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |
 | 脱敏 / 安全审计 | Log redaction + admin write audit (router-wide) | Product audit log UI |
@@ -157,3 +157,6 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Org pending invites (search users, accept/decline) + `org_invites` Alembic
 - [x] Project org badge/move + org rename / remove member
 - [x] Org invite email notify (SES Simple / template fallback, `emailSent`)
+- [x] Hydrate DLQ admin replay (`GET/POST/DELETE /admin/ops/hydrate-dlq`) + depth gauge
+- [x] Compose `obs` profile (Prometheus / Grafana / Alertmanager) + DLQ dashboard panels
+- [x] ClamAV prod overlay (`docker-compose.av.yml` + `INSTALL_AV` / `clamdscan`)

@@ -53,7 +53,15 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
     from app.core.metrics import observe_hydrate_dlq, observe_hydrate_job
     from app.services.job_store import push_hydrate_dlq
 
-    def _fail_to_dlq(error: str, *, trace_id: str = "") -> dict:
+    def _fail_to_dlq(
+        error: str,
+        *,
+        trace_id: str = "",
+        ops: list | None = None,
+        limit: int = 6,
+        policy: str = "auto",
+        rules: dict | None = None,
+    ) -> dict:
         update_job(
             job_id,
             kind=_HYDRATE_KIND,
@@ -67,6 +75,11 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
                 "trace_id": trace_id,
                 "error": error,
                 "retries": int(getattr(self.request, "retries", 0) or 0),
+                # Snapshot for admin replay if Redis job TTL already expired.
+                "ops": ops if isinstance(ops, list) else [],
+                "limit": int(limit or 6),
+                "policy": str(policy or "auto"),
+                "rules": rules if isinstance(rules, dict) else {},
             }
         )
         observe_hydrate_job("failed")
@@ -142,7 +155,14 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
         retries = int(getattr(self.request, "retries", 0) or 0)
         max_retries = int(getattr(self, "max_retries", 2) or 2)
         if retries >= max_retries:
-            return _fail_to_dlq(f"retries exhausted: {exc}", trace_id=trace_id)
+            return _fail_to_dlq(
+                f"retries exhausted: {exc}",
+                trace_id=trace_id,
+                ops=ops,
+                limit=limit,
+                policy=policy,
+                rules=rules,
+            )
         observe_hydrate_job("retry")
         update_job(
             job_id,
@@ -159,7 +179,14 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
         )
         raise
     except Exception as exc:  # noqa: BLE001
-        return _fail_to_dlq(str(exc), trace_id=trace_id)
+        return _fail_to_dlq(
+            str(exc),
+            trace_id=trace_id,
+            ops=ops,
+            limit=limit,
+            policy=policy,
+            rules=rules,
+        )
 
 
 @celery.task(name="worker.tasks.run_db_backup_job")

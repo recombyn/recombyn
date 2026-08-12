@@ -43,3 +43,116 @@ def test_setup_otel_warns_without_packages():
         # Without [otel] installed this returns False after ImportError.
         result = setup_otel(app)
         assert result in (False, True)
+
+
+def test_hydrate_dlq_depth_and_remove():
+    from app.services import job_store
+
+    fake = MagicMock()
+    fake.llen.return_value = 2
+    fake.lrange.return_value = [
+        '{"job_id":"j1","error":"boom"}',
+        '{"job_id":"j2","error":"later"}',
+        '{"job_id":"j1","error":"again"}',
+    ]
+    fake.lrem.return_value = 1
+    with patch.object(job_store, "_client", return_value=fake):
+        assert job_store.hydrate_dlq_depth() == 2
+        removed = job_store.remove_hydrate_dlq_job("j1")
+    assert removed == 2
+    assert fake.lrem.call_count == 2
+
+
+def test_hydrate_dlq_depth_returns_zero_on_error():
+    from app.services import job_store
+
+    with patch.object(job_store, "_client", side_effect=RuntimeError("down")):
+        assert job_store.hydrate_dlq_depth() == 0
+
+
+def test_admin_hydrate_dlq_list_replay_discard():
+    from contextlib import contextmanager
+    from typing import Any, Iterator
+
+    from fastapi.testclient import TestClient
+
+    from app.api import deps
+    from app.main import app
+    from app.services.auth import SessionUser
+
+    @contextmanager
+    def admin_client() -> Iterator[Any]:
+        app.dependency_overrides[deps.get_current_user] = lambda: SessionUser(
+            id="a1",
+            email="admin@recombyn.com",
+            name="admin",
+            avatar=None,
+            provider="email",
+            role="admin",
+        )
+        try:
+            yield TestClient(app)
+        finally:
+            app.dependency_overrides.clear()
+
+    entry = {
+        "job_id": "j1",
+        "error": "boom",
+        "trace_id": "t1",
+        "ops": [{"name": "create_image", "args": {"genPrompt": "x"}}],
+        "limit": 2,
+        "policy": "auto",
+        "rules": {},
+    }
+    delay = MagicMock()
+    with (
+        patch("app.api.routes.admin.ops.list_hydrate_dlq", return_value=[entry]),
+        patch("app.api.routes.admin.ops.hydrate_dlq_depth", return_value=1),
+        patch("app.api.routes.admin.ops.get_job", return_value=None),
+        patch("app.api.routes.admin.ops.save_job") as save,
+        patch("app.api.routes.admin.ops.remove_hydrate_dlq_job", return_value=1),
+        patch("worker.tasks.run_image_hydrate_job") as task,
+    ):
+        task.delay = delay
+        with admin_client() as client:
+            listed = client.get("/api/v1/admin/ops/hydrate-dlq")
+            assert listed.status_code == 200
+            body = listed.json()
+            assert body["depth"] == 1
+            assert body["items"][0]["job_id"] == "j1"
+
+            replayed = client.post(
+                "/api/v1/admin/ops/hydrate-dlq/replay",
+                json={"jobId": "j1"},
+            )
+            assert replayed.status_code == 200
+            assert replayed.json()["status"] == "queued"
+            save.assert_called()
+            delay.assert_called_once_with("j1")
+
+            discarded = client.delete("/api/v1/admin/ops/hydrate-dlq/j1")
+            assert discarded.status_code == 200
+            assert discarded.json()["removedFromDlq"] == 1
+
+
+def test_admin_hydrate_dlq_forbidden_for_user():
+    from fastapi.testclient import TestClient
+
+    from app.api import deps
+    from app.main import app
+    from app.services.auth import SessionUser
+
+    app.dependency_overrides[deps.get_current_user] = lambda: SessionUser(
+        id="u1",
+        email="t@example.com",
+        name="t",
+        avatar=None,
+        provider="email",
+        role="user",
+    )
+    try:
+        client = TestClient(app)
+        res = client.get("/api/v1/admin/ops/hydrate-dlq")
+        assert res.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
