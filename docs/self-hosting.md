@@ -13,6 +13,7 @@ Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite)
 | Collab (Yjs WS) | compose `collab` · browser via `ws://localhost:3000/collab/…` (prod: `wss://`) |
 | Prometheus | http://localhost:9090 (compose) |
 | Grafana | http://localhost:3001 (compose · default `admin` / `recombyn`) |
+| ClamAV (optional) | `docker compose --profile av up -d` + `UPLOAD_AV_*` on api |
 | Agent seeds | prompt packs + skills + **AgentProfile** YAML from `apps/api/seeds/` |
 | **MySQL 8** | compose service + volume `mysql_data` |
 | Redis | Celery / queues |

@@ -156,4 +156,20 @@ test.describe('collab sync', () => {
     const code = body?.detail?.code || body?.code;
     expect(code).toBe('project_revision_conflict');
   });
+
+  test('dual Yjs clients converge concurrent map writes', async () => {
+    test.skip(!COLLAB_WS, 'Set E2E_COLLAB_WS to run dual Yjs merge');
+    const { spawnSync } = await import('node:child_process');
+    const script = path.resolve(ROOT, 'apps/collab/dual_client_merge.test.mjs');
+    const r = spawnSync(process.execPath, [script], {
+      env: {
+        ...process.env,
+        COLLAB_WS_URL: COLLAB_WS,
+        COLLAB_TOKEN_SECRET: SECRET,
+      },
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+  });
 });

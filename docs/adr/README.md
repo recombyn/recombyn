@@ -26,7 +26,8 @@ Cross-cutting or irreversible technical choices live here. Product feature notes
 | [0004](./0004-modular-monolith-first.md) | Modular monolith first; defer microservices | Accepted |
 | [0005](./0005-async-job-boundary.md) | Async job boundary (Celery + Redis poll) | Accepted |
 | [0006](./0006-llm-facade-memory-tiers.md) | In-process LLM 中台 + memory tiers | Accepted |
-| [0007](./0007-correlation-structured-logs.md) | Correlation + structured logs (OTel later) | Accepted |
+| [0007](./0007-correlation-structured-logs.md) | Correlation + structured logs | Accepted |
 | [0008](./0008-upload-content-validation.md) | Upload content validation + optional AV | Accepted |
 | [0009](./0009-unified-ci-rollback.md) | Unified CI gate + Docker tag rollback | Accepted |
 | [0010](./0010-desktop-signing.md) | Desktop (Tauri) release signing | Accepted |
+| [0011](./0011-opentelemetry-optional.md) | Optional OpenTelemetry SDK | Accepted |

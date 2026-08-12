@@ -46,13 +46,25 @@ HYDRATE_JOBS_TOTAL = Counter(
     ["event"],
 )
 
+HYDRATE_DLQ_TOTAL = Counter(
+    "recombyn_hydrate_dlq_total",
+    "Hydrate jobs pushed to Redis DLQ after terminal failure",
+)
+
 
 def observe_hydrate_job(event: str) -> None:
-    """event: enqueued | done | failed | retry."""
+    """event: enqueued | done | failed | retry | dlq."""
     try:
         HYDRATE_JOBS_TOTAL.labels(event=(event or "unknown")[:32]).inc()
     except Exception:
         logger.debug("hydrate job metric failed", exc_info=True)
+
+
+def observe_hydrate_dlq() -> None:
+    try:
+        HYDRATE_DLQ_TOTAL.inc()
+    except Exception:
+        logger.debug("hydrate dlq metric failed", exc_info=True)
 
 
 def observe_design_run_start(run_mode: str = "agent") -> None:
@@ -106,3 +118,64 @@ def setup_metrics(app: "FastAPI") -> None:
         tags=["health"],
     )
     logger.info("Prometheus metrics exposed at /metrics")
+
+
+def setup_otel(app: "FastAPI") -> bool:
+    """Optional OpenTelemetry (ADR 0011). No-op unless enabled + otel extra installed.
+
+    Enable with OTEL_ENABLED=true and/or OTEL_EXPORTER_OTLP_ENDPOINT.
+    Install: pip install -e '.[otel]'
+    """
+    import os
+
+    endpoint = (os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or "").strip()
+    enabled_raw = (os.getenv("OTEL_ENABLED") or "").strip().lower()
+    try:
+        from app.core.config import settings as _settings
+
+        settings_on = bool(getattr(_settings, "otel_enabled", False))
+        service_default = str(getattr(_settings, "otel_service_name", None) or "recombyn-api")
+    except Exception:
+        settings_on = False
+        service_default = "recombyn-api"
+    enabled = (
+        enabled_raw in ("1", "true", "yes", "on") or bool(endpoint) or settings_on
+    )
+    if not enabled:
+        return False
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import (
+            BatchSpanProcessor,
+            ConsoleSpanExporter,
+        )
+    except ImportError:
+        logger.warning(
+            "OTEL enabled but packages missing — pip install -e '.[otel]'"
+        )
+        return False
+
+    service = os.getenv("OTEL_SERVICE_NAME") or service_default
+    resource = Resource.create({"service.name": service})
+    provider = TracerProvider(resource=resource)
+    if endpoint:
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    else:
+        # Local DX: spans to stdout when enabled without a collector.
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+    trace.set_tracer_provider(provider)
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="metrics,health,docs,redoc,openapi.json")
+    try:
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        HTTPXClientInstrumentor().instrument()
+    except Exception:
+        logger.debug("httpx OTel instrument skipped", exc_info=True)
+    logger.info("OpenTelemetry tracing enabled service=%s endpoint=%s", service, endpoint or "console")
+    return True

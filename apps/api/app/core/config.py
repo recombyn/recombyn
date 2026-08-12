@@ -63,8 +63,11 @@ class Settings(BaseSettings):
     upload_av_hook_enabled: bool = False
     upload_av_command: str = ""
 
-    # Observability (ADR 0007) — JSON lines when true; human text otherwise.
+    # Observability (ADR 0007 / 0011) — JSON lines when true; human text otherwise.
     log_json: bool = False
+    # OpenTelemetry — off by default; enable via OTEL_ENABLED or OTEL_EXPORTER_OTLP_ENDPOINT.
+    otel_enabled: bool = False
+    otel_service_name: str = "recombyn-api"
 
     # Phase 1: Celery + Redis + preprocess
     redis_url: str = "redis://localhost:6379/0"

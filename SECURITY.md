@@ -27,6 +27,8 @@ See [docs/self-hosting.md](docs/self-hosting.md). At minimum:
 - Set `LOG_JSON=true` in production log drains (ADR 0007); keep `install_log_redaction` on
 - Prefer correlating incidents with `X-Trace-Id` / hydrate `trace_id`
 - Upload policy: magic-byte match on (ADR 0008); optional `UPLOAD_AV_HOOK_ENABLED` + `UPLOAD_AV_COMMAND`
+  - Compose ClamAV: `docker compose --profile av up -d`, then point `UPLOAD_AV_COMMAND` at `clamdscan` / `clamscan`
+- Optional OpenTelemetry: `pip install -e '.[otel]'` + `OTEL_ENABLED` / `OTEL_EXPORTER_OTLP_ENDPOINT` (ADR 0011)
 
 ## Authorization
 

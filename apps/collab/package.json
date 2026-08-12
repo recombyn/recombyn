@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test:merge": "node dual_client_merge.test.mjs"
   },
   "dependencies": {
     "lib0": "^0.2.114",
