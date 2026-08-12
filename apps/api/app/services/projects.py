@@ -92,18 +92,37 @@ def _require_org_project_write(*, user_id: str, org_id: str) -> None:
         raise ProjectForbiddenError("", code="org_permission_denied")
 
 
-def _project_out_meta(row: Any, *, thumb_key: str | None, thumb_custom: bool) -> dict[str, Any]:
+def _project_out_meta(
+    row: Any,
+    *,
+    thumb_key: str | None,
+    thumb_custom: bool,
+    org_name: str | None = None,
+) -> dict[str, Any]:
     oid = getattr(row, "org_id", None)
     return {
         "id": row.id,
         "name": row.name,
         "orgId": str(oid) if oid else None,
+        "orgName": org_name,
         "thumbnailUrl": _thumbnail_urls_out(thumb_key),
         "thumbnailCustom": bool(thumb_custom),
         "revision": int(row.revision or 1),
         "updatedAt": int(float(row.updated_at) * 1000),
         "createdAt": int(float(row.created_at) * 1000),
     }
+
+
+def _org_names_by_id(session: Any, org_ids: list[str]) -> dict[str, str]:
+    ids = [str(x).strip() for x in org_ids if str(x or "").strip()]
+    if not ids:
+        return {}
+    from sqlmodel import select
+
+    from app.models import Org
+
+    rows = session.exec(select(Org).where(Org.id.in_(ids))).all()
+    return {str(r.id): str(r.name or "") for r in rows if r}
 
 
 def _decode_document_row(row: Any) -> dict[str, Any] | None:
@@ -968,11 +987,23 @@ def list_projects(
             org_id=org_id,
         )
         projects: list[dict[str, Any]] = []
+        org_ids = [
+            str(r.org_id)
+            for r in rows
+            if getattr(r, "org_id", None)
+        ]
+        names = _org_names_by_id(session, org_ids)
         for r in rows:
             thumb_key, thumb_custom = _reconcile_stale_auto_covers(
                 session, str(r.user_id or user_id), r
             )
-            item = _project_out_meta(r, thumb_key=thumb_key, thumb_custom=thumb_custom)
+            oid = str(getattr(r, "org_id", None) or "") or None
+            item = _project_out_meta(
+                r,
+                thumb_key=thumb_key,
+                thumb_custom=thumb_custom,
+                org_name=names.get(oid) if oid else None,
+            )
             item["hasDocument"] = bool(r.document_key or r.document_json)
             projects.append(item)
     return {
@@ -1001,9 +1032,73 @@ def get_project(user_id: str, project_id: str) -> dict[str, Any] | None:
             session, str(row.user_id or user_id), row
         )
         document = _decode_document_row(row)
-        out = _project_out_meta(row, thumb_key=thumb_key, thumb_custom=thumb_custom)
+        oid = str(getattr(row, "org_id", None) or "") or None
+        names = _org_names_by_id(session, [oid] if oid else [])
+        out = _project_out_meta(
+            row,
+            thumb_key=thumb_key,
+            thumb_custom=thumb_custom,
+            org_name=names.get(oid) if oid else None,
+        )
         out["document"] = document
         return out
+
+
+def set_project_org(
+    user_id: str,
+    project_id: str,
+    *,
+    org_id: str | None,
+) -> dict[str, Any]:
+    """Attach / detach project to an org (owner or org:project:write). Does not bump revision."""
+    from sqlmodel import Session
+
+    from app import crud
+    from app.core.db import engine
+    from app.models import Project
+
+    init_schema()
+    pid = (project_id or "").strip()
+    if not pid:
+        raise ProjectNotFoundError("")
+    want = (org_id or "").strip() or None
+
+    with Session(engine) as session:
+        existing = crud.get_project_accessible(
+            session=session, user_id=user_id, project_id=pid
+        )
+        if not existing:
+            raise ProjectNotFoundError(pid)
+        # Only the personal owner (or org writer already on the project) may move it.
+        is_owner = str(existing.user_id or "") == str(user_id or "")
+        if not is_owner and not _can_write_project(user_id=user_id, row=existing):
+            raise ProjectForbiddenError(pid)
+        if want:
+            _require_org_project_write(user_id=user_id, org_id=want)
+        elif not is_owner:
+            # Detach: require owner (org members shouldn't orphan owner's project).
+            raise ProjectForbiddenError(pid, code="owner_required_to_detach")
+
+        now = time.time()
+        from sqlalchemy import update as sa_update
+
+        session.execute(
+            sa_update(Project)
+            .where(Project.id == pid)
+            .values(org_id=want, updated_at=now)
+        )
+        session.commit()
+
+        row = session.get(Project, pid)
+        if not row:
+            raise ProjectNotFoundError(pid)
+        names = _org_names_by_id(session, [want] if want else [])
+        return _project_out_meta(
+            row,
+            thumb_key=row.thumbnail_key,
+            thumb_custom=_row_thumb_custom(row),
+            org_name=names.get(want) if want else None,
+        )
 
 
 def upsert_project(

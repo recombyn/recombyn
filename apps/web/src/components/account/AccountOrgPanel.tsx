@@ -60,6 +60,11 @@ function roleLabel(role: string | undefined, t: (k: string) => string): string {
   return t('account.orgRoleMember');
 }
 
+function canManageSettings(role: string | undefined): boolean {
+  const r = (role || '').toLowerCase();
+  return r === 'owner' || r === 'admin';
+}
+
 function canInvite(role: string | undefined): boolean {
   const r = (role || '').toLowerCase();
   return r === 'owner' || r === 'admin';
@@ -76,6 +81,7 @@ function AccountOrgPanel() {
   const [inviteSearchQ, setInviteSearchQ] = useState('');
   const [selectedInvitee, setSelectedInvitee] = useState<DirectoryUser | null>(null);
   const [preferredId, setPreferredId] = useState<string | null>(() => readPreferredOrgId());
+  const [renameDraft, setRenameDraft] = useState('');
 
   const orgsQuery = useQuery({
     ...apiQuery.orgsListMyOrgs.queryOptions({}),
@@ -94,6 +100,10 @@ function AccountOrgPanel() {
   }, [orgs, selectedId]);
 
   const selected = orgs.find((o) => o.id === selectedId) || null;
+
+  useEffect(() => {
+    setRenameDraft(selected?.name || '');
+  }, [selected?.id, selected?.name]);
 
   const myInvitesQuery = useQuery({
     ...apiQuery.orgsListMyPendingInvites.queryOptions({}),
@@ -232,6 +242,35 @@ function AccountOrgPanel() {
       await invalidateOrgQueries();
     },
     onError: () => message.error(t('account.orgInviteDeclineFailed')),
+  });
+
+  const renameMut = useMutation({
+    mutationFn: async (opts: { orgId: string; name: string }) =>
+      apiClient.orgsRenameOrg({
+        params: { org_id: opts.orgId },
+        body: { name: opts.name },
+      }),
+    onSuccess: async () => {
+      message.success(t('account.orgRenamed'));
+      await invalidateOrgQueries();
+    },
+    onError: () => message.error(t('account.orgRenameFailed')),
+  });
+
+  const removeMemberMut = useMutation({
+    mutationFn: async (opts: { orgId: string; userId: string }) =>
+      apiClient.orgsRemoveMember({
+        params: { org_id: opts.orgId, user_id: opts.userId },
+      }),
+    onSuccess: async () => {
+      message.success(t('account.orgMemberRemoved'));
+      await invalidateOrgQueries();
+    },
+    onError: (err) => {
+      const status = getHttpStatus(err);
+      if (status === 400) message.warning(t('account.orgCannotRemoveOwner'));
+      else message.error(t('account.orgMemberRemoveFailed'));
+    },
   });
 
   const onCreate = () => {
@@ -434,6 +473,35 @@ function AccountOrgPanel() {
             {t('account.orgMembersHint')}
           </p>
 
+          {canManageSettings(selected.role) ? (
+            <div className="mb-5 flex flex-wrap items-center gap-3">
+              <input
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value.slice(0, 120))}
+                className={cn(inputClass, 'max-w-md flex-1')}
+                placeholder={t('account.orgNamePlaceholder')}
+              />
+              <Button
+                shape="round"
+                loading={renameMut.isPending}
+                disabled={
+                  renameMut.isPending ||
+                  !renameDraft.trim() ||
+                  renameDraft.trim() === selected.name
+                }
+                onClick={() => {
+                  if (!selectedId) return;
+                  renameMut.mutate({
+                    orgId: selectedId,
+                    name: renameDraft.trim(),
+                  });
+                }}
+              >
+                {t('account.orgRenameAction')}
+              </Button>
+            </div>
+          ) : null}
+
           {membersQuery.isPending ? (
             <p className="mb-4 text-[13px] text-[var(--muted)]">{t('common.loading')}</p>
           ) : (
@@ -446,9 +514,25 @@ function AccountOrgPanel() {
                   <span className="min-w-0 truncate font-mono text-[var(--ink)]">
                     {m.user_id}
                   </span>
-                  <span className="shrink-0 text-[var(--muted)]">
-                    {roleLabel(m.role, t)}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-[var(--muted)]">{roleLabel(m.role, t)}</span>
+                    {canInvite(selected.role) && m.role !== 'owner' ? (
+                      <button
+                        type="button"
+                        className="text-[12px] text-red-500 hover:underline"
+                        disabled={removeMemberMut.isPending}
+                        onClick={() => {
+                          if (!selectedId) return;
+                          removeMemberMut.mutate({
+                            orgId: selectedId,
+                            userId: m.user_id,
+                          });
+                        }}
+                      >
+                        {t('account.orgMemberRemove')}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

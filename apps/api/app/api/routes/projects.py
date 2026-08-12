@@ -236,6 +236,34 @@ def patch_one(
     return {"project": row}
 
 
+class SetProjectOrgIn(BaseModel):
+    """Attach project to an org, or null to detach (owner only)."""
+
+    orgId: str | None = Field(default=None, max_length=64)
+
+
+@router.patch("/{project_id}/org", response_model=ProjectOneOut)
+def set_project_org(
+    current_user: CurrentUser,
+    project_id: str,
+    body: SetProjectOrgIn,
+) -> dict[str, Any]:
+    try:
+        row = project_store.set_project_org(
+            current_user.id,
+            project_id,
+            org_id=body.orgId,
+        )
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    except ProjectForbiddenError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "id": exc.project_id},
+        ) from exc
+    return {"project": row}
+
+
 @router.delete("/{project_id}", response_model=OkOut)
 def remove(
     current_user: CurrentUser,

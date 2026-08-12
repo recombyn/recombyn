@@ -17,6 +17,10 @@ class CreateOrgIn(BaseModel):
     name: str = Field(default="Untitled org", max_length=120)
 
 
+class RenameOrgIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+
+
 class InviteMemberIn(BaseModel):
     userId: str | None = Field(default=None, max_length=64)
     email: str | None = Field(default=None, max_length=320)
@@ -98,6 +102,22 @@ def get_org(
     return {"org": row}
 
 
+@router.patch("/{org_id}")
+def rename_org(
+    org_id: str,
+    body: RenameOrgIn,
+    current_user: SessionUser = Depends(require_org_permission("org:settings:write")),
+) -> dict[str, Any]:
+    _ = current_user
+    try:
+        row = org_store.rename_org(org_id=org_id, name=body.name)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+    return {"org": row}
+
+
 @router.get("/{org_id}/members")
 def list_members(
     org_id: str,
@@ -105,6 +125,26 @@ def list_members(
 ) -> dict[str, Any]:
     _ = current_user
     return {"members": org_store.list_org_members(org_id=org_id)}
+
+
+@router.delete("/{org_id}/members/{user_id}")
+def remove_member(
+    org_id: str,
+    user_id: str,
+    current_user: SessionUser = Depends(require_org_permission("org:members:write")),
+) -> dict[str, Any]:
+    try:
+        return org_store.remove_org_member(
+            org_id=org_id,
+            user_id=user_id,
+            actor_user_id=current_user.id,
+        )
+    except LookupError:
+        raise HTTPException(
+            status_code=404, detail={"code": "member_not_found"}
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
 
 
 @router.get("/{org_id}/invites")

@@ -332,6 +332,56 @@ def decline_org_invite(*, invite_id: str, user_id: str, email: str | None) -> di
         return {"inviteId": iid, "status": "declined"}
 
 
+def rename_org(*, org_id: str, name: str) -> dict[str, Any]:
+    oid = (org_id or "").strip()
+    name_n = (name or "").strip()[:120] or "Untitled org"
+    if not oid:
+        raise ValueError("org_id_required")
+    with Session(core_db.engine) as session:
+        row = session.get(Org, oid)
+        if not row:
+            raise LookupError("org_not_found")
+        row.name = name_n
+        row.updated_at = time.time()
+        session.add(row)
+        session.commit()
+        return {
+            "id": row.id,
+            "name": row.name,
+            "createdAt": int(float(row.created_at or 0) * 1000),
+            "updatedAt": int(float(row.updated_at or 0) * 1000),
+        }
+
+
+def remove_org_member(*, org_id: str, user_id: str, actor_user_id: str) -> dict[str, Any]:
+    """Remove a member. Cannot remove the last owner or demote yourself if sole owner."""
+    oid = (org_id or "").strip()
+    uid = (user_id or "").strip()
+    if not oid or not uid:
+        raise ValueError("org_id_and_user_required")
+    with Session(core_db.engine) as session:
+        target = session.exec(
+            select(OrgMember).where(
+                OrgMember.org_id == oid,
+                OrgMember.user_id == uid,
+            )
+        ).first()
+        if not target:
+            raise LookupError("member_not_found")
+        if str(target.role or "").lower() == "owner":
+            owners = session.exec(
+                select(OrgMember).where(
+                    OrgMember.org_id == oid,
+                    OrgMember.role == "owner",
+                )
+            ).all()
+            if len(owners) <= 1:
+                raise ValueError("cannot_remove_last_owner")
+        session.delete(target)
+        session.commit()
+    return {"orgId": oid, "userId": uid, "removed": True}
+
+
 # Back-compat alias used by older call sites / tests.
 def invite_org_member(**kwargs: Any) -> dict[str, Any]:
     return create_org_invite(**kwargs)

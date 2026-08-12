@@ -76,6 +76,8 @@ type ProjectListItem = {
   openedAt: number;
   source: 'user';
   remoteOnly: boolean;
+  orgId?: string | null;
+  orgName?: string | null;
 };
 
 function projectSummaryToListItem(row: ProjectSummaryDto): ProjectListItem {
@@ -90,6 +92,8 @@ function projectSummaryToListItem(row: ProjectSummaryDto): ProjectListItem {
     openedAt: row.updatedAt || row.createdAt || Date.now(),
     source: 'user',
     remoteOnly: Boolean(row.hasDocument),
+    orgId: row.orgId ?? null,
+    orgName: row.orgName ?? null,
   };
 }
 
@@ -453,7 +457,7 @@ function HomeTemplateList({
 
   const orgsQuery = useQuery({
     ...apiQuery.orgsListMyOrgs.queryOptions({
-      enabled: Boolean(authed && showMine),
+      enabled: Boolean(authed && (showMine || showHome)),
     }),
   });
   const orgOptions = (() => {
@@ -634,6 +638,7 @@ function HomeTemplateList({
               onLoadMore={mineScrollLoad ? loadMoreProjects : undefined}
               onCreate={onCreate}
               createDisabled={importing}
+              orgOptions={orgOptions}
               gridClassName="grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
             />
           </div>
