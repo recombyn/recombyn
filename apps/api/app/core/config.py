@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     max_upload_mb: int = 20
     max_video_upload_mb: int = 100
 
+    # Observability (ADR 0007) — JSON lines when true; human text otherwise.
+    log_json: bool = False
+
     # Phase 1: Celery + Redis + preprocess
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/0"

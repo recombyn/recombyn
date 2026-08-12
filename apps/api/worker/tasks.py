@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
 from app.services.job_store import get_job, update_job
 from app.services.pipeline import run_import
 from worker.celery_app import celery
+
+_log = logging.getLogger(__name__)
 
 _HYDRATE_KIND = "hydrate"
 _HYDRATE_TRANSIENT = (ConnectionError, TimeoutError, OSError)
@@ -46,14 +49,26 @@ def run_import_job(self, job_id: str, source_type: str, file_path: str) -> dict:
     retry_kwargs={"max_retries": 2},
 )
 def run_image_hydrate_job(self, job_id: str) -> dict:
-    """Fill create_image genPrompt ops via image providers (ADR 0005)."""
+    """Fill create_image genPrompt ops via image providers (ADR 0005 / 0007)."""
     from app.core.metrics import observe_hydrate_job
 
     job = get_job(job_id, kind=_HYDRATE_KIND)
     if not job:
         observe_hydrate_job("failed")
+        _log.warning(
+            "hydrate_job event=failed job_id=%s error=job_not_found",
+            job_id,
+            extra={"job_id": job_id, "event": "failed"},
+        )
         return {"job_id": job_id, "status": "failed", "error": "job_not_found"}
 
+    trace_id = str(job.get("trace_id") or "")
+    _log.info(
+        "hydrate_job event=start job_id=%s trace_id=%s",
+        job_id,
+        trace_id,
+        extra={"job_id": job_id, "trace_id": trace_id, "event": "start"},
+    )
     update_job(job_id, kind=_HYDRATE_KIND, status="processing", progress=10, error=None)
     ops = job.get("ops") if isinstance(job.get("ops"), list) else []
     limit = int(job.get("limit") or 6)
@@ -86,6 +101,13 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
             error=None,
         )
         observe_hydrate_job("done")
+        _log.info(
+            "hydrate_job event=done job_id=%s trace_id=%s filled=%s",
+            job_id,
+            trace_id,
+            filled,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "done"},
+        )
         return {"job_id": job_id, "status": "done", "filled": filled}
     except _HYDRATE_TRANSIENT as exc:
         # Leave status=processing so clients keep polling; Celery will retry.
@@ -95,6 +117,13 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
             kind=_HYDRATE_KIND,
             status="processing",
             error=f"transient retry: {exc}",
+        )
+        _log.warning(
+            "hydrate_job event=retry job_id=%s trace_id=%s err=%s",
+            job_id,
+            trace_id,
+            exc,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "retry"},
         )
         raise
     except Exception as exc:  # noqa: BLE001
@@ -106,6 +135,12 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
             error=str(exc),
         )
         observe_hydrate_job("failed")
+        _log.exception(
+            "hydrate_job event=failed job_id=%s trace_id=%s",
+            job_id,
+            trace_id,
+            extra={"job_id": job_id, "trace_id": trace_id, "event": "failed"},
+        )
         return {"job_id": job_id, "status": "failed", "error": str(exc)}
 
 

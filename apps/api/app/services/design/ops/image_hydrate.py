@@ -187,15 +187,17 @@ async def _hydrate_via_celery(
     policy: str,
     rules: dict[str, str] | None,
     on_progress: _OnProgress | None,
+    trace_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int] | None:
     """Enqueue + poll. Returns None to signal caller should use in-process path."""
     from app.core.config import settings
-    from app.services.job_store import get_job, save_job
+    from app.services.job_store import get_job, normalize_trace_id, save_job
     from worker.tasks import run_image_hydrate_job
 
     budget = max(5.0, float(getattr(settings, "design_image_hydrate_timeout_sec", 90.0) or 90.0))
     stall = max(1.0, float(getattr(settings, "design_image_hydrate_queue_stall_sec", 5.0) or 5.0))
     job_id = uuid.uuid4().hex
+    tid = normalize_trace_id(trace_id)
     payload = {
         "job_id": job_id,
         "kind": _HYDRATE_KIND,
@@ -207,11 +209,18 @@ async def _hydrate_via_celery(
         "rules": {str(k): str(v) for k, v in (rules or {}).items()},
         "result": None,
         "error": None,
+        "trace_id": tid,
     }
     save_job(job_id, payload, kind=_HYDRATE_KIND)
     run_image_hydrate_job.delay(job_id)
     if on_progress:
         on_progress(0, "queued")
+    _log.info(
+        "hydrate_job event=enqueued job_id=%s trace_id=%s",
+        job_id,
+        tid,
+        extra={"job_id": job_id, "trace_id": tid, "event": "enqueued"},
+    )
 
     deadline = time.monotonic() + budget
     queued_deadline = time.monotonic() + stall
@@ -233,17 +242,30 @@ async def _hydrate_via_celery(
                 return out, filled
             return None
         if status == "failed":
-            _log.warning("hydrate job failed job=%s err=%s", job_id, job.get("error"))
+            _log.warning(
+                "hydrate job failed job=%s trace_id=%s err=%s",
+                job_id,
+                tid,
+                job.get("error"),
+                extra={"job_id": job_id, "trace_id": tid, "event": "failed"},
+            )
             return None
         if status == "queued" and time.monotonic() >= queued_deadline:
             _log.info(
-                "hydrate job still queued after %.1fs — falling back in-process job=%s",
+                "hydrate job still queued after %.1fs — falling back in-process job=%s trace_id=%s",
                 stall,
                 job_id,
+                tid,
+                extra={"job_id": job_id, "trace_id": tid, "event": "stall_fallback"},
             )
             return None
         await asyncio.sleep(0.35)
-    _log.warning("hydrate job poll budget exceeded job=%s", job_id)
+    _log.warning(
+        "hydrate job poll budget exceeded job=%s trace_id=%s",
+        job_id,
+        tid,
+        extra={"job_id": job_id, "trace_id": tid, "event": "timeout"},
+    )
     return None
 
 
@@ -254,6 +276,7 @@ async def hydrate_tool_ops_images(
     policy: str = "auto",
     rules: dict[str, str] | None = None,
     on_progress: _OnProgress | None = None,
+    trace_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Apply/action entry: Celery when enabled, else in-process (ADR 0005)."""
     if policy != "auto" or not ops or limit <= 0:
@@ -276,6 +299,7 @@ async def hydrate_tool_ops_images(
                 policy=policy,
                 rules=rules,
                 on_progress=on_progress,
+                trace_id=trace_id,
             )
             if queued is not None:
                 return queued

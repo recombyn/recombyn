@@ -1,18 +1,20 @@
-"""Async design image-hydrate jobs — Celery + Redis poll (ADR 0005)."""
+"""Async design image-hydrate jobs — Celery + Redis poll (ADR 0005 / 0007)."""
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
-from app.services.job_store import get_job, save_job
+from app.services.job_store import get_job, normalize_trace_id, save_job
 from worker.tasks import run_image_hydrate_job
 
 router = APIRouter(prefix="/design/hydrate", tags=["design-hydrate-jobs"])
+_log = logging.getLogger(__name__)
 
 _KIND = "hydrate"
 
@@ -22,11 +24,13 @@ class HydrateJobCreateRequest(BaseModel):
     limit: int = Field(default=6, ge=1, le=24)
     policy: str = "auto"
     rules: dict[str, str] | None = None
+    trace_id: str | None = None
 
 
 class HydrateJobCreateResponse(BaseModel):
     job_id: str
     status: str = "queued"
+    trace_id: str = ""
 
 
 class HydrateJobStatusResponse(BaseModel):
@@ -35,13 +39,20 @@ class HydrateJobStatusResponse(BaseModel):
     progress: int = 0
     result: dict[str, Any] | None = None
     error: str | None = None
+    trace_id: str | None = None
 
 
 @router.post("/jobs", response_model=HydrateJobCreateResponse)
-async def create_hydrate_job(body: HydrateJobCreateRequest, _current_user: CurrentUser):
+async def create_hydrate_job(
+    body: HydrateJobCreateRequest,
+    request: Request,
+    _current_user: CurrentUser,
+):
     if not body.ops:
         raise HTTPException(status_code=400, detail="ops required")
     job_id = uuid.uuid4().hex
+    header_tid = getattr(request.state, "trace_id", None)
+    trace_id = normalize_trace_id(body.trace_id or header_tid)
     payload = {
         "job_id": job_id,
         "kind": _KIND,
@@ -54,6 +65,7 @@ async def create_hydrate_job(body: HydrateJobCreateRequest, _current_user: Curre
         "result": None,
         "error": None,
         "user_id": getattr(_current_user, "id", None) or None,
+        "trace_id": trace_id,
     }
     try:
         save_job(job_id, payload, kind=_KIND)
@@ -69,7 +81,13 @@ async def create_hydrate_job(body: HydrateJobCreateRequest, _current_user: Curre
         observe_hydrate_job("enqueued")
     except Exception:
         pass
-    return HydrateJobCreateResponse(job_id=job_id, status="queued")
+    _log.info(
+        "hydrate_job event=enqueued job_id=%s trace_id=%s",
+        job_id,
+        trace_id,
+        extra={"job_id": job_id, "trace_id": trace_id, "event": "enqueued"},
+    )
+    return HydrateJobCreateResponse(job_id=job_id, status="queued", trace_id=trace_id)
 
 
 @router.get("/jobs/{job_id}", response_model=HydrateJobStatusResponse)
@@ -86,4 +104,5 @@ def get_hydrate_job(_current_user: CurrentUser, job_id: str):
         progress=int(job.get("progress") or 0),
         result=job.get("result") if isinstance(job.get("result"), dict) else None,
         error=job.get("error"),
+        trace_id=str(job.get("trace_id") or "") or None,
     )

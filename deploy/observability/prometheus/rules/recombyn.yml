@@ -38,3 +38,16 @@ groups:
         annotations:
           summary: "DB or Redis dependency down"
           description: "recombyn_dependency_* gauge is 0."
+
+      - alert: RecombynHydrateJobFailures
+        expr: |
+          sum(rate(recombyn_hydrate_jobs_total{event="failed"}[10m]))
+            /
+          clamp_min(sum(rate(recombyn_hydrate_jobs_total{event=~"enqueued|done|failed"}[10m])), 0.001)
+            > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hydrate job failure rate > 25% (10m)"
+          description: "Check Celery worker, image providers, and logs filtered by trace_id."

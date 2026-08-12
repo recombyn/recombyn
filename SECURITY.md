@@ -24,3 +24,10 @@ See [docs/self-hosting.md](docs/self-hosting.md). At minimum:
 - Rotate `CARD_KEY_SALT` / provider API keys
 - Never commit `.env` files
 - Terminate TLS in front of the stack
+- Set `LOG_JSON=true` in production log drains (ADR 0007); keep `install_log_redaction` on
+- Prefer correlating incidents with `X-Trace-Id` / hydrate `trace_id`
+
+## Dependency audit
+
+CI runs `pip-audit` (API) and `npm audit --audit-level=high` (workspaces) on a soft gate
+(`.github/workflows/dependency-audit.yml`). Treat new highs as merge blockers once the backlog is green.

@@ -67,10 +67,10 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next (Phase 3) |
 |-----------|--------|----------------|
-| OTel 全链路 | Missing | API → worker trace_id |
-| 结构化日志 | Partial | JSON logs + redaction (already some) |
-| Prometheus | Scaffold (`/metrics`, grafana) | RED + queue depth + alert rules |
-| 自动告警 | Missing | 5xx / queue lag webhook |
+| OTel 全链路 | Correlation `trace_id` (ADR 0007) | Full OTel SDK later |
+| 结构化日志 | `LOG_JSON` + redaction | Keep human default locally |
+| Prometheus | `/metrics` + Grafana + hydrate fail alert | Queue depth panels |
+| 自动告警 | Prom rules (5xx / p95 / deps / hydrate) | Webhook contact points |
 
 ### 6. 部署环境
 
@@ -117,10 +117,12 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 ### Phase 3 — Observability & security
 
-- [ ] Structured logs + trace ids (OTel)
-- [ ] Prometheus panels + alerts (QPS / latency / errors / queue)
-- [ ] Upload hardening + dependency audit CI
+- [x] Correlation + structured logs (ADR 0007; `trace_id` on hydrate API→worker; `LOG_JSON`)
+- [x] Prometheus hydrate failure alert (+ existing RED / dep rules)
+- [x] Dependency audit CI (pip-audit + npm audit, soft gate)
+- [ ] Upload hardening (MIME sniff / optional AV hook)
 - [ ] RBAC incremental + security process docs
+- [ ] Full OTel SDK when cross-service spans are required
 
 ### Phase 4 — CI/CD & deploy options
 
