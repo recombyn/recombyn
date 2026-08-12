@@ -55,7 +55,7 @@ export function buildEditorIntentPath(opts?: GoEditorOpts): string {
   return '/editor';
 }
 
-/** Navigate to /editor/:projectId; guests go to login with ?from= intent. */
+/** Navigate to /editor/:projectId; guests open the login modal on this tab (ignore newWindow). */
 export function useGoEditor() {
   const user = useSelector((s: any) => s.auth.user);
   const navigate = useNavigate();
@@ -63,26 +63,30 @@ export function useGoEditor() {
   return useCallback(
     (opts?: GoEditorOpts) => {
       const path = buildEditorIntentPath(opts);
-      const dest = user ? path : buildLoginUrl(path);
+      // Guests: never window.open — that jumps to a new tab instead of the in-page login dialog.
+      if (!user) {
+        navigate(buildLoginUrl(path));
+        return;
+      }
       if (opts?.newWindow && canOpenEditorInNewWindow()) {
         if (opts.homeAgentBoot) {
-          const opened = openEditorWindowWithBoot(dest, opts.homeAgentBoot);
-          if (!opened) navigate(dest);
+          const opened = openEditorWindowWithBoot(path, opts.homeAgentBoot);
+          if (!opened) navigate(path);
           return;
         }
         // Do not pass `noopener` to window.open — it makes the return value null in
         // Chromium even when the tab opens, and we would wrongly navigate this window.
-        const win = window.open(dest, '_blank');
+        const win = window.open(path, '_blank');
         if (win) {
           win.opener = null;
           return;
         }
         // Popup blocked — fall back to same-tab navigation.
-        navigate(dest);
+        navigate(path);
         return;
       }
       if (opts?.homeAgentBoot) saveHomeAgentBoot(opts.homeAgentBoot);
-      navigate(dest);
+      navigate(path);
     },
     [user, navigate]
   );

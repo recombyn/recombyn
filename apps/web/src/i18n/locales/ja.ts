@@ -95,7 +95,7 @@ const ja = {
     railSkills: 'スキル',
     skillsTitle: 'スキルツールボックス',
     skillsHint:
-      'スキルパック（.zip / .recombyn-plugin）をアップロードするか、不要な公式スキルをオフにできます。チャットで / を入力すると、このターンにスキルを固定できます。',
+      'スキルパック（.zip / .recombyn-plugin）をアップロードするか、不要な公式スキルをオフにできます。チャットで / を入力すると、このターンにスキルを固定できます。\n\n必須ファイル：\n• _meta.json\n• SKILL.md\n\n任意：\n• assets/icon.png — 一覧アイコン\n• schema.json — 入出力スキーマ\n• handler.py — ops ランナー\n• examples/ — 参考用\n\n_meta 項目：skill_key（必須）；when_to_use、preferred_tools、triggers / trigger_keywords（推奨）；version、enabled、author（任意）。',
     viewAll: 'すべて見る',
     inspiration: 'インスピレーション',
     updatedAt: '更新 {{time}}',
