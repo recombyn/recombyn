@@ -675,6 +675,7 @@ const en = {
     orgInviteAction: 'Send invite',
     orgInviteOk: 'Member invited',
     orgInviteSent: 'Invite sent — waiting for accept',
+    orgInviteSentEmail: 'Invite sent by email — waiting for accept',
     orgInviteFailed: 'Invite failed',
     orgInviteUserMissing: 'No user with that email',
     orgInviteForbidden: 'Only owners and admins can invite',

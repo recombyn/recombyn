@@ -203,8 +203,10 @@ function AccountOrgPanel() {
           role: 'member',
         },
       }),
-    onSuccess: async () => {
-      message.success(t('account.orgInviteSent'));
+    onSuccess: async (res) => {
+      const invite = (res as { invite?: { emailSent?: boolean } } | undefined)?.invite;
+      if (invite?.emailSent) message.success(t('account.orgInviteSentEmail'));
+      else message.success(t('account.orgInviteSent'));
       setInviteQuery('');
       setSelectedInvitee(null);
       await invalidateOrgQueries();

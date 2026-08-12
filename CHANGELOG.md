@@ -22,6 +22,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Account **Organization** tab (create / invite / preferred org) + Projects org filter; contracts regen for `/orgs`
 - Org **pending invites** (user search, accept/decline) + Alembic `0008_org_invites`
 - Project org badge / move-to-org; org rename + remove member APIs
+- Org invite **email notify** (Tencent SES best-effort; response `emailSent`)
 
 ### Changed
 

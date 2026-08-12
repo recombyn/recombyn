@@ -647,6 +647,7 @@ const zhTW = {
     orgInviteAction: '發送邀請',
     orgInviteOk: '已邀請',
     orgInviteSent: '邀請已發送，等待對方接受',
+    orgInviteSentEmail: '邀請郵件已發送，等待對方接受',
     orgInviteFailed: '邀請失敗',
     orgInviteUserMissing: '找不到該信箱使用者',
     orgInviteForbidden: '僅擁有者與管理員可邀請',

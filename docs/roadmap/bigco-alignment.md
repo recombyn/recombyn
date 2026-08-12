@@ -84,7 +84,7 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 
 | Reference | Status | Next |
 |-----------|--------|------|
-| 细粒度 RBAC | org rename/kick + project org move/badge + pending invites | Email notify for invites |
+| 细粒度 RBAC | org invite email (SES best-effort) + pending accept + project org move | Dedicated invite SES template |
 | 文件查杀 / 内容安全 | Magic sniff + optional AV hook; Compose `av` profile (ClamAV) | Wire `UPLOAD_AV_COMMAND=clamdscan` in prod |
 | 限流防刷 | Per-route rate limits | Tune; abuse playbooks |
 | 配额 / 计费 | Wallet + holds exist | Turn on carefully; audit ledger |
@@ -156,3 +156,4 @@ Reference wants：网关 / 用户权限 / 画布存储 / 素材 / AI 中台 / �
 - [x] Web account org tab (create / invite / preferred org) + mine org filter
 - [x] Org pending invites (search users, accept/decline) + `org_invites` Alembic
 - [x] Project org badge/move + org rename / remove member
+- [x] Org invite email notify (SES Simple / template fallback, `emailSent`)

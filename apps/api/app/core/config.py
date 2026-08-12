@@ -280,6 +280,8 @@ class Settings(BaseSettings):
     ses_template_id: int = 0
     # Used only when TemplateID is unset (Simple HTML fallback).
     ses_activate_base_url: str = "https://recombyn.com/activate"
+    # Public web origin for deep links (org invite → /account?tab=org). Empty → derive from activate URL.
+    public_app_base_url: str = ""
 
 settings = Settings()
 

@@ -12,8 +12,13 @@ from app.core import db as core_db
 from app.models import Org, OrgInvite, OrgMember
 
 
-def _invite_out(row: OrgInvite, *, org_name: str | None = None) -> dict[str, Any]:
-    return {
+def _invite_out(
+    row: OrgInvite,
+    *,
+    org_name: str | None = None,
+    email_sent: bool | None = None,
+) -> dict[str, Any]:
+    out = {
         "id": row.id,
         "orgId": row.org_id,
         "orgName": org_name,
@@ -27,6 +32,57 @@ def _invite_out(row: OrgInvite, *, org_name: str | None = None) -> dict[str, Any
             int(float(row.responded_at) * 1000) if row.responded_at else None
         ),
     }
+    if email_sent is not None:
+        out["emailSent"] = bool(email_sent)
+    return out
+
+
+def _actor_display_name(*, session: Session, user_id: str) -> str:
+    from app import crud
+
+    user = crud.get_user_by_id(session=session, user_id=user_id)
+    if not user:
+        return "A teammate"
+    name = str(getattr(user, "name", None) or "").strip()
+    if name:
+        return name
+    email = str(getattr(user, "email", None) or "").strip()
+    if email and "@" in email:
+        return email.split("@", 1)[0]
+    return "A teammate"
+
+
+def _notify_org_invite_email(
+    *,
+    to_email: str | None,
+    org_name: str | None,
+    inviter_name: str,
+) -> bool:
+    """Best-effort SES notify. Never raises to the invite API."""
+    import logging
+
+    em = (to_email or "").strip().lower()
+    if not em or "@" not in em:
+        return False
+    try:
+        from app.services.auth.ses_mail import (
+            send_org_invite_email,
+            ses_configured,
+        )
+
+        if not ses_configured():
+            return False
+        send_org_invite_email(
+            to_email=em,
+            org_name=org_name or "a team",
+            inviter_name=inviter_name,
+        )
+        return True
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "org invite email failed to=%s org=%s", em, org_name
+        )
+        return False
 
 
 def create_org(*, name: str, owner_user_id: str) -> dict[str, Any]:
@@ -218,7 +274,15 @@ def create_org_invite(
             session.commit()
             session.refresh(existing)
             org = session.get(Org, oid)
-            return _invite_out(existing, org_name=org.name if org else None)
+            inviter = _actor_display_name(session=session, user_id=actor_user_id)
+            sent = _notify_org_invite_email(
+                to_email=em or existing.email,
+                org_name=org.name if org else None,
+                inviter_name=inviter,
+            )
+            return _invite_out(
+                existing, org_name=org.name if org else None, email_sent=sent
+            )
 
         now = time.time()
         invite_id = f"oinv_{uuid.uuid4().hex[:16]}"
@@ -237,7 +301,13 @@ def create_org_invite(
         session.commit()
         session.refresh(row)
         org = session.get(Org, oid)
-        return _invite_out(row, org_name=org.name if org else None)
+        inviter = _actor_display_name(session=session, user_id=actor_user_id)
+        sent = _notify_org_invite_email(
+            to_email=em,
+            org_name=org.name if org else None,
+            inviter_name=inviter,
+        )
+        return _invite_out(row, org_name=org.name if org else None, email_sent=sent)
 
 
 def list_org_invites(*, org_id: str, status: str = "pending") -> list[dict[str, Any]]:

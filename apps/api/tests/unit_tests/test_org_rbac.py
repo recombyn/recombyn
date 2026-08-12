@@ -249,3 +249,57 @@ def test_set_project_org_and_rename_kick(
         )
     finally:
         restore_default_sqlite_engine()
+
+
+def test_org_invite_email_best_effort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _use_tmp_db(tmp_path, monkeypatch, "org-email.db")
+    from app.services.auth import orgs as org_store
+    from app.services.auth.email_store import upsert_user
+    from app.services.db import init_schema
+
+    sent: list[dict] = []
+
+    def fake_send(**kwargs):
+        sent.append(kwargs)
+        return "msg-1"
+
+    monkeypatch.setattr(
+        "app.services.auth.ses_mail.ses_configured", lambda: True
+    )
+    monkeypatch.setattr(
+        "app.services.auth.ses_mail.send_org_invite_email", fake_send
+    )
+
+    try:
+        init_schema()
+        owner = upsert_user(email="o4@example.com", password="password123", name="Owner4")
+        member = upsert_user(
+            email="m4@example.com", password="password123", name="Member4"
+        )
+        org = org_store.create_org(name="Mail Team", owner_user_id=owner.id)
+        inv = org_store.create_org_invite(
+            org_id=org["id"],
+            actor_user_id=owner.id,
+            email=member.email,
+            role="member",
+        )
+        assert inv["emailSent"] is True
+        assert len(sent) == 1
+        assert sent[0]["to_email"] == "m4@example.com"
+        assert sent[0]["org_name"] == "Mail Team"
+        assert "Owner" in sent[0]["inviter_name"]
+    finally:
+        restore_default_sqlite_engine()
+
+
+def test_public_app_origin_derives_from_activate(monkeypatch: pytest.MonkeyPatch):
+    from app.core.config import settings
+    from app.services.auth import ses_mail
+
+    monkeypatch.setattr(settings, "public_app_base_url", "")
+    monkeypatch.setattr(
+        settings, "ses_activate_base_url", "https://example.com/activate"
+    )
+    assert ses_mail.public_app_origin() == "https://example.com"
