@@ -135,7 +135,10 @@ def extract_covers(
             document=(body.document if body else None),
         )
     except ProjectNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "project_not_found", "id": exc.project_id or project_id},
+        ) from exc
     except ProjectForbiddenError as exc:
         raise HTTPException(
             status_code=403,

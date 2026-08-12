@@ -239,7 +239,18 @@ def _encode_thumb_entries(entries: list[str] | None) -> str | None:
         return None
     if len(cleaned) == 1:
         return cleaned[0]
-    return json.dumps(cleaned, ensure_ascii=False)
+    encoded = json.dumps(cleaned, ensure_ascii=False)
+    # Legacy MySQL VARCHAR(512) — prefer a shorter collage over failing PUT /projects.
+    if len(encoded) <= 500:
+        return encoded
+    for n in range(len(cleaned) - 1, 0, -1):
+        trimmed = cleaned[:n]
+        if len(trimmed) == 1:
+            return trimmed[0]
+        again = json.dumps(trimmed, ensure_ascii=False)
+        if len(again) <= 500:
+            return again
+    return cleaned[0][:500] if cleaned else None
 
 
 def _is_project_owned_thumb_key(entry: str) -> bool:
@@ -1155,17 +1166,27 @@ def upsert_project(
                 next_doc_key = None
             if document is not None and next_doc_key:
                 next_doc_json = None
-            next_thumb, next_custom = _next_thumbnail(
-                owner_id,
-                pid,
-                thumbnail_data_url,
-                existing.thumbnail_key,
-                existing_custom=_row_thumb_custom(existing),
-                mark_custom=thumbnail_custom,
-                thumbnail_data_urls=thumbnail_data_urls,
-                thumbnail_urls=thumbnail_urls,
-                document=document,
-            )
+            try:
+                next_thumb, next_custom = _next_thumbnail(
+                    owner_id,
+                    pid,
+                    thumbnail_data_url,
+                    existing.thumbnail_key,
+                    existing_custom=_row_thumb_custom(existing),
+                    mark_custom=thumbnail_custom,
+                    thumbnail_data_urls=thumbnail_data_urls,
+                    thumbnail_urls=thumbnail_urls,
+                    document=document,
+                )
+            except Exception as exc:
+                # Cover rebuild must not block document save (COS / URL collage).
+                print(
+                    f"[projects.thumb] upsert keep existing project={pid} err={exc!r}",
+                    flush=True,
+                )
+                next_thumb, next_custom = existing.thumbnail_key, _row_thumb_custom(
+                    existing
+                )
             old_doc_key = existing.document_key
             ok = crud.update_project_if_revision_accessible(
                 session=session,
@@ -1211,17 +1232,24 @@ def upsert_project(
                 raise ProjectForbiddenError(pid)
             if want_org:
                 _require_org_project_write(user_id=user_id, org_id=want_org)
-            thumb_key, thumb_custom = _next_thumbnail(
-                user_id,
-                pid,
-                thumbnail_data_url,
-                None,
-                existing_custom=False,
-                mark_custom=thumbnail_custom,
-                thumbnail_data_urls=thumbnail_data_urls,
-                thumbnail_urls=thumbnail_urls,
-                document=document,
-            )
+            try:
+                thumb_key, thumb_custom = _next_thumbnail(
+                    user_id,
+                    pid,
+                    thumbnail_data_url,
+                    None,
+                    existing_custom=False,
+                    mark_custom=thumbnail_custom,
+                    thumbnail_data_urls=thumbnail_data_urls,
+                    thumbnail_urls=thumbnail_urls,
+                    document=document,
+                )
+            except Exception as exc:
+                print(
+                    f"[projects.thumb] create skip cover project={pid} err={exc!r}",
+                    flush=True,
+                )
+                thumb_key, thumb_custom = None, False
             crud.create_project(
                 session=session,
                 project=Project(
