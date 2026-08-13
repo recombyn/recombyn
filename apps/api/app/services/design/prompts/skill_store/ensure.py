@@ -191,7 +191,10 @@ def _upsert_owned_skill(
     when = str(item.get("when_to_use") or item.get("whenToUse") or "").strip()
     pos = str(item.get("prompt_positive") or item.get("promptPositive") or "")
     neg = str(item.get("prompt_negative") or item.get("promptNegative") or "")
-    scenes = str(item.get("scenes") or "all").strip() or "all"
+    scenes = str(item.get("scenes") or "").strip()
+    if not scenes:
+        logger.warning("skip skill upsert %s (%s): scenes required", key, source)
+        return
     sort_weight = int(item.get("sort_weight") or item.get("sortWeight") or 0)
     mutex = str(item.get("mutex_group") or item.get("mutexGroup") or "").strip()
     version = int(item.get("version") or 1)

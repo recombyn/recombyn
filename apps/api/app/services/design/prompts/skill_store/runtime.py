@@ -90,10 +90,13 @@ def reset_skills_ready_for_tests() -> None:
 
 
 def _csv_has(csv: str, token: str) -> bool:
+    """True only when csv lists token, or explicitly lists ``all``. Empty csv → False."""
     parts = {p.strip().lower() for p in str(csv or "").split(",") if p.strip()}
-    if not parts or "all" in parts:
+    if not parts:
+        return False
+    if "all" in parts:
         return True
-    return token.strip().lower() in parts
+    return bool(token) and token.strip().lower() in parts
 
 def _row_get(r: Any, key: str, default: Any = None) -> Any:
     try:
@@ -232,14 +235,14 @@ def _pub(r: Any) -> dict[str, Any]:
         "skillKind": skill_kind_for_namespace(namespace),
         "ownerUserId": str(_row_get(r, "owner_user_id") or "").strip() or None,
         "sortWeight": int(_row_get(r, "sort_weight") or 0),
-        "scenes": str(_row_get(r, "scenes") or "all"),
+        "scenes": str(_row_get(r, "scenes") or ""),
         "enabled": bool(int(_row_get(r, "enabled") or 0)),
         "_localKey": local or key,
     }
 
 def list_runtime_skills(
     *,
-    scene: str = "website",
+    scene: str = "",
     enabled_only: bool = True,
     user_id: str | None = None,
     namespaces: list[str] | tuple[str, ...] | None = None,
@@ -247,7 +250,7 @@ def list_runtime_skills(
     from .ensure import ensure_design_skills
 
     ensure_design_skills()
-    scene_l = str(scene or "website").strip().lower() or "website"
+    scene_l = str(scene or "").strip().lower()
     uid = str(user_id or "").strip() or None
     prefs = _load_user_skill_prefs(uid) if uid else {}
     allow_ns: set[str] | None = None
@@ -279,10 +282,7 @@ def list_runtime_skills(
             continue
         if ns == NS_USER and owner and not uid:
             continue
-        if not (
-            _csv_has(item.get("scenes") or "all", scene_l)
-            or _csv_has(item.get("scenes") or "all", "all")
-        ):
+        if not _csv_has(str(item.get("scenes") or ""), scene_l):
             continue
         # Per-user off switch (official + others); missing pref = on.
         if enabled_only and prefs and prefs.get(key.lower()) is False:
@@ -291,7 +291,7 @@ def list_runtime_skills(
         out.append(item)
     return out
 
-def resolve_storage_skill_key(raw: str, *, scene: str = "website") -> str | None:
+def resolve_storage_skill_key(raw: str, *, scene: str = "") -> str | None:
     """Map bare / namespaced / legacy refs onto the storage skill_key."""
     base, _, _ = parse_skill_pin(raw)
     s = base.strip().lower()
@@ -352,7 +352,7 @@ def _apply_mutex(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def format_skills_catalog(
     *,
-    scene: str = "website",
+    scene: str = "",
     user_id: str | None = None,
     namespaces: list[str] | tuple[str, ...] | None = None,
 ) -> str:
@@ -410,6 +410,42 @@ def _load_skill_revision_snapshot(
     except Exception:
         return None
 
+
+def _pin_is_numeric(pin: Any) -> bool:
+    return isinstance(pin, int) or str(pin).isdigit()
+
+
+def _apply_skill_pin(
+    row: dict[str, Any],
+    *,
+    storage: str,
+    pin: Any,
+    errs: list[str],
+) -> dict[str, Any] | None:
+    """Merge pinned revision into row. Returns None when pin miss should skip the skill."""
+    if pin is None:
+        return row
+    numeric = _pin_is_numeric(pin)
+    snap = _load_skill_revision_snapshot(
+        skill_key=storage,
+        version=int(pin) if numeric else None,
+        pack_version=None if numeric else str(pin),
+    )
+    if snap:
+        return {**row, **snap, "skillKey": storage}
+    # Pin miss: refuse silent upgrade to a different revision.
+    cur = int(row.get("version") or 0)
+    if numeric:
+        if int(pin) != cur:
+            errs.append(f"skill_version_missing:{storage}@{pin}")
+            return None
+        return row
+    if str(row.get("packVersion") or "") != str(pin):
+        errs.append(f"skill_pack_version_missing:{storage}@{pin}")
+        return None
+    return row
+
+
 def save_skill_revision(session: Session, *, skill_id: int, item: dict[str, Any]) -> None:
     """Persist a version snapshot (best-effort; never breaks upsert)."""
     try:
@@ -460,7 +496,7 @@ def save_skill_revision(session: Session, *, skill_id: int, item: dict[str, Any]
 def format_skills_details(
     *,
     keys: list[str],
-    scene: str = "website",
+    scene: str = "",
     max_chars: int = MAX_SKILL_DETAIL_CHARS,
     user_id: str | None = None,
     version_pins: dict[str, int | str] | None = None,
@@ -479,7 +515,7 @@ def format_skills_details(
 def format_skills_details_checked(
     *,
     keys: list[str],
-    scene: str = "website",
+    scene: str = "",
     max_chars: int = MAX_SKILL_DETAIL_CHARS,
     user_id: str | None = None,
     version_pins: dict[str, int | str] | None = None,
@@ -515,24 +551,10 @@ def format_skills_details_checked(
                 pin = pin_i
             elif pin_p is not None:
                 pin = pin_p
-            if pin is not None:
-                snap = _load_skill_revision_snapshot(
-                    skill_key=storage,
-                    version=int(pin) if isinstance(pin, int) or str(pin).isdigit() else None,
-                    pack_version=None if isinstance(pin, int) or str(pin).isdigit() else str(pin),
-                )
-                if snap:
-                    row = {**row, **snap, "skillKey": storage}
-                else:
-                    # Pin miss: refuse silent upgrade
-                    cur = int(row.get("version") or 0)
-                    if isinstance(pin, int) or str(pin).isdigit():
-                        if int(pin) != cur:
-                            errs.append(f"skill_version_missing:{storage}@{pin}")
-                            continue
-                    elif str(row.get("packVersion") or "") != str(pin):
-                        errs.append(f"skill_pack_version_missing:{storage}@{pin}")
-                        continue
+            pinned = _apply_skill_pin(row, storage=storage, pin=pin, errs=errs)
+            if pinned is None:
+                continue
+            row = pinned
             schema = row.get("inputSchema") if isinstance(row.get("inputSchema"), dict) else None
             if schema:
                 arg_errs = validate_against_schema(schema, args_by_key.get(storage) or {})
@@ -590,7 +612,7 @@ def format_skills_details_checked(
     return "\n\n".join(parts), errs
 
 def _normalize_loaded_skill_keys(
-    skill_keys: list[str], *, scene: str = "website"
+    skill_keys: list[str], *, scene: str = ""
 ) -> set[str]:
     """Map need_skills refs (bare / namespaced / aliases) → storage skill_keys."""
     raw = {str(k).strip().lower() for k in skill_keys if str(k).strip()}
@@ -603,7 +625,7 @@ def _normalize_loaded_skill_keys(
     return out
 
 def _iter_skills_for_keys(
-    skill_keys: list[str], *, scene: str = "website"
+    skill_keys: list[str], *, scene: str = ""
 ):
     keys = _normalize_loaded_skill_keys(skill_keys, scene=scene)
     if not keys:
@@ -651,7 +673,7 @@ def _preferred_tools_as_actions(tools: Any) -> str:
 
 
 def preferred_tools_allowlist(
-    skill_keys: list[str], *, scene: str = "website"
+    skill_keys: list[str], *, scene: str = ""
 ) -> set[str] | None:
     """Union of preferred_tools for loaded skills.
 
@@ -684,7 +706,7 @@ def preferred_tools_allowlist(
     return None
 
 def skill_resource_allowlist(
-    skill_keys: list[str], *, scene: str = "website"
+    skill_keys: list[str], *, scene: str = ""
 ) -> set[str] | None:
     """Which internal need_* resources loaded skills may unlock.
 
@@ -723,7 +745,7 @@ def filter_ops_by_skill_output_schema(
     ops: list[dict[str, Any]],
     *,
     skill_keys: list[str],
-    scene: str = "website",
+    scene: str = "",
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Enforce union of output_schema.allowed_ops when declared by loaded skills."""
     if not _normalize_loaded_skill_keys(skill_keys, scene=scene):
@@ -775,7 +797,7 @@ def filter_ops_by_skill_allowlist(
     ops: list[dict[str, Any]],
     *,
     skill_keys: list[str],
-    scene: str = "website",
+    scene: str = "",
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Enforce preferred_tools / custom-skill hard allowlist + output_schema."""
     from app.services.design.ops.tool_ops_contract import format_op_error
@@ -804,7 +826,7 @@ def filter_ops_by_skill_allowlist(
     return kept2, errs + errs2
 
 def parse_need_skills_with_pins(
-    raw: Any, *, max_n: int = 8, scene: str = "website"
+    raw: Any, *, max_n: int = 8, scene: str = ""
 ) -> tuple[list[str], dict[str, int | str], dict[str, Any], list[str]]:
     """Parse need_skills → (storage_keys, version_pins, input_args, errors)."""
     errs: list[str] = []
@@ -1002,7 +1024,7 @@ def _rule_matches(
 
 def resolve_triggered_skill_keys(
     *,
-    scene: str = "website",
+    scene: str = "",
     empty_canvas: bool = False,
     has_images: bool = False,
     intent: str = "",

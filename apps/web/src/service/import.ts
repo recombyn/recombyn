@@ -1,13 +1,7 @@
-/**
- * Import API — PDF / DOCX / image → Scene JSON.
- * Multipart create/import still uses ky `request` (OpenAPI file schema is string[]).
- * Job status polling uses oRPC `apiClient`.
- */
-
 import { apiClient } from '@/service/client';
 import { request } from '@/utils/request';
 
-export type ImportSourceType = 'pdf' | 'docx' | 'image';
+export type ImportSourceType = 'image';
 
 export type ImportJobStatus = 'queued' | 'processing' | 'done' | 'failed';
 
@@ -27,22 +21,6 @@ export type ImportJobResult = {
   } | null;
   error?: string | null;
 };
-
-export const importPdf = (data: FormData) =>
-  request({
-    url: '/api/v1/import/pdf',
-    method: 'post',
-    data,
-    timeout: 180000,
-  });
-
-export const importDocx = (data: FormData) =>
-  request({
-    url: '/api/v1/import/docx',
-    method: 'post',
-    data,
-    timeout: 180000,
-  });
 
 export const importImage = (data: FormData) =>
   request({

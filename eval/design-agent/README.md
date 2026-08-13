@@ -1,8 +1,6 @@
 # Design Agent Eval (Gate A quality track)
 
-Not load testing. Cases: `suite.json` (from `apps/api/seeds/design_agent_eval_suite.json`).
-
-Use the **cloud API stack** (MySQL + platform catalog via `apps/api/.env`), not desktop-local sidecar.
+Craft quality cases, not load tests. Suite: `suite.json` (from `apps/api/seeds/design_agent_eval_suite.json`). Use the cloud API stack (MySQL + platform catalog via `apps/api/.env`), not the desktop-local sidecar.
 
 ```bash
 # API up + EVAL_TOKEN / E2E_TOKEN / .tmp-token.txt

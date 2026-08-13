@@ -1,8 +1,8 @@
 # AgentProfile & forked sub-agents
 
-Design Agent 的**产品行为**（阶段协议、路由 KV、角色隔离、可 spawn 子代理）由 YAML Profile 驱动；**执行内核**仍是 LangGraph `canvas_ops_v1`。
+内置 Design Agent 的产品行为（阶段协议、路由、角色、子代理）由 YAML Profile 驱动。执行内核仍是 LangGraph `canvas_ops_v1`——你可以换 Profile / Skill / 提示词包，不用改内核。
 
-相关：自托管总览 [self-hosting.md](./self-hosting.md) · 种子目录 [apps/api/seeds/README.md](../apps/api/seeds/README.md) · bindings [agents/README.md](../apps/api/seeds/agents/README.md)
+相关：自托管 [self-hosting.md](./self-hosting.md) · 种子目录 [apps/api/seeds/README.md](../apps/api/seeds/README.md) · bindings [agents/README.md](../apps/api/seeds/agents/README.md)
 
 ## Goals / non-goals
 

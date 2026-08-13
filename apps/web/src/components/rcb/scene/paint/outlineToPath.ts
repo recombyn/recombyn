@@ -1577,7 +1577,7 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
         px / scale - pad + destX,
         py / scale - pad + destY,
       ]);
-      const simplified = simplifyClosedPolyline(world, 0.85, 64);
+      const simplified = simplifyClosedPolyline(world, 0.35, 180);
       if (simplified.length < 3) continue;
       parts.push(
         `M ${simplified.map(([a, b]) => `${a.toFixed(1)} ${b.toFixed(1)}`).join(' L ')} Z`
@@ -1684,10 +1684,10 @@ export async function buildOutlinePathAsync(
       const { outlineTextFromFont } = await import('@/components/rcb/scene/paint/outlineTextFont');
       const fromFont = await outlineTextFromFont(node);
       if (fromFont?.pathD) {
-        const sw = Math.max(1, Number(node.attrs?.fontSize) || 14) * 0.08;
-        const sparse =
-          sparsifyOutlineForEdit(fromFont.pathD, sw, zoom) || fromFont.pathD;
-        return fitOutlineResult({ ...fromFont, pathD: sparse });
+        // Keep fontkit Q/C contours. Flattening to M/L shreds letterforms and
+        // floods selection with false “corner radius” sites; path-edit knobs
+        // only appear after the user enters path-edit mode.
+        return fitOutlineResult(fromFont);
       }
     } catch (err) {
       console.warn('[outline] fontkit outline failed, using canvas fallback', err);
@@ -1810,10 +1810,17 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
  * Fire after outline so canvas can open path-edit chrome.
  * Skip for heavy multi-glyph outlines — hundreds of anchors freeze the UI;
  * user can still enter path edit manually from the toolbar.
+ * Also skip when the path is many closed rings (outlined text) — auto-enter
+ * dumps every silhouette vert as knobs and looks like “points flying around”.
  */
 export function requestEnterPathEdit(nodeId: string, pathD?: string) {
   if (typeof window === 'undefined' || !nodeId) return;
-  if (pathD != null && String(pathD).length >= HEAVY_PATH_D_CHARS) return;
+  const d = pathD != null ? String(pathD) : '';
+  if (d.length >= HEAVY_PATH_D_CHARS) return;
+  if (d) {
+    const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
+    if (rings >= 4) return;
+  }
   queueMicrotask(() => {
     window.dispatchEvent(
       new CustomEvent('resume:enter-path-edit', { detail: { nodeId } })

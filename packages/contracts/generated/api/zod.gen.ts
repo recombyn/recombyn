@@ -114,12 +114,6 @@ export const zBodyFontsUploadFontFile = z.object({
     weight: z.number().int().optional().default(400)
 });
 
-/**
- * Body_import-import_docx
- */
-export const zBodyImportImportDocx = z.object({
-    file: z.string()
-});
 
 /**
  * Body_import-import_image
@@ -128,12 +122,6 @@ export const zBodyImportImportImage = z.object({
     file: z.string()
 });
 
-/**
- * Body_import-import_pdf
- */
-export const zBodyImportImportPdf = z.object({
-    file: z.string()
-});
 
 /**
  * Body_import-jobs-create_import_job
@@ -141,8 +129,6 @@ export const zBodyImportImportPdf = z.object({
 export const zBodyImportJobsCreateImportJob = z.object({
     file: z.string(),
     source_type: z.enum([
-        'pdf',
-        'docx',
         'image'
     ])
 });
@@ -493,8 +479,6 @@ export const zImageProcessIn = z.object({
  */
 export const zImportMeta = z.object({
     source_type: z.enum([
-        'pdf',
-        'docx',
         'image'
     ]),
     page_count: z.number().int().optional().default(1),
@@ -2480,20 +2464,6 @@ export const zChatSessionsRemoveSessionPath = z.object({
  * Successful Response
  */
 export const zChatSessionsRemoveSessionResponse = z.record(z.unknown());
-
-export const zImportImportPdfBody = zBodyImportImportPdf;
-
-/**
- * Successful Response
- */
-export const zImportImportPdfResponse = zImportResponse;
-
-export const zImportImportDocxBody = zBodyImportImportDocx;
-
-/**
- * Successful Response
- */
-export const zImportImportDocxResponse = zImportResponse;
 
 export const zImportImportImageBody = zBodyImportImportImage;
 

@@ -1,6 +1,6 @@
 # Canvas architecture (RCB)
 
-Engineering notes for the infinite editor canvas. Source of truth is `apps/web/src/components/rcb` + `apps/web/src/components/editor/canvas` — keep this doc in sync when those constants change.
+RCB is Recombyn’s infinite vector canvas. This note is for people changing paint, hit-testing, or LOD — source of truth is `apps/web/src/components/rcb` + `apps/web/src/components/editor/canvas`. Keep this doc in sync when those constants change.
 
 ## Stack
 
@@ -15,8 +15,6 @@ Engineering notes for the infinite editor canvas. Source of truth is `apps/web/s
 | Live state | `document`, selection, tools | `store/modules/editor.ts` |
 | Undo | COW / patch history | `store/modules/editorHistory.ts` |
 | Collab | Yjs ↔ scene ↔ Redux | `editor/collab/sceneYBridge.ts`, `CollabRoomProvider.tsx` |
-
-Custom **RCB** scene runtime (resume canvas).
 
 ## Document shape
 

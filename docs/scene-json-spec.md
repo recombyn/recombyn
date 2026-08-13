@@ -1,6 +1,6 @@
 # Scene JSON spec
 
-Aligned with the Web editor runtime and `packages/scene-schema`.
+Scene JSON is the document on the canvas. This spec matches the Web editor runtime and `packages/scene-schema`.
 
 Canvas paint / Path2D / LOD: **[canvas-architecture.md](./canvas-architecture.md)**.
 

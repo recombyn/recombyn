@@ -1,4 +1,4 @@
-"""Tencent Cloud SES - send registration verification emails (TC3-HMAC-SHA256)."""
+"""Send registration verification emails (SES)."""
 
 from __future__ import annotations
 
@@ -158,7 +158,7 @@ def send_verification_email(*, to_email: str, code: str) -> str:
     template_id = int(s.ses_template_id or 0)
     if template_id <= 0:
         raise SesError(
-            "SES_TEMPLATE_ID is required (Tencent SES rejects Simple send without permission)"
+            "SES_TEMPLATE_ID is required"
         )
 
     # Template 210471 vars: {{username}}, {{id}} — for OTP we pass the 6-digit code as id.

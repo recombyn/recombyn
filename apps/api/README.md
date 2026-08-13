@@ -1,10 +1,8 @@
-# Resume Scene API
+# Recombyn API
 
-FastAPI：Scene / 项目与广场 / Design Agent / Admin。
+FastAPI：画布 Scene、项目与广场、Design Agent、钱包、Admin。本地文档：http://127.0.0.1:8000/docs
 
-OpenAPI：http://127.0.0.1:8000/docs
-
-文档：[Self-hosting](../../docs/self-hosting.md) · [AgentProfile / 子代理](../../docs/agent-profile.md) · [用户文档](https://recombyn.github.io/recombyn/)
+更多：[Self-hosting](../../docs/self-hosting.md) · [AgentProfile](../../docs/agent-profile.md) · [用户文档](https://recombyn.github.io/recombyn/)
 
 ## 本地
 
@@ -21,4 +19,4 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Worker：`celery -A worker.celery_app.celery worker -l info`（Windows 加 `--pool=solo`）。
 
-环境变量：复制 `.env.example`。种子：`seeds/`（Admin 改过的以 DB 为准）。测试：`npm run test:api`（仓库根）。
+环境变量：复制 `.env.example`。种子：`seeds/`（提示词包以 git 为准；Admin 改过的 Skill 等以 DB 为准）。测试：`npm run test:api`（仓库根）。

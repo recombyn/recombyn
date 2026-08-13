@@ -32,3 +32,18 @@ def test_alembic_single_head():
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1, f"expected one alembic head, got {heads}"
+
+
+def test_alembic_revision_ids_fit_mysql_version_num():
+    """MySQL alembic_version.version_num was historically VARCHAR(32).
+
+    Keep ids short; 0013 widens to 128 — still enforce a hard ceiling in CI.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    api_root = Path(__file__).resolve().parents[2]
+    cfg = Config(str(api_root / "alembic.ini"))
+    script = ScriptDirectory.from_config(cfg)
+    too_long = [r.revision for r in script.walk_revisions() if len(r.revision) > 128]
+    assert not too_long, f"revision id(s) longer than 128 chars: {too_long}"

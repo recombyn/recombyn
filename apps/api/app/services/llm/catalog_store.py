@@ -1,4 +1,4 @@
-"""LLM model catalog - DB-backed with seed fallback."""
+"""LLM model catalog — DB rows + seed JSON for ensure/seed only."""
 from __future__ import annotations
 
 import json
@@ -45,7 +45,6 @@ def _load_model_seed() -> list[dict[str, Any]]:
     return [x for x in raw if isinstance(x, dict) and str(x.get("id") or "").strip()]
 
 
-# Official Ark / OpenRouter image size contracts + model rows:
 # apps/api/seeds/llm_models_seed.json
 IMAGE_LIMIT_PRESETS: dict[str, dict[str, Any]] = _load_image_limit_presets()
 _SEED: list[dict[str, Any]] = _load_model_seed()
@@ -100,7 +99,7 @@ def infer_image_limit_preset(
     *,
     provider: str | None = None,
 ) -> str | None:
-    """Map catalog / Ark model ids → IMAGE_LIMIT_PRESETS key (Ark docs 1541523)."""
+    """Map catalog model ids → IMAGE_LIMIT_PRESETS key."""
     blob = f'{model_id or ""} {api_model or ""}'.lower()
     prov = (provider or '').strip().lower()
     if 'seedream-5-0-pro' in blob or 'seedream_5_0_pro' in blob:
@@ -290,7 +289,7 @@ def apply_ark_reference_prices(
     *,
     only_empty: bool = True,
 ) -> dict[str, Any]:
-    """Write curated Ark docs prices into catalog rows (docs 82379/1544106).
+    """Write curated reference prices into catalog rows.
 
     By default only fills empty ``price`` (boot-safe). Pass ``only_empty=False``
     for an explicit Admin sync that may overwrite.
@@ -428,16 +427,18 @@ def _backfill_empty_reference_types(session: Any) -> None:
         seed = next((m for m in _SEED if m['id'] == mid), None)
         if seed:
             types = _default_reference_types_for_seed(seed)
-        elif kind == 'image':
-            types = ['image']
-        elif kind == 'video':
-            types = ['video']
-        elif kind == 'audio':
-            types = ['audio']
-        elif _heuristic_vision_id(mid):
-            types = ['text', 'vision']
         else:
-            types = ['text']
+            kind_defaults = {
+                'image': ['image'],
+                'video': ['video'],
+                'audio': ['audio'],
+            }
+            if kind in kind_defaults:
+                types = kind_defaults[kind]
+            elif _heuristic_vision_id(mid):
+                types = ['text', 'vision']
+            else:
+                types = ['text']
         r.reference_types = _serialize_reference_types(types)
         session.add(r)
 
@@ -464,7 +465,7 @@ _STALE_SEED_DESCRIPTIONS = _load_stale_descriptions()
 
 
 def _retire_direct_deepseek_models(session: Any) -> None:
-    """Disable models that call DeepSeek API directly; routing uses Volcengine Ark only."""
+    """Disable models that call DeepSeek API directly."""
     from sqlmodel import col, or_, select
 
     from app.models import LlmModel

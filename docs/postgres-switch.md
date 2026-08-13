@@ -1,7 +1,6 @@
 # Switch to PostgreSQL
 
-Production today is **MySQL** (Tencent CynosDB / LighthouseDB) or local **SQLite**.
-The API also accepts `postgresql://` / `postgres://` via `DATABASE_URL`.
+You can point the API at PostgreSQL via `DATABASE_URL`. Default self-host is **MySQL**; local dev can leave `DATABASE_URL` empty for **SQLite**. The API also accepts `postgresql://` / `postgres://`.
 
 ## What the app does
 

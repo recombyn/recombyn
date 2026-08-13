@@ -1,6 +1,6 @@
 # Web frontend data layer
 
-How `apps/web` loads server state and opens the editor. Pattern: **OpenAPI contract → OpenAPILink → TanStack Query** (`apiQuery`). FastAPI remains the HTTP API.
+You load server state in `apps/web` through **OpenAPI → OpenAPILink → TanStack Query** (`apiQuery`). HTTP is still FastAPI — the browser does not talk to the database.
 
 ## Packages / entry
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-Long-running work (PDF import, image hydrate, future export/render) must not block FastAPI request workers. We already enqueue **import** via Celery + Redis job records. Design Agent image hydrate still runs inside the LangGraph / `/design/run` SSE request and can stall the stream for up to ~90s.
+Long-running work (file import, image hydrate, artboard export/render) must not block FastAPI request workers. We already enqueue **import** via Celery + Redis job records. Design Agent image hydrate still runs inside the LangGraph / `/design/run` SSE request and can stall the stream for up to ~90s.
 
 ## Decision
 

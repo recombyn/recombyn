@@ -1,4 +1,4 @@
-"""Async import jobs — phase 1 Celery queue."""
+"""Async import jobs (image)."""
 
 from __future__ import annotations
 
@@ -9,19 +9,14 @@ from typing import Literal
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.api.deps import CurrentUser
-from app.api.routes.import_pdf import _save_upload
+from app.api.routes.import_image import save_upload
 from app.schemas.import_response import JobCreateResponse, JobStatusResponse
 from app.services.job_store import get_job, save_job
 from worker.tasks import run_import_job
 
 router = APIRouter(prefix="/import", tags=["import-jobs"])
 
-SourceType = Literal["pdf", "docx", "image"]
-
-_SUFFIX: dict[str, str] = {
-    "pdf": ".pdf",
-    "docx": ".docx",
-}
+SourceType = Literal["image"]
 
 
 @router.post("/jobs", response_model=JobCreateResponse)
@@ -30,12 +25,11 @@ async def create_import_job(
     file: UploadFile = File(...),
     source_type: SourceType = Form(...),
 ):
-    if source_type == "image":
-        suffix = Path(file.filename or "image.png").suffix or ".png"
-    else:
-        suffix = _SUFFIX[source_type]
+    if source_type != "image":
+        raise HTTPException(status_code=400, detail="Only image import is supported.")
 
-    saved = _save_upload(file, suffix)
+    suffix = Path(file.filename or "image.png").suffix or ".png"
+    saved = save_upload(file, suffix)
     job_id = uuid.uuid4().hex
     payload = {
         "job_id": job_id,

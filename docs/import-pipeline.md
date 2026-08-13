@@ -1,6 +1,6 @@
 # Import pipeline
 
-> **Product status**: externally, only **image import** is supported.
+You can import **images** onto the canvas. The pipeline turns a bitmap into Scene JSON (layout / text / palette). PDF / DOCX import is not supported.
 
 ## Stage 1: preprocess + job queue (images)
 

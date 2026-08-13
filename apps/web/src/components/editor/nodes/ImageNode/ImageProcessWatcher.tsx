@@ -39,13 +39,15 @@ function aspectFromBox(w: number, h: number): string {
 }
 
 function resolutionFor(kind: string, node: SceneNodeInput): string | undefined {
-  if (kind === 'upscale') {
-    const tw = Number(node?.attrs?.processTargetWidth) || 0;
-    if (tw >= 3500) return '4K';
-    if (tw >= 1800) return '2K';
-    return '2K';
-  }
-  return undefined;
+  if (kind !== 'upscale') return undefined;
+  const meta = parseMeta(node?.attrs?.processMeta);
+  const fromMeta = String(meta.resolution || '')
+    .trim()
+    .toUpperCase();
+  if (fromMeta === '2K' || fromMeta === '4K') return fromMeta;
+  const tw = Number(node?.attrs?.processTargetWidth) || 0;
+  if (tw >= 3500) return '4K';
+  return '2K';
 }
 
 /** Persist tool output on our file server; fall back to original src if upload fails. */
@@ -83,6 +85,27 @@ function processFailMessage(err: unknown): string {
     return '图片分层超时，请稍后重试（大图首次加载模型会更慢）';
   if (msg.trim()) return msg;
   return '图片处理失败';
+}
+
+function buildFinishAttrsForKind(
+  kind: string,
+  opts: {
+    sourceGenPrompt?: string;
+    replacedCopy?: string;
+  }
+): Record<string, unknown> | undefined {
+  if (kind === 'removeBg') {
+    return { cutout: 'true', name: '抠图' };
+  }
+  if (kind === 'replaceText' && opts.replacedCopy) {
+    return {
+      letteringText: opts.replacedCopy,
+      genPrompt: [String(opts.sourceGenPrompt || '').trim(), `Text replaced to: ${opts.replacedCopy}`]
+        .filter(Boolean)
+        .join('\n'),
+    };
+  }
+  return undefined;
 }
 
 /**
@@ -195,26 +218,15 @@ function ImageProcessWatcher() {
         if (cancelled) return;
         const replaceMeta = kind === 'replaceText' ? parseMeta(liveNode?.attrs?.processMeta) : {};
         const replacedCopy = String(replaceMeta.newText || '').trim();
+        const finishAttrs = buildFinishAttrsForKind(kind, {
+          sourceGenPrompt: String(sourceNode?.attrs?.genPrompt || ''),
+          replacedCopy,
+        });
         dispatch(
           finishImageProcess({
             nodeId: pendingId,
             src: storedUrl,
-            ...(kind === 'removeBg'
-              ? { attrs: { cutout: 'true', name: '抠图' } }
-              : {}),
-            ...(kind === 'replaceText' && replacedCopy
-              ? {
-                  attrs: {
-                    letteringText: replacedCopy,
-                    genPrompt: [
-                      String(sourceNode?.attrs?.genPrompt || '').trim(),
-                      `Text replaced to: ${replacedCopy}`,
-                    ]
-                      .filter(Boolean)
-                      .join('\n'),
-                  },
-                }
-              : {}),
+            ...(finishAttrs ? { attrs: finishAttrs } : {}),
           })
         );
         const labels: Record<string, string> = {

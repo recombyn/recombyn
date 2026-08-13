@@ -1,6 +1,6 @@
-# RBAC & authorization (current → next)
+# RBAC & authorization
 
-Living notes for Phase 3+. Coarse roles remain; resource×action helpers are live.
+Who can do what. Coarse roles (`user` / `admin`) plus resource×action helpers. Living notes for the next increment.
 
 ## Today
 

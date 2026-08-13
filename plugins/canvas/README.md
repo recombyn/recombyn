@@ -1,6 +1,6 @@
 # Canvas plugins (`plugins/canvas`)
 
-Frontend **canvas runtime** packs (Phase B). Distinct from AI Skill packs under `plugins/skills/`.
+You can add editor UI here (toolbar buttons today). This is separate from AI Skill packs under `plugins/skills/`.
 
 ## Layout
 

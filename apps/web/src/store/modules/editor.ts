@@ -82,7 +82,8 @@ export type ImageToolPanelKind =
   | 'quickEdit'
   | 'replaceText'
   | 'lottieEdit'
-  | 'mark';
+  | 'mark'
+  | 'upscale';
 
 /** On-canvas video tool sessions (trim timeline). Spatial crop reuses image crop panel. */
 export type VideoToolPanelKind = 'trim';
@@ -155,7 +156,7 @@ const initialState = {
   shapeKind: 'rect' as string,
   pendingImageSrc: null as string | null,
   pendingImageProcessId: null as string | null,
-  /** Blank loading node while PDF/DOCX import runs. */
+  /** Blank loading node while image import runs. */
   pendingImportPlaceholderId: null as string | null,
   /** Interactive image tool panel docked to the right of the source image (figs 2-5). */
   imageToolPanel: null as null | { nodeId: string; kind: ImageToolPanelKind },
@@ -990,7 +991,7 @@ const editorSlice = createSlice({
       state.sceneReloadToken += 1;
       saveTemplates(state.templates);
     },
-    /** Spawn blank loading plate for file import (PDF). */
+    /** Spawn blank loading plate for file import (image). */
     startImportPlaceholder(state, action) {
       if (!state.document) return;
       pushHistory(state);
@@ -1083,7 +1084,7 @@ const editorSlice = createSlice({
         state.dirty = true;
       }
     },
-    /** Merge PDF/image parse result into the open canvas. */
+    /** Merge image-import parse result into the open canvas. */
     mergeImportedDocument(state, action) {
       const incoming = action.payload?.document;
       if (!incoming) return;

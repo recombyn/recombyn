@@ -405,6 +405,18 @@ function collectGapGuides(box: SceneBox, targets: SceneBox[]): SmartGuideGap[] {
   let above: GapCand | null = null;
   let below: GapCand | null = null;
 
+  const considerGap = (
+    prev: GapCand | null,
+    dist: number,
+    from: number,
+    to: number,
+    at: number
+  ): GapCand | null => {
+    if (!(dist > 0.5)) return prev;
+    if (prev && !(dist < prev.dist)) return prev;
+    return { dist, from, to, at };
+  };
+
   const bR = box.left + box.width;
   const bB = box.top + box.height;
 
@@ -419,16 +431,10 @@ function collectGapGuides(box: SceneBox, targets: SceneBox[]): SmartGuideGap[] {
       const at = overlapMid(box.top, bB, t.top, tB);
       if (at != null) {
         if (tR <= box.left + 1e-6) {
-          const dist = box.left - tR;
-          if (dist > 0.5 && (!left || dist < left.dist)) {
-            left = { dist, from: tR, to: box.left, at };
-          }
+          left = considerGap(left, box.left - tR, tR, box.left, at);
         }
         if (t.left >= bR - 1e-6) {
-          const dist = t.left - bR;
-          if (dist > 0.5 && (!right || dist < right.dist)) {
-            right = { dist, from: bR, to: t.left, at };
-          }
+          right = considerGap(right, t.left - bR, bR, t.left, at);
         }
       }
     }
@@ -439,16 +445,10 @@ function collectGapGuides(box: SceneBox, targets: SceneBox[]): SmartGuideGap[] {
       const at = overlapMid(box.left, bR, t.left, tR);
       if (at != null) {
         if (tB <= box.top + 1e-6) {
-          const dist = box.top - tB;
-          if (dist > 0.5 && (!above || dist < above.dist)) {
-            above = { dist, from: tB, to: box.top, at };
-          }
+          above = considerGap(above, box.top - tB, tB, box.top, at);
         }
         if (t.top >= bB - 1e-6) {
-          const dist = t.top - bB;
-          if (dist > 0.5 && (!below || dist < below.dist)) {
-            below = { dist, from: bB, to: t.top, at };
-          }
+          below = considerGap(below, t.top - bB, bB, t.top, at);
         }
       }
     }
@@ -604,6 +604,36 @@ export function snapMoveToSmartGuides(opts: {
     return roleRank(next.role) < roleRank(best.role) ? next : best;
   };
 
+  const pickBestAxisSnap = (
+    marks: AxisMark[],
+    targetMarks: AxisMark[],
+    target: SceneBox,
+    extent: (t: SceneBox) => { from: number; to: number }
+  ): Cand | null => {
+    let best: Cand | null = null;
+    for (const m of marks) {
+      for (const tm of targetMarks) {
+        if (skipOversizedMidPair(box, target, m.role, tm.role)) continue;
+        const delta = tm.value - m.value;
+        const abs = Math.abs(delta);
+        if (abs > threshold) continue;
+        // Already coincident mid-mid: don't let abs=0 block a sibling edge
+        // magnet (low-zoom flush hunt while sitting on plate center).
+        if (abs <= 1e-9 && m.role === 'mid' && tm.role === 'mid') continue;
+        const ext = extent(target);
+        best = consider(best, {
+          abs,
+          delta,
+          at: tm.value,
+          from: ext.from,
+          to: ext.to,
+          role: tm.role,
+        });
+      }
+    }
+    return best;
+  };
+
   const mx = boxXMarks(box);
   const my = boxYMarks(box);
 
@@ -612,46 +642,16 @@ export function snapMoveToSmartGuides(opts: {
     const tx = boxXMarks(t);
     const ty = boxYMarks(t);
     if (allowX) {
-      for (const m of mx) {
-        for (const tm of tx) {
-          if (skipOversizedMidPair(box, t, m.role, tm.role)) continue;
-          const delta = tm.value - m.value;
-          const abs = Math.abs(delta);
-          if (abs > threshold) continue;
-          // Already coincident mid-mid: don't let abs=0 block a sibling edge
-          // magnet (low-zoom flush hunt while sitting on plate center).
-          if (abs <= 1e-9 && m.role === 'mid' && tm.role === 'mid') continue;
-          const ext = mergeGuideExtent(box.top, box.top + box.height, t.top, t.top + t.height);
-          bestX = consider(bestX, {
-            abs,
-            delta,
-            at: tm.value,
-            from: ext.from,
-            to: ext.to,
-            role: tm.role,
-          });
-        }
-      }
+      const cand = pickBestAxisSnap(mx, tx, t, (target) =>
+        mergeGuideExtent(box.top, box.top + box.height, target.top, target.top + target.height)
+      );
+      if (cand) bestX = consider(bestX, cand);
     }
     if (allowY) {
-      for (const m of my) {
-        for (const tm of ty) {
-          if (skipOversizedMidPair(box, t, m.role, tm.role)) continue;
-          const delta = tm.value - m.value;
-          const abs = Math.abs(delta);
-          if (abs > threshold) continue;
-          if (abs <= 1e-9 && m.role === 'mid' && tm.role === 'mid') continue;
-          const ext = mergeGuideExtent(box.left, box.left + box.width, t.left, t.left + t.width);
-          bestY = consider(bestY, {
-            abs,
-            delta,
-            at: tm.value,
-            from: ext.from,
-            to: ext.to,
-            role: tm.role,
-          });
-        }
-      }
+      const cand = pickBestAxisSnap(my, ty, t, (target) =>
+        mergeGuideExtent(box.left, box.left + box.width, target.left, target.left + target.width)
+      );
+      if (cand) bestY = consider(bestY, cand);
     }
   }
 

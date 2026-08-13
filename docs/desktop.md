@@ -1,5 +1,7 @@
 # Desktop (Tauri v2)
 
+You can run Recombyn as a desktop app (Tauri v2). Two flavors: **Local** (bundled API + SQLite) and **Cloud** (same API as the browser).
+
 | | Command | API | Product id |
 |--|---------|-----|------------|
 | **Local** | `npm run dev:desktop` / `build:desktop` | Bundled API sidecar + SQLite (app data) | `com.recombyn.app` · Recombyn |

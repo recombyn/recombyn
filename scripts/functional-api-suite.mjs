@@ -378,16 +378,6 @@ await check('admin.models.image-limit-presets', async () => {
   assert(r.ok, `status=${r.status}`);
 });
 
-await check('import.pdf.validation', async () => {
-  const r = await req('POST', '/import/pdf', { body: {}, allowed: [400, 422] });
-  assert(r.ok, `status=${r.status}`);
-});
-
-await check('import.docx.validation', async () => {
-  const r = await req('POST', '/import/docx', { body: {}, allowed: [400, 422] });
-  assert(r.ok, `status=${r.status}`);
-});
-
 await check('import.image.validation', async () => {
   const r = await req('POST', '/import/image', { body: {}, allowed: [400, 422] });
   assert(r.ok, `status=${r.status}`);

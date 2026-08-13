@@ -22,41 +22,42 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** 是 **画布编辑器 + AI Design Agent**。  
-在无限画布上创作；右侧对话里的 Design Agent（LangGraph）会规划并执行画布操作——直接改画板、图层、形状、文字与布局。
+**Recombyn** 是 **AI Native 的无限矢量画布**。它从网页画布到桌面客户端、Design Agent、后端服务、多人协作、私有化部署和自动化测试，全链路闭环的商用级完整产品。
 
-几分钟用 Docker Compose 自托管（默认 **MySQL** + Redis + Web + API + **Yjs 协作**）。本地开发可空 `DATABASE_URL` 用 **SQLite**；也可切 **PostgreSQL**（见 [docs/postgres-switch.md](docs/postgres-switch.md)）。
+内置 Design Agent（LangGraph）：自然语言就能建图层、画图形、改样式、排版布局。自带多套 Skill，也可自定义 Skill / AgentProfile（YAML）/ 提示词包，扩展海报、仪表盘、落地页等品类；做完后仍可在矢量画布上精细改。
+
+你可以在几分钟内用 Docker Compose 自托管（默认 **MySQL** + Redis + Web + API + **Yjs 协作**）。本地开发可空 `DATABASE_URL` 用 **SQLite**；也可切 **PostgreSQL**（见 [docs/postgres-switch.md](docs/postgres-switch.md)）。
 
 ---
 
 ## 帮忙点个 ⭐ Star
 
-开源不易，如果觉得 Recombyn 对您的工作还有帮助，请帮忙在 GitHub 仓库右上角点个 ⭐ Star。您的支持是让 Recombyn 变得更好最大的动力。
+开源不易，如果觉得 Recombyn 对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
 
 → [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
 
 ## 画布
 
-自研 **RCB**（Resume Canvas）无限画布：`SceneDocument` 场景图 + CSS 相机（约 5%–10000%）；已提交图元以 **逐节点 SVG host** 绘制，**Path2D** 负责命中检测与选区/工具叠加；视口裁剪 + **LOD**（远景 AABB 代理，同屏全量 host 有上限），大文档仍可编辑。
+自研 **RCB** 无限画布：场景图是 `SceneDocument`，缩放大约 5%–10000%。已提交的图元按节点用 **SVG** 画出来，**Path2D** 负责点选和选区；远处用 **LOD** 简化，大文档也能流畅编辑。
 
-工程说明：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
+工程细节：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
 
-**编辑能力（节选）**
+你可以在画布上：
 
-- 画板、矩形/椭圆等形状、文字、图片、视频、Lottie；钢笔 / 铅笔（ribbon 轮廓笔刷）、选区与变换  
-- **布尔运算**（并 / 差 / 交等）  
-- **描边对齐**：居中 / **内描边** / **外描边**  
-- **轮廓化**（描边 → 可编辑填充路径）与路径编辑  
-- 填充、圆角、混合模式、透明度、图层叠放；导出与分享  
-- **Yjs** 实时协作（光标、选区、撤销；`apps/collab`）
+- 建画板、形状、文字、图片、视频、Lottie；用钢笔 / 铅笔（ribbon 轮廓笔刷）画路径，选区与变换  
+- 做 **布尔运算**（并 / 差 / 交等）  
+- 调 **描边对齐**：居中 / **内描边** / **外描边**  
+- **轮廓化**（描边 → 可编辑填充路径）再改路径  
+- 填色、圆角、混合模式、透明度、图层叠放；导出与分享  
+- 开 **Yjs** 实时协作（光标、选区、撤销；`apps/collab`）
 
 ## Design Agent
 
-编辑器右侧是流式对话 Agent：创建落地页 / 海报 / 改稿，挂技能、调工具，结果写回同一张画布。
+流式对话 Agent：你说需求，它在同一张画布上规划、挂 Skill、调工具，把结果写回去——落地页、海报、改稿都行。
 
-### 怎么设计的（分层）
+### 怎么分层的
 
-执行内核固定为 LangGraph 模板 `canvas_ops_v1`；**产品行为可配置**（Profile / 提示词包 / Skills / Tools）。
+执行内核固定为 LangGraph 模板 `canvas_ops_v1`；品类与行为靠配置改（AgentProfile YAML / 提示词包 / Skills / Tools），不用改内核。
 
 | 层 | 职责 | 不该做什么 |
 |----|------|------------|
@@ -66,22 +67,22 @@
 | **Skills** | 品类 playbook（构图、节奏、评审标准、few-shot） | 不改 JSON 图元 / patch 协议 |
 | **Tools** | 原子画布操作（`create_frame`、`update_node`…） | 不含业务审美 |
 
-典型一轮：`intent` →（闲聊 settle / 小改 `paint` / 设计 `decide`）→ `paint` 产出 `tool_ops` → `observe` → 可选 **Review 子代理** → settle。细节图与字段见 **[docs/agent-profile.md](docs/agent-profile.md)**。
+典型一轮：`intent` →（闲聊 settle / 小改 `paint` / 设计 `decide`）→ `paint` 产出 `tool_ops` → `observe` → 可选 **Review 子代理** → settle。细节见 **[docs/agent-profile.md](docs/agent-profile.md)**。
 
-### Skills 是什么
+### Skills
 
-每个技能一个目录：`apps/api/seeds/design_skills/<key>/`（规范：`_meta.json` + `SKILL.md`；可选 `schema.json`、`assets/` 等）。
+每个技能一个目录：`apps/api/seeds/design_skills/<key>/`（`_meta.json` + `SKILL.md`；可选 `schema.json`、`assets/` 等）。
 
-- **`_meta.json`**：`when_to_use`、触发词、`preferred_tools`、互斥组等 —— Decide 用它选技能
-- **`SKILL.md`**：该品类怎么做（落地页 / 海报 / 简历 / 仪表盘 / 动效……）
+- **`_meta.json`**：什么时候用、触发词、`preferred_tools`、互斥组 —— Decide 靠它选技能  
+- **`SKILL.md`**：这个品类怎么做（落地页 / 海报 / 简历 / 仪表盘 / 动效……）
 
-仓库里已有多套 skill（landing、poster、resume、dashboard、motion、ecommerce…），可继续加目录扩展，**不是固定 5 项**。
+仓库里已有多套（landing、poster、resume、dashboard、motion、ecommerce…）。你可以继续加目录，数量不封顶。
 
-### Tools 是什么
+### Tools
 
-画布原子操作登记在 [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json)。Agent 在 paint 阶段发出结构化 `tool_ops`，由宿主校验并落到画布。技能可以声明偏好工具，但不能发明协议外的 op。
+画布原子操作登记在 [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json)。Agent 在 paint 阶段发出结构化 `tool_ops`，宿主校验后再落到画布。Skill 可以声明偏好工具，但不能发明协议外的 op。
 
-### 可配置 Agent：改哪些文件
+### 你要改 Agent，动这些文件
 
 | 文件 | 用途 |
 |------|------|
@@ -104,9 +105,45 @@
 2. 填触发条件与 `preferred_tools`  
 3. 重启 / 重新 ensure seeds 后，Decide 即可按触发挂上
 
-私有扩展也可放在 [`plugins/skills/`](plugins/skills/)（Compose 已挂载）。写法见 [docs/skill-extensions.md](docs/skill-extensions.md)。
+私有扩展也可以扔进 [`plugins/skills/`](plugins/skills/)（Compose 已挂载）。写法见 [docs/skill-extensions.md](docs/skill-extensions.md)。
 
-环境开关（Review 开关、超时等）见 [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)；种子总览 [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。模型密钥 / OpenRouter： [docs/self-hosting.md](docs/self-hosting.md)。
+环境开关（Review、超时等）：[docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)。种子总览：[`apps/api/seeds/README.md`](apps/api/seeds/README.md)。模型密钥：[docs/self-hosting.md](docs/self-hosting.md)。
+
+## 插件与扩展
+
+两条扩展面，别混用：
+
+| 类型 | 路径 | 扩展什么 | 示例 |
+|------|------|----------|------|
+| **Skill 包** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent 品类工艺（布局同 `seeds/design_skills`） | [`festival_poster`](plugins/skills/festival_poster/) |
+| **画布插件** | [`plugins/canvas/<id>/`](plugins/canvas/) | 编辑器 UI（目前：底部工具条按钮） | [`watermark`](plugins/canvas/watermark/) |
+
+**Skill 包**
+
+1. 在 `plugins/skills/<key>/` 放入 `_meta.json` + `SKILL.md`（可选 `handler.py`、`schema.json`、`assets/`）  
+2. Compose 已挂载 `./plugins/skills` → API；也可设 `DESIGN_SKILLS_PLUGIN_DIRS`  
+3. 重启 API / 等热更新，用触发词对话试试（例：「生成中秋红色海报」）
+
+可选：设 `DESIGN_SKILL_OPS_RUNNER=true`，`handler.py` 可在 LLM paint 前产出 `tool_ops`。详见 [docs/skill-extensions.md](docs/skill-extensions.md)。
+
+**画布插件**
+
+1. 在 `plugins/canvas/<id>/` 加 `manifest.json` + `index.ts`  
+2. 在 `ensureCanvasPlugins()`（`apps/web/src/plugins/canvas/host.ts`）里注册  
+3. 重新构建 / 刷新 Web  
+
+详见 [docs/canvas-plugins.md](docs/canvas-plugins.md)。
+
+**打包成 `.recombyn-plugin`**
+
+```bash
+node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
+# → dist/plugins/<id>-<version>.recombyn-plugin
+# 技能库上传，或 POST /api/v1/design/plugins/install
+# 写盘安装需 DESIGN_PLUGIN_DISK_INSTALL=true
+```
+
+→ [docs/plugin-packs.md](docs/plugin-packs.md) · [plugins/skills/README.md](plugins/skills/README.md) · [plugins/canvas/README.md](plugins/canvas/README.md)
 
 ## 快速开始（自托管）
 
@@ -140,7 +177,7 @@ npm run dev:web
 
 ### 桌面端（Tauri）
 
-详见 **[docs/desktop.md](docs/desktop.md)**。需 **Rust** 与平台工具链。
+详见 **[docs/desktop.md](docs/desktop.md)**。需要 **Rust** 与平台工具链。
 
 ```bash
 # 单机 — 内嵌 API sidecar + SQLite
@@ -163,21 +200,30 @@ apps/web/          React 画布 + Agent UI + Yjs 客户端
   src-tauri/       Tauri v2 桌面壳（Recombyn）
 apps/api/          FastAPI（含 collab room-token）
 apps/collab/       Yjs WebSocket 服务（y-websocket）
+plugins/           私有扩展（skills + canvas）— Compose 已挂载
 packages/          共享协议
-docs/              架构、自托管、桌面端、画布与 Web 数据层（工程向；含 Postgres 切换）
+docs/              自托管、Agent、插件、桌面端、画布
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
 
-面向用户的帮助文档**源码**在私有仓维护；CI 只把打包后的静态站推到本仓库 `gh-pages`，见 [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/)。
+面向用户的帮助文档源码在私有仓维护；CI 只把打包后的静态站推到本仓库 `gh-pages`，见 [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/)。
 
 ## 文档与社区
 
-- 用户文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
-- 自托管 / 架构：[docs/self-hosting.md](docs/self-hosting.md) · [AgentProfile / 子代理](docs/agent-profile.md) · [桌面端](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
-- 画布（RCB / SVG / Path2D / LOD）：[docs/canvas-architecture.md](docs/canvas-architecture.md)
-- Web 数据层（Query / oRPC / nuqs）：[docs/web-frontend.md](docs/web-frontend.md)
-- Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)
-- [贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [行为准则](CODE_OF_CONDUCT.md)
-- Issue / PR 模板见 `.github/`
+| | |
+|--|--|
+| 用户文档 | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
+| 自托管 / 架构 | [docs/self-hosting.md](docs/self-hosting.md) |
+| Skill 扩展 | [docs/skill-extensions.md](docs/skill-extensions.md) |
+| 画布插件 | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
+| 插件包（`.recombyn-plugin`） | [docs/plugin-packs.md](docs/plugin-packs.md) |
+| AgentProfile / 子代理 | [docs/agent-profile.md](docs/agent-profile.md) |
+| 画布（RCB / SVG / Path2D / LOD） | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
+| Web 数据层（Query / oRPC / nuqs） | [docs/web-frontend.md](docs/web-frontend.md) |
+| Scene JSON | [docs/scene-json-spec.md](docs/scene-json-spec.md) |
+| 桌面端 | [docs/desktop.md](docs/desktop.md) |
+| Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
+| 贡献 · 安全 · 行为准则 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+
 官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
