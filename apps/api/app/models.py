@@ -419,7 +419,8 @@ class DesignSystemPrompt(SQLModel, table=True):
     prompt_key: str = Field(max_length=128, unique=True)
     label: str = Field(default="", max_length=128)
     description: Optional[str] = Field(default=None)
-    body: str = Field(default="")
+    # MySQL maps bare str → VARCHAR(255); seed bodies exceed that.
+    body: str = Field(default="", sa_column=Column(Text, nullable=False))
     group_key: str = Field(default="agent_prompt", max_length=32)
     selectable: int = Field(default=0)
     sort_order: int = Field(default=0)
