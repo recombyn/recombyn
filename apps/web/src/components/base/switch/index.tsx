@@ -9,7 +9,7 @@ export interface SwitchProps {
   className?: string;
 }
 
-/** Toggle switch (Headless UI). */
+/** Toggle switch (Headless UI). Share-dialog palette: --switch-on / --line track, white thumb. */
 const SwitchBase: React.FC<SwitchProps> = ({ checked, onChange, disabled = false, className }) => {
   return (
     <HeadlessSwitch
@@ -19,7 +19,7 @@ const SwitchBase: React.FC<SwitchProps> = ({ checked, onChange, disabled = false
       className={cn(
         'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors',
         'focus:outline-none data-[focus]:outline-none',
-        checked ? 'bg-[var(--ink)]' : 'bg-[var(--line)]',
+        checked ? 'bg-[var(--switch-on)]' : 'bg-[var(--line)]',
         disabled && 'cursor-not-allowed opacity-60',
         className
       )}

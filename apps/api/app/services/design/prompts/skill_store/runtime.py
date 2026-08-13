@@ -895,6 +895,46 @@ def normalize_need_skills(raw: Any, *, max_n: int = 8) -> list[str]:
     keys, _pins, _args, _errs = parse_need_skills_with_pins(raw, max_n=max_n)
     return keys
 
+
+# Negation markers: "不要做成海报风" must not auto-trigger poster_craft / garden_style.
+_PROMPT_NEG_MARKERS: tuple[str, ...] = (
+    "不要",
+    "别",
+    "勿",
+    "非",
+    "不是",
+    "避免",
+    "禁止",
+    "无需",
+    "不用",
+    "别做",
+    "don't",
+    "do not",
+    "not a",
+    "no ",
+    "never ",
+    "avoid ",
+    "without ",
+)
+
+
+def _needle_positively_present(prompt_l: str, needle: str) -> bool:
+    """True if needle appears at least once outside a short negation window."""
+    n = str(needle or "").strip().lower()
+    p = str(prompt_l or "")
+    if not n or not p:
+        return False
+    start = 0
+    while True:
+        i = p.find(n, start)
+        if i < 0:
+            return False
+        left = p[max(0, i - 12) : i]
+        if not any(m in left for m in _PROMPT_NEG_MARKERS):
+            return True
+        start = i + max(1, len(n))
+
+
 def _rule_matches(
     rule: dict[str, Any],
     *,
@@ -942,7 +982,8 @@ def _rule_matches(
             needles = [str(x).strip().lower() for x in raw_includes if str(x).strip()]
         else:
             needles = []
-        if needles and not any(n in prompt_l for n in needles):
+        # Skip needles that appear only inside negation ("不要做成海报风" ≠ poster).
+        if needles and not any(_needle_positively_present(prompt_l, n) for n in needles):
             return False
         if needles and not prompt_l:
             return False

@@ -45,7 +45,7 @@ import { formatTokens, planLabelKey, type PlanId } from '@/utils/wallet';
 import { getToken } from '@/utils/token';
 import { docsUrl, openExternalUrl } from '@/utils/docsUrl';
 import { SUPPORTED_LANGS } from '@/i18n';
-import { buildLocaleSwitchUrl, normalizeI18nLang } from '@/i18n/localePath';
+import { buildLocaleSwitchUrl, normalizeI18nLang, writeStoredI18nLang } from '@/i18n/localePath';
 import { applyTheme, getStoredThemeMode, type ThemeMode } from '@/theme';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
@@ -416,6 +416,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
     setFlyout(null);
     close();
     if (normalizeI18nLang(code) === currentLang) return;
+    writeStoredI18nLang(code);
     // Remount Router with new basename (`/zh/home` ↔ `/home`).
     window.location.assign(buildLocaleSwitchUrl(code));
   };

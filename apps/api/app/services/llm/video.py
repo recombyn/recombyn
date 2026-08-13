@@ -10,6 +10,7 @@ from app.services.llm import (
     _api_key_for,
     build_async_openai_client,
     list_video_models,
+    openai_json_get,
     openai_json_post,
 )
 
@@ -88,18 +89,7 @@ async def _poll_video_job(
 
     elapsed = 0.0
     while elapsed < signal_deadline:
-        raw = await client.with_raw_response.get(path, cast_to=object)
-        try:
-            data = raw.parse()
-        except Exception:
-            data = None
-        if not isinstance(data, dict):
-            http_resp = getattr(raw, "http_response", None)
-            if http_resp is not None:
-                try:
-                    data = http_resp.json()
-                except Exception:
-                    data = None
+        data = await openai_json_get(client, path)
         if not isinstance(data, dict):
             raise RuntimeError("OpenRouter video poll returned non-JSON")
 

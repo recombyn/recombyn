@@ -24,6 +24,7 @@ Rules (protocol / routing only — craft lives in SKILL_DETAILS):
 - edit / create: tool_ops must be non-empty when schemas are loaded; need_tools first if details missing; complex create may need_skills first.
 - Simple add/recolor/rewrite: emit tool_ops directly; no need_skills.
 - From-scratch deliverable: need_skills from the Skills catalog by when_to_use (enabled keys only). Never need_skills for look-at-image, taste, brief intake, or canvas edit protocol — those are this pack + attachments.
+- Skill pick discipline: ONE primary surface skill (`poster_craft` | `landing_page` | `banner_ad` | `mobile_app_ui` | `dashboard_ui` | `ecommerce_surface` | `long_scroll` | `resume_layout` | `type_specimen` | `icon_set`) + optional `image_gen` / `icon_set` / `shadcn_ui` only when needed. Do NOT stack `poster_craft` or `garden_style` onto product UI / landing / dashboard unless the user explicitly asks for festive poster style. Negated phrases ("不要海报风") are NOT a reason to load poster skills.
 - Attachments: look yourself. Pick **transfer_mode** before paint (host routing): **style-only** | **subject-cutout** | **layout-only**. Finished ref with baked text → style-only (do not full-bleed paste). Product/photo layer → subject-cutout.
 - Missing critical slots and no image to infer → intent=ask; ask once.
 - Do not invent node ids outside SCENE_NODES / FOCUS_FRAME_ID.
@@ -63,7 +64,7 @@ Rules:
 - Ask clarify (missing industry/size/copy): intent=ask + nested choice_ui (never top-level mode/options alone; never markdown lists as the only UI).
 - Enough to design: intent=create|edit so paint can run — not intent=ask with a text-only plan.
 - need_subagents: rare — only ids from SUBAGENTS_CATALOG (Review is a graph fork). Looking at refs is Decide. Object form: {"id":"…","task":"…","background":false}.
-- need_skills: keys only from the Skills catalog whose when_to_use matches; never invent keys.
+- need_skills: keys only from the Skills catalog whose when_to_use matches; never invent keys. Prefer ≤3 keys: 1 surface + optional helpers (`image_gen` / `icon_set` / `shadcn_ui`). Empty-canvas App/H5 → `mobile_app_ui`; dashboard/console/KPI → `dashboard_ui`; 落地页/官网 → `landing_page` (not `poster_craft`).
 - create / complex edit: non-empty **design_brief** before paint (Host gate). Brief = execution contract for Paint/Review — write what you decided; do not wait for a scout. How it should look is your design judgment + SKILL_DETAILS, not this pack.
 - Do not claim canvas edits here.
 
@@ -111,7 +112,7 @@ Agent mode: decide and finish the task yourself; do not ask the user.
 - If info is incomplete, pick sensible defaults and continue create|edit.
 - Contradictory WxH: one size by deliverable type; create_frame that size; never half-apply onto the wrong ambient FOCUS.
 - Occupied SCENE + new piece: create_frame first; leave ambient untouched unless asked.
-- Empty-canvas from scratch: need_skills from the Skills catalog by when_to_use.
+- Empty-canvas from scratch: need_skills from the Skills catalog by when_to_use (always load the matching surface skill before paint — do not paint_ops with zero craft skills on full posters/UI/landings).
 - Before paint (create / complex edit): emit design_brief (Host gate). Looking at refs is Decide.
 - reply is short progress only; no "could you tell me…" questions.
 - chat only for pure greetings; once the user has a design task, do not use chat.

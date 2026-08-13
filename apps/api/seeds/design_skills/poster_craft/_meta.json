@@ -3,11 +3,11 @@
   "name": "poster_craft",
   "displayName": "Poster / roll-up",
   "description": "Poster and roll-up playbook: hero image first, quiet zones, tall/wide hierarchy",
-  "when_to_use": "Poster / 海报 / roll-up / 易拉宝 / festive print / festive event visual — illustrated or photo hero with title groups (not SaaS UI chrome)",
+  "when_to_use": "Poster / 海报 / roll-up / 易拉宝 / festive print / festive event visual — illustrated or photo hero with title groups (not SaaS UI chrome, not multi-section website)",
   "category": "deliverable",
   "scenes": "all",
   "sort_weight": 78,
-  "version": "2.0.1",
+  "version": "2.1.0",
   "preferred_tools": [
     "create_frame",
     "create_image",
@@ -29,11 +29,13 @@
         "易拉宝",
         "roll-up",
         "rollup",
-        "展架"
+        "展架",
+        "音乐节",
+        "1080x1920"
       ]
     }
   ],
-  "mutex_group": "",
+  "mutex_group": "surface",
   "prompt_negative": "Simple geometry may stay vector; complex atmosphere/illustration that looks crude as shapes should use a background image. Prefer readable titles with margin. Prefer poster craft over SaaS nav/forms on visual posters. Unless the user provides them, avoid inventing board facts such as prices, phones, QR codes, logos, etc. Prefer overlay text or cutout lettering over baking titles into the background.",
   "locales": {
     "zh-CN": {
