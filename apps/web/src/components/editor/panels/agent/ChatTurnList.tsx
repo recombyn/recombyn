@@ -14,9 +14,10 @@ import ChatMarkdown from '@/components/editor/panels/ChatMarkdown';
 import { ContextChipPill } from '@/components/editor/panels/AgentComposerInput';
 import { Image } from '@/components/base/image';
 import {
+  SoftGlowSurface,
   VirtualList,
   type VirtualListHandle,
-} from '@/components/base/VirtualList';
+} from '@/components/base';
 import { cn } from '@/utils/classnames';
 import { setChatImageDragData } from '@/utils/chatImageDrag';
 import { imageSrcToFile } from '@/utils/uploadImage';
@@ -103,6 +104,8 @@ export type ChatUiMessage = {
   designResumeToken?: string;
   /** Generation paused with a durable checkpoint — show Resume. */
   canResume?: boolean;
+  /** Phase-2 Design Intelligence panel (DNA / scores / diff / iterations). */
+  intelligence?: import('@/components/editor/panels/agent/runDesignAgent').DesignIntelligencePatch;
 };
 
 export type AssistantStep = NonNullable<ChatUiMessage['steps']>[number];
@@ -118,6 +121,224 @@ export type ActivityStepEvent = {
   /** Stable kernel code for FE i18n (e.g. ops_validate_failed). */
   code?: string;
 };
+
+const REVIEW_SCORE_ORDER = [
+  'composition',
+  'hierarchy',
+  'typography',
+  'color',
+  'consistency',
+  'content',
+  'originality',
+] as const;
+
+export function pctLabel(value: number | null | undefined, digits = 0): string {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${(Number(value) * 100).toFixed(digits)}%`;
+}
+
+export function formatDiffDeltaLine(
+  key: string,
+  delta: number | null | undefined,
+  before?: number | null,
+  after?: number | null
+): string | null {
+  if (delta == null || Math.abs(Number(delta)) < 0.005) return null;
+  const d = Number(delta);
+  if (before != null && after != null) {
+    return `${key} ${pctLabel(before, 0)} → ${pctLabel(after, 0)} (${d >= 0 ? '+' : ''}${pctLabel(d, 0)})`;
+  }
+  return `${key} ${d >= 0 ? '+' : ''}${pctLabel(d, 0)}`;
+}
+
+export function hasDesignIntelligence(
+  intel: ChatUiMessage['intelligence'] | undefined
+): boolean {
+  if (!intel) return false;
+  return Boolean(
+    intel.reference?.dna ||
+      intel.reference?.thesis ||
+      intel.review?.scores ||
+      intel.review?.overall != null ||
+      intel.diff?.deltas ||
+      (intel.iterations && intel.iterations.length > 0) ||
+      intel.summary
+  );
+}
+
+function DesignIntelligencePanel({
+  intel,
+}: {
+  intel: NonNullable<ChatUiMessage['intelligence']>;
+}): ReactNode {
+  const { t } = useTranslation();
+  const dna = intel.reference?.dna || {};
+  const dnaAxes = Object.entries(dna).filter(([, v]) => typeof v === 'number');
+  const scores = intel.review?.scores || {};
+  const scoreRows = REVIEW_SCORE_ORDER.filter((k) => scores[k] != null).map((k) => ({
+    key: k,
+    value: Number(scores[k]),
+  }));
+  const issues = intel.review?.topIssues || [];
+  const deltas = intel.diff?.deltas || {};
+  const diffLines = [
+    formatDiffDeltaLine('Hero', deltas.hero_coverage),
+    formatDiffDeltaLine('Whitespace', deltas.whitespace_ratio),
+    formatDiffDeltaLine('Decoration', deltas.decoration_area),
+  ].filter(Boolean) as string[];
+  const timeline = (intel.iterations || []).filter((row) => row.overall > 0);
+  const summary = intel.summary;
+
+  return (
+    <div
+      className="flex w-full flex-col gap-3 border-l border-[var(--ink)]/10 pl-3 text-[12px] leading-snug text-[var(--ink)]/80"
+      data-testid="design-intelligence"
+    >
+      {intel.reference?.thesis || dnaAxes.length || intel.reference?.stages?.length ? (
+        <section className="flex flex-col gap-1.5">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+            {t('agent.intelReference', { defaultValue: 'Reference' })}
+          </div>
+          {intel.reference?.stages?.length ? (
+            <div className="flex flex-wrap gap-1.5 text-[11px] text-[var(--muted)]">
+              {intel.reference.stages.map((stage) => (
+                <span key={stage}>{stage}</span>
+              ))}
+            </div>
+          ) : null}
+          {intel.reference?.thesis ? (
+            <p className="whitespace-pre-wrap break-words text-[13px] text-[var(--ink)]">
+              {intel.reference.thesis}
+            </p>
+          ) : null}
+          {intel.reference?.composition ? (
+            <p className="text-[11px] text-[var(--muted)]">
+              {intel.reference.composition}
+            </p>
+          ) : null}
+          {dnaAxes.length ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              {dnaAxes.map(([axis, value]) => (
+                <div key={axis} className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[var(--muted)]">{axis}</span>
+                  <span className="tabular-nums">{pctLabel(value, 0)}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {scoreRows.length || intel.review?.overall != null ? (
+        <section className="flex flex-col gap-1.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+              {t('agent.intelReview', { defaultValue: 'Review' })}
+            </span>
+            {intel.review?.overall != null ? (
+              <span className="tabular-nums text-[13px] text-[var(--ink)]">
+                {Math.round(Number(intel.review.overall))}
+                {intel.review.action ? ` · ${intel.review.action}` : ''}
+              </span>
+            ) : null}
+          </div>
+          {scoreRows.length ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              {scoreRows.map((row) => (
+                <div key={row.key} className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[var(--muted)]">{row.key}</span>
+                  <span className="tabular-nums">{row.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {issues.length ? (
+            <ol className="mt-1 flex list-decimal flex-col gap-1 pl-4">
+              {issues.slice(0, 5).map((issue, i) => (
+                <li key={`${issue.issue || i}-${i}`}>
+                  <span className="text-[var(--ink)]">
+                    {String(issue.issue || '').slice(0, 120)}
+                  </span>
+                  {issue.fix ? (
+                    <span className="block text-[11px] text-[var(--muted)]">
+                      {String(issue.fix).slice(0, 120)}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </section>
+      ) : null}
+
+      {diffLines.length ? (
+        <section className="flex flex-col gap-1">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+            {t('agent.intelDiff', { defaultValue: 'Diff' })}
+          </div>
+          {diffLines.map((line) => (
+            <div key={line} className="tabular-nums">
+              {line}
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {timeline.length > 1 ? (
+        <section className="flex flex-col gap-1">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+            {t('agent.intelIterations', { defaultValue: 'Iterations' })}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 tabular-nums">
+            {timeline.map((row, i) => (
+              <span key={`${row.iteration}-${row.overall}-${i}`}>
+                {i > 0 ? <span className="text-[var(--muted)]">→ </span> : null}
+                {Math.round(row.overall)}
+              </span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {summary ? (
+        <section className="flex flex-col gap-1 text-[var(--muted)]">
+          <div className="text-[11px] uppercase tracking-[0.08em]">
+            {t('agent.intelSummary', { defaultValue: 'Summary' })}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 tabular-nums text-[var(--ink)]/80">
+            {summary.iterations != null ? (
+              <span>
+                {t('agent.intelIterCount', {
+                  count: summary.iterations,
+                  defaultValue: '{{count}} iters',
+                })}
+              </span>
+            ) : null}
+            {summary.removed != null && summary.removed > 0 ? (
+              <span>
+                {t('agent.intelRemoved', {
+                  count: summary.removed,
+                  defaultValue: '−{{count}} nodes',
+                })}
+              </span>
+            ) : null}
+            {summary.whitespace != null ? (
+              <span>whitespace {pctLabel(summary.whitespace, 0)}</span>
+            ) : null}
+            {summary.heroDominance != null ? (
+              <span>hero {pctLabel(summary.heroDominance, 0)}</span>
+            ) : null}
+            {summary.scoreFrom != null && summary.scoreTo != null ? (
+              <span>
+                {Math.round(summary.scoreFrom)}→{Math.round(summary.scoreTo)}
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
 
 type ProcessTFn = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -1007,6 +1228,9 @@ function AssistantTurn({
 
       {/* Process first, then reply — matching product timeline order. */}
       {foldable ? <AssistantProcessBody assistant={assistant} /> : null}
+      {hasDesignIntelligence(assistant.intelligence) ? (
+        <DesignIntelligencePanel intel={assistant.intelligence!} />
+      ) : null}
 
       {showImageGallery ? (
         <ImageGenGallery assistant={assistant} sending={sending} />
@@ -1183,9 +1407,10 @@ function VideoGenGallery({
           );
         }
         return (
-          <div
+          <SoftGlowSurface
             key={`${assistant.id}-vshimmer-${i}`}
-            className="rcb-chat-image-gen-shimmer shrink-0 rounded-lg border border-[var(--line)]"
+            seed={`${assistant.id}-v-${i}`}
+            className="shrink-0 rounded-lg border border-[var(--line)]"
             style={{ width: box.width, height: box.height }}
             aria-hidden
           />
@@ -1221,9 +1446,10 @@ function ImageGenGallery({
           );
         }
         return (
-          <div
+          <SoftGlowSurface
             key={`${assistant.id}-shimmer-${i}`}
-            className="rcb-chat-image-gen-shimmer shrink-0 rounded-lg border border-[var(--line)]"
+            seed={`${assistant.id}-i-${i}`}
+            className="shrink-0 rounded-lg border border-[var(--line)]"
             style={{ width: box.width, height: box.height }}
             aria-hidden
           />

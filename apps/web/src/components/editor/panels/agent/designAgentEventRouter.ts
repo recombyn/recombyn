@@ -13,10 +13,51 @@ import {
 } from '@/components/editor/panels/agent/ChatTurnList';
 import {
   type AgentStepEvent,
+  type DesignIntelligencePatch,
 } from '@/components/editor/panels/agent/runDesignAgent';
 import type { DesignSendMutable } from '@/components/editor/panels/agent/agentSendPath';
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
+
+export function mergeDesignIntelligence(
+  prev: DesignIntelligencePatch | undefined,
+  patch: DesignIntelligencePatch
+): DesignIntelligencePatch {
+  const next: DesignIntelligencePatch = { ...(prev || {}) };
+  if (patch.reference) {
+    next.reference = { ...(prev?.reference || {}), ...patch.reference };
+    if (patch.reference.dna) {
+      next.reference.dna = { ...(prev?.reference?.dna || {}), ...patch.reference.dna };
+    }
+  }
+  if (patch.review) {
+    next.review = { ...(prev?.review || {}), ...patch.review };
+  }
+  if (patch.diff) {
+    next.diff = { ...(prev?.diff || {}), ...patch.diff };
+  }
+  if (patch.summary) {
+    next.summary = { ...(prev?.summary || {}), ...patch.summary };
+  }
+  if (patch.iterations?.length) {
+    const byKey = new Map<string, NonNullable<DesignIntelligencePatch['iterations']>[number]>();
+    for (const row of prev?.iterations || []) {
+      byKey.set(`${row.iteration}:${row.overall}`, row);
+    }
+    for (const row of patch.iterations) {
+      const key =
+        row.overall > 0
+          ? `${row.iteration}:${row.overall}`
+          : `d:${row.iteration}:${row.decision || ''}`;
+      const prevRow = byKey.get(`${row.iteration}:${row.overall}`) || byKey.get(key);
+      byKey.set(key, { ...(prevRow || {}), ...row });
+    }
+    next.iterations = Array.from(byKey.values()).sort(
+      (a, b) => a.iteration - b.iteration || a.overall - b.overall
+    );
+  }
+  return next;
+}
 
 const DETAIL_SUMMARY_KINDS = new Set([
   'tool',
@@ -562,6 +603,18 @@ export function createDesignAgentEventRouter(opts: {
         return;
       case 'analysis_delta':
         if (ev.text) handleUiAnalysisDelta(ev);
+        return;
+      case 'intelligence':
+        opts.setMessages((prev) =>
+          prev.map((m) =>
+            m.id === opts.assistantId
+              ? {
+                  ...m,
+                  intelligence: mergeDesignIntelligence(m.intelligence, ev.patch),
+                }
+              : m
+          )
+        );
         return;
       case 'canvas':
         if (ev.size) handleUiCanvas(ev);
