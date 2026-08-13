@@ -13,6 +13,8 @@ html[data-theme='light'] {
   --accent: #141414;
   --accent-soft: #ebebeb;
   --on-brand: #ffffff;
+  /* Switch on-track — same family as share dialog (ink + white thumb). */
+  --switch-on: #141414;
   --preview-overlay: rgba(12, 12, 13, 0.8);
 
   /* Slider: filled track vs remainder */

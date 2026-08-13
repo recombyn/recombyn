@@ -1,0 +1,629 @@
+{
+  "projectId": "agent_plaza_pulse_mobile",
+  "title": "Pulse Fitness App",
+  "category": "mobile",
+  "authorName": "Recombyn Official",
+  "document": {
+    "width": 390,
+    "height": 844,
+    "backgroundColor": "#0f172a",
+    "frames": [
+      {
+        "id": "frame_main",
+        "name": "Pulse Fitness App",
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 844,
+        "backgroundColor": "#0f172a"
+      }
+    ],
+    "activeFrameId": "frame_main",
+    "deltaSetLike": {
+      "ROOT": {
+        "id": "ROOT",
+        "key": "entry",
+        "children": [
+          "n_0",
+          "n_1",
+          "n_2",
+          "n_3",
+          "n_4",
+          "n_5",
+          "n_6",
+          "n_8",
+          "n_9",
+          "n_10",
+          "n_11",
+          "n_12",
+          "n_13",
+          "n_14",
+          "n_15",
+          "n_16",
+          "n_17",
+          "n_18",
+          "n_19",
+          "n_20",
+          "n_21",
+          "n_22",
+          "n_23",
+          "n_24",
+          "n_25",
+          "n_26",
+          "n_27",
+          "n_28",
+          "n_29",
+          "n_30",
+          "n_31",
+          "n_32",
+          "n_33",
+          "n_34",
+          "n_35",
+          "n_36",
+          "n_37",
+          "n_38",
+          "n_39",
+          "n_40"
+        ]
+      },
+      "n_0": {
+        "id": "n_0",
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 844,
+        "key": "rect",
+        "attrs": {
+          "fill": "#1A1A2E",
+          "cornerRadius": 0,
+          "shapeType": "rect"
+        }
+      },
+      "n_1": {
+        "id": "n_1",
+        "x": 24,
+        "y": 60,
+        "width": 300,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "你好，今天继续加油！",
+          "fill": "#FFFFFF",
+          "fontSize": 24,
+          "fontWeight": 700,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_2": {
+        "id": "n_2",
+        "x": 24,
+        "y": 36,
+        "width": 200,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "Good morning",
+          "fill": "#8888AA",
+          "fontSize": 14,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_3": {
+        "id": "n_3",
+        "x": 340,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6l5.25 3.15-1.07 1.78L11 13V7z\" fill=\"#FFFFFF\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_4": {
+        "id": "n_4",
+        "x": 20,
+        "y": 100,
+        "width": 350,
+        "height": 180,
+        "key": "rect",
+        "attrs": {
+          "fill": "#16213E",
+          "cornerRadius": 16,
+          "shapeType": "rect"
+        }
+      },
+      "n_5": {
+        "id": "n_5",
+        "x": 36,
+        "y": 118,
+        "width": 120,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "今日训练",
+          "fill": "#FFFFFF",
+          "fontSize": 18,
+          "fontWeight": 700,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_6": {
+        "id": "n_6",
+        "x": 36,
+        "y": 145,
+        "width": 200,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "上肢力量 · 30分钟",
+          "fill": "#8888AA",
+          "fontSize": 13,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_8": {
+        "id": "n_8",
+        "x": 36,
+        "y": 220,
+        "width": 120,
+        "height": 36,
+        "key": "rect",
+        "attrs": {
+          "fill": "#E94560",
+          "cornerRadius": 18,
+          "shapeType": "rect"
+        }
+      },
+      "n_9": {
+        "id": "n_9",
+        "x": 60,
+        "y": 229,
+        "width": 80,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "开始训练",
+          "fill": "#FFFFFF",
+          "fontSize": 14,
+          "fontWeight": 600,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_10": {
+        "id": "n_10",
+        "x": 20,
+        "y": 300,
+        "width": 350,
+        "height": 180,
+        "key": "rect",
+        "attrs": {
+          "fill": "#16213E",
+          "cornerRadius": 16,
+          "shapeType": "rect"
+        }
+      },
+      "n_11": {
+        "id": "n_11",
+        "x": 36,
+        "y": 318,
+        "width": 120,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "今日进度",
+          "fill": "#FFFFFF",
+          "fontSize": 18,
+          "fontWeight": 700,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_12": {
+        "id": "n_12",
+        "x": 60,
+        "y": 355,
+        "width": 90,
+        "height": 90,
+        "key": "rect",
+        "attrs": {
+          "fill": "none",
+          "cornerRadius": 0,
+          "shapeType": "circle"
+        }
+      },
+      "n_13": {
+        "id": "n_13",
+        "x": 60,
+        "y": 355,
+        "width": 90,
+        "height": 90,
+        "key": "rect",
+        "attrs": {
+          "fill": "none",
+          "cornerRadius": 0,
+          "shapeType": "path"
+        }
+      },
+      "n_14": {
+        "id": "n_14",
+        "x": 82,
+        "y": 393,
+        "width": 50,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "68%",
+          "fill": "#FFFFFF",
+          "fontSize": 20,
+          "fontWeight": 700,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_15": {
+        "id": "n_15",
+        "x": 180,
+        "y": 360,
+        "width": 170,
+        "height": 40,
+        "key": "rect",
+        "attrs": {
+          "fill": "#1A1A2E",
+          "cornerRadius": 10,
+          "shapeType": "rect"
+        }
+      },
+      "n_16": {
+        "id": "n_16",
+        "x": 195,
+        "y": 372,
+        "width": 80,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "消耗热量",
+          "fill": "#8888AA",
+          "fontSize": 12,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_17": {
+        "id": "n_17",
+        "x": 270,
+        "y": 372,
+        "width": 70,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "486 kcal",
+          "fill": "#E94560",
+          "fontSize": 14,
+          "fontWeight": 700,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_18": {
+        "id": "n_18",
+        "x": 180,
+        "y": 410,
+        "width": 170,
+        "height": 40,
+        "key": "rect",
+        "attrs": {
+          "fill": "#1A1A2E",
+          "cornerRadius": 10,
+          "shapeType": "rect"
+        }
+      },
+      "n_19": {
+        "id": "n_19",
+        "x": 195,
+        "y": 422,
+        "width": 80,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "运动时长",
+          "fill": "#8888AA",
+          "fontSize": 12,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_20": {
+        "id": "n_20",
+        "x": 270,
+        "y": 422,
+        "width": 70,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "42 min",
+          "fill": "#E94560",
+          "fontSize": 14,
+          "fontWeight": 700,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_21": {
+        "id": "n_21",
+        "x": 20,
+        "y": 500,
+        "width": 350,
+        "height": 180,
+        "key": "rect",
+        "attrs": {
+          "fill": "#16213E",
+          "cornerRadius": 16,
+          "shapeType": "rect"
+        }
+      },
+      "n_22": {
+        "id": "n_22",
+        "x": 36,
+        "y": 518,
+        "width": 120,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "推荐训练",
+          "fill": "#FFFFFF",
+          "fontSize": 18,
+          "fontWeight": 700,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_23": {
+        "id": "n_23",
+        "x": 36,
+        "y": 545,
+        "width": 100,
+        "height": 110,
+        "key": "rect",
+        "attrs": {
+          "fill": "#1A1A2E",
+          "cornerRadius": 12,
+          "shapeType": "rect"
+        }
+      },
+      "n_24": {
+        "id": "n_24",
+        "x": 60,
+        "y": 620,
+        "width": 50,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "瑜伽",
+          "fill": "#FFFFFF",
+          "fontSize": 13,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_25": {
+        "id": "n_25",
+        "x": 66,
+        "y": 555,
+        "width": 40,
+        "height": 40,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6l5.25 3.15-1.07 1.78L11 13V7z\" fill=\"#E94560\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_26": {
+        "id": "n_26",
+        "x": 145,
+        "y": 545,
+        "width": 100,
+        "height": 110,
+        "key": "rect",
+        "attrs": {
+          "fill": "#1A1A2E",
+          "cornerRadius": 12,
+          "shapeType": "rect"
+        }
+      },
+      "n_27": {
+        "id": "n_27",
+        "x": 170,
+        "y": 620,
+        "width": 50,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "跑步",
+          "fill": "#FFFFFF",
+          "fontSize": 13,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_28": {
+        "id": "n_28",
+        "x": 175,
+        "y": 555,
+        "width": 40,
+        "height": 40,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.17 12l.57-2.5 2.1 2v5h2v-6.5l-2.1-2 .57-2.5c1.34 1.13 3.13 1.83 5.13 1.83v-2c-1.56 0-2.94-.64-3.97-1.69l-.99-.95c-.52-.5-1.22-.8-1.97-.8-.3 0-.6.05-.88.15L3 9.04v4h2v-2.77l2.32-.93L5.5 17.48H3v2h5.32z\" fill=\"#E94560\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_29": {
+        "id": "n_29",
+        "x": 254,
+        "y": 545,
+        "width": 100,
+        "height": 110,
+        "key": "rect",
+        "attrs": {
+          "fill": "#1A1A2E",
+          "cornerRadius": 12,
+          "shapeType": "rect"
+        }
+      },
+      "n_30": {
+        "id": "n_30",
+        "x": 280,
+        "y": 620,
+        "width": 50,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "拉伸",
+          "fill": "#FFFFFF",
+          "fontSize": 13,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_31": {
+        "id": "n_31",
+        "x": 284,
+        "y": 555,
+        "width": 40,
+        "height": 40,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6l5.25 3.15-1.07 1.78L11 13V7z\" fill=\"#E94560\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_32": {
+        "id": "n_32",
+        "x": 0,
+        "y": 700,
+        "width": 390,
+        "height": 60,
+        "key": "rect",
+        "attrs": {
+          "fill": "#0F0F23",
+          "cornerRadius": 0,
+          "shapeType": "rect"
+        }
+      },
+      "n_33": {
+        "id": "n_33",
+        "x": 40,
+        "y": 716,
+        "width": 24,
+        "height": 24,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z\" fill=\"#E94560\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_34": {
+        "id": "n_34",
+        "x": 35,
+        "y": 744,
+        "width": 40,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "首页",
+          "fill": "#E94560",
+          "fontSize": 11,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_35": {
+        "id": "n_35",
+        "x": 135,
+        "y": 716,
+        "width": 24,
+        "height": 24,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6l5.25 3.15-1.07 1.78L11 13V7z\" fill=\"#8888AA\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_36": {
+        "id": "n_36",
+        "x": 130,
+        "y": 744,
+        "width": 40,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "训练",
+          "fill": "#8888AA",
+          "fontSize": 11,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_37": {
+        "id": "n_37",
+        "x": 225,
+        "y": 716,
+        "width": 24,
+        "height": 24,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z\" fill=\"#8888AA\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_38": {
+        "id": "n_38",
+        "x": 220,
+        "y": 744,
+        "width": 40,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "发现",
+          "fill": "#8888AA",
+          "fontSize": 11,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      },
+      "n_39": {
+        "id": "n_39",
+        "x": 315,
+        "y": 716,
+        "width": 24,
+        "height": 24,
+        "key": "icon",
+        "attrs": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M12 12c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm0-10c-4.41 0-8 3.59-8 8 0 5.25 8 14 8 14s8-8.75 8-14c0-4.41-3.59-8-8-8z\" fill=\"#8888AA\"/></svg>",
+          "fill": "#111827",
+          "name": "Icon"
+        }
+      },
+      "n_40": {
+        "id": "n_40",
+        "x": 310,
+        "y": 744,
+        "width": 40,
+        "height": 40,
+        "key": "text",
+        "attrs": {
+          "text": "我的",
+          "fill": "#8888AA",
+          "fontSize": 11,
+          "fontWeight": 400,
+          "fontFamily": "Poppins"
+        }
+      }
+    }
+  }
+}

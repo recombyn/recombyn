@@ -1046,14 +1046,20 @@ async def openai_json_post(
     path: str,
     body: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """POST JSON via OpenAI SDK (custom paths like OpenRouter ``/images``)."""
-    raw = await client.with_raw_response.post(
+    """POST JSON via OpenAI SDK (custom paths like OpenRouter ``/images`` / ``/videos``).
+
+    openai>=2: use ``client.post`` — ``with_raw_response`` has no ``.post``.
+    """
+    raw = await client.post(
         path,
         body=dict(body),
         cast_to=object,
     )
+    if isinstance(raw, dict):
+        return raw
+    # Some SDK paths return a response wrapper
     try:
-        data = raw.parse()
+        data = raw.parse() if hasattr(raw, "parse") else None
     except Exception:
         data = None
     if isinstance(data, dict):
@@ -1067,6 +1073,31 @@ async def openai_json_post(
         except Exception:
             pass
     raise RuntimeError(f"OpenAI POST {path} returned non-JSON payload")
+
+
+async def openai_json_get(
+    client: Any,
+    path: str,
+) -> dict[str, Any]:
+    """GET JSON via OpenAI SDK (OpenRouter video poll)."""
+    raw = await client.get(path, cast_to=object)
+    if isinstance(raw, dict):
+        return raw
+    try:
+        data = raw.parse() if hasattr(raw, "parse") else None
+    except Exception:
+        data = None
+    if isinstance(data, dict):
+        return data
+    http_resp = getattr(raw, "http_response", None)
+    if http_resp is not None:
+        try:
+            parsed = http_resp.json()
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    raise RuntimeError(f"OpenAI GET {path} returned non-JSON payload")
 
 
 def _image_content_block(url: str) -> Any:

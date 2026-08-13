@@ -16,6 +16,8 @@ html[data-theme='dark'] {
   --accent: #ffffff;
   --accent-soft: #383838;
   --on-brand: #1e1e1e;
+  /* Switch on-track — elevated gray (not inverted white pill); off stays --line. */
+  --switch-on: #6b6b6b;
   --preview-overlay: rgba(30, 30, 30, 0.58);
 
   --slider-active: #ffffff;

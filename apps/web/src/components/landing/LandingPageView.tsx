@@ -7,7 +7,7 @@ import {
   HiOutlineChevronDown,
 } from 'react-icons/hi2';
 import { SUPPORTED_LANGS } from '@/i18n';
-import { buildLocaleSwitchUrl, normalizeI18nLang } from '@/i18n/localePath';
+import { buildLocaleSwitchUrl, normalizeI18nLang, writeStoredI18nLang } from '@/i18n/localePath';
 import { Icon } from '@/components/base/icon';
 import { docsUrl } from '@/utils/docsUrl';
 import { cn } from '@/utils/classnames';
@@ -71,6 +71,7 @@ function LandingLangSwitcher(): ReactNode {
                   onClick={() => {
                     setOpen(false);
                     if (item.code === current) return;
+                    writeStoredI18nLang(item.code);
                     // Full navigation remounts BrowserRouter with the new basename.
                     window.location.assign(buildLocaleSwitchUrl(item.code));
                   }}
