@@ -20,6 +20,8 @@ _MYSQL_ALTERS = (
     "ALTER TABLE chat_messages MODIFY thinking LONGTEXT NULL",
     "ALTER TABLE chat_messages MODIFY meta_json LONGTEXT NULL",
     "ALTER TABLE chat_sessions MODIFY meta_json LONGTEXT NULL",
+    "ALTER TABLE design_global_rule MODIFY rule_value LONGTEXT NOT NULL",
+    "ALTER TABLE design_global_rule MODIFY description LONGTEXT NULL",
 )
 
 
