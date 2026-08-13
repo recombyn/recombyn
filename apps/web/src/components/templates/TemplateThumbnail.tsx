@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, memo } from 'react';
+import { useEffect, useState, memo } from 'react';
 import {
   PREVIEW_PNG_MAX_EDGE,
   renderDocumentThumbnail,
@@ -11,18 +11,12 @@ function isEmptyDocument(document: SceneDocument) {
   return !Array.isArray(children) || children.length === 0;
 }
 
-function paperBackground(document: SceneDocument): string {
-  const frame = Array.isArray(document?.frames) ? document.frames[0] : null;
-  const fromFrame = String(frame?.backgroundColor || '').trim();
-  if (fromFrame && fromFrame !== 'none' && fromFrame !== 'transparent') return fromFrame;
-  const fromDoc = String(document?.backgroundColor || '').trim();
-  if (fromDoc && fromDoc !== 'none' && fromDoc !== 'transparent') return fromDoc;
-  return '#ffffff';
-}
-
 /**
  * List-card preview — always a raster `<img>`, never a live SVG in the DOM.
  * (SVG is only used off-screen while rasterizing.)
+ *
+ * Letterbox / empty plate uses `--canvas` so dark mode chrome stays dark;
+ * artboard paper color is already in the raster itself.
  */
 function TemplateThumbnail({
   document,
@@ -41,7 +35,6 @@ function TemplateThumbnail({
 }) {
   const remote = typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : '';
   const empty = !remote && (!document || isEmptyDocument(document));
-  const paperBg = useMemo(() => paperBackground(document), [document]);
   const [src, setSrc] = useState<string | null>(remote || null);
 
   useEffect(() => {
@@ -68,23 +61,15 @@ function TemplateThumbnail({
   }, [document, empty, remote, format, maxEdge]);
 
   if (empty) {
-    return <div className="h-full w-full bg-[var(--accent-soft)]" />;
+    return <div className="h-full w-full bg-[var(--canvas)]" />;
   }
 
   if (!src) {
-    return (
-      <div
-        className="rcb-skeleton-bone h-full w-full"
-        style={{ backgroundColor: paperBg }}
-      />
-    );
+    return <div className="rcb-skeleton-bone h-full w-full bg-[var(--canvas)]" />;
   }
 
   return (
-    <div
-      className="relative h-full w-full overflow-hidden"
-      style={{ backgroundColor: paperBg }}
-    >
+    <div className="relative h-full w-full overflow-hidden bg-[var(--canvas)]">
       <img
         src={src}
         alt=""

@@ -107,8 +107,15 @@ def _warn_insecure_defaults() -> None:
             "change MYSQL_PASSWORD / DATABASE_URL before any public deploy"
         )
 
-    card_salt = (os.getenv("CARD_KEY_SALT") or "").strip()
-    if not card_salt or card_salt.startswith("replace-with-"):
+    card_salt = (getattr(settings, "card_key_salt", None) or "").strip()
+    if not card_salt or card_salt.startswith("replace-with-") or card_salt.lower() in {
+        "change-me",
+        "change-me-to-a-long-random-string",
+        "secret",
+        "salt",
+        "card_key_salt",
+        "recombyn",
+    }:
         logger.warning(
             "CARD_KEY_SALT is empty or still a placeholder — "
             "set a strong random salt before issuing card keys publicly"

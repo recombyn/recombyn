@@ -10,6 +10,9 @@
 
 export const DEFAULT_I18N_LANG = 'en';
 
+/** Matches i18next-browser-languagedetector `lookupLocalStorage`. */
+export const LOCALE_STORAGE_KEY = 'language';
+
 /** First URL segment → i18n language code. */
 export const PREFIX_TO_I18N: Record<string, string> = {
   zh: 'zh-CN',
@@ -92,4 +95,100 @@ export function buildLocaleSwitchUrl(
 export function absoluteLocaleUrl(origin: string, i18nLang: string, appPath = '/'): string {
   const path = withLocalePrefix(appPath, i18nLang);
   return `${origin.replace(/\/$/, '')}${path === '/' ? '/' : path}`;
+}
+
+export function readStoredI18nLang(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (!raw || !String(raw).trim()) return null;
+    return normalizeI18nLang(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredI18nLang(lang: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, normalizeI18nLang(lang));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+/** Map browser `navigator.language(s)` → supported i18n code. */
+export function detectNavigatorI18nLang(
+  languages: readonly string[] | undefined = typeof navigator !== 'undefined'
+    ? navigator.languages?.length
+      ? navigator.languages
+      : navigator.language
+        ? [navigator.language]
+        : []
+    : []
+): string {
+  for (const raw of languages || []) {
+    const s = String(raw || '').trim();
+    if (!s) continue;
+    if (s.startsWith('zh-TW') || s === 'zh-Hant' || /^zh-(tw|hk|mo)/i.test(s)) return 'zh-TW';
+    if (s.startsWith('zh') || s === 'zh-Hans') return 'zh-CN';
+    if (s.startsWith('ja')) return 'ja';
+    if (s.startsWith('en')) return 'en';
+  }
+  return DEFAULT_I18N_LANG;
+}
+
+/**
+ * Preferred UI language:
+ * - explicit user choice in localStorage, else
+ * - browser environment (first visit), else
+ * - English default.
+ */
+export function resolvePreferredI18nLang(): string {
+  return readStoredI18nLang() ?? detectNavigatorI18nLang();
+}
+
+/** OAuth redirect_uri is fixed without locale prefix — never auto-rewrite. */
+export function shouldSkipLocaleAutoRedirect(pathname: string): boolean {
+  const stripped = stripLocalePrefix(pathname).toLowerCase();
+  return (
+    stripped === '/login/google/callback' ||
+    stripped.startsWith('/login/google/callback/')
+  );
+}
+
+/**
+ * First visit / unprefixed URL: send the user to their preferred locale prefix.
+ * Returns true when a redirect was started (caller should stop boot work).
+ */
+export function redirectToPreferredLocaleIfNeeded(
+  loc: { pathname: string; search?: string; hash?: string } = typeof window !==
+  'undefined'
+    ? window.location
+    : { pathname: '/', search: '', hash: '' },
+  assign: (url: string) => void = (url) => {
+    if (typeof window !== 'undefined') window.location.replace(url);
+  }
+): boolean {
+  const pathname = loc.pathname || '/';
+  if (shouldSkipLocaleAutoRedirect(pathname)) return false;
+
+  const urlBasename = getLocaleBasename(pathname);
+  if (urlBasename) {
+    // Explicit `/zh/...` etc. — respect URL and remember as preference.
+    writeStoredI18nLang(basenameToI18nLang(urlBasename));
+    return false;
+  }
+
+  const preferred = resolvePreferredI18nLang();
+  writeStoredI18nLang(preferred);
+  if (preferred === DEFAULT_I18N_LANG) return false;
+
+  const stripped = stripLocalePrefix(pathname);
+  const nextPath = withLocalePrefix(stripped || '/', preferred);
+  const target = `${nextPath}${loc.search || ''}${loc.hash || ''}`;
+  const current = `${pathname}${loc.search || ''}${loc.hash || ''}`;
+  if (target === current) return false;
+  assign(target);
+  return true;
 }

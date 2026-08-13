@@ -7,8 +7,11 @@ import zhTW from './locales/zh-TW';
 import ja from './locales/ja';
 import {
   DEFAULT_I18N_LANG,
+  LOCALE_STORAGE_KEY,
   basenameToI18nLang,
   getLocaleBasename,
+  redirectToPreferredLocaleIfNeeded,
+  resolvePreferredI18nLang,
 } from './localePath';
 
 const resources = {
@@ -18,35 +21,42 @@ const resources = {
   ja: { common: ja },
 };
 
-/** Prefer URL prefix (`/zh/...`) over localStorage when present. */
-function detectLngFromUrl(): string | undefined {
-  if (typeof window === 'undefined') return undefined;
+/**
+ * Boot language:
+ * - URL prefix (`/zh/...`) wins when present
+ * - otherwise preferred = stored choice or browser locale (first visit)
+ */
+function detectBootLng(): string {
+  if (typeof window === 'undefined') return DEFAULT_I18N_LANG;
   const basename = getLocaleBasename(window.location.pathname);
   if (basename) return basenameToI18nLang(basename);
-  // Unprefixed routes are English (default locale).
-  return DEFAULT_I18N_LANG;
+  return resolvePreferredI18nLang();
 }
 
 async function initI18n() {
+  // Unprefixed first visit → `/zh/...` etc. before React paints.
+  if (typeof window !== 'undefined' && redirectToPreferredLocaleIfNeeded()) {
+    return;
+  }
+
   await i18n
     .use(LanguageDetector)
     .use(initReactI18next)
     .init({
       resources,
       fallbackLng: DEFAULT_I18N_LANG,
-      lng: detectLngFromUrl(),
+      lng: detectBootLng(),
       defaultNS: 'common',
       detection: {
-        // URL is source of truth at boot via `lng`; keep detector for caches.
         order: ['localStorage', 'navigator'],
-        lookupLocalStorage: 'language',
+        lookupLocalStorage: LOCALE_STORAGE_KEY,
         caches: ['localStorage'],
       },
       interpolation: { escapeValue: false },
     });
-  const fromUrl = detectLngFromUrl();
-  if (fromUrl && i18n.language !== fromUrl) {
-    void i18n.changeLanguage(fromUrl);
+  const boot = detectBootLng();
+  if (boot && i18n.language !== boot) {
+    void i18n.changeLanguage(boot);
   }
   if (typeof document !== 'undefined') {
     document.documentElement.lang =
@@ -73,12 +83,17 @@ export const SUPPORTED_LANGS = [
 export {
   DEFAULT_I18N_LANG,
   I18N_TO_PREFIX,
+  LOCALE_STORAGE_KEY,
   PREFIX_TO_I18N,
   absoluteLocaleUrl,
   basenameToI18nLang,
   buildLocaleSwitchUrl,
+  detectNavigatorI18nLang,
   getLocaleBasename,
   normalizeI18nLang,
+  redirectToPreferredLocaleIfNeeded,
+  resolvePreferredI18nLang,
   stripLocalePrefix,
   withLocalePrefix,
+  writeStoredI18nLang,
 } from './localePath';

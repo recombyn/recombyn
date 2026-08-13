@@ -3,11 +3,11 @@
   "name": "mobile_app_ui",
   "displayName": "Mobile / H5 app UI",
   "description": "Mobile and H5 screens: safe areas, top/bottom chrome, single column, thumb-zone CTA",
-  "when_to_use": "Mobile app / H5 / 手机页 / App 界面 / iOS Android screen / 小程序页 — single-column product UI with mobile chrome (not desktop dashboard, not poster)",
+  "when_to_use": "Mobile app / H5 / 手机页 / App 界面 / iOS Android screen / 小程序页 / 390x844 — single-column product UI with mobile chrome (not desktop dashboard, not poster)",
   "category": "ui",
   "scenes": "all",
-  "sort_weight": 82,
-  "version": "2.1.1",
+  "sort_weight": 88,
+  "version": "2.2.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -35,11 +35,17 @@
         "小程序",
         "mobile app",
         "移动端",
-        "登录页"
+        "登录页",
+        "390x844",
+        "390×844",
+        "健身",
+        "打卡",
+        "底部 Tab",
+        "底部Tab"
       ]
     }
   ],
-  "mutex_group": "",
+  "mutex_group": "surface",
   "prompt_negative": "Prefer single-column mobile layouts over desktop sidebars. Unless asked, avoid inventing OS status clutter. Prefer primary CTA in the thumb zone. Prefer real glyphs plus plain labels over emoji/pictograph text as tab/list icons. Simple chrome may stay vector; complex headers that look crude as shapes should use images.",
   "locales": {
     "zh-CN": {

@@ -59,6 +59,7 @@
     "perf:k6:collab": "k6 run perf/k6/collab_ws.js",
     "test:collab:merge": "npm run test:merge --workspace=apps/collab",
     "stress:agent": "node scripts/design-agent-stress.mjs",
+    "plaza:agent-showcase": "node scripts/plaza-agent-showcase.mjs",
     "install:api": "cd apps/api && pip install -e \".[dev]\"",
     "install:api:otel": "cd apps/api && pip install -e \".[dev,otel]\""
   },
