@@ -70,7 +70,7 @@ def _rebuild_export_job(job_id: str, entry: dict[str, Any]) -> dict[str, Any]:
             detail="DLQ entry missing project_id/user_id — cannot replay",
         )
     fmt = str(entry.get("format") or "png").strip().lower()
-    if fmt not in ("png", "pdf"):
+    if fmt != "png":
         fmt = "png"
     payload = {
         "job_id": job_id,

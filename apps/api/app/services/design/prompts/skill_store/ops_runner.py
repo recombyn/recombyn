@@ -199,14 +199,14 @@ def try_skill_ops_for_paint(
     ctx = {
         "skill_key": skill_key,
         "prompt": str(prompt or "")[:4000],
-        "scene": str(scene_key or "website"),
+        "scene": str(scene_key or ""),
         "scene_nodes": list(scene_nodes or [])[:80],
         "scene_frames": list(scene_frames or [])[:40],
         "design_brief": design_brief if isinstance(design_brief, dict) else {},
     }
     payload = {
         "prompt": str(prompt or "")[:4000],
-        "scene": str(scene_key or "website"),
+        "scene": str(scene_key or ""),
     }
     ops, err = run_skill_handler_ops(
         handler_path=handler,

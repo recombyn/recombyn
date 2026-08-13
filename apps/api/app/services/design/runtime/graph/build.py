@@ -886,7 +886,7 @@ async def run_agent_graph(
     defer_tools = S._flag_on(rules, "agent.react.defer_tools", "1")
     tools_catalog = tools_host.format_catalog(rules)
     tools_block = "" if defer_tools else tools_host.format_full(rules)
-    scene_for_cat = scene_key or "website"
+    scene_for_cat = scene_key or ""
     from app.services.design.runtime.agent_profile import get_active_agent_profile
     from app.services.design.runtime.subagent import format_subagents_catalog
 

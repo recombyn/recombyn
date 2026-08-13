@@ -323,6 +323,35 @@ function CropExpandSessionHost({ document }: { document: SceneDocument }): React
     return { id, document: addNodeToDocument(document, id, clone) };
   };
 
+  const confirmExpand = () => {
+    if (!expandFrame || !nodeId || !box) return;
+    const outW = Math.max(1, Math.round(expandFrame.w));
+    const outH = Math.max(1, Math.round(expandFrame.h));
+    dispatch(
+      startImageProcess({
+        sourceId: nodeId,
+        kind: 'expand',
+        label: '扩展中',
+        targetWidth: outW,
+        targetHeight: outH,
+        meta: expandMetaFromFrame(box.width, box.height, expandFrame),
+      })
+    );
+    close();
+  };
+
+  const confirmVideoCrop = () => {
+    if (!cropRect || !nodeId || !box || !node) return;
+    const outW = Math.max(1, Math.round(cropRect.w));
+    const outH = Math.max(1, Math.round(cropRect.h));
+    const cropAttrs = composeVideoCropFractions(node.attrs, box.width, box.height, cropRect);
+    const { id, document: next } = spawnSiblingAtCrop(cropAttrs, outW, outH);
+    dispatch(setDocument(next));
+    dispatch(setSelectedNodeIds([id]));
+    dispatch(setSelectedNodeId(id));
+    close();
+  };
+
   const onConfirm = () => {
     if (busy || !nodeId || !box) return;
     const src = String(node?.attrs?.src || '');
@@ -331,42 +360,15 @@ function CropExpandSessionHost({ document }: { document: SceneDocument }): React
       return;
     }
 
-    // Expand: drag frame first, then spawn AI outpaint job (like crop UX).
     if (mode === 'expand') {
-      if (!expandFrame) return;
-      const outW = Math.max(1, Math.round(expandFrame.w));
-      const outH = Math.max(1, Math.round(expandFrame.h));
-      dispatch(
-        startImageProcess({
-          sourceId: nodeId,
-          kind: 'expand',
-          label: '扩展中',
-          targetWidth: outW,
-          targetHeight: outH,
-          meta: expandMetaFromFrame(box.width, box.height, expandFrame),
-        })
-      );
-      close();
+      confirmExpand();
       return;
     }
 
     if (!cropRect) return;
 
-    // Video: spawn sibling like image crop (display crop, no re-encode).
     if (node.key === 'video') {
-      const outW = Math.max(1, Math.round(cropRect.w));
-      const outH = Math.max(1, Math.round(cropRect.h));
-      const cropAttrs = composeVideoCropFractions(
-        node.attrs,
-        box.width,
-        box.height,
-        cropRect
-      );
-      const { id, document: next } = spawnSiblingAtCrop(cropAttrs, outW, outH);
-      dispatch(setDocument(next));
-      dispatch(setSelectedNodeIds([id]));
-      dispatch(setSelectedNodeId(id));
-      close();
+      confirmVideoCrop();
       return;
     }
 
@@ -395,7 +397,7 @@ function CropExpandSessionHost({ document }: { document: SceneDocument }): React
         setBusy(false);
       }
     }
-    applyCrop();
+    void applyCrop();
   };
 
   return (

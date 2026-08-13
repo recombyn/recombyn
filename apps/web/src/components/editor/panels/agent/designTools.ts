@@ -452,6 +452,49 @@ function normalizeBrushHardnessArg(raw: unknown): number | undefined {
   return Math.min(100, Math.max(0, Math.round(t)));
 }
 
+function mapCreateShapeType(shapeType: string): string {
+  if (shapeType === 'ellipse') return 'circle';
+  return shapeType;
+}
+
+function pickSvgMarkup(args: Record<string, unknown>): string {
+  if (args.svg != null) return String(args.svg);
+  if (args.iconSvg != null) return String(args.iconSvg);
+  return '';
+}
+
+function defaultCreateShapeFill(opts: {
+  args: Record<string, unknown>;
+  isStrokeOnly: boolean;
+  isFreePath: boolean;
+  closed: boolean;
+}): string {
+  if (opts.args.fill != null) return String(opts.args.fill);
+  if (opts.isStrokeOnly || (opts.isFreePath && !opts.closed)) return 'transparent';
+  return '#FFFFFF';
+}
+
+function resolveCreateShapeStroke(opts: {
+  args: Record<string, unknown>;
+  needsDefaultStroke: boolean;
+}): string {
+  let raw: string;
+  if (opts.args.stroke != null) raw = String(opts.args.stroke);
+  else if (opts.needsDefaultStroke) raw = '#333333';
+  else raw = 'transparent';
+  if (!raw || raw === 'none' || raw === 'rgba(0,0,0,0)') return 'transparent';
+  return raw;
+}
+
+function resolveUpdateBrushStyle(
+  args: Record<string, unknown>,
+  currentAttrs: Record<string, unknown>
+): string | undefined {
+  if (args.brushStyle != null) return resolvePencilBrushStyle('pencil', args);
+  if (currentAttrs.brushStyle != null) return String(currentAttrs.brushStyle);
+  return undefined;
+}
+
 function normalizePressureEnabledArg(
   raw: unknown,
   opts: { hasPathPressure: boolean }
@@ -1418,14 +1461,13 @@ function execCreateShape(
 ): AgentToolResult {
 
   const shapeType = String(args.shapeType || args.type || 'rect');
-  const mapped =
-    shapeType === 'ellipse' ? 'circle' : shapeType === 'pen' ? 'pen' : shapeType;
+  const mapped = mapCreateShapeType(shapeType);
   const width = Math.max(1, num(args.width, 120));
   const height = Math.max(1, num(args.height, 80));
   const target = ctx.targetFrameId ? frameById(doc, ctx.targetFrameId) : null;
   const missXY = requireCreateXY('create_shape', args);
   if (missXY) return missXY;
-  const svgRaw = args.svg != null ? String(args.svg) : args.iconSvg != null ? String(args.iconSvg) : '';
+  const svgRaw = pickSvgMarkup(args);
   // Icon SVG → native svg node (not image, not path conversion).
   if (svgRaw.trim() || mapped === 'svg') {
     if (!svgRaw.trim()) {
@@ -1484,9 +1526,7 @@ function execCreateShape(
   const isFreePath = mapped === 'path';
   const closed = resolvePathClosed({ args, mapped, path });
   const isStrokeOnly = mapped === 'line' || mapped === 'arrow' || mapped === 'pencil';
-  const fillDefault = String(
-    args.fill ?? (isStrokeOnly || (isFreePath && !closed) ? 'transparent' : '#FFFFFF')
-  );
+  const fillDefault = defaultCreateShapeFill({ args, isStrokeOnly, isFreePath, closed });
   const fillIsNone =
     !fillDefault ||
     fillDefault === 'transparent' ||
@@ -1497,12 +1537,7 @@ function execCreateShape(
   const needsDefaultStroke =
     !isFreePath &&
     (isStrokeOnly || mapped === 'pen' || mapped === 'pencil' || fillIsNone);
-  const strokeRaw =
-    args.stroke != null ? String(args.stroke) : needsDefaultStroke ? '#333333' : 'transparent';
-  const stroke =
-    !strokeRaw || strokeRaw === 'none' || strokeRaw === 'rgba(0,0,0,0)'
-      ? 'transparent'
-      : strokeRaw;
+  const stroke = resolveCreateShapeStroke({ args, needsDefaultStroke });
   const strokeIsNone = stroke === 'transparent';
   const borderWidth = resolveCreateShapeBorderWidth({
     args,
@@ -1907,12 +1942,7 @@ function execUpdateNode(
   if (args.name != null) shell.attrs.name = String(args.name);
 
   if (args.brushStyle != null || args.brushHardness != null || args.hardness != null) {
-    const nextStyle =
-      args.brushStyle != null
-        ? resolvePencilBrushStyle('pencil', args)
-        : shell.attrs.brushStyle != null
-          ? String(shell.attrs.brushStyle)
-          : undefined;
+    const nextStyle = resolveUpdateBrushStyle(args, shell.attrs);
     if (nextStyle) {
       shell.attrs.brushStyle = nextStyle;
       // Tip texture bake is legacy — new tip strokes use SVG ribbon like vector ink.

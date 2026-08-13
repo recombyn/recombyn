@@ -31,7 +31,7 @@ def _load_seed() -> dict[str, Any]:
 
 
 def default_canvas_actions() -> list[dict[str, Any]]:
-    """Seed actions from data/canvas_actions_seed.json (cold-start / fallback)."""
+    """Actions from canvas_actions_seed.json (for ensure/seed into DB)."""
     global _actions_cache
     if _actions_cache is not None:
         return _actions_cache

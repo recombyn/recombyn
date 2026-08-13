@@ -11,10 +11,8 @@ from app.api.routes import (
     fonts,
     health,
     image_tools,
-    import_docx,
     import_image,
     import_jobs,
-    import_pdf,
     design_hydrate_jobs,
     design_export_jobs,
     chat_image_jobs,
@@ -47,8 +45,6 @@ api_router.include_router(fonts.router)
 api_router.include_router(assets.router)
 api_router.include_router(uploads.router)
 api_router.include_router(chat_sessions.router)
-api_router.include_router(import_pdf.router)
-api_router.include_router(import_docx.router)
 api_router.include_router(import_image.router)
 api_router.include_router(import_jobs.router)
 api_router.include_router(design_hydrate_jobs.router)

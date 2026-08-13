@@ -1,4 +1,4 @@
-"""Server-side artboard export (PNG / PDF) for async jobs (ADR 0005).
+"""Server-side artboard export (PNG) for async jobs (ADR 0005).
 
 Not a full canvas-engine replay — composites artboard background, solid rects,
 image nodes, and scene text (wrapped to the node box). Interactive canvas
@@ -36,38 +36,45 @@ def _parse_color(raw: Any, default: tuple[int, int, int, int] = (255, 255, 255, 
     s = str(raw or "").strip()
     if not s or s.lower() in ("none", "transparent"):
         return default
-    if s.startswith("rgba"):
-        inner = s[s.find("(") + 1 : s.rfind(")")]
-        parts = [p.strip() for p in inner.split(",")]
-        if len(parts) >= 3:
-            r, g, b = (max(0, min(255, int(float(parts[i])))) for i in range(3))
-            a = 255
-            if len(parts) >= 4:
-                a = max(0, min(255, int(float(parts[3]) * 255)))
-            return (r, g, b, a)
+    if s.startswith("rgba") or s.startswith("rgb"):
+        return _parse_rgb_func(s, default, alpha=s.startswith("rgba"))
+    return _parse_hex_color(s, default)
+
+
+def _parse_rgb_func(
+    s: str,
+    default: tuple[int, int, int, int],
+    *,
+    alpha: bool,
+) -> tuple[int, int, int, int]:
+    inner = s[s.find("(") + 1 : s.rfind(")")]
+    parts = [p.strip() for p in inner.split(",")]
+    if len(parts) < 3:
         return default
-    if s.startswith("rgb"):
-        inner = s[s.find("(") + 1 : s.rfind(")")]
-        parts = [p.strip() for p in inner.split(",")]
-        if len(parts) >= 3:
-            r, g, b = (max(0, min(255, int(float(parts[i])))) for i in range(3))
-            return (r, g, b, 255)
-        return default
+    r, g, b = (max(0, min(255, int(float(parts[i])))) for i in range(3))
+    if not alpha:
+        return (r, g, b, 255)
+    a = 255
+    if len(parts) >= 4:
+        a = max(0, min(255, int(float(parts[3]) * 255)))
+    return (r, g, b, a)
+
+
+def _parse_hex_color(
+    s: str, default: tuple[int, int, int, int]
+) -> tuple[int, int, int, int]:
     hex_s = s[1:] if s.startswith("#") else s
     if len(hex_s) == 3:
         hex_s = "".join(ch * 2 for ch in hex_s)
-    if len(hex_s) == 6:
-        try:
+    try:
+        if len(hex_s) == 6:
             n = int(hex_s, 16)
-        except ValueError:
-            return default
-        return ((n >> 16) & 255, (n >> 8) & 255, n & 255, 255)
-    if len(hex_s) == 8:
-        try:
+            return ((n >> 16) & 255, (n >> 8) & 255, n & 255, 255)
+        if len(hex_s) == 8:
             n = int(hex_s, 16)
-        except ValueError:
-            return default
-        return ((n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255)
+            return ((n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255)
+    except ValueError:
+        return default
     return default
 
 
@@ -478,18 +485,6 @@ def render_artboard_png(document: dict[str, Any], frame: dict[str, Any]) -> byte
     return out.getvalue()
 
 
-def _pngs_to_pdf(pages: list[bytes]) -> bytes:
-    from PIL import Image
-
-    images = [Image.open(io.BytesIO(p)).convert("RGB") for p in pages]
-    if not images:
-        raise ValueError("no pages to export")
-    buf = io.BytesIO()
-    first, rest = images[0], images[1:]
-    first.save(buf, format="PDF", save_all=bool(rest), append_images=rest)
-    return buf.getvalue()
-
-
 def _safe_key_part(value: str) -> str:
     s = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip())[:80]
     return s or "export"
@@ -503,23 +498,19 @@ def render_and_store_export(
     fmt: str,
     frame_id: str | None = None,
 ) -> dict[str, Any]:
-    """Render artboards and persist. Returns result dict for the job record."""
+    """Render artboards to PNG and persist. Returns result dict for the job record."""
     if not isinstance(document, dict):
         raise ValueError("document required")
     kind = (fmt or "png").strip().lower()
-    if kind not in ("png", "pdf"):
-        raise ValueError("format must be png or pdf")
+    if kind != "png":
+        raise ValueError("format must be png")
     frames = _select_frames(document, frame_id)
     pages = [render_artboard_png(document, frame) for frame in frames]
     if not pages:
         raise ValueError("nothing to export")
 
-    if kind == "pdf":
-        payload = _pngs_to_pdf(pages)
-        ext, content_type = "pdf", "application/pdf"
-    else:
-        payload = pages[0]
-        ext, content_type = "png", "image/png"
+    payload = pages[0]
+    ext, content_type = "png", "image/png"
 
     key = f"exports/{_safe_key_part(user_id)}/{_safe_key_part(job_id)}/export.{ext}"
     put_bytes(key, payload, content_type=content_type, cache_control="private, max-age=86400")

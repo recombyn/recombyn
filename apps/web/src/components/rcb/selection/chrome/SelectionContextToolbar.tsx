@@ -319,6 +319,248 @@ function SelectionContextToolbar(props: Props): ReactNode {
     return <ImageQuickEditComposer document={document} nodeId={nodeId} box={box} />;
   }
 
+  const flipRotateToolbar = (
+    <FlipRotateToolbar
+      nodeId={nodeId}
+      angle={Number(node?.attrs?.angle) || 0}
+      flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
+      flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
+    />
+  );
+
+  let imageToolbarChrome: ReactNode = null;
+  if (kind === 'image') {
+    if (flipRotateOpen) {
+      imageToolbarChrome = flipRotateToolbar;
+    } else if (isIconImageNode(node)) {
+      imageToolbarChrome = (
+        <IconAnnotateToolbar
+          downloadSlot={
+            <ExportSelectionPopover
+              nodeIds={[nodeId]}
+              triggerClassName={cn(imageToolBtn, 'text-white/85 hover:bg-white/10')}
+            />
+          }
+        />
+      );
+    } else {
+      imageToolbarChrome = (
+        <>
+          <button
+            type="button"
+            className={imageToolBtn}
+            onClick={() => dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))}
+          >
+            <HiOutlineSparkles className="h-4 w-4" strokeWidth={2} />
+            <span>{t('editor.imageToolbar.chat')}</span>
+          </button>
+          <ImageToolSep />
+          <ImageToolbarEditTools
+            onUpscale={() => dispatch(openImageToolPanel({ nodeId, kind: 'upscale' }))}
+            onRemoveBg={(mode) =>
+              runImageProcess(
+                'removeBg',
+                t('editor.imageToolbar.processingRemoveBg'),
+                undefined,
+                { cutoutMode: mode }
+              )
+            }
+            onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
+            onMark={() => dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))}
+            onReplaceText={
+              String(node?.attrs?.letteringText || '').trim()
+                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))
+                : undefined
+            }
+            onEditElements={() =>
+              runImageProcess(
+                'editElements',
+                t('editor.imageToolbar.processingEditElements')
+              )
+            }
+            onMultiAngle={() =>
+              dispatch(openImageToolPanel({ nodeId, kind: 'multiAngle' }))
+            }
+          />
+          {showBlend ? (
+            <>
+              <Sep />
+              <BlendModeControl
+                blendMode={node?.attrs?.blendMode}
+                opacity={node?.attrs?.opacity}
+                onBlendModeChange={(mode) =>
+                  dispatch(
+                    patchDocumentNode({ nodeId, patch: { attrs: { blendMode: mode } } })
+                  )
+                }
+                onOpacityChange={(opacity) =>
+                  dispatch(patchDocumentNode({ nodeId, patch: { attrs: { opacity } } }))
+                }
+                onOpacityOpen={() =>
+                  dispatch(openImageToolPanel({ nodeId, kind: 'opacity' }))
+                }
+                afterBlendSlot={
+                  supportsCornerRadius(node) ? (
+                    <Tooltip tip={t('editor.imageToolbar.cornerRadius')} placement="top">
+                      <button
+                        type="button"
+                        aria-label={t('editor.imageToolbar.cornerRadius')}
+                        className={SEL_TOOL_BTN}
+                        onClick={() =>
+                          dispatch(
+                            openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] })
+                          )
+                        }
+                      >
+                        <IconCornerRadius className="h-4 w-4" />
+                        <span className="tabular-nums">{toolbarCornerRadius}</span>
+                      </button>
+                    </Tooltip>
+                  ) : null
+                }
+              />
+            </>
+          ) : null}
+          <ImageToolbarMoreDownload
+            onAction={(key) => {
+              if (key === 'expand') {
+                dispatch(openImageToolPanel({ nodeId, kind: 'expand' }));
+                return;
+              }
+              if (key === 'crop') {
+                dispatch(openImageToolPanel({ nodeId, kind: 'crop' }));
+                return;
+              }
+              if (key === 'adjust') {
+                dispatch(openImageToolPanel({ nodeId, kind: 'adjust' }));
+                return;
+              }
+              if (key === 'flipRotate') {
+                dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }));
+              }
+            }}
+          />
+          <Sep />
+          <Tooltip
+            tip={
+              imageAspectLocked
+                ? t('editor.imageToolbar.unlockAspect')
+                : t('editor.imageToolbar.lockAspect')
+            }
+            placement="top"
+          >
+            <button
+              type="button"
+              aria-label={
+                imageAspectLocked
+                  ? t('editor.imageToolbar.unlockAspect')
+                  : t('editor.imageToolbar.lockAspect')
+              }
+              aria-pressed={imageAspectLocked}
+              className={cn(
+                'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
+                imageAspectLocked && 'bg-[var(--accent-soft)] text-[var(--ink)]'
+              )}
+              onClick={() =>
+                dispatch(
+                  patchDocumentNode({
+                    nodeId,
+                    patch: {
+                      attrs: { lockAspect: imageAspectLocked ? 'false' : 'true' },
+                    },
+                  })
+                )
+              }
+            >
+              {imageAspectLocked ? (
+                <HiOutlineLink className="h-3.5 w-3.5" strokeWidth={1.75} />
+              ) : (
+                <HiOutlineLinkSlash className="h-3.5 w-3.5" strokeWidth={1.75} />
+              )}
+            </button>
+          </Tooltip>
+          <ImageFullscreenPreviewButton src={String(node?.attrs?.src || '')} />
+          <ExportSelectionPopover nodeIds={[nodeId]} triggerClassName={imageToolBtn} />
+        </>
+      );
+    }
+  }
+
+  let videoToolbarChrome: ReactNode = null;
+  if (kind === 'video') {
+    if (flipRotateOpen) {
+      videoToolbarChrome = (
+        <FlipRotateToolbar
+          nodeId={nodeId}
+          angle={Number(node?.attrs?.angle) || 0}
+          flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
+          flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
+          hideRotate
+        />
+      );
+    } else {
+      videoToolbarChrome = (
+        <VideoToolbarEditTools
+          nodeId={nodeId}
+          onQuickEdit={() =>
+            dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))
+          }
+          onTrim={() => {
+            // Capture playhead before trim UI hides the hover host / remounts preview.
+            const host = getVideoHoverHost(nodeId);
+            const video = host?.getVideo?.();
+            const vals = [host?.getFreezeAt?.(), host?.getMediaTime?.(), video?.currentTime]
+              .map((x) => Number(x))
+              .filter((x) => Number.isFinite(x) && x >= 0);
+            const keepTime = vals.length ? Math.max(...vals) : 0;
+            dispatch(openVideoToolPanel({ nodeId, kind: 'trim', keepTime }));
+          }}
+          onCrop={() => dispatch(openImageToolPanel({ nodeId, kind: 'crop' }))}
+          onFlipRotate={() =>
+            dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }))
+          }
+          downloadSlot={
+            <VideoDownloadButton
+              src={String(node?.attrs?.src || '')}
+              name={String(node?.attrs?.name || 'video')}
+              uploadKey={
+                String(node?.attrs?.uploadKey || node?.attrs?.key || '').trim() || null
+              }
+              cropX={Number(node?.attrs?.cropX)}
+              cropY={Number(node?.attrs?.cropY)}
+              cropW={Number(node?.attrs?.cropW)}
+              cropH={Number(node?.attrs?.cropH)}
+              trimStart={Number(node?.attrs?.trimStart)}
+              trimEnd={Number(node?.attrs?.trimEnd)}
+              flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
+              flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
+            />
+          }
+          fullscreenSlot={
+            <VideoFullscreenPreviewButton
+              src={String(node?.attrs?.src || '')}
+              poster={String(node?.attrs?.poster || '').trim() || null}
+              uploadKey={
+                String(node?.attrs?.uploadKey || node?.attrs?.key || '').trim() || null
+              }
+              aspectWidth={Number(node?.width) || undefined}
+              aspectHeight={Number(node?.height) || undefined}
+              cropX={Number(node?.attrs?.cropX)}
+              cropY={Number(node?.attrs?.cropY)}
+              cropW={Number(node?.attrs?.cropW)}
+              cropH={Number(node?.attrs?.cropH)}
+              trimStart={Number(node?.attrs?.trimStart)}
+              trimEnd={Number(node?.attrs?.trimEnd)}
+              flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
+              flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
+              duration={Number(node?.attrs?.duration)}
+            />
+          }
+        />
+      );
+    }
+  }
+
   return (
     <>
       <SelectionToolbarShell
@@ -587,251 +829,9 @@ function SelectionContextToolbar(props: Props): ReactNode {
             </>
           ) : null}
 
-          {kind === 'image' ? (
-            flipRotateOpen ? (
-              <FlipRotateToolbar
-                nodeId={nodeId}
-                angle={Number(node?.attrs?.angle) || 0}
-                flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
-                flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
-              />
-            ) : isIconImageNode(node) ? (
-              <IconAnnotateToolbar
-                downloadSlot={
-                  <ExportSelectionPopover
-                    nodeIds={[nodeId]}
-                    triggerClassName={cn(imageToolBtn, 'text-white/85 hover:bg-white/10')}
-                  />
-                }
-              />
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className={imageToolBtn}
-                  onClick={() =>
-                    dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))
-                  }
-                >
-                  <HiOutlineSparkles className="h-4 w-4" strokeWidth={2} />
-                  <span>{t('editor.imageToolbar.chat')}</span>
-                </button>
-                <ImageToolSep />
-                <ImageToolbarEditTools
-                  onUpscale={(preset) =>
-                    runImageProcess('upscale', t('editor.imageToolbar.processingUpscale'), {
-                      targetWidth: preset.width,
-                      targetHeight: preset.height,
-                    })
-                  }
-                  onRemoveBg={(mode) =>
-                    runImageProcess(
-                      'removeBg',
-                      t('editor.imageToolbar.processingRemoveBg'),
-                      undefined,
-                      { cutoutMode: mode }
-                    )
-                  }
-                  onEraser={() =>
-                    dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))
-                  }
-                  onMark={() =>
-                    dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))
-                  }
-                  onReplaceText={
-                    String(node?.attrs?.letteringText || '').trim()
-                      ? () =>
-                          dispatch(
-                            openImageToolPanel({ nodeId, kind: 'replaceText' })
-                          )
-                      : undefined
-                  }
-                  onEditElements={() =>
-                    runImageProcess(
-                      'editElements',
-                      t('editor.imageToolbar.processingEditElements')
-                    )
-                  }
-                  onMultiAngle={() =>
-                    dispatch(openImageToolPanel({ nodeId, kind: 'multiAngle' }))
-                  }
-                />
-                {showBlend ? (
-                  <>
-                    <Sep />
-                    <BlendModeControl
-                      blendMode={node?.attrs?.blendMode}
-                      opacity={node?.attrs?.opacity}
-                      onBlendModeChange={(mode) =>
-                        dispatch(
-                          patchDocumentNode({ nodeId, patch: { attrs: { blendMode: mode } } })
-                        )
-                      }
-                      onOpacityChange={(opacity) =>
-                        dispatch(patchDocumentNode({ nodeId, patch: { attrs: { opacity } } }))
-                      }
-                      onOpacityOpen={() =>
-                        dispatch(openImageToolPanel({ nodeId, kind: 'opacity' }))
-                      }
-                      afterBlendSlot={
-                        supportsCornerRadius(node) ? (
-                          <Tooltip tip={t('editor.imageToolbar.cornerRadius')} placement="top">
-                            <button
-                              type="button"
-                              aria-label={t('editor.imageToolbar.cornerRadius')}
-                              className={SEL_TOOL_BTN}
-                              onClick={() =>
-                                dispatch(
-                                  openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] })
-                                )
-                              }
-                            >
-                              <IconCornerRadius className="h-4 w-4" />
-                              <span className="tabular-nums">{toolbarCornerRadius}</span>
-                            </button>
-                          </Tooltip>
-                        ) : null
-                      }
-                    />
-                  </>
-                ) : null}
-                <ImageToolbarMoreDownload
-                  onAction={(key) => {
-                    if (key === 'expand') {
-                      dispatch(openImageToolPanel({ nodeId, kind: 'expand' }));
-                      return;
-                    }
-                    if (key === 'crop') {
-                      dispatch(openImageToolPanel({ nodeId, kind: 'crop' }));
-                      return;
-                    }
-                    if (key === 'adjust') {
-                      dispatch(openImageToolPanel({ nodeId, kind: 'adjust' }));
-                      return;
-                    }
-                    if (key === 'flipRotate') {
-                      dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }));
-                      return;
-                    }
-                  }}
-                />
-                <Sep />
-                <Tooltip
-                  tip={
-                    imageAspectLocked
-                      ? t('editor.imageToolbar.unlockAspect')
-                      : t('editor.imageToolbar.lockAspect')
-                  }
-                  placement="top"
-                >
-                  <button
-                    type="button"
-                    aria-label={
-                      imageAspectLocked
-                        ? t('editor.imageToolbar.unlockAspect')
-                        : t('editor.imageToolbar.lockAspect')
-                    }
-                    aria-pressed={imageAspectLocked}
-                    className={cn(
-                      'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
-                      imageAspectLocked && 'bg-[var(--accent-soft)] text-[var(--ink)]'
-                    )}
-                    onClick={() =>
-                      dispatch(
-                        patchDocumentNode({
-                          nodeId,
-                          patch: {
-                            attrs: { lockAspect: imageAspectLocked ? 'false' : 'true' },
-                          },
-                        })
-                      )
-                    }
-                  >
-                    {imageAspectLocked ? (
-                      <HiOutlineLink className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    ) : (
-                      <HiOutlineLinkSlash className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    )}
-                  </button>
-                </Tooltip>
-                <ImageFullscreenPreviewButton src={String(node?.attrs?.src || '')} />
-                <ExportSelectionPopover
-                  nodeIds={[nodeId]}
-                  triggerClassName={imageToolBtn}
-                />
-              </>
-            )
-          ) : null}
+          {imageToolbarChrome}
 
-          {kind === 'video' ? (
-            flipRotateOpen ? (
-              <FlipRotateToolbar
-                nodeId={nodeId}
-                angle={Number(node?.attrs?.angle) || 0}
-                flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
-                flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
-                hideRotate
-              />
-            ) : (
-              <VideoToolbarEditTools
-                nodeId={nodeId}
-                onQuickEdit={() =>
-                  dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))
-                }
-                onTrim={() => {
-                  // Capture playhead before trim UI hides the hover host / remounts preview.
-                  const host = getVideoHoverHost(nodeId);
-                  const video = host?.getVideo?.();
-                  const vals = [host?.getFreezeAt?.(), host?.getMediaTime?.(), video?.currentTime]
-                    .map((x) => Number(x))
-                    .filter((x) => Number.isFinite(x) && x >= 0);
-                  const keepTime = vals.length ? Math.max(...vals) : 0;
-                  dispatch(openVideoToolPanel({ nodeId, kind: 'trim', keepTime }));
-                }}
-                onCrop={() => dispatch(openImageToolPanel({ nodeId, kind: 'crop' }))}
-                onFlipRotate={() =>
-                  dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }))
-                }
-                downloadSlot={
-                  <VideoDownloadButton
-                    src={String(node?.attrs?.src || '')}
-                    name={String(node?.attrs?.name || 'video')}
-                    uploadKey={
-                      String(node?.attrs?.uploadKey || node?.attrs?.key || '').trim() || null
-                    }
-                    cropX={Number(node?.attrs?.cropX)}
-                    cropY={Number(node?.attrs?.cropY)}
-                    cropW={Number(node?.attrs?.cropW)}
-                    cropH={Number(node?.attrs?.cropH)}
-                    trimStart={Number(node?.attrs?.trimStart)}
-                    trimEnd={Number(node?.attrs?.trimEnd)}
-                    flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
-                    flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
-                  />
-                }
-                fullscreenSlot={
-                  <VideoFullscreenPreviewButton
-                    src={String(node?.attrs?.src || '')}
-                    poster={String(node?.attrs?.poster || '').trim() || null}
-                    uploadKey={
-                      String(node?.attrs?.uploadKey || node?.attrs?.key || '').trim() || null
-                    }
-                    aspectWidth={Number(node?.width) || undefined}
-                    aspectHeight={Number(node?.height) || undefined}
-                    cropX={Number(node?.attrs?.cropX)}
-                    cropY={Number(node?.attrs?.cropY)}
-                    cropW={Number(node?.attrs?.cropW)}
-                    cropH={Number(node?.attrs?.cropH)}
-                    trimStart={Number(node?.attrs?.trimStart)}
-                    trimEnd={Number(node?.attrs?.trimEnd)}
-                    flipX={node?.attrs?.flipX === true || node?.attrs?.flipX === 'true'}
-                    flipY={node?.attrs?.flipY === true || node?.attrs?.flipY === 'true'}
-                    duration={Number(node?.attrs?.duration)}
-                  />
-                }
-              />
-            )
-          ) : null}
+          {videoToolbarChrome}
 
           {kind === 'lottie' ? (
             <LottieToolbarEditTools

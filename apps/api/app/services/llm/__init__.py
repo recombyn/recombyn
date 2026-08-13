@@ -1,9 +1,4 @@
-"""OpenAI-compatible LLM router (Doubao Ark / DeepSeek / OpenRouter).
-
-Text / chat models go through LangChain ``init_chat_model`` (openai provider).
-Compat subclass keeps Ark/DeepSeek ``reasoning_content`` stream deltas.
-Image generation and ordinary FastAPI routes stay on raw HTTP / httpx.
-"""
+"""OpenAI-compatible LLM router."""
 
 from __future__ import annotations
 
@@ -99,114 +94,6 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1",
 }
 
-# Volcengine Ark chat models (catalog id → api_model).
-_ARK_CHAT_MODELS: list[dict] = [
-    {
-        "id": "deepseek-v4-flash",
-        "label": "DeepSeek V4 Flash",
-        "provider": "doubao",
-        "kind": "text",
-        "api_model": "deepseek-v4-flash-260425",
-        "max_attachments": 8,
-        "thinking": False,
-    },
-    {
-        "id": "deepseek-v4-pro",
-        "label": "DeepSeek V4 Pro",
-        "provider": "doubao",
-        "kind": "text",
-        "api_model": "deepseek-v4-pro-260425",
-        "max_attachments": 8,
-        "thinking": False,
-    },
-    {
-        "id": "doubao-seed-2-0-mini",
-        "label": "Seed 2.0 Mini",
-        "provider": "doubao",
-        "kind": "text",
-        "api_model": "doubao-seed-2-0-mini-260428",
-        "max_attachments": 8,
-        "thinking": False,
-    },
-    {
-        "id": "doubao-seed-2-1-pro",
-        "label": "Seed 2.1 Pro",
-        "provider": "doubao",
-        "kind": "text",
-        "api_model": "doubao-seed-2-1-pro-260628",
-        "max_attachments": 16,
-        "thinking": False,
-    },
-    {
-        "id": "doubao-seed-2-1-turbo",
-        "label": "Seed 2.1 Turbo",
-        "provider": "doubao",
-        "kind": "text",
-        "api_model": "doubao-seed-2-1-turbo-260628",
-        "max_attachments": 16,
-        "thinking": False,
-    },
-]
-
-def _fallback_image_limits(model_id: str, api_model: str = "") -> dict | None:
-    try:
-        from app.services.llm.catalog_store import infer_image_limit_preset, resolve_image_limits
-
-        return resolve_image_limits(
-            preset=infer_image_limit_preset(model_id, api_model, provider="doubao")
-        )
-    except Exception:
-        return None
-
-
-_ARK_IMAGE_MODELS: list[dict] = [
-    {
-        "id": "doubao-seedream-5-0-pro",
-        "label": "Seedream 5.0 Pro",
-        "provider": "doubao",
-        "kind": "image",
-        "api_model": "doubao-seedream-5-0-pro-260628",
-        "max_attachments": 10,
-        "imageLimits": _fallback_image_limits(
-            "doubao-seedream-5-0-pro", "doubao-seedream-5-0-pro-260628"
-        ),
-    },
-    {
-        "id": "doubao-seedream-5-0-lite",
-        "label": "Seedream 5.0 Lite",
-        "provider": "doubao",
-        "kind": "image",
-        "api_model": "doubao-seedream-5-0-260128",
-        "max_attachments": 14,
-        "imageLimits": _fallback_image_limits(
-            "doubao-seedream-5-0-lite", "doubao-seedream-5-0-260128"
-        ),
-    },
-    {
-        "id": "doubao-seedream-4-5",
-        "label": "Seedream 4.5",
-        "provider": "doubao",
-        "kind": "image",
-        "api_model": "doubao-seedream-4-5-251128",
-        "max_attachments": 14,
-        "imageLimits": _fallback_image_limits(
-            "doubao-seedream-4-5", "doubao-seedream-4-5-251128"
-        ),
-    },
-    {
-        "id": "doubao-seedream-4-0",
-        "label": "Seedream 4.0",
-        "provider": "doubao",
-        "kind": "image",
-        "api_model": "doubao-seedream-4-0-250828",
-        "max_attachments": 14,
-        "imageLimits": _fallback_image_limits(
-            "doubao-seedream-4-0", "doubao-seedream-4-0-250828"
-        ),
-    },
-]
-
-
 def _api_key_for(provider: str) -> str:
     """Per-provider key: user platform BYOK (request-scoped) → env → LLM_API_KEY."""
     uid = get_byok_user_id()
@@ -292,7 +179,7 @@ def list_llm_models(
     byok_platforms: set[str] | frozenset[str] | None = None,
     strict: bool = False,
 ) -> list[dict]:
-    """Catalog for the composer model picker (DB-backed with hardcoded fallback)."""
+    """Composer text catalog from ``llm_models`` only (empty table → empty list)."""
     unlocked = _byok_platforms_arg(byok_platforms)
     models: list[dict] = []
     try:
@@ -301,51 +188,25 @@ def list_llm_models(
     except Exception:
         catalog = []
 
-    if catalog:
-        for m in catalog:
-            provider = str(m.get("provider") or "doubao")
-            if not _provider_unlocked(provider, unlocked, strict=strict):
-                continue
-            models.append(
-                {
-                    "id": m["id"],
-                    "label": m["label"],
-                    "description": m.get("description"),
-                    "provider": provider,
-                    "kind": "text",
-                    "api_model": m.get("api_model") or m.get("apiModel") or m["id"],
-                    "iconKey": m.get("iconKey"),
-                    "iconUrl": m.get("iconUrl"),
-                    "price": m.get("price"),
-                    "max_attachments": int(m.get("max_attachments") or m.get("maxAttachments") or 8),
-                    "thinking": bool(m.get("thinking")),
-                }
-            )
-    else:
-        if _provider_unlocked("doubao", unlocked, strict=strict):
-            models.extend(dict(m) for m in _ARK_CHAT_MODELS)
-        if _provider_unlocked("deepseek", unlocked, strict=strict):
-            models.extend(
-                [
-                    {
-                        "id": "deepseek-chat",
-                        "label": "DeepSeek Chat",
-                        "provider": "deepseek",
-                        "kind": "text",
-                        "api_model": "deepseek-chat",
-                        "max_attachments": 4,
-                    },
-                    {
-                        "id": "deepseek-reasoner",
-                        "label": "DeepSeek Reasoner",
-                        "provider": "deepseek",
-                        "kind": "text",
-                        "api_model": "deepseek-reasoner",
-                        "max_attachments": 4,
-                        "thinking": True,
-                    },
-                ]
-            )
+    for m in catalog:
+        provider = str(m.get("provider") or "doubao")
+        if not _provider_unlocked(provider, unlocked, strict=strict):
+            continue
+        models.append(
+            {
+                "id": m["id"],
+                "label": m["label"],
+                "description": m.get("description"),
+                "provider": provider,
+                "kind": "text",
+                "api_model": m.get("api_model") or m.get("apiModel") or m["id"],
+                "iconKey": m.get("iconKey"),
+                "iconUrl": m.get("iconUrl"),
+                "price": m.get("price"),
+                "max_attachments": int(m.get("max_attachments") or m.get("maxAttachments") or 8),
+                "thinking": bool(m.get("thinking")),
+            }
+        )
 
     seed = (settings.doubao_seed_model or "").strip()
     if seed and _provider_unlocked("doubao", unlocked, strict=strict):
@@ -377,12 +238,14 @@ def list_llm_models(
     for m in models:
         by_id.setdefault(str(m["id"]), m)
     return list(by_id.values())
+
+
 def list_image_models(
     *,
     byok_platforms: set[str] | frozenset[str] | None = None,
     strict: bool = False,
 ) -> list[dict]:
-    """Doubao Seedream family via Ark /images/generations (DB-backed)."""
+    """Image catalog from ``llm_models`` only (empty table → empty list)."""
     unlocked = _byok_platforms_arg(byok_platforms)
     try:
         from app.services.llm.catalog_store import list_catalog
@@ -390,60 +253,34 @@ def list_image_models(
     except Exception:
         catalog = []
 
-    if catalog:
-        models = []
-        for m in catalog:
-            provider = str(m.get("provider") or "doubao")
-            if not _provider_unlocked(provider, unlocked, strict=strict):
-                continue
-            mid = m["id"]
-            api_model = m.get("api_model") or m.get("apiModel") or mid
-            limits = m.get("imageLimits") or m.get("image_limits")
-            if not limits:
-                limits = _fallback_image_limits(str(mid), str(api_model))
-            price_meta = m.get("priceMeta") or m.get("price_meta")
-            models.append(
-                {
-                    "id": mid,
-                    "label": m["label"],
-                    "description": m.get("description"),
-                    "provider": provider,
-                    "kind": "image",
-                    "api_model": api_model,
-                    "iconKey": m.get("iconKey"),
-                    "iconUrl": m.get("iconUrl"),
-                    "price": m.get("price"),
-                    "priceMeta": price_meta,
-                    "price_meta": price_meta,
-                    "max_attachments": int(
-                        m.get("max_attachments") or m.get("maxAttachments") or 14
-                    ),
-                    "imageLimits": limits,
-                    "image_limits": limits,
-                }
-            )
-    else:
-        models = (
-            [dict(m) for m in _ARK_IMAGE_MODELS]
-            if _provider_unlocked("doubao", unlocked, strict=strict)
-            else []
-        )
-    override = (settings.image_default_model or "").strip()
-    if (
-        override
-        and override not in {m["id"] for m in models}
-        and override not in {m["api_model"] for m in models}
-    ):
-        models.insert(
-            0,
+    models: list[dict] = []
+    for m in catalog:
+        provider = str(m.get("provider") or "doubao")
+        if not _provider_unlocked(provider, unlocked, strict=strict):
+            continue
+        mid = m["id"]
+        api_model = m.get("api_model") or m.get("apiModel") or mid
+        limits = m.get("imageLimits") or m.get("image_limits")
+        price_meta = m.get("priceMeta") or m.get("price_meta")
+        models.append(
             {
-                "id": override,
-                "label": f"custom image ? {override[:24]}",
-                "provider": "doubao",
+                "id": mid,
+                "label": m["label"],
+                "description": m.get("description"),
+                "provider": provider,
                 "kind": "image",
-                "api_model": override,
-                "max_attachments": 14,
-            },
+                "api_model": api_model,
+                "iconKey": m.get("iconKey"),
+                "iconUrl": m.get("iconUrl"),
+                "price": m.get("price"),
+                "priceMeta": price_meta,
+                "price_meta": price_meta,
+                "max_attachments": int(
+                    m.get("max_attachments") or m.get("maxAttachments") or 14
+                ),
+                "imageLimits": limits,
+                "image_limits": limits,
+            }
         )
     return models
 
@@ -548,8 +385,12 @@ def _base_url_for(provider: str) -> str:
 
 def resolve_provider(model_string: str | None) -> tuple[str, str]:
     """Return (provider, api_model_id) for a catalog id or raw model string."""
-    default = (settings.llm_default_model or "doubao-seed-2-0-mini").strip()
+    default = (settings.llm_default_model or "").strip()
     model = (model_string or default).strip()
+    if not model:
+        provider = (settings.llm_provider or "").strip().lower() or "doubao"
+        return provider, ""
+
     catalog = {m["id"]: m for m in list_all_models()}
     meta = catalog.get(model)
     if meta:
@@ -560,16 +401,16 @@ def resolve_provider(model_string: str | None) -> tuple[str, str]:
         if str(m.get("api_model") or "") == model:
             return str(m.get("provider") or "doubao"), model
 
-    # Legacy catalog ids from older clients
+    # Env-mapped legacy aliases only when the corresponding setting is set.
     legacy = {
         "doubao-seed-1-6-251015": (settings.doubao_seed_model or "").strip(),
         "doubao-1-5-pro-32k-250115": (settings.doubao_pro_model or "").strip(),
-        "doubao-seed": (settings.doubao_seed_model or "doubao-seed-2-0-mini-260428").strip(),
-        "doubao-pro": (settings.doubao_pro_model or "doubao-seed-2-0-mini-260428").strip(),
+        "doubao-seed": (settings.doubao_seed_model or "").strip(),
+        "doubao-pro": (settings.doubao_pro_model or "").strip(),
     }
-    if model in legacy:
-        api = legacy[model] or model
-        return "doubao", api
+    mapped = legacy.get(model)
+    if mapped:
+        return "doubao", mapped
 
     # provider/model form, e.g. doubao/ep-xxxx or openrouter/anthropic/claude-sonnet-4
     if "/" in model:
@@ -1206,27 +1047,9 @@ def to_lc_messages(raw: list[dict[str, Any]] | None) -> list[Any]:
             if isinstance(tcs, list) and tcs:
                 parsed: list[dict[str, Any]] = []
                 for tc in tcs:
-                    if not isinstance(tc, dict):
-                        continue
-                    fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
-                    args_raw = fn.get("arguments") if fn else tc.get("args")
-                    if isinstance(args_raw, dict):
-                        args = args_raw
-                    else:
-                        try:
-                            args = json.loads(args_raw or "{}")
-                        except Exception:
-                            args = {"_raw": str(args_raw or "")}
-                    name = str((fn or {}).get("name") or tc.get("name") or "")
-                    if not name:
-                        continue
-                    parsed.append(
-                        {
-                            "id": str(tc.get("id") or ""),
-                            "name": name,
-                            "args": args,
-                        }
-                    )
+                    item_tc = _parse_assistant_tool_call(tc)
+                    if item_tc:
+                        parsed.append(item_tc)
                 out.append(
                     AIMessage(
                         content=content if content is not None else "",
@@ -1237,6 +1060,28 @@ def to_lc_messages(raw: list[dict[str, Any]] | None) -> list[Any]:
                 out.append(AIMessage(content=content if content is not None else ""))
             continue
     return out
+
+
+def _parse_assistant_tool_call(tc: Any) -> dict[str, Any] | None:
+    if not isinstance(tc, dict):
+        return None
+    fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+    args_raw = fn.get("arguments") if fn else tc.get("args")
+    if isinstance(args_raw, dict):
+        args = args_raw
+    else:
+        try:
+            args = json.loads(args_raw or "{}")
+        except Exception:
+            args = {"_raw": str(args_raw or "")}
+    name = str((fn or {}).get("name") or tc.get("name") or "")
+    if not name:
+        return None
+    return {
+        "id": str(tc.get("id") or ""),
+        "name": name,
+        "args": args,
+    }
 
 
 def thinking_text_from_chunk(chunk: Any) -> str | None:

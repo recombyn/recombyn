@@ -1,6 +1,6 @@
 # Skill plugins (`plugins/skills`)
 
-Private / self-host **Skill packs**. Same layout as shipped `apps/api/seeds/design_skills/`.
+You can drop private Skill packs here. Same layout as shipped `apps/api/seeds/design_skills/` — Compose already mounts this folder.
 
 ## Canonical pack layout
 

@@ -442,6 +442,31 @@ type RadiusHandleDrag =
       moved: boolean;
     };
 
+function radiusShapeType(node: SceneNodeInput): string {
+  const fromAttrs = node?.attrs?.shapeType;
+  if (fromAttrs) return String(fromAttrs);
+  if (node?.key === 'ellipse') return 'ellipse';
+  if (node?.key) return String(node.key);
+  return 'rect';
+}
+
+/** Path / pen — radius seats come from sharp corners, not AABB box corners. */
+function isPathRadiusShape(node: SceneNodeInput, shapeType: string): boolean {
+  if (node?.key === 'path' || node?.key === 'pen') return true;
+  return shapeType === 'path' || shapeType === 'pen';
+}
+
+/** Circle / ellipse: no corners — AABB park seats sit outside the disk. */
+function shouldSkipRadiusHandles(node: SceneNodeInput, shapeType: string): boolean {
+  if (node?.key === 'ellipse') return true;
+  if (shapeType === 'circle' || shapeType === 'ellipse') return true;
+  // Outlined text (many M rings): R-dots only after entering path-edit.
+  const d = String(node?.attrs?.path || node?.attrs?.d || '').trim();
+  if (!d) return false;
+  const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
+  return rings >= 4;
+}
+
 /**
  * Corner-radius dots on the world camera layer (same SVG contract as
  * SelectionChrome). Seat tracks R; screen size = px / zoom under CSS scale.
@@ -472,21 +497,22 @@ function CornerRadiusHandlesOverlay({
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
   const dragRef = useRef<RadiusHandleDrag | null>(null);
+  const dragSessionEndRef = useRef<(() => void) | null>(null);
 
-  const shapeType = String(
-    node?.attrs?.shapeType || (node?.key === 'ellipse' ? 'ellipse' : node?.key) || 'rect'
+  // Hooks must stay above any early return (outline rect→path can flip isPathType/usePath).
+  useEffect(
+    () => () => {
+      dragSessionEndRef.current?.();
+      dragSessionEndRef.current = null;
+    },
+    []
   );
-  // Circle / ellipse: no corners — AABB park seats sit in the empty square corners
-  // (outside the disk). Rect-style R dots stay off.
+
   // Path / pen with curves (C/Q/A): parseClosedPathRings returns [] → pathSites null.
   // Those shapes have no sharp corners to fillet, so skip AABB fallback handles entirely.
-  const isPathType =
-    node?.key === 'path' ||
-    node?.key === 'pen' ||
-    shapeType === 'path' ||
-    shapeType === 'pen';
-  const skipRadiusHandles =
-    shapeType === 'circle' || shapeType === 'ellipse' || node?.key === 'ellipse';
+  const shapeType = radiusShapeType(node);
+  const isPathType = isPathRadiusShape(node, shapeType);
+  const skipRadiusHandles = shouldSkipRadiusHandles(node, shapeType);
 
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
@@ -548,21 +574,10 @@ function CornerRadiusHandlesOverlay({
     return localPointToScene(lx, ly, box, angle);
   };
 
-  const dragSessionEndRef = useRef<(() => void) | null>(null);
-
   const endDragSession = () => {
     dragSessionEndRef.current?.();
     dragSessionEndRef.current = null;
   };
-
-  // Only unmount cleanup — listeners attach on pointerdown, not while idle-selected.
-  useEffect(
-    () => () => {
-      dragSessionEndRef.current?.();
-      dragSessionEndRef.current = null;
-    },
-    []
-  );
 
   const beginDragSession = () => {
     if (dragSessionEndRef.current) return;
@@ -586,6 +601,62 @@ function CornerRadiusHandlesOverlay({
       setLiveCornerRadiusPreview(null);
     };
 
+    const applyPathDragLocal = (
+      d: Extract<RadiusHandleDrag, { mode: 'path' }>,
+      local: { x: number; y: number },
+      opts: { preview: boolean }
+    ) => {
+      const rounded = Math.round(radiusAlongPathSite(d.site, local, boxMaxR));
+      const next = pathVerticesAfterDrag(d.startVertices, d.sharpIndex, rounded, d.solo);
+      if (opts.preview) {
+        setDragValue(rounded);
+        const previewRadii = uniformCornerRadii(rounded);
+        setLiveCornerRadiusPreview({
+          nodeId,
+          display: cornerRadiusDisplayFromRadii(previewRadii, !d.solo && d.linked),
+        });
+        preview(previewRadii, next);
+        return;
+      }
+      patchNodeCornerRadii({
+        dispatch,
+        nodeId,
+        node,
+        radii: uniformCornerRadii(next[0] ?? 0),
+        linked: !d.solo && d.linked,
+        vertices: next,
+        skipHistory: false,
+      });
+    };
+
+    const applyBoxDragLocal = (
+      d: Extract<RadiusHandleDrag, { mode: 'box' }>,
+      local: { x: number; y: number },
+      opts: { preview: boolean }
+    ) => {
+      const corner = RADIUS_CORNERS.find((c) => c.key === d.corner);
+      if (!corner) return;
+      const rounded = Math.round(radiusAlongBoxCorner(corner, local, w, h, boxMaxR));
+      const next = boxRadiiAfterDrag(d.startRadii, d.corner, rounded, d.solo);
+      if (opts.preview) {
+        setDragValue(rounded);
+        setLiveCornerRadiusPreview({
+          nodeId,
+          display: cornerRadiusDisplayFromRadii(next, !d.solo && d.linked),
+        });
+        preview(next);
+        return;
+      }
+      patchNodeCornerRadii({
+        dispatch,
+        nodeId,
+        node,
+        radii: next,
+        linked: !d.solo && d.linked,
+        skipHistory: false,
+      });
+    };
+
     const onMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
@@ -597,27 +668,10 @@ function CornerRadiusHandlesOverlay({
       const sc = toScene(e.clientX, e.clientY);
       const local = scenePointToLocal(sc.x, sc.y, box, angle);
       if (d.mode === 'path') {
-        const rounded = Math.round(radiusAlongPathSite(d.site, local, boxMaxR));
-        const next = pathVerticesAfterDrag(d.startVertices, d.sharpIndex, rounded, d.solo);
-        setDragValue(rounded);
-        const previewRadii = uniformCornerRadii(rounded);
-        setLiveCornerRadiusPreview({
-          nodeId,
-          display: cornerRadiusDisplayFromRadii(previewRadii, !d.solo && d.linked),
-        });
-        preview(previewRadii, next);
+        applyPathDragLocal(d, local, { preview: true });
         return;
       }
-      const corner = RADIUS_CORNERS.find((c) => c.key === d.corner);
-      if (!corner) return;
-      const rounded = Math.round(radiusAlongBoxCorner(corner, local, w, h, boxMaxR));
-      const next = boxRadiiAfterDrag(d.startRadii, d.corner, rounded, d.solo);
-      setDragValue(rounded);
-      setLiveCornerRadiusPreview({
-        nodeId,
-        display: cornerRadiusDisplayFromRadii(next, !d.solo && d.linked),
-      });
-      preview(next);
+      applyBoxDragLocal(d, local, { preview: true });
     };
 
     const onUp = (e: PointerEvent) => {
@@ -636,31 +690,10 @@ function CornerRadiusHandlesOverlay({
       const sc = toScene(e.clientX, e.clientY);
       const local = scenePointToLocal(sc.x, sc.y, box, angle);
       if (d.mode === 'path') {
-        const rounded = Math.round(radiusAlongPathSite(d.site, local, boxMaxR));
-        const next = pathVerticesAfterDrag(d.startVertices, d.sharpIndex, rounded, d.solo);
-        const u = next[0] ?? 0;
-        patchNodeCornerRadii({
-          dispatch,
-          nodeId,
-          node,
-          radii: uniformCornerRadii(u),
-          linked: !d.solo && d.linked,
-          vertices: next,
-          skipHistory: false,
-        });
+        applyPathDragLocal(d, local, { preview: false });
         return;
       }
-      const corner = RADIUS_CORNERS.find((c) => c.key === d.corner);
-      if (!corner) return;
-      const rounded = Math.round(radiusAlongBoxCorner(corner, local, w, h, boxMaxR));
-      patchNodeCornerRadii({
-        dispatch,
-        nodeId,
-        node,
-        radii: boxRadiiAfterDrag(d.startRadii, d.corner, rounded, d.solo),
-        linked: !d.solo && d.linked,
-        skipHistory: false,
-      });
+      applyBoxDragLocal(d, local, { preview: false });
     };
 
     const onKey = (e: KeyboardEvent) => {

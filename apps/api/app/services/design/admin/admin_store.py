@@ -668,6 +668,18 @@ def _normalize_action_contract_item(raw: Any) -> dict[str, Any] | None:
     return out
 
 
+def _ingest_contract_map(src: Any) -> dict[str, Any]:
+    """Normalize a phases/kinds dict of action-contract items."""
+    out: dict[str, Any] = {}
+    if not isinstance(src, dict):
+        return out
+    for k, v in src.items():
+        item = _normalize_action_contract_item(v)
+        if item:
+            out[str(k)] = item
+    return out
+
+
 def get_agent_flow_action_contracts() -> dict[str, Any]:
     """Phase/kind action contracts for flow designer (not edge-condition dict)."""
     raw = _global_rule_value(_AGENT_FLOW_ACTION_CONTRACTS_KEY)
@@ -677,34 +689,18 @@ def get_agent_flow_action_contracts() -> dict[str, Any]:
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, dict):
-                src_phases = parsed.get("phases")
-                src_kinds = parsed.get("kinds")
-                if isinstance(src_phases, dict):
-                    for k, v in src_phases.items():
-                        item = _normalize_action_contract_item(v)
-                        if item:
-                            phases[str(k)] = item
-                if isinstance(src_kinds, dict):
-                    for k, v in src_kinds.items():
-                        item = _normalize_action_contract_item(v)
-                        if item:
-                            kinds[str(k)] = item
+                phases = _ingest_contract_map(parsed.get("phases"))
+                kinds = _ingest_contract_map(parsed.get("kinds"))
         except Exception:
             _log.exception("parse agent flow action contracts failed")
     if not phases and not kinds:
         seeded = _load_default_action_contracts()
-        src_phases = seeded.get("phases") if isinstance(seeded, dict) else {}
-        src_kinds = seeded.get("kinds") if isinstance(seeded, dict) else {}
-        if isinstance(src_phases, dict):
-            for k, v in src_phases.items():
-                item = _normalize_action_contract_item(v)
-                if item:
-                    phases[str(k)] = item
-        if isinstance(src_kinds, dict):
-            for k, v in src_kinds.items():
-                item = _normalize_action_contract_item(v)
-                if item:
-                    kinds[str(k)] = item
+        phases = _ingest_contract_map(
+            seeded.get("phases") if isinstance(seeded, dict) else {}
+        )
+        kinds = _ingest_contract_map(
+            seeded.get("kinds") if isinstance(seeded, dict) else {}
+        )
     return {"phases": phases, "kinds": kinds}
 
 
@@ -3538,7 +3534,7 @@ def suggest_skill_optimize(skill_id: int) -> dict[str, Any]:
             patch["defaultModel"] = "doubao"
             reasons.append("prefer cheaper model when cost is high")
         if "all" in str(pub["scenes"]).split(","):
-            patch["scenes"] = str(pub["category"] or "website")
+            patch["scenes"] = str(pub["category"] or "")
             reasons.append("narrow scenes away from all")
 
     if not pub["enabled"]:

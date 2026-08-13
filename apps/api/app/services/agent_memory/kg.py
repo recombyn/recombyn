@@ -160,7 +160,7 @@ def extract_factual_triples_from_episode(
     """Episode facts only — no style/mood vocab. Semantic tags come from skill LLM."""
     if (outcome or "").strip().lower() not in ("success", "partial", "ok", ""):
         return []
-    sc = (scene or "").strip().lower() or "website"
+    sc = (scene or "").strip().lower() or ""
     goal_t = (goal or "").strip()
     summary_t = (summary or "").strip()
     triples: list[tuple[str, str, str]] = []
@@ -248,7 +248,7 @@ def _parse_triples_json(
         items = raw.get("triples") or raw.get("items") or raw.get("edges") or []
     elif isinstance(raw, list):
         items = raw
-    sc = (scene or "").strip().lower() or "website"
+    sc = (scene or "").strip().lower() or ""
     out: list[tuple[str, str, str]] = []
     for it in items:
         if not isinstance(it, dict):
@@ -309,7 +309,7 @@ async def extract_triples_via_skill(
         ops_raw = "[]"
     pred_hint = "|".join(sorted(allowed))
     user = (
-        f"SCENE: {(scene or '').strip() or 'website'}\n\n"
+        f"SCENE: {(scene or '').strip() or ""}\n\n"
         f"USER_GOAL:\n{(goal or '')[:2000]}\n\n"
         f"SUMMARY:\n{(summary or '')[:2000]}\n\n"
         f"OPS:\n{ops_raw}\n\n"

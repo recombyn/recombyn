@@ -215,10 +215,13 @@ def render_prompt_body(
 
 
 def _csv_has(csv: str, token: str) -> bool:
+    """True only when csv lists token, or explicitly lists ``all``. Empty csv → False."""
     parts = {p.strip().lower() for p in str(csv or "").split(",") if p.strip()}
-    if not parts or "all" in parts:
+    if not parts:
+        return False
+    if "all" in parts:
         return True
-    return token.strip().lower() in parts
+    return bool(token) and token.strip().lower() in parts
 
 
 def _pack_kind_from_node(node: dict[str, Any]) -> str:
@@ -248,7 +251,7 @@ def _scenes_from_node(node: dict[str, Any], kind: str) -> str:
     raw = str(inj.get("scenes") or node.get("scenes") or "").strip()
     if raw:
         return raw
-    return kind or "all"
+    return kind or ""
 
 
 def list_prompt_nodes_from_flow(*, graph: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -275,12 +278,12 @@ def list_prompt_nodes_from_flow(*, graph: dict[str, Any] | None = None) -> list[
                     when = str(
                         raw_pack.get("whenToUse") or raw_pack.get("when_to_use") or ""
                     ).strip()
-                    scenes = str(raw_pack.get("scenes") or "all").strip() or "all"
+                    scenes = str(raw_pack.get("scenes") or "").strip() or ""
                 else:
                     body = str(raw_pack or "").strip()
                     title = KIND_LABELS.get(k, k)
                     when = ""
-                    scenes = "all"
+                    scenes = ""
                 if not body:
                     continue
                 out.append(
@@ -460,7 +463,7 @@ def _pub(r: Any) -> dict[str, Any]:
         "title": str(_get("title") or ""),
         "body": str(_get("body") or ""),
         "whenToUse": str(_get("when_to_use") or ""),
-        "scenes": str(_get("scenes") or "all"),
+        "scenes": str(_get("scenes") or ""),
         "usedBy": used_by,
         "sortOrder": int(_get("sort_order") or 0),
         "enabled": bool(int(_get("enabled") or 0)),
@@ -479,7 +482,7 @@ def seed_prompt_overlay_nodes(*, x0: float = 2280, y0: float = 80, dy: float = 1
             continue
         title = str(item.get("title") or KIND_LABELS.get(kind, kind))
         when = str(item.get("when_to_use") or "")
-        scenes = str(item.get("scenes") or "all")
+        scenes = str(item.get("scenes") or "")
         body = str(item.get("body") or "")
         out.append(
             {
@@ -514,7 +517,7 @@ def seed_prompt_bank_node(*, x: float = 2280, y: float = 400) -> dict[str, Any]:
         packs[kind] = {
             "title": str(item.get("title") or KIND_LABELS.get(kind, kind)),
             "whenToUse": str(item.get("when_to_use") or ""),
-            "scenes": str(item.get("scenes") or "all"),
+            "scenes": str(item.get("scenes") or ""),
             "body": str(item.get("body") or ""),
         }
     return {
@@ -560,7 +563,7 @@ def _prune_prompt_packs_to_seed(session: Session, *, now: float) -> None:
                     title=seed_title,
                     body=str(item.get("body") or ""),
                     when_to_use=str(item.get("when_to_use") or ""),
-                    scenes=str(item.get("scenes") or "all"),
+                    scenes=str(item.get("scenes") or ""),
                     sort_order=int(item.get("sort_order") or 0),
                     enabled=1,
                     created_at=t,
@@ -613,7 +616,7 @@ def _sync_system_prompts_into_packs(session: Session, *, now: float) -> None:
                 title=title,
                 body=body,
                 when_to_use=when,
-                scenes="all",
+                scenes="",
                 sort_order=sort_order,
                 enabled=enabled,
                 created_at=now,
@@ -625,6 +628,44 @@ def _sync_system_prompts_into_packs(session: Session, *, now: float) -> None:
 
 def _norm_pack_text(value: str) -> str:
     return str(value or "").replace("\r\n", "\n").strip()
+
+
+def _apply_seed_fields_to_row(row: Any, seed_item: dict[str, Any], *, kind: str, now: float) -> bool:
+    """Sync pack row fields from seed; return True when anything changed."""
+    changed = False
+    want_type = normalize_pack_type(seed_item.get("type"), kind=kind)
+    if str(row.pack_type or "").strip().lower() != want_type:
+        row.pack_type = want_type
+        changed = True
+    want_title = (
+        str(seed_item.get("title") or KIND_LABELS.get(kind, kind)).strip() or kind
+    )
+    if str(row.title or "").strip() != want_title:
+        row.title = want_title
+        changed = True
+    want_when = str(seed_item.get("when_to_use") or "")
+    if _norm_pack_text(row.when_to_use or "") != _norm_pack_text(want_when):
+        row.when_to_use = want_when
+        changed = True
+    want_scenes = str(seed_item.get("scenes") or "") or ""
+    if str(row.scenes or "").strip() != want_scenes:
+        row.scenes = want_scenes
+        changed = True
+    want_used = used_by_csv(seed_item.get("usedBy") or seed_item.get("used_by"))
+    if str(row.used_by or "").strip() != want_used:
+        row.used_by = want_used
+        changed = True
+    want_sort = int(seed_item.get("sort_order") or 0)
+    if int(row.sort_order or 0) != want_sort:
+        row.sort_order = want_sort
+        changed = True
+    seed_body = str(seed_item.get("body") or "")
+    if _norm_pack_text(row.body or "") != _norm_pack_text(seed_body):
+        row.body = seed_body
+        changed = True
+    if changed:
+        row.updated_at = now
+    return changed
 
 
 def ensure_design_prompt_packs() -> None:
@@ -662,7 +703,7 @@ def ensure_design_prompt_packs() -> None:
                         title=title,
                         body=str(item.get("body") or ""),
                         when_to_use=str(item.get("when_to_use") or ""),
-                        scenes=str(item.get("scenes") or "all"),
+                        scenes=str(item.get("scenes") or ""),
                         used_by=used_by,
                         sort_order=int(item.get("sort_order") or 0),
                         enabled=1,
@@ -677,42 +718,7 @@ def ensure_design_prompt_packs() -> None:
                 seed_item = _SEED_BY_KIND.get(kind)
                 if not seed_item:
                     continue
-                changed = False
-                want_type = normalize_pack_type(seed_item.get("type"), kind=kind)
-                if str(row.pack_type or "").strip().lower() != want_type:
-                    row.pack_type = want_type
-                    changed = True
-                want_title = (
-                    str(seed_item.get("title") or KIND_LABELS.get(kind, kind)).strip()
-                    or kind
-                )
-                if str(row.title or "").strip() != want_title:
-                    row.title = want_title
-                    changed = True
-                want_when = str(seed_item.get("when_to_use") or "")
-                if _norm_pack_text(row.when_to_use or "") != _norm_pack_text(want_when):
-                    row.when_to_use = want_when
-                    changed = True
-                want_scenes = str(seed_item.get("scenes") or "all") or "all"
-                if str(row.scenes or "").strip() != want_scenes:
-                    row.scenes = want_scenes
-                    changed = True
-                want_used = used_by_csv(
-                    seed_item.get("usedBy") or seed_item.get("used_by")
-                )
-                if str(row.used_by or "").strip() != want_used:
-                    row.used_by = want_used
-                    changed = True
-                want_sort = int(seed_item.get("sort_order") or 0)
-                if int(row.sort_order or 0) != want_sort:
-                    row.sort_order = want_sort
-                    changed = True
-                seed_body = str(seed_item.get("body") or "")
-                if _norm_pack_text(row.body or "") != _norm_pack_text(seed_body):
-                    row.body = seed_body
-                    changed = True
-                if changed:
-                    row.updated_at = now
+                if _apply_seed_fields_to_row(row, seed_item, kind=kind, now=now):
                     session.add(row)
             session.commit()
         _PACKS_READY = True

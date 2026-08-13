@@ -1,8 +1,8 @@
 # Self-hosting Recombyn
 
-Run the full product on your own machine or server with Docker Compose (or local npm + SQLite).
+You can run the full product on your own machine or server: web canvas, Design Agent, API, collab, and a database.
 
-Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite) / **Cloud** (hosted API).
+Docker Compose is the default (**MySQL** + Redis + web + API + **Yjs**). Local npm + empty `DATABASE_URL` uses **SQLite**. Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite) / **Cloud** (same API as the browser).
 
 ## What you get
 
@@ -196,7 +196,7 @@ LangGraph checkpoints: [postgres-switch.md](./postgres-switch.md#langgraph-check
 
 ## Agent content: skills & prompt packs
 
-**One line:** Prompt packs = engine **protocol**; Skills = job **playbooks**; AgentProfile = **topology + subagents**. Same rule in one place — packs **route**, skills **teach**, Profile **wires**.
+Prompt packs are the engine **protocol**. Skills are job **playbooks**. AgentProfile YAML wires stages and sub-agents. Packs **route**, skills **teach**, Profile **wires**.
 
 LC/LG call chain: [Architecture · Design Agent](#design-agent--call-chain) above.  
 Profile YAML: [agent-profile.md](./agent-profile.md).
@@ -298,7 +298,7 @@ When SES is unset, email login prints the OTP to API logs — **do not enable th
 Dev without compose: set `AUTH_CONSOLE_LOGIN_CODE=true` in `apps/api/.env`.  
 Configure SES (`TENCENT_SECRET_*`, `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, …) for real email. Google OAuth is optional (`GOOGLE_CLIENT_ID`).
 
-Bring your own LLM keys (DeepSeek / Doubao / OpenRouter / …). Without keys, Agent features will not call models.
+Bring your own LLM keys. Without keys, Agent features will not call models.
 
 ### Credits & membership (self-host)
 
@@ -389,6 +389,42 @@ Do this **before** exposing port 3000 / 8000 to the internet:
 11. Set `AUTH_CONSOLE_LOGIN_CODE=false` (or unset) once SES/Google auth is configured — never leave log OTPs on a public host.
 
 API startup logs **warnings** if admin password, collab secret, default MySQL password, card salt, or BYOK key look like local defaults.
+
+## Schema & deploy (Alembic)
+
+**Code image ≠ database.** Replacing the API container only updates Python; MySQL schema lives in the `mysql_data` volume and must be migrated.
+
+| Piece | Where |
+|-------|--------|
+| Models | `apps/api/app/models.py` — long text must use `sa_column=Column(Text)` (bare `str` → MySQL `VARCHAR(255)`) |
+| Migrations | `apps/api/app/alembic/versions/*.py` (SQLAlchemy `op.execute` / `ALTER`) |
+| Apply | API container **entrypoint** runs `alembic upgrade head` before uvicorn; startup also calls `init_schema()` |
+
+### One-shot update (compose / GHCR)
+
+```bash
+# 1) Pull (or build) new images — do not wipe mysql_data
+export RECOMBYN_TAG=sha-xxxxxxx   # or vX.Y.Z
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+
+# 2) Confirm migrate logged on api start
+docker compose logs api --tail=80 | grep -E 'entrypoint|alembic|migrations'
+
+# 3) Health
+curl -fsS http://127.0.0.1:8000/api/v1/health || curl -fsS http://127.0.0.1:8000/docs >/dev/null
+```
+
+If migrate fails, the API process **exits** (do not ignore). Fix the migration / column types, ship a new image, restart — do not hand-patch production as the long-term path.
+
+### New column / type change checklist
+
+1. Edit `models.py` with the real SQL type (`Text` / `LONGTEXT`, not bare `str` for long JSON).
+2. Add Alembic revision under `app/alembic/versions/` (keep `revision` id ≤ 32 chars until `alembic_version.version_num` is widened).
+3. Local: `cd apps/api && alembic upgrade head` (or restart `npm run dev:api`).
+4. CI / merge → build image → deploy as above.
+
+Optional seed after schema is healthy (catalog empty): Admin sync, or run `ensure_llm_catalog_seed(force=True)` once inside the API container — seeds are data, not a substitute for migrations.
 
 ## Rollback (Docker Compose)
 

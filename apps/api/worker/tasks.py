@@ -1,4 +1,4 @@
-"""Celery tasks for async import + design hydrate."""
+"""Celery tasks for async import and design hydrate."""
 
 from __future__ import annotations
 
@@ -212,7 +212,7 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
     retry_kwargs={"max_retries": 2},
 )
 def run_design_export_job(self, job_id: str) -> dict:
-    """Rasterize project artboards to PNG/PDF (ADR 0005 export vertical)."""
+    """Rasterize project artboards to PNG (ADR 0005 export vertical)."""
     from app.core.metrics import observe_job
     from app.services.design.export_render import render_and_store_export
     from app.services.projects import get_project

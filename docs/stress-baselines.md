@@ -1,6 +1,6 @@
 # Stress & load baselines
 
-Phase 5 living notes. Tools already exist; this doc records **how to capture a baseline** and where artifacts land. Do not invent a second harness.
+How to capture a performance baseline (canvas, API, collab, Agent). Tools already exist — don’t invent a second harness.
 
 ## Matrix
 

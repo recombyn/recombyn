@@ -1,7 +1,6 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# Faster apt in CN. poppler: pdf2image | libreoffice: docx→pdf | libgl: opencv
 RUN set -eux; \
     . /etc/os-release; \
     printf 'deb http://mirrors.aliyun.com/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list; \
@@ -10,15 +9,12 @@ RUN set -eux; \
     rm -f /etc/apt/sources.list.d/*; \
     apt-get update; \
     apt-get install -y --no-install-recommends -o Acquire::Retries=5 --fix-missing \
-      libreoffice-writer \
-      poppler-utils \
       libgl1 \
       libglib2.0-0; \
     rm -rf /var/lib/apt/lists/*
 
 COPY packages/scene-builder-py ./packages/scene-builder-py
 COPY apps/api ./apps/api
-# Product skills ship under apps/api/seeds/design_skills; private packs mount at /app/plugins/skills.
 
 ARG INSTALL_OCR=false
 ARG INSTALL_AV=false
@@ -38,8 +34,11 @@ RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --trust
 
 WORKDIR /app/apps/api
 ENV PYTHONUNBUFFERED=1 \
-    LIBREOFFICE_PATH=/usr/bin/soffice \
     USE_VISION=true
 
+COPY deploy/docker/api-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 8000
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

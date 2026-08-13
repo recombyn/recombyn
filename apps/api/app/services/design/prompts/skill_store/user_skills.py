@@ -77,7 +77,7 @@ def _picker_card(row: dict[str, Any], *, user_id: str) -> dict[str, Any]:
     }
 
 def list_skills_for_picker(
-    *, user_id: str, scene: str = "website"
+    *, user_id: str, scene: str = ""
 ) -> list[dict[str, Any]]:
     """Slim catalog for `/` picker + Skills tab (bodies omitted)."""
     uid = str(user_id or "").strip()
@@ -87,7 +87,7 @@ def list_skills_for_picker(
     return [_picker_card(r, user_id=uid) for r in rows]
 
 def list_skills_for_manage(
-    *, user_id: str, scene: str = "website"
+    *, user_id: str, scene: str = ""
 ) -> list[dict[str, Any]]:
     """Toolbox list: mine (all) + official; includes user-disabled with enabled=false."""
     uid = str(user_id or "").strip()
@@ -206,7 +206,7 @@ def resolve_accessible_skill_keys(
     *,
     user_id: str,
     refs: list[Any] | None,
-    scene: str = "website",
+    scene: str = "",
     max_n: int = 8,
 ) -> list[str]:
     """Map chip refs (skillKey / id / qualified) → storage keys visible to user."""

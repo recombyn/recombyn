@@ -23,41 +23,42 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** is a **canvas editor + AI Design Agent**.  
-Design on an infinite canvas; the Design Agent (LangGraph) in the side chat plans and applies canvas ops — frames, layers, shapes, text, and layout.
+**Recombyn** is an **AI-native infinite vector canvas**. From web canvas to desktop app, Design Agent, backend, live collab, private deploy, and automated tests — a commercial-grade full-loop product.
 
-Self-host in minutes with Docker Compose (default **MySQL** + Redis + web + API + **Yjs collab**). Local dev can use **SQLite** (empty `DATABASE_URL`), or **PostgreSQL** — see [docs/postgres-switch.md](docs/postgres-switch.md).
+Built-in Design Agent (LangGraph): natural language creates layers, draws shapes, restyles, and typesets. Ships with Skills out of the box; you can also add custom Skills / AgentProfile (YAML) / prompt packs for posters, dashboards, landing pages, and more — then keep editing at vector precision.
+
+You can self-host in a few minutes with Docker Compose (default **MySQL** + Redis + web + API + **Yjs collab**). For local dev, leave `DATABASE_URL` empty for **SQLite**, or switch to **PostgreSQL** — see [docs/postgres-switch.md](docs/postgres-switch.md).
 
 ---
 
 ## Star us on GitHub ⭐
 
-Open source takes time. If Recombyn helps your work, please hit **⭐ Star** in the top-right of the GitHub repo — your support is the best fuel for making it better.
+Open source takes time. If Recombyn helps you, please hit **⭐ Star** in the top-right of the GitHub repo.
 
 → [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
 
 ## Canvas
 
-Custom **RCB** (Resume Canvas) infinite editor: `SceneDocument` + CSS camera (~5%–10000%). Committed nodes paint as **per-node SVG hosts**; **Path2D** powers hit-testing and selection/tool overlays. Viewport cull + **LOD** (far AABB proxies; capped full hosts on screen) keeps large docs editable.
+Custom **RCB** infinite canvas: the scene graph is `SceneDocument`, zoom roughly 5%–10000%. Committed nodes paint as per-node **SVG**; **Path2D** handles hit-testing and selection. Far-out geometry uses **LOD**, so large docs stay editable.
 
 Details: [docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md).
 
-**Editing (highlights)**
+You can:
 
-- Frames, shapes, text, images, video, Lottie; pen / pencil (ribbon outline brush), selection & transform  
-- **Boolean ops** (union / subtract / intersect, …)  
-- **Stroke align**: center / **inside** / **outside**  
-- **Outline** (stroke → editable filled path) and path editing  
-- Fills, corner radius, blend modes, opacity, stacking; export & share  
-- **Yjs** live collab (cursors, selection, undo; `apps/collab`)
+- Build frames, shapes, text, images, video, Lottie; draw with pen / pencil (ribbon outline brush); select & transform  
+- Run **boolean ops** (union / subtract / intersect, …)  
+- Set **stroke align**: center / **inside** / **outside**  
+- **Outline** a stroke into an editable filled path, then edit the path  
+- Fill, corner radius, blend modes, opacity, stacking; export & share  
+- Turn on **Yjs** live collab (cursors, selection, undo; `apps/collab`)
 
 ## Design Agent
 
-Streaming chat in the editor creates and edits on the same canvas — landing pages, posters, revisions, skills, and tools.
+A streaming chat agent: you describe the job; it plans, attaches Skills, calls tools, and writes back onto the same canvas — landings, posters, revisions, and more.
 
-### How it’s designed (layers)
+### How it’s layered
 
-The execution kernel is fixed: LangGraph template `canvas_ops_v1`. **Product behavior is configurable** (Profile / prompt packs / Skills / Tools).
+The execution kernel is fixed: LangGraph template `canvas_ops_v1`. Category and behavior come from config (AgentProfile YAML / prompt packs / Skills / Tools) — you don’t have to touch the kernel.
 
 | Layer | Owns | Must not |
 |-------|------|----------|
@@ -69,20 +70,20 @@ The execution kernel is fixed: LangGraph template `canvas_ops_v1`. **Product beh
 
 Typical turn: `intent` → (chat settle / lean `paint` / design `decide`) → `paint` emits `tool_ops` → `observe` → optional **Review** sub-agent → settle. Full graph: **[docs/agent-profile.md](docs/agent-profile.md)**.
 
-### What Skills are
+### Skills
 
-One folder per skill: `apps/api/seeds/design_skills/<key>/` (canonical: `_meta.json` + `SKILL.md`; optional `schema.json`, `assets/`, …).
+One folder per skill: `apps/api/seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`; optional `schema.json`, `assets/`, …).
 
-- **`_meta.json`** — `when_to_use`, triggers, `preferred_tools`, mutex — Decide picks skills from this
+- **`_meta.json`** — when to use, triggers, `preferred_tools`, mutex — Decide picks skills from this  
 - **`SKILL.md`** — how to craft that deliverable (landing, poster, resume, dashboard, motion, …)
 
-The repo ships many skills (not a fixed “5”); add folders to extend.
+The repo already ships many (landing, poster, resume, dashboard, motion, ecommerce…). You can keep adding folders — no fixed cap.
 
-### What Tools are
+### Tools
 
 Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json). Paint emits structured `tool_ops`; the host validates and applies them. Skills may prefer tools; they cannot invent ops outside the registry.
 
-### Configurable agent — which files
+### Files to change when you customize the Agent
 
 | File | Purpose |
 |------|---------|
@@ -105,9 +106,45 @@ Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/s
 2. Fill triggers + `preferred_tools`  
 3. Restart / re-ensure seeds — Decide can attach it
 
-Private packs can also live under [`plugins/skills/`](plugins/skills/) (Compose-mounted). Authoring: [docs/skill-extensions.md](docs/skill-extensions.md).
+Private packs can also live under [`plugins/skills/`](plugins/skills/) (Compose-mounted). See [docs/skill-extensions.md](docs/skill-extensions.md).
 
-Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models / OpenRouter: [docs/self-hosting.md](docs/self-hosting.md).
+Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models: [docs/self-hosting.md](docs/self-hosting.md).
+
+## Plugins & extensions
+
+Two extension surfaces — don’t mix them up:
+
+| Kind | Path | What it extends | Sample |
+|------|------|-----------------|--------|
+| **Skill pack** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent craft (same layout as `seeds/design_skills`) | [`festival_poster`](plugins/skills/festival_poster/) |
+| **Canvas plugin** | [`plugins/canvas/<id>/`](plugins/canvas/) | Editor UI (toolbar buttons today) | [`watermark`](plugins/canvas/watermark/) |
+
+**Skill pack**
+
+1. Drop `_meta.json` + `SKILL.md` under `plugins/skills/<key>/` (optional `handler.py`, `schema.json`, `assets/`).  
+2. Compose already mounts `./plugins/skills` → API; or set `DESIGN_SKILLS_PLUGIN_DIRS`.  
+3. Restart API / wait for hot reload — chat with a trigger (sample: 「生成中秋红色海报」).
+
+Optional: `DESIGN_SKILL_OPS_RUNNER=true` lets `handler.py` emit `tool_ops` before LLM paint. Details: [docs/skill-extensions.md](docs/skill-extensions.md).
+
+**Canvas plugin**
+
+1. Add `manifest.json` + `index.ts` under `plugins/canvas/<id>/`.  
+2. Register it in `ensureCanvasPlugins()` (`apps/web/src/plugins/canvas/host.ts`).  
+3. Rebuild / refresh the web app.
+
+Details: [docs/canvas-plugins.md](docs/canvas-plugins.md).
+
+**Packaged install (`.recombyn-plugin`)**
+
+```bash
+node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
+# → dist/plugins/<id>-<version>.recombyn-plugin
+# Upload via Skills library, or POST /api/v1/design/plugins/install
+# Disk install needs DESIGN_PLUGIN_DISK_INSTALL=true
+```
+
+→ [docs/plugin-packs.md](docs/plugin-packs.md) · [plugins/skills/README.md](plugins/skills/README.md) · [plugins/canvas/README.md](plugins/canvas/README.md)
 
 ## Quick start (self-host)
 
@@ -164,8 +201,9 @@ apps/web/          React canvas + Agent UI + Yjs client
   src-tauri/       Tauri v2 desktop shell (Recombyn)
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket server (y-websocket)
+plugins/           Private extensions (skills + canvas) — Compose-mounted
 packages/          Shared builders & schemas
-docs/              self-hosting, agent-profile, desktop, canvas & web frontend
+docs/              self-hosting, agent-profile, plugins, desktop, canvas
 deploy/            Dockerfiles / Nginx
 e2e/               Playwright
 ```

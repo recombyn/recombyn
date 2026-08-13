@@ -213,8 +213,60 @@ type SvgCanvasProps = {
   viewRect?: { x: number; y: number; width: number; height: number } | null;
 };
 
+/** True when a full-bleed plate still has the legacy agent default #333 stroke. */
+function isLegacyDefaultPlateStroke(attrs: Record<string, unknown> | undefined | null): boolean {
+  if (!attrs) return false;
+  const border = String(attrs['border-color'] || '')
+    .replace(/\s/g, '')
+    .toLowerCase();
+  const bw = Number(attrs['border-width'] ?? 1);
+  const strokeOn = String(attrs['stroke-enabled'] ?? 'true') !== 'false';
+  if (!strokeOn || !(bw > 0)) return false;
+  return border === '#333333' || border === '#333' || border === 'rgb(51,51,51)';
+}
+
+function legacyPlateStrokeHealAttrs(): Record<string, unknown> {
+  return {
+    'stroke-enabled': 'false',
+    'stroke-visible': 'false',
+    'border-width': 0,
+  };
+}
+
+function ctxMenuCanReplace(opts: {
+  readOnly: boolean;
+  document: SceneDocument | null | undefined;
+  ids: string[];
+  ctxNodeId?: string | null;
+}): boolean {
+  if (opts.readOnly) return false;
+  const targetId = opts.ctxNodeId || (opts.ids.length === 1 ? opts.ids[0] : null);
+  if (!targetId) return false;
+  const node = opts.document?.deltaSetLike?.[targetId];
+  if (!node || isGeneratorNode(node)) return false;
+  if (String(node?.attrs?.processStatus || '') === 'running') return false;
+  return node.key === 'image' || isVideoNode(node);
+}
+
+function ctxMenuCanExport(opts: {
+  document: SceneDocument | null | undefined;
+  ids: string[];
+  selectedFrameIds: string[];
+  ctxNodeId?: string | null;
+  ctxFrameId?: string | null;
+  activeFrameId?: string | null;
+}): boolean {
+  const seedNodes = ctxMenuSeedNodeIds(opts.ids, opts.ctxNodeId);
+  const seedFrames = ctxMenuSeedFrameIds(opts.selectedFrameIds, opts.ctxFrameId);
+  const targetIds = resolveSelectionNodeIds(opts.document, seedNodes, seedFrames);
+  if (targetIds.length) {
+    return targetIds.some((id) => isExportableSceneNode(opts.document?.deltaSetLike?.[id]));
+  }
+  return Boolean(seedFrames.length || opts.ctxFrameId || opts.activeFrameId);
+}
+
 /**
- * SVG.js editor shell ? mounts the board and composes feature components.
+ * SVG.js editor shell — mounts the board and composes feature components.
  */
 function SvgCanvas({
   document,
@@ -308,7 +360,10 @@ function SvgCanvas({
   const imageToolPanelKind = useSelector((s: any) => s.editor.imageToolPanel?.kind as string | undefined);
   const shapeStylePanel = useSelector((s: any) => s.editor.shapeStylePanel as null | { kind: string });
   const shapeStylePanelOpen = Boolean(shapeStylePanel);
-  const cropExpandOpen = imageToolPanelKind === 'crop' || imageToolPanelKind === 'expand';
+  const cropExpandOpen =
+    imageToolPanelKind === 'crop' ||
+    imageToolPanelKind === 'expand' ||
+    imageToolPanelKind === 'upscale';
   // Side panels (Eraser / Replace text / …) — hide selection toolbar like Eraser.
   const imageToolSidePanelOpen =
     imageToolPanelKind === 'eraser' ||
@@ -870,29 +925,13 @@ function SvgCanvas({
         const plateFrame = frameForFullBleedPlate(doc, ids[0]);
         if (plateFrame) {
           const plate = doc?.deltaSetLike?.[ids[0]];
-          const border = String(plate?.attrs?.['border-color'] || '')
-            .replace(/\s/g, '')
-            .toLowerCase();
-          const bw = Number(plate?.attrs?.['border-width'] ?? 1);
           // Heal legacy agent plates that used the old default #333 stroke.
-          const strokeOn = String(plate?.attrs?.['stroke-enabled'] ?? 'true') !== 'false';
-          if (
-            plate &&
-            strokeOn &&
-            bw > 0 &&
-            (border === '#333333' || border === '#333' || border === 'rgb(51,51,51)')
-          ) {
+          if (isLegacyDefaultPlateStroke(plate?.attrs)) {
             dispatch(
               patchDocumentNode({
                 nodeId: ids[0],
                 skipHistory: true,
-                patch: {
-                  attrs: {
-                    'stroke-enabled': 'false',
-                    'stroke-visible': 'false',
-                    'border-width': 0,
-                  },
-                },
+                patch: { attrs: legacyPlateStrokeHealAttrs() },
               })
             );
           }
@@ -2237,16 +2276,12 @@ function SvgCanvas({
             ctxMenu?.frameId ||
             activeFrameId
         )}
-        canReplace={(() => {
-          if (readOnly) return false;
-          const targetId =
-            ctxMenu?.nodeId || (ids.length === 1 ? ids[0] : null);
-          if (!targetId) return false;
-          const node = document?.deltaSetLike?.[targetId];
-          if (!node || isGeneratorNode(node)) return false;
-          if (String(node?.attrs?.processStatus || '') === 'running') return false;
-          return node.key === 'image' || isVideoNode(node);
-        })()}
+        canReplace={ctxMenuCanReplace({
+          readOnly,
+          document,
+          ids,
+          ctxNodeId: ctxMenu?.nodeId,
+        })}
         canAddToChat={(() => {
           const targetIds = resolveSelectionNodeIds(
             document,
@@ -2268,17 +2303,14 @@ function SvgCanvas({
         canLayerActions={Boolean(
           ids.length || ctxMenu?.nodeId || ctxMenu?.frameId || selectedFrameIds.length || activeFrameId
         )}
-        canExport={(() => {
-          const seedNodes = ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId);
-          const seedFrames = ctxMenuSeedFrameIds(selectedFrameIds, ctxMenu?.frameId);
-          const targetIds = resolveSelectionNodeIds(document, seedNodes, seedFrames);
-          if (targetIds.length) {
-            // Generators / process shimmer have nothing to export.
-            return targetIds.some((id) => isExportableSceneNode(document?.deltaSetLike?.[id]));
-          }
-          // Frame-only / empty artboard → crop export still makes sense.
-          return Boolean(seedFrames.length || ctxMenu?.frameId || activeFrameId);
-        })()}
+        canExport={ctxMenuCanExport({
+          document,
+          ids,
+          selectedFrameIds,
+          ctxNodeId: ctxMenu?.nodeId,
+          ctxFrameId: ctxMenu?.frameId,
+          activeFrameId,
+        })}
         canToggleHidden={(() => {
           const targetIds = ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId);
           if (!targetIds.length) return false;

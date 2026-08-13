@@ -1,6 +1,6 @@
 # Skill extensions (authoring)
 
-Skill packs teach the Design Agent **how** to do a class of work.
+You can teach the Design Agent a new category of work with a Skill pack — same layout as shipped `apps/api/seeds/design_skills`. Shipped packs are built-in; yours go under `plugins/skills/`.
 
 ## Two roots only
 

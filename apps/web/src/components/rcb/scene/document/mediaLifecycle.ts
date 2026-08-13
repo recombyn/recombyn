@@ -506,7 +506,7 @@ export type ImageProcessKind =
   | 'generate';
 
 /**
- * Blank loading plate for PDF/DOCX import — selectable / transformable while parsing.
+ * Blank loading plate for image import.
  */
 export function spawnImportPlaceholderNode(
   doc: SceneDocument,
@@ -619,6 +619,25 @@ export function spawnImageUploadPlaceholderNode(
   return { document: addNodeToDocument(doc, id, node), id };
 }
 
+/** Process clone on-canvas size — expand may grow; other kinds keep source box. */
+function processCloneSize(
+  src: { width?: number; height?: number },
+  opts: { kind: string; targetWidth?: number; targetHeight?: number }
+): { width: number; height: number } {
+  const fallbackW = Number(src.width) || 100;
+  const fallbackH = Number(src.height) || 100;
+  if (opts.kind !== 'expand') {
+    return {
+      width: Math.max(1, Math.round(fallbackW)),
+      height: Math.max(1, Math.round(fallbackH)),
+    };
+  }
+  return {
+    width: Math.max(1, Math.round(opts.targetWidth ?? fallbackW)),
+    height: Math.max(1, Math.round(opts.targetHeight ?? fallbackH)),
+  };
+}
+
 /** Clone image to the right as a loading process node — original stays untouched. */
 export function spawnImageProcessNode(
   doc: SceneDocument,
@@ -641,15 +660,7 @@ export function spawnImageProcessNode(
   const gap = opts.gap ?? 16;
   // Upscale raises bitmap resolution only — keep on-canvas node size.
   // Expand may grow the plate; other kinds stay source-sized.
-  const resizeNode = opts.kind === 'expand';
-  const width = Math.max(
-    1,
-    Math.round(resizeNode ? (opts.targetWidth ?? src.width ?? 100) : (src.width ?? 100))
-  );
-  const height = Math.max(
-    1,
-    Math.round(resizeNode ? (opts.targetHeight ?? src.height ?? 100) : (src.height ?? 100))
-  );
+  const { width, height } = processCloneSize(src, opts);
   const node = JSON.parse(JSON.stringify(src));
   node.id = id;
   node.x = (Number(src.x) || 0) + (Number(src.width) || width) + gap;

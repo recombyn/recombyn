@@ -1433,8 +1433,7 @@ def _url(key: str | None) -> str | None:
         return text
     if not text:
         return None
-    # Prefer same-origin public cover route. Tencent COS often denies anonymous GET
-    # even when PutObject used ACL=public-read (bucket policy / ACL disabled).
+    # Prefer same-origin public cover for project thumbs.
     if text.startswith("projects/") and "/thumb" in text:
         return f"/api/v1/uploads/files/{text}"
     storage = get_storage()

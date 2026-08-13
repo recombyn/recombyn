@@ -214,6 +214,115 @@ import {
   humanizeDesignError,
 } from '@/components/editor/panels/agent/designAgentEventRouter';
 
+type SetModelFn = (id: string) => void;
+type SetComposerModeFn = (mode: ComposerRunMode) => void;
+type SetInteractionModeFn = (mode: ComposerInteractionMode) => void;
+
+/** Apply Home/draft model pick into dock composer (respects free-plan lock). */
+function applyDraftModelId(opts: {
+  draftModelId: string;
+  canPickModel: boolean;
+  setModel: SetModelFn;
+  setComposerMode: SetComposerModeFn;
+}) {
+  const { draftModelId, canPickModel, setModel, setComposerMode } = opts;
+  if (!canPickModel) {
+    if (planAllowsModelId('free', draftModelId) && isImageKind({ id: draftModelId })) {
+      setModel(cloudImageFallbackId() || 'auto');
+      setComposerMode('image');
+      return;
+    }
+    setModel('auto');
+    setComposerMode('agent');
+    return;
+  }
+  setModel(draftModelId);
+  setComposerMode(isImageKind({ id: draftModelId }) ? 'image' : 'agent');
+}
+
+/** Apply Home/draft interaction mode; fill preferred media model when needed. */
+function applyDraftInteractionMode(opts: {
+  mode: ComposerInteractionMode;
+  draftModelId?: string | null;
+  canPickModel: boolean;
+  planId: string;
+  models: LlmModel[];
+  setModel: SetModelFn;
+  setComposerMode: SetComposerModeFn;
+  setInteractionMode: SetInteractionModeFn;
+}) {
+  const {
+    mode,
+    draftModelId,
+    canPickModel,
+    planId,
+    models,
+    setModel,
+    setComposerMode,
+    setInteractionMode,
+  } = opts;
+  const planKey = canPickModel ? planId : 'free';
+  const modelAllowed =
+    Boolean(draftModelId) && planAllowsModelId(planKey, String(draftModelId));
+
+  if (mode === 'image') {
+    setInteractionMode('image');
+    setComposerMode('image');
+    if (!modelAllowed) {
+      setModel(pickPreferredImageModelId(models) || cloudImageFallbackId());
+    }
+    return;
+  }
+  if (mode === 'video') {
+    setInteractionMode('video');
+    setComposerMode('video');
+    if (!modelAllowed) {
+      setModel(pickPreferredVideoModelId(models) || cloudVideoFallbackId());
+    }
+    return;
+  }
+  if (mode === 'ask') {
+    setInteractionMode('ask');
+    setComposerMode('agent');
+    return;
+  }
+  if (mode === 'agent') {
+    setInteractionMode('agent');
+    setComposerMode('agent');
+  }
+}
+
+function applyBootInteractionMode(
+  mode: string | undefined,
+  setInteractionMode: SetInteractionModeFn,
+  setComposerMode: SetComposerModeFn
+) {
+  if (mode === 'agent') {
+    setInteractionMode('agent');
+    setComposerMode('agent');
+    return;
+  }
+  if (mode === 'ask') {
+    setInteractionMode('ask');
+    setComposerMode('agent');
+    return;
+  }
+  if (mode === 'image') {
+    setInteractionMode('image');
+    setComposerMode('image');
+    return;
+  }
+  if (mode === 'video') {
+    setInteractionMode('video');
+    setComposerMode('video');
+  }
+}
+
+function composerModeForModelId(modelId: string): ComposerRunMode {
+  if (isImageKind({ id: modelId })) return 'image';
+  if (isVideoKind({ id: modelId })) return 'video';
+  return 'agent';
+}
 
 type ChatSessionMessage = {
   id: string;
@@ -1032,39 +1141,24 @@ function AgentDock({
       });
     }
     if (draftModelId) {
-      if (!canPickModel) {
-        if (planAllowsModelId('free', draftModelId) && isImageKind({ id: draftModelId })) {
-          setModel(cloudImageFallbackId() || 'auto');
-          setComposerMode('image');
-        } else {
-          setModel('auto');
-          setComposerMode('agent');
-        }
-      } else {
-        setModel(draftModelId);
-        const image = isImageKind({ id: draftModelId });
-        setComposerMode(image ? 'image' : 'agent');
-      }
+      applyDraftModelId({
+        draftModelId,
+        canPickModel,
+        setModel,
+        setComposerMode,
+      });
     }
-    if (draftInteractionMode === 'image') {
-      setInteractionMode('image');
-      setComposerMode('image');
-      // Prefer Home pick; else first available image model (Seedream only on cloud).
-      if (!draftModelId || !planAllowsModelId(canPickModel ? planId : 'free', draftModelId)) {
-        setModel(pickPreferredImageModelId(models) || cloudImageFallbackId());
-      }
-    } else if (draftInteractionMode === 'video') {
-      setInteractionMode('video');
-      setComposerMode('video');
-      if (!draftModelId || !planAllowsModelId(canPickModel ? planId : 'free', draftModelId)) {
-        setModel(pickPreferredVideoModelId(models) || cloudVideoFallbackId());
-      }
-    } else if (draftInteractionMode === 'ask') {
-      setInteractionMode('ask');
-      setComposerMode('agent');
-    } else if (draftInteractionMode === 'agent') {
-      setInteractionMode('agent');
-      setComposerMode('agent');
+    if (draftInteractionMode) {
+      applyDraftInteractionMode({
+        mode: draftInteractionMode,
+        draftModelId,
+        canPickModel,
+        planId,
+        models,
+        setModel,
+        setComposerMode,
+        setInteractionMode,
+      });
     }
     if (draftImageAspectRatio) {
       setImageAspectRatio(draftImageAspectRatio);
@@ -1121,23 +1215,9 @@ function AgentDock({
     }
     if (boot.modelId) {
       setModel(boot.modelId);
-      if (isImageKind({ id: boot.modelId })) setComposerMode('image');
-      else if (isVideoKind({ id: boot.modelId })) setComposerMode('video');
-      else setComposerMode('agent');
+      setComposerMode(composerModeForModelId(boot.modelId));
     }
-    if (boot.interactionMode === 'agent') {
-      setInteractionMode('agent');
-      setComposerMode('agent');
-    } else if (boot.interactionMode === 'ask') {
-      setInteractionMode('ask');
-      setComposerMode('agent');
-    } else if (boot.interactionMode === 'image') {
-      setInteractionMode('image');
-      setComposerMode('image');
-    } else if (boot.interactionMode === 'video') {
-      setInteractionMode('video');
-      setComposerMode('video');
-    }
+    applyBootInteractionMode(boot.interactionMode, setInteractionMode, setComposerMode);
     if (boot.imageAspectRatio) setImageAspectRatio(boot.imageAspectRatio);
     if (boot.scene) {
       setDesignScene(boot.scene);
@@ -2803,15 +2883,19 @@ function AgentDock({
       const lines = draft.split('\n');
       while (lines[0]?.trim().startsWith('@')) lines.shift();
       draft = lines.join('\n').replace(/^\n+/, '');
-      // Prefer marked layout (chip slots) when present — plain content alone loses positions.
-      if (m.contentMarked?.includes('\uFFFC')) {
-        draft = m.contentMarked.replace(/\uFFFC/g, '');
-      }
       const rebuilt: ComposerContext[] = [];
       for (const c of m.contexts) {
         rebuilt.push(rebuildComposerChipFromSaved(document, c, rebuilt));
       }
       setContextChips(rebuilt);
+      // Keep U+FFFC slots so the edit composer matches bubble chip order
+      // (stripping markers used to dump every chip at the end).
+      const inlineLen = rebuilt.filter((c) => c.kind !== 'attachment').length;
+      if (m.contentMarked?.includes('\uFFFC')) {
+        draft = m.contentMarked;
+      } else if (inlineLen > 0) {
+        draft = `${'\uFFFC'.repeat(inlineLen)}${draft}`;
+      }
     } else {
       clearContextChips();
     }
@@ -2836,7 +2920,11 @@ function AgentDock({
       message.warning(t('agent.attachWaitUpload'));
       return;
     }
-    const draft = editDraft.trim();
+    // Prefer live DOM marked→plain (chips may still be mid-text); strip any leftover U+FFFC.
+    const fromDom = String(inputRef.current?.getMarkedText?.() || '')
+      .replace(/\uFFFC/g, '')
+      .trim();
+    const draft = (fromDom || editDraft.replace(/\uFFFC/g, '')).trim();
     if (!draft) return;
     const idx = messages.findIndex((x) => x.id === id);
     if (idx < 0) return;
@@ -3294,7 +3382,10 @@ function AgentDock({
         placeholder={composerPlaceholder}
         flyLandId="agent"
         canSend={
-          !sending && !!editDraft.trim() && !attachmentsUploading && available !== false
+          !sending &&
+          !!editDraft.replace(/\uFFFC/g, '').trim() &&
+          !attachmentsUploading &&
+          available !== false
         }
         sendVariant="circle"
         sendTone="ink"
