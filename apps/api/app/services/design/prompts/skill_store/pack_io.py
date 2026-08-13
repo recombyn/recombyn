@@ -438,7 +438,6 @@ def _skill_item_from_parts(
             "skill_key": storage_key,
             "name": display,
             "prompt_positive": pos,
-            "scenes": str(meta.get("scenes") or "").strip(),
             "preferred_tools": meta.get("preferred_tools") or meta.get("preferredTools") or [],
             "allowed_resources": meta.get("allowed_resources")
             or meta.get("allowedResources"),
@@ -459,7 +458,7 @@ def _skill_item_from_parts(
         "when_to_use": when,
         "prompt_positive": pos,
         "prompt_negative": str(meta.get("prompt_negative") or meta.get("promptNegative") or "").strip(),
-        "scenes": str(meta.get("scenes") or "").strip(),
+        "scenes": str(meta.get("scenes") or "all").strip() or "all",
         "sort_weight": int(meta.get("sort_weight") or meta.get("sortWeight") or 0),
         "preferred_tools": meta.get("preferred_tools") or meta.get("preferredTools") or [],
         "allowed_resources": meta.get("allowed_resources")
