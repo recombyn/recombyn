@@ -22,6 +22,8 @@ export type ArtboardFrame = {
   width: number;
   height: number;
   backgroundColor: string;
+  /** Legacy alias some exporters still read; prefer backgroundColor. */
+  fill?: string;
   layoutMode?: 'auto' | 'manual';
   /** When true, frame cannot be moved or resized. */
   locked?: boolean;

@@ -1,5 +1,6 @@
 import { nanoid } from '@reduxjs/toolkit';
 import { z } from 'zod';
+import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
   addNodeToDocument,
   cloneSceneValue,
@@ -277,7 +278,7 @@ export function pasteClipboardIntoDocument(
       delete frame.processStatus;
       delete frame.processLabel;
       delete frame.processKind;
-      frames.push(frame);
+      frames.push(frame as ArtboardFrame);
       newFrameIds.push(newId);
       order.push(stackFrameKey(newId));
     });

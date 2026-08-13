@@ -1,5 +1,5 @@
 /**
- * Deep canvas stress �?fills gaps beyond generators/ops smoke:
+ * Deep canvas stress — fills gaps beyond generators/ops smoke:
  * upload image, mark-region drag preview, move/resize, export,
  * multi-shape hotkeys, group/lock/hide, align + boolean toolbar.
  */
@@ -65,7 +65,7 @@ async function seedAuthSession(page: Page) {
   await page.evaluate(
     ({ tok, user: u }) => {
       localStorage.setItem('recombine-auth-token-v1', tok);
-      localStorage.setItem('recombyn-auth-v1', JSON.stringify({ user: u }));
+      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
       localStorage.setItem('recombyn-editor-tour-v3', '1');
       localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
     },
@@ -117,7 +117,7 @@ async function openBlankEditor(page: Page) {
     throw new Error('editor behind login');
   }
   await expect(
-    page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first()
+    page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
   ).toBeVisible({ timeout: 45_000 });
   const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
   await expect(stage).toBeVisible({ timeout: 45_000 });
@@ -133,7 +133,7 @@ async function openBlankEditor(page: Page) {
 async function focusStage(page: Page, stage: Locator) {
   const box = await stage.boundingBox();
   if (!box) throw new Error('no stage box');
-  // Prefer interior �?top-left can sit under chrome / home hit targets after zoom.
+  // Prefer interior — top-left can sit under chrome / home hit targets after zoom.
   await page.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.35);
   await sleep(100);
   return box;
@@ -179,7 +179,7 @@ async function uploadPngToCanvas(page: Page) {
     mimeType: 'image/png',
     buffer: buf,
   });
-  // Placeholder then finish upload �?wait for image layer / toolbar.
+  // Placeholder then finish upload — wait for image layer / toolbar.
   await expect(
     page.getByText(/^图片$|^Image$|上传中|Uploading/i).first()
   ).toBeAttached({ timeout: 30_000 });
@@ -246,7 +246,7 @@ test.describe('canvas deep stress', () => {
     await expect(page.getByText(/区域|region/i).first()).toBeAttached({ timeout: 10_000 });
   });
 
-  test('shape selected �?resize via W dock + nudge', async ({ page }) => {
+  test('shape selected → resize via W dock + nudge', async ({ page }) => {
     const stage = await openBlankEditor(page);
     const box = await focusStage(page, stage);
     await openLayers(page);
@@ -314,13 +314,13 @@ test.describe('canvas deep stress', () => {
     await page.keyboard.press('Control+g');
     await sleep(350);
 
-    const alignLeft = page.getByRole('button', { name: /Align left|左对�?i }).first();
+    const alignLeft = page.getByRole('button', { name: /Align left|左对齐/i }).first();
     if (await alignLeft.isVisible({ timeout: 2_500 }).catch(() => false)) {
       await alignLeft.click({ force: true });
       await sleep(150);
     }
 
-    // Lock via keyboard / ctx �?soft.
+    // Lock via keyboard / ctx — soft.
     await page.keyboard.press('Control+Shift+K');
     await sleep(200);
 
@@ -369,7 +369,7 @@ test.describe('canvas deep stress', () => {
 
     await page.keyboard.press('p');
     await sleep(150);
-    // Pen draws by click-anchors, not freehand drag �?place a few points then Enter.
+    // Pen draws by click-anchors, not freehand drag — place a few points then Enter.
     await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.35);
     await sleep(80);
     await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.3);
@@ -434,7 +434,7 @@ test.describe('canvas deep stress', () => {
     await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.2);
     await sleep(200);
 
-    await page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first().click({
+    await page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first().click({
       force: true,
     });
     await expect(page.locator('[data-image-generator]').first()).toBeVisible({ timeout: 12_000 });

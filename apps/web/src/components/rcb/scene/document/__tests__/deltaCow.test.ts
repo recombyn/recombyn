@@ -36,7 +36,7 @@ describe('patchDeltaSetLike Immer COW', () => {
     expect(() => Object.keys(next)).not.toThrow();
     expect(Object.isExtensible(next)).toBe(true);
     expect(next.a.x).toBe(9);
-    next.b = { id: 'b', x: 1, attrs: {} };
+    next.b = { id: 'b', x: 1, attrs: {} } as any;
     expect(next.b.id).toBe('b');
     const flat = flattenDeltaSetLike(next);
     expect(flat.a.x).toBe(9);

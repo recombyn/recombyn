@@ -1,5 +1,5 @@
 /**
- * Home �?editor smoke + network audit: nav tabs, inspiration tabs, request counts / dupes.
+ * Home ↔ editor smoke + network audit: nav tabs, inspiration tabs, request counts / dupes.
  *
  * Requires: web on E2E_BASE_URL, API, token in ../.tmp-token.txt
  */
@@ -146,7 +146,7 @@ function summarize(hits: NetHit[]) {
 
 test.describe('home/editor network + tabs', () => {
   test.skip(!TOKEN, E2E_TOKEN_SKIP_REASON);
-  test('nav tabs, inspiration tabs, editor open �?capture APIs', async ({ page }) => {
+  test('nav tabs, inspiration tabs, editor open — capture APIs', async ({ page }) => {
     fs.mkdirSync(OUT, { recursive: true });
     const hits: NetHit[] = [];
     const phaseRef = { current: 'boot' };
@@ -159,7 +159,7 @@ test.describe('home/editor network + tabs', () => {
     await page.goto('/home');
     await page.waitForURL(/\/home/, { timeout: 60_000 });
     await dismissBlockingDialogs(page);
-    await expect(page.getByRole('heading', { name: /Recent projects|最�?i }).first()).toBeVisible({
+    await expect(page.getByRole('heading', { name: /Recent projects|最近/i }).first()).toBeVisible({
       timeout: 60_000,
     });
     await expect
@@ -220,7 +220,7 @@ test.describe('home/editor network + tabs', () => {
     });
     await page.screenshot({ path: path.join(OUT, '03-nav-projects.png') });
 
-    const skillsNav = await clickRail(/^Skills$|^技�?/i, 'nav_skills');
+    const skillsNav = await clickRail(/^Skills$|^技能$/i, 'nav_skills');
     await sleep(1_000);
     await page.screenshot({ path: path.join(OUT, '04-nav-skills.png') });
 
@@ -229,12 +229,12 @@ test.describe('home/editor network + tabs', () => {
     await page.screenshot({ path: path.join(OUT, '05-nav-me.png') });
 
     const homeNav = await clickRail(/^Home$|^首页$/i, 'nav_home');
-    await expect(page.getByRole('heading', { name: /Recent projects|最�?i }).first()).toBeVisible({
+    await expect(page.getByRole('heading', { name: /Recent projects|最近/i }).first()).toBeVisible({
       timeout: 30_000,
     });
     await page.screenshot({ path: path.join(OUT, '06-nav-home.png') });
 
-    // Re-click Home while already on Home �?should not needlessly refetch if cache warm
+    // Re-click Home while already on Home — should not needlessly refetch if cache warm
     // (product currently refreshes; record it).
     phaseRef.current = 'nav_home_reclick';
     const beforeRe = hits.length;
@@ -309,7 +309,7 @@ test.describe('home/editor network + tabs', () => {
     };
     fs.writeFileSync(path.join(OUT, 'network-report.json'), JSON.stringify(report, null, 2));
 
-    // Soft assertions �?journeys must complete; network is diagnostic.
+    // Soft assertions — journeys must complete; network is diagnostic.
     expect(homeColdMs).toBeLessThan(60_000);
     expect(summary.totalApi).toBeGreaterThan(0);
     // Flag heavy duplicate list fetches on cold home (query + effect).

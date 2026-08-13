@@ -4,7 +4,7 @@ import path from 'node:path';
 /**
  * Resolve auth for browser journeys that need a logged-in session.
  * Prefer `E2E_TOKEN`; fall back to repo-root `.tmp-token.txt` for local runs.
- * Never throw at import time â€?missing token should `test.skip`, not crash CI.
+ * Never throw at import time â€” missing token should `test.skip`, not crash CI.
  */
 export function resolveE2EToken(repoRoot: string): string {
   const fromEnv = (process.env.E2E_TOKEN || '').trim();

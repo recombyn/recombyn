@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Gate A â€?boolean result keeps operand corner radius for paint-time fillet
+ * Gate A â€” boolean result keeps operand corner radius for paint-time fillet
  * (inner L elbow). Loads modules through the Vite dev server (same origin).
  */
 test.describe('boolean radii (vite modules)', () => {

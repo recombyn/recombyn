@@ -142,7 +142,7 @@ function normalizeStops(raw: unknown, fallbackColor: string): FillStop[] {
       return {
         offset: clamp01(Number(rec.offset) || 0),
         color: normalizeColor(String(rec.color || fallbackColor)),
-        opacity: clampPct(rec.opacity ?? 100, 100),
+        opacity: clampPct(Number(rec.opacity ?? 100), 100),
       };
     })
     .sort((a, b) => a.offset - b.offset);
@@ -261,14 +261,14 @@ export function parseFillImageAdjust(raw: unknown): FillImageAdjust {
   if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_FILL_IMAGE_ADJUST };
   const rec = parsed as Record<string, unknown>;
   return {
-    exposure: clampAdjust(rec.exposure),
-    contrast: clampAdjust(rec.contrast),
-    saturation: clampAdjust(rec.saturation),
-    temperature: clampAdjust(rec.temperature),
-    tint: clampAdjust(rec.tint),
-    hue: clampAdjust(rec.hue),
-    highlights: clampAdjust(rec.highlights),
-    shadows: clampAdjust(rec.shadows),
+    exposure: clampAdjust(Number(rec.exposure)),
+    contrast: clampAdjust(Number(rec.contrast)),
+    saturation: clampAdjust(Number(rec.saturation)),
+    temperature: clampAdjust(Number(rec.temperature)),
+    tint: clampAdjust(Number(rec.tint)),
+    hue: clampAdjust(Number(rec.hue)),
+    highlights: clampAdjust(Number(rec.highlights)),
+    shadows: clampAdjust(Number(rec.shadows)),
   };
 }
 
@@ -374,8 +374,8 @@ export function parseFillGradient(
   return {
     type,
     angle: Number.isFinite(Number(rec.angle)) ? Number(rec.angle) : base.angle,
-    cx: clampPct(rec.cx ?? base.cx, base.cx ?? 50),
-    cy: clampPct(rec.cy ?? base.cy, base.cy ?? 50),
+    cx: clampPct(Number(rec.cx ?? base.cx), base.cx ?? 50),
+    cy: clampPct(Number(rec.cy ?? base.cy), base.cy ?? 50),
     r: Math.max(1, Number(rec.r ?? base.r ?? 50) || 50),
     colorStops: normalizeStops(rec.colorStops, fallbackColor),
     ...(type === 'linear' && hasLinearEndpoints(rec)
