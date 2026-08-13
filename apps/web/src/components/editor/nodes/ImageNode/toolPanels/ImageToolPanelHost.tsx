@@ -153,6 +153,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
     if (
       panel.kind === 'crop' ||
       panel.kind === 'expand' ||
+      panel.kind === 'upscale' ||
       panel.kind === 'flipRotate' ||
       panel.kind === 'quickEdit' ||
       panel.kind === 'lottieEdit' ||
@@ -219,6 +220,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
     panel.kind === 'lottieEdit' ||
     panel.kind === 'crop' ||
     panel.kind === 'expand' ||
+    panel.kind === 'upscale' ||
     panel.kind === 'mark'
   ) {
     return null;
@@ -303,172 +305,183 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
   };
 
   let body: ReactNode = null;
-  if (panel.kind === 'opacity') {
-    body = (
-      <OpacityToolPanel
-        opacityPct={opacityPct}
-        onOpacityPctChange={(v) => {
-          setOpacityPct(v);
-          writeOpacity(v, 'preview');
-        }}
-        onReset={() => {
-          setOpacityPct(100);
-          writeOpacity(100, 'preview');
-        }}
-        onCancel={() => {
-          const node = document?.deltaSetLike?.[panel.nodeId];
-          dispatch(
-            patchDocumentNode({
-              nodeId: panel.nodeId,
-              skipHistory: true,
-              patch: {
-                attrs: {
-                  ...(node?.attrs || {}),
-                  opacity: opacityBaselineRef.current,
+  switch (panel.kind) {
+    case 'opacity':
+      body = (
+        <OpacityToolPanel
+          opacityPct={opacityPct}
+          onOpacityPctChange={(v) => {
+            setOpacityPct(v);
+            writeOpacity(v, 'preview');
+          }}
+          onReset={() => {
+            setOpacityPct(100);
+            writeOpacity(100, 'preview');
+          }}
+          onCancel={() => {
+            const node = document?.deltaSetLike?.[panel.nodeId];
+            dispatch(
+              patchDocumentNode({
+                nodeId: panel.nodeId,
+                skipHistory: true,
+                patch: {
+                  attrs: {
+                    ...(node?.attrs || {}),
+                    opacity: opacityBaselineRef.current,
+                  },
                 },
-              },
-            })
-          );
-          close();
-        }}
-        onConfirm={() => {
-          writeOpacity(opacityPct, 'commit');
-          close();
-        }}
-      />
-    );
-  } else if (panel.kind === 'eraser') {
-    body = (
-      <EraserToolPanel
-        brushSize={brushSize}
-        onBrushSizeChange={setBrushSize}
-        hasStrokes={hasStrokes}
-        confirmBusy={eraseBusy}
-        onReset={() => {
-          const shortSide = Math.min(box.width, box.height);
-          setBrushSize(Math.round(Math.min(280, Math.max(64, shortSide * 0.12 || 96))));
-          maskRef.current?.clear();
-          setHasStrokes(false);
-        }}
-        onCancel={close}
-        onConfirm={async () => {
-          if (!hasStrokes || eraseBusy) return;
-          const sourceId = panel.nodeId;
-          const node = document?.deltaSetLike?.[sourceId];
-          const src = String(node?.attrs?.src || '');
-          if (!src) {
-            message.error('未找到图片');
-            return;
-          }
-          const applyErase = maskRef.current?.applyErase;
-          if (!applyErase) return;
-          setEraseBusy(true);
-          try {
-            await confirmEraserAsNewNode({
-              applyErase,
-              src,
-              uploadKey: String(node?.attrs?.uploadKey || node?.attrs?.key || '') || null,
-              sourceId,
-              label: t('editor.imageToolbar.processingEraser'),
-              dispatch,
-              getPendingProcessId: () =>
-                (store.getState() as any).editor?.pendingImageProcessId || null,
-              onSpawned: close,
-            });
-            message.success('擦除完成（透明 PNG）');
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : '';
-            message.error(msg && msg !== '橡皮失败' ? msg : '橡皮失败');
-          } finally {
-            setEraseBusy(false);
-          }
-        }}
-      />
-    );
-  } else if (panel.kind === 'multiAngle') {
-    const node = document?.deltaSetLike?.[panel.nodeId];
-    body = (
-      <MultiAngleToolPanel
-        imageSrc={String(node?.attrs?.src || '') || undefined}
-        onCancel={close}
-        onConfirm={(opts) => {
-          dispatch(
-            startImageProcess({
-              sourceId: panel.nodeId,
-              kind: 'multiAngle',
-              label: '多角度生成中',
-              meta: {
-                rotate: opts.rotate,
-                tilt: opts.tilt,
-                zoom: opts.zoom,
-                mode: opts.mode,
-              },
-            })
-          );
-          close();
-        }}
-      />
-    );
-  } else if (panel.kind === 'adjust') {
-    const node = document?.deltaSetLike?.[panel.nodeId];
-    const saved = parseAdjustValues(
-      adjustBaselineRef.current?.adjustValues ?? node?.attrs?.adjustValues
-    );
-    body = (
-      <AdjustToolPanel
-        key={`${panel.nodeId}-adjust`}
-        initialValues={saved}
-        onChange={(opts) => writeAdjustAttrs(opts, 'preview')}
-        onCancel={() => {
-          const baseline = adjustBaselineRef.current;
-          const n = document?.deltaSetLike?.[panel.nodeId];
-          dispatch(
-            patchDocumentNode({
-              nodeId: panel.nodeId,
-              skipHistory: true,
-              patch: {
-                attrs: {
-                  ...(n?.attrs || {}),
-                  cssFilter: baseline?.cssFilter ?? '',
-                  adjustValues: baseline?.adjustValues ?? null,
+              })
+            );
+            close();
+          }}
+          onConfirm={() => {
+            writeOpacity(opacityPct, 'commit');
+            close();
+          }}
+        />
+      );
+      break;
+    case 'eraser':
+      body = (
+        <EraserToolPanel
+          brushSize={brushSize}
+          onBrushSizeChange={setBrushSize}
+          hasStrokes={hasStrokes}
+          confirmBusy={eraseBusy}
+          onReset={() => {
+            const shortSide = Math.min(box.width, box.height);
+            setBrushSize(Math.round(Math.min(280, Math.max(64, shortSide * 0.12 || 96))));
+            maskRef.current?.clear();
+            setHasStrokes(false);
+          }}
+          onCancel={close}
+          onConfirm={async () => {
+            if (!hasStrokes || eraseBusy) return;
+            const sourceId = panel.nodeId;
+            const node = document?.deltaSetLike?.[sourceId];
+            const src = String(node?.attrs?.src || '');
+            if (!src) {
+              message.error('未找到图片');
+              return;
+            }
+            const applyErase = maskRef.current?.applyErase;
+            if (!applyErase) return;
+            setEraseBusy(true);
+            try {
+              await confirmEraserAsNewNode({
+                applyErase,
+                src,
+                uploadKey: String(node?.attrs?.uploadKey || node?.attrs?.key || '') || null,
+                sourceId,
+                label: t('editor.imageToolbar.processingEraser'),
+                dispatch,
+                getPendingProcessId: () =>
+                  (store.getState() as any).editor?.pendingImageProcessId || null,
+                onSpawned: close,
+              });
+              message.success('擦除完成（透明 PNG）');
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : '';
+              message.error(msg && msg !== '橡皮失败' ? msg : '橡皮失败');
+            } finally {
+              setEraseBusy(false);
+            }
+          }}
+        />
+      );
+      break;
+    case 'multiAngle': {
+      const node = document?.deltaSetLike?.[panel.nodeId];
+      body = (
+        <MultiAngleToolPanel
+          imageSrc={String(node?.attrs?.src || '') || undefined}
+          onCancel={close}
+          onConfirm={(opts) => {
+            dispatch(
+              startImageProcess({
+                sourceId: panel.nodeId,
+                kind: 'multiAngle',
+                label: '多角度生成中',
+                meta: {
+                  rotate: opts.rotate,
+                  tilt: opts.tilt,
+                  zoom: opts.zoom,
+                  mode: opts.mode,
                 },
-              },
-            })
-          );
-          close();
-        }}
-        onConfirm={(opts) => {
-          writeAdjustAttrs(opts, 'commit');
-          close();
-        }}
-      />
-    );
-  } else if (panel.kind === 'replaceText') {
-    const node = document?.deltaSetLike?.[panel.nodeId];
-    const initialOriginal = String(
-      node?.attrs?.letteringText || node?.attrs?.replaceTextOriginal || ''
-    ).trim();
-    body = (
-      <ReplaceTextToolPanel
-        key={`${panel.nodeId}-replaceText`}
-        initialOriginal={initialOriginal}
-        onCancel={close}
-        onConfirm={(opts) => {
-          dispatch(
-            startImageProcess({
-              sourceId: panel.nodeId,
-              kind: 'replaceText',
-              label: t('editor.imageToolbar.processingReplaceText'),
-              meta: {
-                originalText: opts.originalText,
-                newText: opts.newText,
-              },
-            })
-          );
-          close();
-        }}
-      />
-    );
+              })
+            );
+            close();
+          }}
+        />
+      );
+      break;
+    }
+    case 'adjust': {
+      const node = document?.deltaSetLike?.[panel.nodeId];
+      const saved = parseAdjustValues(
+        adjustBaselineRef.current?.adjustValues ?? node?.attrs?.adjustValues
+      );
+      body = (
+        <AdjustToolPanel
+          key={`${panel.nodeId}-adjust`}
+          initialValues={saved}
+          onChange={(opts) => writeAdjustAttrs(opts, 'preview')}
+          onCancel={() => {
+            const baseline = adjustBaselineRef.current;
+            const n = document?.deltaSetLike?.[panel.nodeId];
+            dispatch(
+              patchDocumentNode({
+                nodeId: panel.nodeId,
+                skipHistory: true,
+                patch: {
+                  attrs: {
+                    ...(n?.attrs || {}),
+                    cssFilter: baseline?.cssFilter ?? '',
+                    adjustValues: baseline?.adjustValues ?? null,
+                  },
+                },
+              })
+            );
+            close();
+          }}
+          onConfirm={(opts) => {
+            writeAdjustAttrs(opts, 'commit');
+            close();
+          }}
+        />
+      );
+      break;
+    }
+    case 'replaceText': {
+      const node = document?.deltaSetLike?.[panel.nodeId];
+      const initialOriginal = String(
+        node?.attrs?.letteringText || node?.attrs?.replaceTextOriginal || ''
+      ).trim();
+      body = (
+        <ReplaceTextToolPanel
+          key={`${panel.nodeId}-replaceText`}
+          initialOriginal={initialOriginal}
+          onCancel={close}
+          onConfirm={(opts) => {
+            dispatch(
+              startImageProcess({
+                sourceId: panel.nodeId,
+                kind: 'replaceText',
+                label: t('editor.imageToolbar.processingReplaceText'),
+                meta: {
+                  originalText: opts.originalText,
+                  newText: opts.newText,
+                },
+              })
+            );
+            close();
+          }}
+        />
+      );
+      break;
+    }
+    default:
+      break;
   }
 
   return (

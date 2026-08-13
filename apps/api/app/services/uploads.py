@@ -1,8 +1,4 @@
-"""User file uploads → Tencent COS (S3-compatible) or local object store.
-
-Content checks (ADR 0008): size limits, allowlisted media MIME, magic-byte sniff,
-optional AV hook. Helpers stay in this module (no orphan util file).
-"""
+"""User file uploads → object storage or local disk."""
 
 from __future__ import annotations
 

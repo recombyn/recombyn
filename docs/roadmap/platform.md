@@ -49,7 +49,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 | Capability | Status | Next (Phase 2) |
 |-----------|--------|----------------|
 | 消息队列 / 优先级 / 重试 / DLQ | Hydrate + export jobs / DLQ + admin replay; chat image/video/audio jobs | Priority queues / richer DLQ policy |
-| AI / 导出 / 渲染异步 | Hydrate + artboard PNG/PDF export + chat image/video/audio jobs | — |
+| AI / 导出 / 渲染异步 | Hydrate + artboard PNG export + chat image/video/audio jobs | — |
 | 前端流式进度 | SSE / agent stream; hydrate `activity` + job poll `progress` (incl. video/audio) | Optional SSE for media jobs |
 
 ### 4. 存储分层隔离
@@ -161,8 +161,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 - [x] Compose `obs` profile + DLQ dashboard panels
 - [x] AV prod overlay (`docker-compose.av.yml` + `INSTALL_AV`)
 - [x] Admin Insights hydrate DLQ tab (list / replay / discard)
-- [x] Async artboard export jobs (`POST/GET /design/export/jobs` + `/file`, PNG/PDF with scene text)
-- [x] Editor Export menu: server PDF (poll + download)
+- [x] Async artboard export jobs (`POST/GET /design/export/jobs` + `/file`, PNG with scene text)
 - [x] Export DLQ admin replay (`GET/POST/DELETE /admin/ops/export-dlq`) + depth gauge / Insights tab
 - [x] Chat image gen jobs (`POST/GET /chat/image/jobs`) — editor polls; sync `POST /chat/image` kept for scripts
 - [x] Hydrate job progress on Design Agent SSE (`activity` + `task_id`)

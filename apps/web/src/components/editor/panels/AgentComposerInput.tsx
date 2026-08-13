@@ -31,6 +31,15 @@ function isSkillComposerContext(ctx: { kind?: string; key?: string }): boolean {
   return ctx.kind === 'skill' || Boolean(ctx.key?.startsWith('skill:'));
 }
 
+function contextChipPaddingClass(opts: {
+  thumbUrl?: string | null;
+  onRemove?: (() => void) | null;
+}): string {
+  if (opts.thumbUrl) return 'pl-1 pr-0.5';
+  if (opts.onRemove) return 'pl-1.5 pr-0.5';
+  return 'px-1.5';
+}
+
 /** Read-only / history chip matching the composer pill (optional × when `onRemove`). */
 function ContextChipPill({
   label,
@@ -51,13 +60,14 @@ function ContextChipPill({
     <span
       className={cn(
         CONTEXT_CHIP_PILL_CLASS,
-        thumbUrl ? 'pl-1 pr-0.5' : onRemove ? 'pl-1.5 pr-0.5' : 'px-1.5',
+        contextChipPaddingClass({ thumbUrl, onRemove }),
         className
       )}
     >
       {thumbUrl ? (
         <img src={thumbUrl} alt="" className={CONTEXT_CHIP_THUMB_CLASS} />
-      ) : showIcon ? (
+      ) : null}
+      {!thumbUrl && showIcon ? (
         <span
           className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] bg-[var(--canvas)] text-[var(--muted)] ring-1 ring-[var(--line)]"
           aria-hidden
@@ -709,7 +719,60 @@ function insertChipAtSavedCaret(
   return true;
 }
 
-/** Full rewrite. Chips go at the saved caret (or end), never forced to index 0. */
+function appendComposerChip(
+  el: HTMLElement,
+  ctx: ComposerContext,
+  onRemove: (key: string) => void
+) {
+  el.appendChild(
+    buildChip({
+      kind: 'context',
+      id: ctx.key,
+      label: ctx.label,
+      iconSvg: CONTEXT_ICON,
+      thumbUrl: ctx.thumbUrl || ctx.dataUrl,
+      hideLeadingIcon: isSkillComposerContext(ctx),
+      onRemove: () => onRemove(ctx.key),
+    })
+  );
+}
+
+/**
+ * Rebuild from `contentMarked` (U+FFFC slots) so edit matches the bubble layout.
+ * Leftover chips append at the end.
+ */
+function writeComposerDomFromMarked(
+  el: HTMLElement,
+  nextContexts: ComposerContext[],
+  marked: string,
+  onRemove: (key: string) => void
+) {
+  el.innerHTML = '';
+  let chipIdx = 0;
+  const parts = marked.split('\uFFFC');
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part) el.appendChild(document.createTextNode(part));
+    if (i >= parts.length - 1) continue;
+    const ctx = nextContexts[chipIdx++];
+    if (ctx) appendComposerChip(el, ctx, onRemove);
+  }
+  while (chipIdx < nextContexts.length) {
+    const ctx = nextContexts[chipIdx++];
+    if (ctx) appendComposerChip(el, ctx, onRemove);
+  }
+  const hasChip = nextContexts.length > 0;
+  if (hasChip && !el.lastChild) {
+    el.appendChild(document.createTextNode('\u200b'));
+  }
+  if (document.activeElement === el || hasChip) {
+    el.focus();
+    placeCaretAtEnd(el);
+  }
+}
+
+/** Full rewrite. Chips go at the saved caret (or end), never forced to index 0.
+ *  When `text` includes U+FFFC, treat it as marked layout (bubble → edit). */
 function writeComposerDom(
   el: HTMLElement,
   nextContexts: ComposerContext[],
@@ -720,7 +783,14 @@ function writeComposerDom(
     caret?: 'end' | 'preserve';
   }
 ) {
-  const plain = text || '';
+  const raw = text || '';
+  if (raw.includes('\uFFFC')) {
+    writeComposerDomFromMarked(el, nextContexts, raw, opts.onRemove);
+    opts.savedCaretRef.current = getPlainTextCaretOffset(el);
+    return;
+  }
+
+  const plain = raw;
   const caret = opts.caret ?? 'end';
   let at =
     caret === 'preserve' && opts.savedCaretRef.current != null
@@ -733,17 +803,7 @@ function writeComposerDom(
   el.innerHTML = '';
   if (before) el.appendChild(document.createTextNode(before));
   for (const ctx of nextContexts) {
-    el.appendChild(
-      buildChip({
-        kind: 'context',
-        id: ctx.key,
-        label: ctx.label,
-        iconSvg: CONTEXT_ICON,
-        thumbUrl: ctx.thumbUrl || ctx.dataUrl,
-        hideLeadingIcon: isSkillComposerContext(ctx),
-        onRemove: () => opts.onRemove(ctx.key),
-      })
-    );
+    appendComposerChip(el, ctx, opts.onRemove);
   }
   const hasChip = nextContexts.length > 0;
   el.appendChild(document.createTextNode(after || (hasChip ? '\u200b' : '')));
@@ -1021,6 +1081,12 @@ const AgentComposerInput = forwardRef<
       onRemove: removeContextByKey,
       caret: 'preserve',
     });
+    // Marked draft (U+FFFC) → plain React value after first paint so later syncs
+    // keep mid-text chip order via syncPlainText instead of re-stacking chips at end.
+    if (value.includes('\uFFFC')) {
+      const plain = readPlainText(el);
+      if (plain !== value) onChangeRef.current(plain);
+    }
     // After chips are removed from the DOM — only then can the placeholder show.
     syncDomHasChips();
   }, [contexts, value]);

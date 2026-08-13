@@ -60,6 +60,73 @@ def _ops_patch_too_broad(
         return True, f"too many ops ({len(batch)})"
     return False, ""
 
+def _count_ok_creates(
+    paint_ops: list[dict[str, Any]] | None,
+    op_results: list[dict[str, Any]] | None,
+    failed_ids: set[str],
+) -> int:
+    """Count create_* ops that FE reported ok (by op_id or name)."""
+    if not op_results:
+        return 0
+    ok_creates = 0
+    for op in paint_ops or []:
+        if not isinstance(op, dict):
+            continue
+        name = str(op.get("name") or op.get("op_key") or "").strip()
+        if not name.startswith("create_"):
+            continue
+        oid = str(op.get("op_id") or "")
+        if oid and oid in failed_ids:
+            continue
+        if oid:
+            matched = next(
+                (
+                    r
+                    for r in op_results
+                    if isinstance(r, dict) and str(r.get("op_id") or "") == oid
+                ),
+                None,
+            )
+            if matched is not None and matched.get("ok", True):
+                ok_creates += 1
+            continue
+        if any(
+            isinstance(r, dict)
+            and r.get("ok", True)
+            and str(r.get("name") or "") == name
+            for r in op_results
+        ):
+            ok_creates += 1
+    return ok_creates
+
+
+def _append_empty_board_issues(
+    issues: list[str],
+    *,
+    intent_l: str,
+    clean_nodes: list[dict[str, Any]],
+    clean_frames: list[dict[str, Any]],
+    scene_lag: bool,
+) -> list[str] | None:
+    """Append empty-board issues. Returns a finished list when caller should stop."""
+    if intent_l not in ("edit", "create"):
+        return None
+    if not clean_nodes and not clean_frames:
+        if scene_lag:
+            return []
+        issues.append("canvas empty after apply (no nodes/frames)")
+        return issues
+    if (
+        clean_frames
+        and not clean_nodes
+        and all(bool(f.get("is_empty")) for f in clean_frames)
+    ):
+        if scene_lag:
+            return []
+        issues.append("artboard still empty after apply")
+    return None
+
+
 def _structure_verify_issues(
     *,
     nodes: list[dict[str, Any]],
@@ -87,54 +154,19 @@ def _structure_verify_issues(
         for r in (op_results or [])
         if isinstance(r, dict) and not r.get("ok", True)
     }
-    # Only suppress empty-board when FE posted explicit op_results (create ok).
-    ok_creates = 0
-    if op_results:
-        for op in paint_ops or []:
-            if not isinstance(op, dict):
-                continue
-            name = str(op.get("name") or op.get("op_key") or "").strip()
-            if not name.startswith("create_"):
-                continue
-            oid = str(op.get("op_id") or "")
-            if oid and oid in failed_ids:
-                continue
-            if oid:
-                matched = next(
-                    (
-                        r
-                        for r in op_results
-                        if isinstance(r, dict) and str(r.get("op_id") or "") == oid
-                    ),
-                    None,
-                )
-                if matched is not None and matched.get("ok", True):
-                    ok_creates += 1
-                continue
-            if any(
-                isinstance(r, dict)
-                and r.get("ok", True)
-                and str(r.get("name") or "") == name
-                for r in op_results
-            ):
-                ok_creates += 1
+    ok_creates = _count_ok_creates(paint_ops, op_results, failed_ids)
     # FE said creates applied — empty inventory is lag, not a structural miss.
     scene_lag = ok_creates > 0 and not clean_nodes
 
-    if intent_l in ("edit", "create") and not clean_nodes and not clean_frames:
-        if scene_lag:
-            return []
-        issues.append("canvas empty after apply (no nodes/frames)")
-        return issues
-    if (
-        intent_l in ("edit", "create")
-        and clean_frames
-        and not clean_nodes
-        and all(bool(f.get("is_empty")) for f in clean_frames)
-    ):
-        if scene_lag:
-            return []
-        issues.append("artboard still empty after apply")
+    early = _append_empty_board_issues(
+        issues,
+        intent_l=intent_l,
+        clean_nodes=clean_nodes,
+        clean_frames=clean_frames,
+        scene_lag=scene_lag,
+    )
+    if early is not None:
+        return early
     zero_box = 0
     for n in clean_nodes[:80]:
         try:
@@ -302,7 +334,7 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
             from app.services.design.prompts.skill_store import preferred_tools_allowlist
 
             allow = preferred_tools_allowlist(
-                skill_keys, scene=str(getattr(rt, "scene_key", None) or "website")
+                skill_keys, scene=str(getattr(rt, "scene_key", None) or "")
             )
             if allow:
                 for k in sorted(allow):

@@ -1,6 +1,6 @@
 # Optional Kubernetes deploy (GHCR images)
 
-**Status:** available as a thin starter (ADR 0012). Compose remains the default OSS path.
+You can deploy with these starter manifests (ADR 0012). Docker Compose is still the default self-host path.
 
 Images (from `release-docker.yml` tags):
 

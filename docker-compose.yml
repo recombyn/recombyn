@@ -1,14 +1,4 @@
-# Self-host stack: MySQL + Redis + api + worker + web.
-# Guide: docs/self-hosting.md
-#
-#   cp apps/api/.env.example apps/api/.env   # LLM keys etc.
-#   docker compose up -d --build
-#   docker compose --profile obs up -d          # Prometheus :9090 / Grafana :3001 / Alertmanager :9093
-#   docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build
-#
-# Defaults: MySQL user/password/db = recombyn / recombyn / recombyn
-# Override: MYSQL_PASSWORD=...  DATABASE_URL=mysql://...
-# Local npm/uvicorn without this MySQL → leave DATABASE_URL empty (SQLite).
+# Self-host stack — see docs/self-hosting.md
 
 services:
   mysql:
@@ -35,7 +25,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    # Host-only — do not publish Redis on all interfaces for public hosts.
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -58,7 +47,6 @@ services:
       - api
       - collab
 
-  # Yjs WebSocket rooms — reached via nginx /collab/ (ws or wss after TLS).
   collab:
     build:
       context: .
@@ -68,7 +56,6 @@ services:
       - HOST=0.0.0.0
       - PORT=1234
       - COLLAB_TOKEN_SECRET=${COLLAB_TOKEN_SECRET:-dev-collab-token-secret-change-me}
-    # Not published; web nginx proxies /collab/ → collab:1234
     expose:
       - "1234"
 
@@ -87,28 +74,20 @@ services:
     volumes:
       - ./apps/api/storage/uploads:/app/apps/api/storage/uploads
       - ./apps/api/storage/results:/app/apps/api/storage/results
-      # Private skill packs (Phase A) — drop folders without rebuilding the image
       - ./plugins/skills:/app/plugins/skills
     environment:
-      - LIBREOFFICE_PATH=/usr/bin/soffice
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - USE_VISION=${USE_VISION:-true}
       - IMPORT_DPI=${IMPORT_DPI:-200}
-      # Prefer compose MySQL; host .env DATABASE_URL=localhost will not work inside containers.
       - DATABASE_URL=${DATABASE_URL:-mysql://recombyn:recombyn@mysql:3306/recombyn}
-      # Must match collab service. Public URL is what browsers open (via web nginx).
       - COLLAB_TOKEN_SECRET=${COLLAB_TOKEN_SECRET:-dev-collab-token-secret-change-me}
       - COLLAB_PUBLIC_WS_URL=${COLLAB_PUBLIC_WS_URL:-ws://localhost:3000/collab}
-      # Self-host: print login OTP to API logs when SES is unset (never enable on Cloud).
       - AUTH_CONSOLE_LOGIN_CODE=${AUTH_CONSOLE_LOGIN_CODE:-true}
-      # Self-host default: no platform credit wallet. Set true only if you want SaaS-style billing.
       - WALLET_BILLING_ENABLED=${WALLET_BILLING_ENABLED:-false}
-      # Optional AV: docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build
       - UPLOAD_AV_HOOK_ENABLED=${UPLOAD_AV_HOOK_ENABLED:-false}
       - UPLOAD_AV_COMMAND=${UPLOAD_AV_COMMAND:-}
-      # Optional OTel (pip install -e '.[otel]' in image / sidecar collector)
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-recombyn-api}
@@ -121,8 +100,6 @@ services:
       collab:
         condition: service_started
 
-  # Optional ClamAV — wire the API client with docker-compose.av.yml:
-  #   docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build
   clamav:
     profiles: ["av"]
     image: clamav/clamav:1.4
@@ -194,7 +171,6 @@ services:
       - ./apps/api/storage/uploads:/app/apps/api/storage/uploads
       - ./apps/api/storage/results:/app/apps/api/storage/results
     environment:
-      - LIBREOFFICE_PATH=/usr/bin/soffice
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1

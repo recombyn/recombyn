@@ -15,8 +15,16 @@ import ImageToolPanelShell, {
   PanelSliderRow,
 } from './ImageToolPanelShell';
 
-const scaleIndexToValue = (i: number): AngleCubeScale => (i === 0 ? 1 : i === 2 ? 10 : 5);
-const scaleValueToIndex = (s: AngleCubeScale): number => (s === 1 ? 0 : s === 10 ? 2 : 1);
+const ANGLE_CUBE_SCALES: AngleCubeScale[] = [1, 5, 10];
+
+function scaleIndexToValue(i: number): AngleCubeScale {
+  return ANGLE_CUBE_SCALES[i] ?? 5;
+}
+
+function scaleValueToIndex(s: AngleCubeScale): number {
+  const idx = ANGLE_CUBE_SCALES.indexOf(s);
+  return idx >= 0 ? idx : 1;
+}
 
 const ANGLE_PRESET_KEYS = [
   { key: 'front', rotate: 0, tilt: 0 },

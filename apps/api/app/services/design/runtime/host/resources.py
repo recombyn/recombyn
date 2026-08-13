@@ -31,6 +31,103 @@ def _emit(ev: dict[str, Any]) -> None:
         pass
 
 
+def _inject_skill_details_bundle(
+    rt: Any,
+    st: Any,
+    sb: dict[str, Any],
+    fresh_s: list[str],
+    *,
+    round_i: int,
+) -> None:
+    skill_errs = list(sb.get("errors") or [])
+    if skill_errs:
+        st.push_log(phase="skill_validate", errors=skill_errs[:8])
+    if not sb.get("details"):
+        return
+    details_s = str(sb["details"])
+    rt.pending_skill_details = "SKILL_DETAILS:\n" + details_s
+    for k in fresh_s:
+        if k not in st.skills_loaded:
+            st.skills_loaded.append(k)
+    st.push_log(
+        phase="skill_details",
+        need_skills=list(fresh_s),
+        detail_chars=len(details_s),
+        summary="注入 skill：" + "、".join(fresh_s),
+    )
+    skill_csv = (", ".join(fresh_s))[:200]
+    _emit(
+        {
+            "type": "activity",
+            "id": f"skill-details-{round_i}",
+            "kind": "explored",
+            "status": "done",
+            "summary": skill_csv,
+            "detail": skill_csv,
+            "index": round_i,
+        }
+    )
+    # Telemetry: craft skills are playbooks (not paint_ops). Emit start/done
+    # so SSE consumers / stress can see skill_expect keys, not only react.
+    for k in fresh_s:
+        key = str(k or "").strip()
+        if not key:
+            continue
+        _emit(
+            {
+                "type": "skill_start",
+                "index": round_i,
+                "skill_id": None,
+                "skill_key": key,
+                "skill_name": key,
+                "category": "design",
+                "trace_id": st.trace_id,
+            }
+        )
+        _emit(
+            {
+                "type": "skill_done",
+                "index": round_i,
+                "skill_key": key,
+                "skill_name": key,
+                "tokens": 0,
+            }
+        )
+
+
+def _inject_tool_details_bundle(
+    rt: Any,
+    st: Any,
+    tb: dict[str, Any],
+    fresh_tools: list[str],
+    *,
+    round_i: int,
+) -> None:
+    if not tb.get("details"):
+        return
+    details_t = str(tb["details"])
+    rt.pending_tool_details = "TOOL_DETAILS:\n" + details_t
+    for k in fresh_tools:
+        if k not in st.tools_loaded:
+            st.tools_loaded.append(k)
+    st.push_log(
+        phase="tool_details",
+        need_tools=list(fresh_tools),
+        detail_chars=len(details_t),
+        summary="注入工具详情：" + "、".join(fresh_tools),
+    )
+    _emit(
+        {
+            "type": "activity",
+            "id": f"tool-details-{round_i}",
+            "kind": "explored",
+            "status": "done",
+            "summary": (", ".join(fresh_tools))[:200],
+            "index": round_i,
+        }
+    )
+
+
 def _canvas_is_empty(rt: Any) -> bool:
     nodes = [n for n in (rt.scene_nodes or []) if isinstance(n, dict) and n.get("id")]
     if nodes:
@@ -318,7 +415,7 @@ async def load_deferred_resources(
     # Auto-merge enabled skills whose triggers match (empty_canvas / intent / …).
     # Domain playbooks live in skills + prompts.
     for k in resolve_triggered_skill_keys(
-        scene=rt.scene_key or "website",
+        scene=rt.scene_key or "",
         empty_canvas=_canvas_is_empty(rt),
         has_images=bool(rt.images),
         intent=intent_l,
@@ -379,7 +476,7 @@ async def load_deferred_resources(
     bundles = await _gather_deferred_resource_details(
         fresh_skills=fresh_s if load_skills else [],
         fresh_tools=fresh_tools if need_tools else [],
-        scene=rt.scene_key or "website",
+        scene=rt.scene_key or "",
         rules=rt.rules,
         skill_version_pins=turn.get("skill_version_pins") or None,
         skill_input_args=turn.get("skill_input_args") or None,
@@ -387,82 +484,10 @@ async def load_deferred_resources(
     )
     sb = bundles.get("skills") if load_skills else None
     if isinstance(sb, dict):
-        skill_errs = list(sb.get("errors") or [])
-        if skill_errs:
-            st.push_log(phase="skill_validate", errors=skill_errs[:8])
-        if sb.get("details"):
-            details_s = str(sb["details"])
-            rt.pending_skill_details = "SKILL_DETAILS:\n" + details_s
-            for k in fresh_s:
-                if k not in st.skills_loaded:
-                    st.skills_loaded.append(k)
-            st.push_log(
-                phase="skill_details",
-                need_skills=list(fresh_s),
-                detail_chars=len(details_s),
-                summary="注入 skill：" + "、".join(fresh_s),
-            )
-            skill_csv = (", ".join(fresh_s))[:200]
-            _emit(
-                {
-                    "type": "activity",
-                    "id": f"skill-details-{round_i}",
-                    "kind": "explored",
-                    "status": "done",
-                    "summary": skill_csv,
-                    "detail": skill_csv,
-                    "index": round_i,
-                }
-            )
-            # Telemetry: craft skills are playbooks (not paint_ops). Emit start/done
-            # so SSE consumers / stress can see skill_expect keys, not only react.
-            for k in fresh_s:
-                key = str(k or "").strip()
-                if not key:
-                    continue
-                _emit(
-                    {
-                        "type": "skill_start",
-                        "index": round_i,
-                        "skill_id": None,
-                        "skill_key": key,
-                        "skill_name": key,
-                        "category": "design",
-                        "trace_id": st.trace_id,
-                    }
-                )
-                _emit(
-                    {
-                        "type": "skill_done",
-                        "index": round_i,
-                        "skill_key": key,
-                        "skill_name": key,
-                        "tokens": 0,
-                    }
-                )
+        _inject_skill_details_bundle(rt, st, sb, fresh_s, round_i=round_i)
     tb = bundles.get("tools") if need_tools else None
-    if isinstance(tb, dict) and tb.get("details"):
-        details_t = str(tb["details"])
-        rt.pending_tool_details = "TOOL_DETAILS:\n" + details_t
-        for k in fresh_tools:
-            if k not in st.tools_loaded:
-                st.tools_loaded.append(k)
-        st.push_log(
-            phase="tool_details",
-            need_tools=list(fresh_tools),
-            detail_chars=len(details_t),
-            summary="注入工具详情：" + "、".join(fresh_tools),
-        )
-        _emit(
-            {
-                "type": "activity",
-                "id": f"tool-details-{round_i}",
-                "kind": "explored",
-                "status": "done",
-                "summary": (", ".join(fresh_tools))[:200],
-                "index": round_i,
-            }
-        )
+    if isinstance(tb, dict):
+        _inject_tool_details_bundle(rt, st, tb, fresh_tools, round_i=round_i)
 
     if need_subagents or rt.flags.get("subagent_jobs"):
         await _load_deferred_subagents(rt, turn, round_i=round_i)

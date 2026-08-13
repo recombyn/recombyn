@@ -88,19 +88,19 @@ def _split_skill_md_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         flush()
         key = m.group(1).strip()
         rest = m.group(2).rstrip()
-        if rest in (">", "|", ">-", "|-"):
-            fold = True
-            buf = []
-        elif rest == "":
-            fold = True
-            buf = []
-        else:
-            fold = False
-            buf = [rest]
+        fold, buf = _begin_frontmatter_value(rest)
     flush()
 
     body = "\n".join(lines[end + 1 :]).strip()
     return meta, body
+
+
+def _begin_frontmatter_value(rest: str) -> tuple[bool, list[str]]:
+    """Start a YAML scalar buffer; fold=True for block / empty values."""
+    if rest in (">", "|", ">-", "|-", ""):
+        return True, []
+    return False, [rest]
+
 
 def _meta_from_agent_skill_frontmatter(
     fm: dict[str, Any], *, folder: str
@@ -438,6 +438,7 @@ def _skill_item_from_parts(
             "skill_key": storage_key,
             "name": display,
             "prompt_positive": pos,
+            "scenes": str(meta.get("scenes") or "").strip(),
             "preferred_tools": meta.get("preferred_tools") or meta.get("preferredTools") or [],
             "allowed_resources": meta.get("allowed_resources")
             or meta.get("allowedResources"),
@@ -458,7 +459,7 @@ def _skill_item_from_parts(
         "when_to_use": when,
         "prompt_positive": pos,
         "prompt_negative": str(meta.get("prompt_negative") or meta.get("promptNegative") or "").strip(),
-        "scenes": str(meta.get("scenes") or "all").strip() or "all",
+        "scenes": str(meta.get("scenes") or "").strip(),
         "sort_weight": int(meta.get("sort_weight") or meta.get("sortWeight") or 0),
         "preferred_tools": meta.get("preferred_tools") or meta.get("preferredTools") or [],
         "allowed_resources": meta.get("allowed_resources")

@@ -23,10 +23,11 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** は **キャンバスエディタ + AI Design Agent** です。  
-無限キャンバス上でデザインし、サイドチャットの Design Agent（LangGraph）が計画してキャンバス操作を適用します——フレーム・レイヤー・図形・テキスト・レイアウト。
+**Recombyn** は **AI Native の無限ベクターキャンバス**です。Web キャンバスからデスクトップ、Design Agent、バックエンド、共同編集、プライベートデプロイ、自動テストまで、フルループの商用グレード製品です。
 
-Docker Compose で数分でセルフホストできます（既定は **MySQL** + Redis + Web + API + **Yjs コラボ**）。ローカル開発では空の `DATABASE_URL` で **SQLite**、または **PostgreSQL** — [docs/postgres-switch.md](docs/postgres-switch.md) を参照。
+内蔵 Design Agent（LangGraph）：自然言語でレイヤー作成・図形・スタイル・組版ができます。Skill を同梱しつつ、カスタム Skill / AgentProfile（YAML）/ プロンプトパックも追加でき、ポスター・ダッシュボード・LP など品類を広げたあと、ベクター精度で編集できます。
+
+数分以内に Docker Compose でセルフホストできます（既定は **MySQL** + Redis + Web + API + **Yjs コラボ**）。ローカル開発では空の `DATABASE_URL` で **SQLite**、または **PostgreSQL** — [docs/postgres-switch.md](docs/postgres-switch.md) を参照。
 
 ---
 
@@ -38,11 +39,11 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 
 ## キャンバス
 
-自作 **RCB**（Resume Canvas）無限キャンバス：`SceneDocument` + CSS カメラ（約 5%–10000%）。確定図元は **ノード単位 SVG host**、**Path2D** はヒットテスト / 選択オーバーレイ用。ビューポート cull + **LOD**（遠景 AABB プロキシ）で大きなドキュメントも編集可能。
+自作 **RCB** 無限キャンバス。シーンは `SceneDocument`、ズームはおよそ 5%–10000%。確定図元はノード単位の **SVG**、ヒットテストと選択は **Path2D**。遠景は **LOD** で簡略化し、大きなドキュメントも編集できます。
 
 詳細：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
 
-**編集機能（抜粋）**
+キャンバス上でできること：
 
 - フレーム、図形、テキスト、画像、動画、Lottie；ペン / 鉛筆（ribbon 輪郭ブラシ）、選択と変形  
 - **ブール演算**（和 / 差 / 積など）  
@@ -53,11 +54,11 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 
 ## Design Agent
 
-エディタ右側のストリーミング会話 Agent が、同じキャンバス上でランディング / ポスター作成・改稿・スキル・ツールを実行します。
+ストリーミング会話 Agent：要件を伝えると、同じキャンバス上で計画し、Skill を付け、ツールを呼び、結果を書き戻します——LP・ポスター・改稿など。
 
-### どう設計されているか（レイヤー）
+### レイヤー構成
 
-実行カーネルは LangGraph テンプレート `canvas_ops_v1` で固定。**製品挙動は設定可能**（Profile / プロンプトパック / Skills / Tools）。
+実行カーネルは LangGraph テンプレート `canvas_ops_v1` で固定。品類と挙動は設定で変えます（AgentProfile YAML / プロンプトパック / Skills / Tools）。カーネル本体を触る必要はありません。
 
 | 層 | 担当 | やってはいけないこと |
 |----|------|----------------------|
@@ -69,20 +70,20 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 
 典型フロー：`intent` →（雑談 settle / 軽改 `paint` / 設計 `decide`）→ `paint` が `tool_ops` を出す → `observe` → 任意の **Review** サブエージェント → settle。詳細は **[docs/agent-profile.md](docs/agent-profile.md)**。
 
-### Skills とは
+### Skills
 
-スキルごとに `apps/api/seeds/design_skills/<key>/`（`_meta.json` + `SKILL.md`）。
+スキルごとに `apps/api/seeds/design_skills/<key>/`（`_meta.json` + `SKILL.md`；任意で `schema.json`、`assets/`）。
 
-- **`_meta.json`** — トリガー、`preferred_tools` など（Decide が選ぶ）
-- **`SKILL.md`** — その成果物の作り方
+- **`_meta.json`** — いつ使うか、トリガー、`preferred_tools`、互斥 — Decide が選ぶ  
+- **`SKILL.md`** — その成果物の作り方（LP / ポスター / 履歴書 / ダッシュボード / モーション……）
 
-多数同梱（固定 5 個ではない）。フォルダ追加で拡張。
+多数同梱（landing、poster、resume、dashboard、motion、ecommerce…）。フォルダを足せば拡張でき、上限はありません。
 
-### Tools とは
+### Tools
 
 原子操作は [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json)。Paint が構造化 `tool_ops` を出し、ホストが検証してキャンバスに適用。Skills は好みのツールを宣言できるが、登録外の op は不可。
 
-### 設定可能な Agent — どのファイルか
+### Agent をカスタムするとき触るファイル
 
 | ファイル | 用途 |
 |----------|------|
@@ -105,7 +106,43 @@ Docker Compose で数分でセルフホストできます（既定は **MySQL** 
 2. トリガーと `preferred_tools` を記入  
 3. 再起動 / seed ensure 後、Decide がアタッチできる
 
+プライベート拡張は [`plugins/skills/`](plugins/skills/) にも置けます（Compose マウント済み）。[docs/skill-extensions.md](docs/skill-extensions.md)
+
 Env： [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)。Seeds： [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。モデル： [docs/self-hosting.md](docs/self-hosting.md)。
+
+## プラグインと拡張
+
+拡張面は 2 つ（混ぜないこと）：
+
+| 種類 | パス | 拡張対象 | サンプル |
+|------|------|----------|----------|
+| **Skill パック** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent クラフト（`seeds/design_skills` と同レイアウト） | [`festival_poster`](plugins/skills/festival_poster/) |
+| **Canvas プラグイン** | [`plugins/canvas/<id>/`](plugins/canvas/) | エディタ UI（現状：ボトムツールバー） | [`watermark`](plugins/canvas/watermark/) |
+
+**Skill パック**
+
+1. `plugins/skills/<key>/` に `_meta.json` + `SKILL.md`（任意で `handler.py` など）  
+2. Compose は `./plugins/skills` をマウント済み。または `DESIGN_SKILLS_PLUGIN_DIRS`  
+3. API 再起動 / ホットリロード — トリガーで会話（例：「生成中秋红色海报」）
+
+任意：`DESIGN_SKILL_OPS_RUNNER=true` で `handler.py` が LLM paint 前に `tool_ops` を返せます。[docs/skill-extensions.md](docs/skill-extensions.md)
+
+**Canvas プラグイン**
+
+1. `plugins/canvas/<id>/` に `manifest.json` + `index.ts`  
+2. `ensureCanvasPlugins()`（`apps/web/src/plugins/canvas/host.ts`）に登録  
+3. Web を再ビルド / リロード  
+
+[docs/canvas-plugins.md](docs/canvas-plugins.md)
+
+**パッケージ化（`.recombyn-plugin`）**
+
+```bash
+node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
+# → dist/plugins/<id>-<version>.recombyn-plugin
+```
+
+→ [docs/plugin-packs.md](docs/plugin-packs.md) · [plugins/skills/README.md](plugins/skills/README.md) · [plugins/canvas/README.md](plugins/canvas/README.md)
 
 ## クイックスタート（セルフホスト）
 
@@ -147,7 +184,8 @@ npm run dev:desktop
 npm run build:desktop:sidecar
 npm run build:desktop
 
-# クラウド — https://recombyn.com（VITE_API_BASE_URL で上書き可）
+# クラウド — ブラウザと同じ本機 API（:8000 / .env）
+# 公開デプロイ時は VITE_API_BASE_URL
 npm run dev:desktop:cloud
 npm run build:desktop:cloud
 ```
@@ -161,19 +199,28 @@ apps/web/          React キャンバス + Agent UI + Yjs クライアント
   src-tauri/       Tauri v2 デスクトップシェル（Recombyn）
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket サーバー（y-websocket）
+plugins/           プライベート拡張（skills + canvas）— Compose マウント
 packages/          共有ビルダー & スキーマ
-docs/              アーキテクチャ + セルフホスト + デスクトップ（開発者向け）
+docs/              セルフホスト、Agent、プラグイン、デスクトップ、キャンバス
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
 
-ユーザー向けヘルプの**ソース**はプライベート管理。CI がビルド成果物だけを本リポジトリの `gh-pages` に載せ、[recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) で公開します。
+ユーザー向けヘルプのソースはプライベート管理。CI がビルド成果物だけを本リポジトリの `gh-pages` に載せ、[recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) で公開します。
 
 ## ドキュメント / コミュニティ
 
-- ユーザー向け: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
-- セルフホスト / 構成: [docs/self-hosting.md](docs/self-hosting.md) · [デスクトップ](docs/desktop.md) · [Postgres](docs/postgres-switch.md)
-- [コントリビュート](CONTRIBUTING.md) · [セキュリティ](SECURITY.md) · [行動規範](CODE_OF_CONDUCT.md)
-- Issue / PR テンプレートは `.github/`
+| | |
+|--|--|
+| ユーザー向け | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
+| セルフホスト / 構成 | [docs/self-hosting.md](docs/self-hosting.md) |
+| Skill 拡張 | [docs/skill-extensions.md](docs/skill-extensions.md) |
+| Canvas プラグイン | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
+| プラグインパック（`.recombyn-plugin`） | [docs/plugin-packs.md](docs/plugin-packs.md) |
+| AgentProfile | [docs/agent-profile.md](docs/agent-profile.md) |
+| キャンバス | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
+| デスクトップ | [docs/desktop.md](docs/desktop.md) |
+| Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
+| コントリビュート · セキュリティ · CoC | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 
 公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)

@@ -51,6 +51,72 @@ from app.services.design.runtime.graph.support import (
 _log = logging.getLogger(__name__)
 
 
+def _finish_paint_ops_success(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    *,
+    intent: str,
+    step_ops: list[dict[str, Any]],
+    reply: str,
+    tool_ops_raw: Any,
+    extra_turn: dict[str, Any] | None = None,
+) -> Command:
+    """Shared ask vs apply exit after validated paint ops."""
+    ask_mode = str(rt.flags.get("mode") or "") == "ask"
+    _emit_canvas_size_from_ops(rt, step_ops)
+    st.reply = _paint_user_reply(reply)
+    st.intent = intent
+    turn: dict[str, Any] = {
+        "intent": intent,
+        "reply": st.reply,
+        "tool_ops_raw": tool_ops_raw,
+    }
+    if extra_turn:
+        turn.update(extra_turn)
+    rt.turn = turn
+    if ask_mode:
+        st.reply = ""
+        return Command(update=_bump(rt), goto="propose")
+    return Command(update=_bump(rt), goto="action")
+
+
+def _validate_and_density_gate(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    ops_raw: Any,
+    *,
+    intent: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Validate tool_ops then clear sparse create batches."""
+    if not ops_raw:
+        return [], []
+    step_ops, op_errors = resolve_tool_host().validate_ops(
+        ops_raw,
+        scene_nodes=rt.scene_nodes,
+        scene_frames=rt.scene_frames,
+        rules=rt.rules,
+        skill_keys=list(st.skills_loaded or []),
+        scene=rt.scene_key or "",
+        runtime=rt,
+    )
+    if not step_ops:
+        return [], list(op_errors or [])
+    dense_ok, dense_reason = assess_tool_ops_result(
+        step_ops,
+        intent=intent,
+        scene=rt.scene_key or "",
+        nodes=rt.scene_nodes,
+        rules=rt.rules,
+        skill_keys=list(st.skills_loaded or []),
+    )
+    if dense_ok:
+        return step_ops, list(op_errors or [])
+    errs = list(op_errors or []) + [dense_reason]
+    st.note_error(f"paint_ops density: {dense_reason}")
+    # Never silent-settle a sparse create (dashboard one-rect case).
+    return [], errs
+
+
 async def _await_or_abandon(coro: Any, *, timeout_sec: float, label: str) -> Any:
     """Wait for an LLM call; abandon if it ignores CancelledError.
 
@@ -127,7 +193,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
         runner_ops, runner_skill, runner_err = try_skill_ops_for_paint(
             skill_keys=list(st.skills_loaded or []),
             prompt=str(rt.prompt or ""),
-            scene_key=str(rt.scene_key or "website"),
+            scene_key=str(rt.scene_key or ""),
             scene_nodes=list(rt.scene_nodes or []),
             scene_frames=list(rt.scene_frames or []),
             design_brief=rt.flags.get("design_brief")
@@ -145,7 +211,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
             scene_frames=rt.scene_frames,
             rules=rt.rules,
             skill_keys=list(st.skills_loaded or []),
-            scene=rt.scene_key or "website",
+            scene=rt.scene_key or "",
             runtime=rt,
         )
         rt.step_ops = step_ops
@@ -163,20 +229,15 @@ async def _node_paint_ops(state: GraphState) -> Command:
             **({"errors": _op_errors_for_log(op_errors)} if op_errors else {}),
         )
         if step_ops:
-            ask_mode = str(rt.flags.get("mode") or "") == "ask"
-            _emit_canvas_size_from_ops(rt, step_ops)
-            st.reply = _paint_user_reply("")
-            st.intent = want
-            rt.turn = {
-                "intent": want,
-                "reply": st.reply,
-                "tool_ops_raw": runner_ops,
-                "skill_ops_runner": runner_skill,
-            }
-            if ask_mode:
-                st.reply = ""
-                return Command(update=_bump(rt), goto="propose")
-            return Command(update=_bump(rt), goto="action")
+            return _finish_paint_ops_success(
+                rt,
+                st,
+                intent=want,
+                step_ops=step_ops,
+                reply="",
+                tool_ops_raw=runner_ops,
+                extra_turn={"skill_ops_runner": runner_skill},
+            )
         _log.info(
             "skill ops runner produced no valid ops skill=%s errors=%s — LLM paint",
             runner_skill,
@@ -330,33 +391,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
             continue
 
         st.intent = intent
-        step_ops: list[dict[str, Any]] = []
-        op_errors: list[str] = []
-        if ops_raw:
-            # Validate: contract + placement (do not rewrite intent) — via Profile ToolHost
-            step_ops, op_errors = resolve_tool_host().validate_ops(
-                ops_raw,
-                scene_nodes=rt.scene_nodes,
-                scene_frames=rt.scene_frames,
-                rules=rt.rules,
-                skill_keys=list(st.skills_loaded or []),
-                scene=rt.scene_key or "website",
-                runtime=rt,
-            )
-            if step_ops:
-                dense_ok, dense_reason = assess_tool_ops_result(
-                    step_ops,
-                    intent=intent,
-                    scene=rt.scene_key or "website",
-                    nodes=rt.scene_nodes,
-                    rules=rt.rules,
-                    skill_keys=list(st.skills_loaded or []),
-                )
-                if not dense_ok:
-                    op_errors = list(op_errors or []) + [dense_reason]
-                    st.note_error(f"paint_ops density: {dense_reason}")
-                    # Never silent-settle a sparse create (dashboard one-rect case).
-                    step_ops = []
+        step_ops, op_errors = _validate_and_density_gate(rt, st, ops_raw, intent=intent)
         rt.step_ops = step_ops
         rt.op_errors = list(op_errors or [])
         if not step_ops:
@@ -400,20 +435,14 @@ async def _node_paint_ops(state: GraphState) -> Command:
             _emit_tool_ops_validation_ui(rt, op_errors, kept=len(step_ops))
 
         if step_ops:
-            ask_mode = str(rt.flags.get("mode") or "") == "ask"
-            # Open plate only when create_frame is present (infinite canvas otherwise).
-            _emit_canvas_size_from_ops(rt, step_ops)
-            st.reply = _paint_user_reply(reply)
-            rt.turn = {
-                "intent": intent,
-                "reply": st.reply,
-                "tool_ops_raw": ops_raw
-            }
-            # Ask: propose for confirm — do not apply yet (confirm copy rewritten in propose).
-            if ask_mode:
-                st.reply = ""
-                return Command(update=_bump(rt), goto="propose")
-            return Command(update=_bump(rt), goto="action")
+            return _finish_paint_ops_success(
+                rt,
+                st,
+                intent=intent,
+                step_ops=step_ops,
+                reply=reply,
+                tool_ops_raw=ops_raw,
+            )
 
         err = validation_failure_reason(op_errors) if op_errors else "missing_tool_ops"
         st.note_error(f"paint_ops: {err}")

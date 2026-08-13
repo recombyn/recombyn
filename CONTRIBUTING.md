@@ -1,12 +1,10 @@
 # Contributing
 
-Thanks for considering a contribution to Recombyn.
+Thanks for considering a contribution to Recombyn. Please read the [Code of Conduct](./CODE_OF_CONDUCT.md). Security issues go to [SECURITY.md](./SECURITY.md) — don’t file a public issue.
 
-Please read the [Code of Conduct](./CODE_OF_CONDUCT.md). Security issues: [SECURITY.md](./SECURITY.md).
+How to run locally: [README.md](./README.md) · [docs/self-hosting.md](./docs/self-hosting.md) · desktop [docs/desktop.md](./docs/desktop.md).
 
 ## Setup
-
-See [README.md](./README.md), [docs/self-hosting.md](./docs/self-hosting.md), and [docs/desktop.md](./docs/desktop.md) for the Tauri shell.
 
 ```bash
 docker compose up -d redis

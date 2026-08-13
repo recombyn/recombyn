@@ -45,14 +45,17 @@ def _load_tokens_seed() -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
     return ver, default, packs
 
 
-TOKEN_SCHEMA_VERSION, DEFAULT_TOKENS, _SEED = _load_tokens_seed()
+TOKEN_SCHEMA_VERSION, _, _SEED = _load_tokens_seed()
 
 
 def _csv_has(csv: str, token: str) -> bool:
+    """True only when csv lists token, or explicitly lists ``all``. Empty csv → False."""
     parts = {p.strip().lower() for p in str(csv or "").split(",") if p.strip()}
-    if not parts or "all" in parts:
+    if not parts:
+        return False
+    if "all" in parts:
         return True
-    return token.strip().lower() in parts
+    return bool(token) and token.strip().lower() in parts
 
 
 def _parse_tokens(raw: Any) -> dict[str, Any]:
@@ -67,24 +70,13 @@ def _parse_tokens(raw: Any) -> dict[str, Any]:
     return {}
 
 
-def _merge_tokens(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    """Deep-merge dict overlays (one level of nested dicts recursively)."""
-    out: dict[str, Any] = dict(base)
-    for k, v in (overlay or {}).items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _merge_tokens(out[k], v)
-        else:
-            out[k] = v
-    return out
-
-
 def _pub(r: Any) -> dict[str, Any]:
     tokens_raw = r.tokens_json if hasattr(r, "tokens_json") else r["tokens_json"]
     updated = r.updated_at if hasattr(r, "updated_at") else r["updated_at"]
     return {
         "id": int(r.id if hasattr(r, "id") else r["id"]),
         "name": str((r.name if hasattr(r, "name") else r["name"]) or ""),
-        "scenes": str((r.scenes if hasattr(r, "scenes") else r["scenes"]) or "all"),
+        "scenes": str((r.scenes if hasattr(r, "scenes") else r["scenes"]) or ""),
         "tokens": _parse_tokens(tokens_raw),
         "isDefault": bool(
             int((r.is_default if hasattr(r, "is_default") else r["is_default"]) or 0)
@@ -136,7 +128,9 @@ def upsert_token_pack(payload: dict[str, Any]) -> dict[str, Any]:
     name = str(payload.get("name") or "").strip()[:128]
     if not name:
         raise ValueError("name required")
-    scenes = str(payload.get("scenes") or "all").strip()[:128] or "all"
+    scenes = str(payload.get("scenes") or "").strip()[:128]
+    if not scenes:
+        raise ValueError("scenes required")
     tokens = payload.get("tokens")
     if not isinstance(tokens, dict) or not tokens:
         raise ValueError("tokens object required")
@@ -172,14 +166,16 @@ def soft_delete_token_pack(item_id: int) -> bool:
 
 
 def resolve_token_pack(*, scene: str) -> dict[str, Any]:
-    """Pick enabled default pack for scene; fall back to DEFAULT_TOKENS."""
+    """Pick enabled default pack for scene. Missing pack → empty tokens (fix seed/DB)."""
     # Read-only for design-run hot path — seed/bootstrap is process startup.
-    scene_l = str(scene or "website").strip().lower() or "website"
+    scene_l = str(scene or "").strip().lower()
     packs = list_token_packs(enabled=True, ensure=False)
     best: dict[str, Any] | None = None
     best_score = -1
     for p in packs:
-        if not _csv_has(p["scenes"], scene_l):
+        if scene_l and not _csv_has(p["scenes"], scene_l):
+            continue
+        if not scene_l and not p.get("isDefault"):
             continue
         score = 0
         if p.get("isDefault"):
@@ -194,13 +190,13 @@ def resolve_token_pack(*, scene: str) -> dict[str, Any]:
             "id": best.get("id"),
             "name": best.get("name"),
             "scenes": best.get("scenes"),
-            "tokens": _merge_tokens(DEFAULT_TOKENS, best.get("tokens") or {}),
+            "tokens": dict(best.get("tokens") or {}),
         }
     return {
         "id": None,
-        "name": "builtin",
+        "name": "",
         "scenes": scene_l,
-        "tokens": dict(DEFAULT_TOKENS),
+        "tokens": {},
     }
 
 

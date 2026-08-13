@@ -1,4 +1,4 @@
-"""Import pipeline: preprocess → vision (phase 2) → Scene JSON, with PDF fallback."""
+"""Import pipeline: image → Scene JSON."""
 
 from __future__ import annotations
 
@@ -7,16 +7,12 @@ from pathlib import Path
 from typing import Literal
 
 from app.core.config import settings
-from app.services.docx_converter import docx_to_pdf, docx_to_text_blocks
-from app.services.pdf_parser import parse_pdf
-from app.services.preprocess import pdf_to_images
 from app.services.raster_fallback import page_images_as_blocks
 from app.services.scene_builder import build_scene_response
 from app.services.storage import upload_page_images
 from app.services.vision import analyze_page_images
-from app.services.vision.merge_blocks import merge_text_blocks
 
-SourceType = Literal["pdf", "docx", "image"]
+SourceType = Literal["image"]
 
 
 def _job_pages_dir(job_id: str | None) -> Path:
@@ -76,51 +72,48 @@ def _apply_raster_fallback(
     return blocks, width, height
 
 
-def _prepare_page_images(source_type: SourceType, file_path: Path, job_id: str | None) -> tuple[list[Path], Path | None]:
-    """Return (page_image_paths, pdf_path_for_text_parse)."""
+def _prepare_page_images(file_path: Path, job_id: str | None) -> list[Path]:
     pages_dir = _job_pages_dir(job_id)
     if pages_dir.exists():
         shutil.rmtree(pages_dir, ignore_errors=True)
     pages_dir.mkdir(parents=True, exist_ok=True)
 
-    poppler = settings.poppler_path or None
-    dpi = settings.import_dpi
-
-    if source_type == "pdf":
-        images = pdf_to_images(file_path, pages_dir, dpi=dpi, poppler_path=poppler)
-        return images, file_path
-
-    if source_type == "docx":
-        pdf_path = docx_to_pdf(file_path)
-        images = pdf_to_images(pdf_path, pages_dir, dpi=dpi, poppler_path=poppler)
-        return images, pdf_path
-
     suffix = file_path.suffix.lower() or ".png"
     dest = pages_dir / f"0001{suffix}"
     shutil.copy2(file_path, dest)
-    return [dest], None
+    return [dest]
 
 
 def run_import(source_type: SourceType, file_path: Path, job_id: str | None = None) -> dict:
+    if source_type != "image":
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "document": None,
+            "error": "Only image import is supported.",
+            "meta": {
+                "source_type": source_type,
+                "page_count": 0,
+                "page_images": [],
+                "object_keys": [],
+                "object_urls": [],
+                "palette": [],
+                "engines": [],
+                "warnings": [],
+            },
+        }
+
     warnings: list[str] = []
     page_images: list[Path] = []
-    pdf_for_parse: Path | None = None
     engines: list[str] = []
     palette: list[str] = []
     width = settings.scene_target_width
     height = 1123
 
     try:
-        page_images, pdf_for_parse = _prepare_page_images(source_type, file_path, job_id)
+        page_images = _prepare_page_images(file_path, job_id)
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"preprocess failed: {exc}")
-        if source_type == "docx":
-            try:
-                pdf_for_parse = docx_to_pdf(file_path)
-            except Exception as docx_exc:  # noqa: BLE001
-                warnings.append(f"docx→pdf failed: {docx_exc}")
-        elif source_type == "pdf":
-            pdf_for_parse = file_path
 
     blocks: list[dict] = []
 
@@ -132,27 +125,6 @@ def run_import(source_type: SourceType, file_path: Path, job_id: str | None = No
         width = int(vision.get("width") or width)
         height = int(vision.get("height") or height)
         blocks = vision.get("blocks") or []
-
-    if not blocks and source_type in ("pdf", "docx"):
-        target = pdf_for_parse or (file_path if source_type == "pdf" else None)
-        if target is not None:
-            try:
-                blocks = parse_pdf(target)
-                if blocks:
-                    blocks = merge_text_blocks(blocks)
-                    engines.append("pdfplumber")
-                    engines.append("merge")
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"pdf parse failed: {exc}")
-
-    if not blocks and source_type == "docx":
-        try:
-            blocks = docx_to_text_blocks(file_path)
-            if blocks:
-                engines.append("python-docx")
-                warnings.append("LibreOffice unavailable; used text-only DOCX fallback (layout approximate)")
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"docx text fallback failed: {exc}")
 
     drawable = [b for b in blocks if _is_drawable_block(b)]
     if blocks and not drawable and page_images:

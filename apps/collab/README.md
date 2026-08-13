@@ -1,6 +1,6 @@
 # Yjs collaboration WebSocket server
 
-Mints room access via Python API (`POST /api/v1/collab/room-token`), then syncs with `y-websocket`.
+You can turn on live canvas collab with this Yjs WebSocket server. The Python API mints room access (`POST /api/v1/collab/room-token`); this process syncs with `y-websocket`.
 
 ## Local
 

@@ -1,4 +1,4 @@
-"""Unified DB backend — Tencent LighthouseDB (MySQL) or local SQLite fallback."""
+"""DB backend — MySQL or local SQLite."""
 
 from __future__ import annotations
 
@@ -635,6 +635,10 @@ def init_schema() -> None:
 
             seed_design_catalog_if_empty()
         except Exception:
-            pass
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "design catalog seed on init_schema failed"
+            )
 
 

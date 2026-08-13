@@ -126,14 +126,14 @@ async def _hydrate_pinned_skills(rt: AgentRuntime) -> None:
         resolve_accessible_skill_keys,
         user_id=str(rt.user_id or ""),
         refs=refs,
-        scene=rt.scene_key or "website",
+        scene=rt.scene_key or "",
     )
     if not keys:
         return
     details, errs = await asyncio.to_thread(
         format_skills_details_checked,
         keys=keys,
-        scene=rt.scene_key or "website",
+        scene=rt.scene_key or "",
         user_id=str(rt.user_id or "") or None,
     )
     st = rt.run

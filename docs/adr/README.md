@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADR)
 
-Cross-cutting or irreversible technical choices live here. Product feature notes stay in `docs/*.md`.
+Cross-cutting or hard-to-undo technical choices live here. Product how-tos stay in `docs/*.md`.
 
 ## When to write an ADR
 

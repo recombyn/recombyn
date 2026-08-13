@@ -132,20 +132,25 @@ function PanelConfirmCost({
   const { t } = useTranslation();
   const billingEnabled = useBillingEnabled();
   const n = Number.isFinite(amount) ? Math.round(amount) : 0;
-  // Billing off, or no-LLM / free tools — don't show a credit chip.
-  if (!billingEnabled || n <= 0) return null;
+  // Free / no-LLM tools — no chip. Paid tools always show list price (even if billing is off locally).
+  if (n <= 0) return null;
   const display = String(n);
   const tip =
     unit === 'tokens'
       ? t('wallet.tokenCostTip', { count: display })
       : t('wallet.creditCostTip', { count: display });
+  // Native title — do not wrap Tooltip (div) inside confirm <button>s.
   return (
-    <Tooltip tip={tip} placement="top">
-      <span className="inline-flex shrink-0 items-center gap-0.5 text-current">
-        <span className="tabular-nums">{display}</span>
-        <HiOutlineBolt className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      </span>
-    </Tooltip>
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-0.5 text-current',
+        !billingEnabled && 'opacity-80'
+      )}
+      title={tip}
+    >
+      <span className="tabular-nums">{display}</span>
+      <HiOutlineBolt className="h-3.5 w-3.5 shrink-0" aria-hidden />
+    </span>
   );
 }
 

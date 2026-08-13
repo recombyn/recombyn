@@ -7,7 +7,7 @@ import { request } from '@/utils/request';
 
 export type ModelReferenceType = 'text' | 'vision' | 'image';
 
-/** From admin catalog `imageLimits` (Seedream WxH / OpenRouter resolution). */
+/** From admin catalog `imageLimits`. */
 export type ImageLimits = {
   preset?: string;
   transport?: string;
@@ -21,7 +21,7 @@ export type ImageLimits = {
   supports_quality?: boolean;
 };
 
-/** Catalog price provenance (OpenRouter sync / Ark docs). */
+/** Catalog price provenance. */
 export type ImagePriceMeta = {
   source?: string;
   billing?: string;
@@ -104,9 +104,9 @@ export type ChatModelsResponse = {
   audioModels?: LlmModel[];
   /** ISO country from GeoLite2 / edge headers when known. */
   clientRegion?: string | null;
-  /** False on CN (and other blocked) networks — OpenRouter catalog hidden. */
+  /** False when aggregator catalog is region-blocked. */
   openrouterAvailable?: boolean;
-  /** Aggregator platforms (OpenRouter / Volcengine) — one key unlocks catalog models. */
+  /** Aggregator platforms — one key unlocks catalog models. */
   byokPlatforms?: ByokPlatform[];
   /** Alias of byokPlatforms for older clients. */
   byokPresets?: ByokPresetProvider[];

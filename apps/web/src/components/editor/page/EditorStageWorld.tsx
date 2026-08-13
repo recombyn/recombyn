@@ -18,6 +18,7 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
+import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
 import MarkSessionHost from '@/components/editor/nodes/ImageNode/mark/MarkSessionHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
@@ -420,6 +421,7 @@ function EditorStageWorld({
         <ImageToolPanelHost document={document} />
         <ShapeStylePanelHost document={document} />
         <CropExpandSessionHost document={document} />
+        <UpscaleSessionHost document={document} />
         <MarkSessionHost document={document} />
         <VideoTrimSessionHost document={document} />
         <AudioTrimSessionHost document={document} />

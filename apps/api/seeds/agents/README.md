@@ -1,6 +1,6 @@
 # Agent profiles (seeds)
 
-YAML Profiles for the Design Agent kernel. Boot / runtime loads these from disk (not DB rows).
+You can customize the Design Agent here with YAML Profiles. Boot / runtime loads these from disk (not DB rows).
 
 | Path | Role |
 |------|------|

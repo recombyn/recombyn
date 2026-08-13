@@ -2,8 +2,8 @@ import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineCube, HiOutlineLanguage, HiOutlineSquare2Stack } from 'react-icons/hi2';
 import { LuCrosshair, LuEraser } from 'react-icons/lu';
+import { Icon } from '@/components/base';
 import { cn } from '@/utils/classnames';
-import ImageUpscaleMenu, { type UpscalePreset } from './ImageUpscaleMenu';
 import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
 import { ImageToolSep, imageToolBtn } from './imageToolbarShared';
 
@@ -44,7 +44,7 @@ function ImageToolbarEditTools({
   previewSlot,
   downloadSlot,
 }: {
-  onUpscale: (preset: UpscalePreset) => void;
+  onUpscale: () => void;
   onRemoveBg: (mode: RemoveBgMode) => void;
   onEraser: () => void;
   onMark?: () => void;
@@ -58,7 +58,9 @@ function ImageToolbarEditTools({
   const hasTrailing = Boolean(previewSlot || downloadSlot);
   return (
     <>
-      <ImageUpscaleMenu onPick={onUpscale} />
+      <Tool label={t('editor.imageToolbar.upscale')} onClick={onUpscale}>
+        <Icon name="editor-upscale" width={16} height={16} className="text-current" />
+      </Tool>
       <ImageRemoveBgMenu onPick={onRemoveBg} />
       <Tool label={t('editor.imageToolbar.eraser')} onClick={onEraser}>
         <LuEraser className="h-4 w-4" />
