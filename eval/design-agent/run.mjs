@@ -4,6 +4,8 @@
  * Usage (API up, token in .tmp-token.txt or EVAL_TOKEN / E2E_TOKEN):
  *   npm run eval:agent
  *   npm run eval:agent -- poster banner
+ *   npm run eval:agent -- --v3-tasks
+ *   npm run eval:compare
  *   npm run eval:agent -- --system
  *   npm run eval:agent -- poster --ask
  *   npm run eval:agent -- poster --paint-mode=ops
@@ -29,6 +31,71 @@ const API = (process.env.EVAL_API || process.env.E2E_API || 'http://127.0.0.1:80
 const suitePath =
   process.env.EVAL_SUITE ||
   path.join(here, 'suite.json');
+const rubric = JSON.parse(fs.readFileSync(path.join(here, 'rubric.json'), 'utf8'));
+
+function clampEvalScores(raw) {
+  const caps = rubric.caps || {};
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const [key, cap] of Object.entries(caps)) {
+    const n = Number(src[key] ?? 0);
+    const v = Number.isFinite(n) ? Math.round(n) : 0;
+    out[key] = Math.max(0, Math.min(Number(cap) || 0, v));
+  }
+  return out;
+}
+
+function sumEvalScores(scores) {
+  return Object.keys(rubric.caps || {}).reduce((acc, key) => acc + (Number(scores?.[key]) || 0), 0);
+}
+
+function evalBand(total) {
+  const rebuildBelow = Number(rubric.gates?.rebuild_below ?? 70);
+  const passAt = Number(rubric.gates?.pass_at ?? 90);
+  if (total < rebuildBelow) return 'rebuild';
+  if (total < passAt) return 'repair';
+  return 'pass';
+}
+
+function scoreCritique(ev) {
+  const scores = clampEvalScores(ev?.scores);
+  const hasDim = Object.values(scores).some((v) => v > 0);
+  let total = null;
+  if (hasDim) {
+    total = sumEvalScores(scores);
+  } else if (Number.isFinite(Number(ev?.total))) {
+    total = Math.round(Number(ev.total));
+  }
+  const action = total == null ? ev?.review_action || null : evalBand(total);
+  return {
+    ok: ev?.ok,
+    source: ev?.source || ev?.agent,
+    issues: (ev?.issues || []).slice(0, 5),
+    weaknesses: (ev?.weaknesses || []).slice(0, 5),
+    market_gap: ev?.market_gap,
+    scores: hasDim ? scores : undefined,
+    total,
+    review_action: action,
+    runtime_total: ev?.total ?? null,
+    runtime_action: ev?.review_action || null,
+  };
+}
+
+function loadV3Tasks() {
+  const dir = path.join(here, 'tasks');
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .map((name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')))
+    .map((task) => ({
+      id: task.id,
+      skill_expect: [task.skill, ...(task.helpers || [])].filter(Boolean),
+      prompt: task.prompt,
+      family: task.family,
+    }));
+}
 
 function readToken() {
   const env = (process.env.EVAL_TOKEN || process.env.E2E_TOKEN || '').trim();
@@ -46,6 +113,7 @@ const suite = JSON.parse(fs.readFileSync(suitePath, 'utf8'));
 
 const argv = process.argv.slice(2);
 const wantSystem = argv.includes('--system');
+const wantV3Tasks = argv.includes('--v3-tasks');
 const wantAsk =
   argv.includes('--ask') ||
   String(process.env.EVAL_INTERACTION_MODE || '').trim().toLowerCase() === 'ask';
@@ -74,10 +142,14 @@ const only = new Set(
   argv.filter((a) => a && !a.startsWith('--') && !a.startsWith('--paint-mode'))
 );
 
-const pool = wantSystem ? suite.system_cases || [] : suite.cases || [];
+const pool = wantV3Tasks
+  ? loadV3Tasks()
+  : wantSystem
+    ? suite.system_cases || []
+    : suite.cases || [];
 const cases = pool.filter((c) => !only.size || only.has(c.id));
 if (!cases.length) {
-  console.error(`No cases selected (system=${wantSystem}, only=[${[...only]}])`);
+  console.error(`No cases selected (system=${wantSystem}, v3=${wantV3Tasks}, only=[${[...only]}])`);
   process.exit(1);
 }
 
@@ -326,13 +398,7 @@ async function runCase(c) {
     }
     if (type === 'token') tokens += String(ev.text || '');
     if (type === 'critique_done') {
-      review = {
-        ok: ev.ok,
-        source: ev.source || ev.agent,
-        issues: (ev.issues || []).slice(0, 5),
-        weaknesses: (ev.weaknesses || []).slice(0, 5),
-        market_gap: ev.market_gap,
-      };
+      review = scoreCritique(ev);
     }
     if (type === 'error') lastError = String(ev.message || ev.detail || JSON.stringify(ev)).slice(0, 400);
     if (type === 'paused') {
@@ -483,7 +549,7 @@ function logCaseRow(row) {
         missing: row.missingSkills,
         craft: row.craftFlags,
         icons: row.iconOps,
-        review: row.review?.ok,
+        review: row.review?.review_action || row.review?.ok,
         error: row.error,
       },
       null,
@@ -523,7 +589,7 @@ async function mapPool(items, limit, fn) {
 }
 
 console.log(
-  `eval pool=${wantSystem ? 'system_cases' : 'cases'} n=${cases.length} ids=${cases
+  `eval pool=${wantV3Tasks ? 'v3_tasks' : wantSystem ? 'system_cases' : 'cases'} n=${cases.length} ids=${cases
     .map((c) => c.id)
     .join(',')} api=${API} mode=${modeTag} interaction=${interactionMode} paint=${paintMode} concurrency=${CONCURRENCY}`
 );
@@ -532,15 +598,24 @@ const results = await mapPool(cases, CONCURRENCY, (c) => runCaseLogged(c));
 const summary = {
   startedAt: new Date().toISOString(),
   api: API,
-  pool: wantSystem ? 'system_cases' : 'cases',
+  pool: wantV3Tasks ? 'v3_tasks' : wantSystem ? 'system_cases' : 'cases',
   mode: modeTag,
   interaction_mode: interactionMode,
   paint_mode: paintMode,
   concurrency: CONCURRENCY,
+  rubric: {
+    caps: rubric.caps,
+    gates: rubric.gates,
+  },
   pass: results.filter((r) => r.ok).length,
   fail: results.filter((r) => !r.ok).length,
   results,
 };
 fs.writeFileSync(outPath, JSON.stringify(summary, null, 2));
+const resultsDir = path.join(here, 'results');
+fs.mkdirSync(resultsDir, { recursive: true });
+const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+fs.writeFileSync(path.join(resultsDir, `${stamp}.json`), JSON.stringify(summary, null, 2));
+fs.writeFileSync(path.join(resultsDir, 'latest.json'), JSON.stringify(summary, null, 2));
 console.log(`\nWrote ${outPath} pass=${summary.pass} fail=${summary.fail}`);
 process.exit(summary.fail ? 1 : 0);

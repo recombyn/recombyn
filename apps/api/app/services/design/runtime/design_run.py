@@ -10,6 +10,7 @@ from app.services.design.runtime.host import (
     require_prompt_pack,
     validate_paint_ops,
 )
+from app.services.design.runtime.graph.state import AgentGraphRunInput
 
 __all__ = [
     "design_stream",
@@ -51,36 +52,38 @@ async def design_stream(
     interaction_mode: str | None = None,
     skill_refs: list[str] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
+    del reserve_hold_fn
     from app.services.design.runtime.graph.build import run_agent_graph
 
     async for ev in run_agent_graph(
-        user_id=user_id,
-        mode=mode,
-        prompt=prompt,
-        rules=rules,
-        user_selected_model=user_selected_model,
-        canvas_id=canvas_id,
-        canvas_size=canvas_size,
-        scene=scene,
-        scene_nodes=scene_nodes,
-        scene_frames=scene_frames,
-        spatial_summary=spatial_summary,
-        focus_frame_id=focus_frame_id,
-        images=images,
-        memory_in=memory_in,
-        session_id=session_id,
-        project_id=project_id,
-        hold=hold,
-        free_daily=free_daily,
-        t0=t0,
-        reserve_hold_fn=reserve_hold_fn,
-        settle_hold_fn=settle_hold_fn,
-        refund_hold_fn=refund_hold_fn,
-        apply_ops=apply_ops,
-        proposal_id=proposal_id,
-        proposal_task_id=proposal_task_id,
-        interaction_mode=interaction_mode,
-        skill_refs=skill_refs,
+        AgentGraphRunInput(
+            user_id=user_id,
+            mode=mode,
+            prompt=prompt,
+            rules=rules,
+            user_selected_model=user_selected_model,
+            canvas_id=canvas_id,
+            canvas_size=canvas_size,
+            scene=scene,
+            scene_nodes=scene_nodes,
+            scene_frames=scene_frames,
+            spatial_summary=spatial_summary,
+            focus_frame_id=focus_frame_id,
+            images=images,
+            memory_in=memory_in,
+            session_id=session_id,
+            project_id=project_id,
+            hold=hold,
+            free_daily=free_daily,
+            t0=t0,
+            settle_hold_fn=settle_hold_fn,
+            refund_hold_fn=refund_hold_fn,
+            apply_ops=apply_ops,
+            proposal_id=proposal_id,
+            proposal_task_id=proposal_task_id,
+            interaction_mode=interaction_mode,
+            skill_refs=skill_refs,
+        )
     ):
         yield ev
 

@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -83,7 +84,7 @@ class Settings(BaseSettings):
     s3_endpoint_url: str | None = None
     s3_access_key: str = ""
     s3_secret_key: str = ""
-    s3_bucket: str = "resume-scene"
+    s3_bucket: str = "recombyn"
     s3_region: str = "ap-guangzhou"
     s3_public_base_url: str | None = None
     s3_addressing_style: str = "virtual"
@@ -153,6 +154,41 @@ class Settings(BaseSettings):
     design_plugin_disk_install: bool = False
 
     agent_profile_id: str = "design.canvas"
+
+    # Design Intelligence client (ADR 0017). local = BasicLocal; remote = HTTP provider.
+    # Prefer RECOMBYN_INTELLIGENCE_*; legacy INTELLIGENCE_* still accepted.
+    intelligence_provider: str = Field(
+        default="local",
+        validation_alias=AliasChoices(
+            "RECOMBYN_INTELLIGENCE_MODE",
+            "INTELLIGENCE_PROVIDER",
+            "intelligence_provider",
+        ),
+    )
+    intelligence_remote_url: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "RECOMBYN_INTELLIGENCE_URL",
+            "INTELLIGENCE_REMOTE_URL",
+            "intelligence_remote_url",
+        ),
+    )
+    intelligence_remote_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "RECOMBYN_INTELLIGENCE_API_KEY",
+            "INTELLIGENCE_REMOTE_API_KEY",
+            "intelligence_remote_api_key",
+        ),
+    )
+    intelligence_remote_timeout_sec: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices(
+            "RECOMBYN_INTELLIGENCE_TIMEOUT_SEC",
+            "INTELLIGENCE_REMOTE_TIMEOUT_SEC",
+            "intelligence_remote_timeout_sec",
+        ),
+    )
 
     expand_table_cells: bool = True
     sam_checkpoint: str | None = None

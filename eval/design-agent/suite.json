@@ -1,6 +1,8 @@
 {
-  "version": 2,
-  "note": "Category craft + system-state / unstable-input stress. System issues → prompt packs; design issues → skills. Browser E2E: stall >150s without canvas → Stop and retry.",
+  "version": 3,
+  "rubric": "./rubric.json",
+  "tasks_dir": "./tasks",
+  "note": "Category craft + system-state / unstable-input stress. V3 rubric matches Runtime Review (caps sum 100). First-phase family dataset: 40 tasks (10 each poster/landing/dashboard/image). System issues → prompt packs; design issues → skills. Browser E2E: stall >150s without canvas → Stop and retry. V3 family tasks: npm run eval:agent -- --v3-tasks. Regression: npm run eval:compare (avg drop > 3 or key task drop > 5 → fail).",
   "cases": [
     {
       "id": "poster",
