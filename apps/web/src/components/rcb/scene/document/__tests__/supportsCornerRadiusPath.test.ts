@@ -47,4 +47,18 @@ describe('supportsCornerRadius — closed boolean / path', () => {
       })
     ).toBe(false);
   });
+
+  it('rejects multi-glyph outlined text paths (R-dots only in path-edit)', () => {
+    expect(
+      supportsCornerRadius({
+        key: 'shape',
+        attrs: {
+          shapeType: 'path',
+          closed: 'true',
+          // 4+ closed rings — same threshold as requestEnterPathEdit
+          path: 'M 0 0 L 10 0 L 10 10 Z M 20 0 L 30 0 L 30 10 Z M 40 0 L 50 0 L 50 10 Z M 60 0 L 70 0 L 70 10 Z',
+        },
+      })
+    ).toBe(false);
+  });
 });

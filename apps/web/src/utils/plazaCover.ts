@@ -145,6 +145,31 @@ function contentBoundsOfNodes(
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
+/** Tight crop around content when it meaningfully shrinks empty margins. */
+function maybeContentFitCrop(
+  nodes: Record<string, unknown>,
+  children: string[],
+  frame: PlazaCoverFrame
+): { outW: number; outH: number } | null {
+  if (!children.length) return null;
+  const box = contentBoundsOfNodes(nodes, children);
+  if (!box) return null;
+  const pad = Math.max(12, Math.round(Math.max(box.width, box.height) * 0.08));
+  const x0 = Math.max(0, Math.floor(box.x - pad));
+  const y0 = Math.max(0, Math.floor(box.y - pad));
+  const x1 = Math.min(frame.width, Math.ceil(box.x + box.width + pad));
+  const y1 = Math.min(frame.height, Math.ceil(box.y + box.height + pad));
+  const cropW = Math.max(1, x1 - x0);
+  const cropH = Math.max(1, y1 - y0);
+  if (!(cropW * cropH < frame.width * frame.height * 0.85)) return null;
+  for (const id of children) {
+    const node = nodes[id] as Record<string, unknown>;
+    node.x = num(node.x) - x0;
+    node.y = num(node.y) - y0;
+  }
+  return { outW: cropW, outH: cropH };
+}
+
 /** Lightweight single-frame doc for one artboard (+ nodes inside). */
 export function extractFrameDocument(
   document: unknown,
@@ -183,26 +208,11 @@ export function extractFrameDocument(
   let outW = frame.width;
   let outH = frame.height;
 
-  if (opts?.contentFit && children.length) {
-    const box = contentBoundsOfNodes(nodes, children);
-    if (box) {
-      const pad = Math.max(12, Math.round(Math.max(box.width, box.height) * 0.08));
-      const x0 = Math.max(0, Math.floor(box.x - pad));
-      const y0 = Math.max(0, Math.floor(box.y - pad));
-      const x1 = Math.min(frame.width, Math.ceil(box.x + box.width + pad));
-      const y1 = Math.min(frame.height, Math.ceil(box.y + box.height + pad));
-      const cropW = Math.max(1, x1 - x0);
-      const cropH = Math.max(1, y1 - y0);
-      // Prefer content crop only when it meaningfully tightens empty margins.
-      if (cropW * cropH < frame.width * frame.height * 0.85) {
-        for (const id of children) {
-          const node = nodes[id] as Record<string, unknown>;
-          node.x = num(node.x) - x0;
-          node.y = num(node.y) - y0;
-        }
-        outW = cropW;
-        outH = cropH;
-      }
+  if (opts?.contentFit) {
+    const crop = maybeContentFitCrop(nodes, children, frame);
+    if (crop) {
+      outW = crop.outW;
+      outH = crop.outH;
     }
   }
 

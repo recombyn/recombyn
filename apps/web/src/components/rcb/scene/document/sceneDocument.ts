@@ -284,7 +284,7 @@ export function normalizeDocument(doc: unknown): SceneDocument {
     if (!exists) next.activeFrameId = null;
   }
 
-  // Collapse multi-page docs into one canvas (PDF export will paginate later)
+  // Collapse multi-page docs into one canvas
   if (!Array.isArray(next.pages) || !next.pages.length) {
     const page = createPage();
     page.children = [...(next.deltaSetLike?.ROOT?.children || [])];
@@ -463,7 +463,7 @@ export function addNodeToDocument(
   return next;
 }
 
-/** Merge an imported Scene (PDF/image job) into the current canvas with remapped ids. */
+/** Merge an imported Scene (image job) into the current canvas with remapped ids. */
 export function mergeImportedIntoDocument(
   base: SceneDocument | null | undefined,
   incoming: SceneDocument | null | undefined,

@@ -1,4 +1,4 @@
-"""Video generation via OpenRouter ``POST /videos`` + poll."""
+"""Video generation (submit + poll)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from app.services.llm import (
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_VIDEO_MODEL = "bytedance/seedance-2.0-fast"
 _POLL_INTERVAL_S = 2.0
 _POLL_MAX_S = 600.0
 
@@ -31,6 +30,7 @@ def _admin_video_default() -> str:
 
 
 def resolve_video_model(model: str | None = None) -> str:
+    """Resolve video catalog id from arg → Admin rule → catalog (no hardcoded id)."""
     mid = (model or _admin_video_default() or "").strip()
     known = {m["id"]: m for m in list_video_models()}
     if mid in known:
@@ -43,14 +43,14 @@ def resolve_video_model(model: str | None = None) -> str:
             None,
         )
         return preferred or next(iter(known))
-    return _DEFAULT_VIDEO_MODEL
+    return ""
 
 
 def _api_model_id(catalog_id: str) -> str:
     for m in list_video_models():
         if m["id"] == catalog_id:
             return str(m.get("api_model") or m["id"])
-    return catalog_id or _DEFAULT_VIDEO_MODEL
+    return catalog_id or ""
 
 
 def _pick_video_url(payload: dict[str, Any]) -> str:

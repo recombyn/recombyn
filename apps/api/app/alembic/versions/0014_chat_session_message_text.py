@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0014_chat_session_message_text"
-down_revision = "0013_design_system_prompt_body_text"
+down_revision = "0013_dsp_body_longtext"
 branch_labels = None
 depends_on = None
 
@@ -22,6 +22,11 @@ _MYSQL_ALTERS = (
     "ALTER TABLE chat_sessions MODIFY meta_json LONGTEXT NULL",
     "ALTER TABLE design_global_rule MODIFY rule_value LONGTEXT NOT NULL",
     "ALTER TABLE design_global_rule MODIFY description LONGTEXT NULL",
+    "ALTER TABLE llm_models MODIFY description LONGTEXT NULL",
+    "ALTER TABLE llm_models MODIFY icon_url LONGTEXT NULL",
+    "ALTER TABLE llm_models MODIFY reference_types LONGTEXT NULL",
+    "ALTER TABLE llm_models MODIFY image_limits LONGTEXT NULL",
+    "ALTER TABLE llm_models MODIFY price_meta LONGTEXT NULL",
 )
 
 

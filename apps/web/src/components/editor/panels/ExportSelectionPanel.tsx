@@ -37,9 +37,6 @@ import {
   type ExportImageFormat,
   type ExportSlotConfig,
 } from '@/components/rcb/scene/paint/exportImage';
-import { pushProjectToCloud } from '@/components/editor/useProjectCloudSync';
-import { createExportJob, downloadExportJobFile, waitForExportJob } from '@/service/exportJobs';
-import { getToken } from '@/utils/token';
 import {
   normalizeDocument
 } from '@/components/rcb/scene/document/sceneDocument';
@@ -219,40 +216,50 @@ function parseAffixMode(value: string): ExportAffixMode {
 
 export type NamedExportCrop = ExportCropRegion & { name?: string };
 
-/** When there are no artboard frames, crop to scene content (or document size). */
-function contentCropFallback(document: SceneDocument, name: string): NamedExportCrop | null {
-  if (!document) return null;
+/** Union AABB of exportable nodes; null when none qualify. */
+function unionExportableBounds(
+  document: SceneDocument,
+  ids: string[]
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
   let hit = false;
+  for (const id of ids) {
+    const node = document?.deltaSetLike?.[id];
+    if (!isExportableSceneNode(node)) continue;
+    const { left, top } = nodeLeftTop(document, node);
+    const w = Number(node.width);
+    const h = Number(node.height);
+    if (![left, top, w, h].every(Number.isFinite) || !(w > 0) || !(h > 0)) continue;
+    hit = true;
+    minX = Math.min(minX, left);
+    minY = Math.min(minY, top);
+    maxX = Math.max(maxX, left + w);
+    maxY = Math.max(maxY, top + h);
+  }
+  if (!hit) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+/** When there are no artboard frames, crop to scene content (or document size). */
+function contentCropFallback(document: SceneDocument, name: string): NamedExportCrop | null {
+  if (!document) return null;
   const children = document?.deltaSetLike?.ROOT?.children;
   if (Array.isArray(children)) {
-    for (const id of children) {
-      const node = document.deltaSetLike?.[id];
-      if (!isExportableSceneNode(node)) continue;
-      const { left, top } = nodeLeftTop(document, node);
-      const w = Number(node.width);
-      const h = Number(node.height);
-      if (![left, top, w, h].every(Number.isFinite) || !(w > 0) || !(h > 0)) continue;
-      hit = true;
-      minX = Math.min(minX, left);
-      minY = Math.min(minY, top);
-      maxX = Math.max(maxX, left + w);
-      maxY = Math.max(maxY, top + h);
+    const bounds = unionExportableBounds(document, children.map(String));
+    if (bounds) {
+      const pad = 8;
+      return {
+        x: bounds.minX - pad,
+        y: bounds.minY - pad,
+        width: Math.max(1, bounds.maxX - bounds.minX + pad * 2),
+        height: Math.max(1, bounds.maxY - bounds.minY + pad * 2),
+        backgroundColor: document.backgroundColor,
+        name,
+      };
     }
-  }
-  if (hit) {
-    const pad = 8;
-    return {
-      x: minX - pad,
-      y: minY - pad,
-      width: Math.max(1, maxX - minX + pad * 2),
-      height: Math.max(1, maxY - minY + pad * 2),
-      backgroundColor: document.backgroundColor,
-      name,
-    };
   }
   const w = Math.max(0, Number(document.width) || 0);
   const h = Math.max(0, Number(document.height) || 0);
@@ -284,26 +291,12 @@ function exportSourceSize(
     }
     return { width, height };
   }
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let hit = false;
-  for (const id of ids) {
-    const node = document?.deltaSetLike?.[id];
-    if (!isExportableSceneNode(node)) continue;
-    const { left, top } = nodeLeftTop(document, node);
-    const w = Number(node.width);
-    const h = Number(node.height);
-    if (![left, top, w, h].every(Number.isFinite) || !(w > 0) || !(h > 0)) continue;
-    hit = true;
-    minX = Math.min(minX, left);
-    minY = Math.min(minY, top);
-    maxX = Math.max(maxX, left + w);
-    maxY = Math.max(maxY, top + h);
-  }
-  if (!hit) return { width: 1, height: 1 };
-  return { width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  const bounds = unionExportableBounds(document, ids);
+  if (!bounds) return { width: 1, height: 1 };
+  return {
+    width: Math.max(1, bounds.maxX - bounds.minX),
+    height: Math.max(1, bounds.maxY - bounds.minY),
+  };
 }
 
 function ExportSelectionPanel({
@@ -777,8 +770,6 @@ function EditorTopExportButton({
 }) {
   const { t } = useTranslation();
   const document = useSelector((s: any) => s.editor.document);
-  const dirty = useSelector((s: any) => Boolean(s.editor.dirty));
-  const currentId = useSelector((s: any) => s.editor.currentId as string | null);
   const selectedNodeIds = useSelector(
     (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
   );
@@ -892,55 +883,6 @@ function EditorTopExportButton({
     void run();
   }, [document, projectName, t]);
 
-  const runServerPdf = useCallback(() => {
-    setMenuOpen(false);
-    const projectId = String(currentId || '').trim();
-    if (!getToken()) {
-      message.warning(t('editor.exportNeedLogin'));
-      return;
-    }
-    if (!projectId || projectId.startsWith('share_')) {
-      message.warning(t('editor.exportNeedProject'));
-      return;
-    }
-    if (!document) {
-      message.error(t('editor.exportFailed'));
-      return;
-    }
-    if (!pageCrops.length) {
-      message.warning(t('editor.noPagesExport'));
-      return;
-    }
-    async function run() {
-      setBusy(true);
-      try {
-        if (dirty) {
-          const pushed = await pushProjectToCloud({
-            id: projectId,
-            name: projectName,
-            document,
-          });
-          if (pushed.status !== 'ok') {
-            message.error(t('editor.exportNeedSave'));
-            return;
-          }
-        }
-        const created = await createExportJob({ projectId, format: 'pdf' });
-        await waitForExportJob(created.job_id);
-        const blob = await downloadExportJobFile(created.job_id);
-        const result = await downloadFileBlob(blob, `${projectName || 'export'}.pdf`);
-        if (result === 'saved') message.success(t('editor.exportedServerPdf'));
-        else if (result !== 'cancelled') message.error(t('editor.exportFailed'));
-      } catch (err) {
-        console.warn('[export-pdf]', err);
-        message.error(t('editor.exportFailed'));
-      } finally {
-        setBusy(false);
-      }
-    }
-    void run();
-  }, [currentId, dirty, document, pageCrops.length, projectName, t]);
-
   const panelNodeIds = mode === 'selected' ? exportableSelectedIds : undefined;
   const panelCrops = mode === 'all' ? pageCrops : undefined;
   const panelBaseName = mode === 'all' ? t('editor.pageExportName') : t('editor.selectionExportName');
@@ -1008,14 +950,6 @@ function EditorTopExportButton({
               >
                 <HiOutlineCodeBracket className="h-4 w-4 shrink-0 text-[var(--muted)]" />
                 {t('editor.exportJson')}
-              </DropdownPanelItem>
-              <DropdownPanelItem
-                role="menuitem"
-                onClick={runServerPdf}
-                className="gap-2.5 hover:text-[var(--accent)] [&:hover_svg]:text-[var(--accent)]"
-              >
-                <HiOutlineArrowDownTray className="h-4 w-4 shrink-0 text-[var(--muted)]" />
-                {t('editor.exportServerPdf')}
               </DropdownPanelItem>
             </DropdownPanel>
           </div>

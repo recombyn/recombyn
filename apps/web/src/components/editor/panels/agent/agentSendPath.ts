@@ -229,19 +229,12 @@ export function canvasSizeFromChip(chipNorm: string): string | undefined {
   return undefined;
 }
 
-function pickModelWithFallback(
+function pickCatalogModel(
   pool: LlmModel[],
-  selectedId: string,
-  fallbackId: string
+  selectedId: string
 ): LlmModel | undefined {
-  if (selectedId) {
-    const selected = pool.find((m) => m.id === selectedId);
-    if (selected) return selected;
-  }
-  if (fallbackId) {
-    const fallback = pool.find((m) => m.id === fallbackId);
-    if (fallback) return fallback;
-  }
+  const id = String(selectedId || '').trim();
+  if (id) return pool.find((m) => m.id === id);
   return pool[0];
 }
 
@@ -266,10 +259,7 @@ export function buildImageModeControls(opts: {
 }): ImageModeComposerControls | null {
   if (!opts.active) return null;
   const pool = opts.models.filter((m) => isImageKind(m));
-  const fallbackId = cloudImageFallbackId();
-  const selected =
-    pickModelWithFallback(pool, opts.modelId, fallbackId) ||
-    ({ id: opts.modelId || fallbackId || '' } as LlmModel);
+  const selected = pickCatalogModel(pool, opts.modelId);
   return {
     resolution: opts.resolution,
     aspectRatio: opts.aspectRatio,
@@ -277,13 +267,15 @@ export function buildImageModeControls(opts: {
     onResolutionChange: opts.onResolutionChange,
     onAspectRatioChange: opts.onAspectRatioChange,
     onImageCountChange: (n) => opts.onImageCountChange(clampComposerImageCount(n)),
-    imageLimits: modelImageLimits(selected),
-    creditCost: estimateImageCredits(selected, opts.imageCount, opts.resolution),
-    modelLabel: String(selected.label || opts.modelId || fallbackId || selected.id || ''),
-    modelIcon: createElement(ModelBrandIcon, {
-      model: selected,
-      className: 'h-3.5 w-3.5 shrink-0',
-    }),
+    imageLimits: selected ? modelImageLimits(selected) : null,
+    creditCost: selected ? estimateImageCredits(selected, opts.imageCount, opts.resolution) : 0,
+    modelLabel: String(selected?.label || opts.modelId || ''),
+    modelIcon: selected
+      ? createElement(ModelBrandIcon, {
+          model: selected,
+          className: 'h-3.5 w-3.5 shrink-0',
+        })
+      : undefined,
     modelOpen: opts.modelOpen,
     onModelOpenChange: opts.onModelOpenChange,
     modelPanel: createElement(ModelPickerPanel, {
@@ -313,10 +305,7 @@ export function buildVideoModeControls(opts: {
 }): VideoModeComposerControls | null {
   if (!opts.active) return null;
   const pool = opts.models.filter((m) => isVideoKind(m));
-  const fallbackId = cloudVideoFallbackId();
-  const selected =
-    pickModelWithFallback(pool, opts.modelId, fallbackId) ||
-    ({ id: opts.modelId || fallbackId || '' } as LlmModel);
+  const selected = pickCatalogModel(pool, opts.modelId);
   return {
     resolution: opts.resolution,
     aspectRatio: opts.aspectRatio,
@@ -324,12 +313,14 @@ export function buildVideoModeControls(opts: {
     onResolutionChange: opts.onResolutionChange,
     onAspectRatioChange: opts.onAspectRatioChange,
     onDurationChange: opts.onDurationChange,
-    creditCost: estimateVideoCredits(selected),
-    modelLabel: String(selected.label || opts.modelId || fallbackId || selected.id || ''),
-    modelIcon: createElement(ModelBrandIcon, {
-      model: selected,
-      className: 'h-3.5 w-3.5 shrink-0',
-    }),
+    creditCost: selected ? estimateVideoCredits(selected) : 0,
+    modelLabel: String(selected?.label || opts.modelId || ''),
+    modelIcon: selected
+      ? createElement(ModelBrandIcon, {
+          model: selected,
+          className: 'h-3.5 w-3.5 shrink-0',
+        })
+      : undefined,
     modelOpen: opts.modelOpen,
     onModelOpenChange: opts.onModelOpenChange,
     modelPanel: createElement(ModelPickerPanel, {
@@ -551,6 +542,27 @@ export function resolveImageGenPlan(opts: {
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
+function resolveSeedImageModelMeta(opts: {
+  canPickModel: boolean;
+  model: string;
+  selectedModel?: LlmModel | null;
+  models: LlmModel[];
+}): { id: string; label: string } {
+  const fallbackId = cloudImageFallbackId();
+  if (!opts.canPickModel) {
+    const label =
+      opts.models.find((m) => m.id === fallbackId)?.label ||
+      opts.selectedModel?.id ||
+      opts.model ||
+      fallbackId;
+    return { id: fallbackId, label: String(label) };
+  }
+  const id = String(opts.model || opts.selectedModel?.id || '');
+  const label =
+    opts.selectedModel?.label || opts.selectedModel?.id || opts.model || fallbackId;
+  return { id, label: String(label) };
+}
+
 export function buildStreamingAssistantSeed(opts: {
   imageGenCount: number;
   imageGenAspect?: string;
@@ -564,26 +576,15 @@ export function buildStreamingAssistantSeed(opts: {
   ChatUiMessage,
   'steps' | 'imagePendingCount' | 'imageAspectRatio' | 'imageModelId' | 'imageModelLabel'
 > {
-  if (opts.imageGenCount) {
-    const fallbackId = cloudImageFallbackId();
-    return {
-      imagePendingCount: opts.imageGenCount,
-      imageAspectRatio: opts.imageGenAspect || opts.imageGenAspectRatio,
-      imageModelId: !opts.canPickModel
-        ? fallbackId
-        : String(opts.model || opts.selectedModel?.id || ''),
-      imageModelLabel: String(
-        (!opts.canPickModel
-          ? opts.models.find((m) => m.id === fallbackId)?.label
-          : opts.selectedModel?.label) ||
-          opts.selectedModel?.id ||
-          opts.model ||
-          fallbackId
-      ),
-      steps: [],
-    };
+  if (!opts.imageGenCount) {
+    return { steps: [] };
   }
+  const meta = resolveSeedImageModelMeta(opts);
   return {
+    imagePendingCount: opts.imageGenCount,
+    imageAspectRatio: opts.imageGenAspect || opts.imageGenAspectRatio,
+    imageModelId: meta.id,
+    imageModelLabel: meta.label,
     steps: [],
   };
 }

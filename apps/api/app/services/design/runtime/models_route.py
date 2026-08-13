@@ -234,14 +234,7 @@ def parse_model_lanes(rules: dict[str, str] | None) -> dict[str, str]:
     ).strip()
     out: dict[str, str] = {}
     if not raw:
-        return {
-            "fast": "doubao-seed-2-1-turbo",
-            "standard": "deepseek-v4-flash",
-            "reasoning": "deepseek-v4-pro",
-            "vision": "doubao-seed-2-1-turbo",
-            "image": "doubao-seedream-5-0-lite",
-            "else": "deepseek-v4-flash",
-        }
+        return out
     for part in raw.split(";"):
         part = part.strip()
         if not part or "->" not in part:
@@ -271,10 +264,10 @@ def parse_model_lanes(rules: dict[str, str] | None) -> dict[str, str]:
     if "else" in out:
         out.setdefault("fast", out["else"])
         out.setdefault("standard", out["else"])
-    out.setdefault(
-        "else",
-        out.get("standard") or out.get("reasoning") or out.get("fast") or "deepseek-v4-flash",
-    )
+    else:
+        else_src = out.get("standard") or out.get("reasoning") or out.get("fast")
+        if else_src:
+            out["else"] = else_src
     return out
 
 
@@ -372,12 +365,6 @@ def _is_concrete(ref: str) -> bool:
     return ref not in ("doubao", "deepseek", "auto", "glm", "kimi") and bool(ref)
 
 
-_VISION_MODEL_IDS = frozenset(
-    {
-        "doubao-seed-2-1-pro",
-        "doubao-seed-2-1-turbo",
-    }
-)
 _VISION_MODEL_MARKERS = (
     "vision",
     "seed-2-1-pro",
@@ -385,7 +372,6 @@ _VISION_MODEL_MARKERS = (
     "seed-2.1-pro",
     "seed-2.1-turbo",
 )
-_DEFAULT_VISION_FALLBACK = "doubao-seed-2-1-pro"
 
 
 def model_supports_vision(model_ref: str | None) -> bool:
@@ -422,8 +408,6 @@ def model_supports_vision(model_ref: str | None) -> bool:
         pass
     if "mini" in low or "flash" in low:
         return False
-    if low in _VISION_MODEL_IDS:
-        return True
     return any(m in low for m in _VISION_MODEL_MARKERS)
 
 
@@ -444,7 +428,7 @@ def resolve_vision_model(rules: dict[str, str] | None) -> str:
     for mid in candidates:
         if _vision_ok(mid):
             return mid
-    return _DEFAULT_VISION_FALLBACK
+    return ""
 
 
 def resolve_review_model(
@@ -501,7 +485,7 @@ def ensure_vision_model(
     if not _vision_ok(vision):
         vision = resolve_vision_model(rules)
     if not _vision_ok(vision):
-        vision = _DEFAULT_VISION_FALLBACK
+        return model_ref, None
     if vision == model_ref:
         return model_ref, None
     return vision, f"precheck_vision_from_{normalize_model_ref(model_ref)}"
@@ -741,7 +725,7 @@ def model_for_lane(
             or lanes.get("vision")
             or resolve_vision_model(rules)
         )
-    return lanes.get(key) or lanes.get("else") or lanes.get("standard") or "deepseek-v4-flash"
+    return lanes.get(key) or lanes.get("else") or lanes.get("standard") or ""
 
 
 def family_from_precheck(
@@ -777,7 +761,7 @@ def router_model_id(rules: dict[str, str] | None) -> str:
     if raw:
         return raw
     lanes = parse_model_lanes(rules)
-    return lanes.get("fast") or lanes.get("else") or "doubao-seed-2-1-turbo"
+    return lanes.get("fast") or lanes.get("else") or ""
 
 
 def _user_request_core(prompt: str) -> str:
@@ -1079,46 +1063,32 @@ def resolve_model_for_skill(
             return resolve_vision_model(rules), f"{reason}+lane_vision"
         return chosen, reason
 
+    def lock_or_vision(model_ref: str, reason: str) -> tuple[str, str]:
+        if has_images and not _vision_ok(model_ref):
+            return resolve_vision_model(rules), f"{reason}+precheck_vision"
+        return model_ref, reason
+
     if run_mode == "single_model":
         if _is_concrete(selected):
-            if has_images and not _vision_ok(selected):
-                return resolve_vision_model(rules), "user_single_model+precheck_vision"
-            return selected, "user_single_model"
+            return lock_or_vision(selected, "user_single_model")
         if selected in ("doubao", "deepseek", "glm", "kimi", "auto") or not selected:
             return from_precheck("single_precheck")
-        chosen, reason = skill_default, "single_model_fallback_default"
-        if has_images and not _vision_ok(chosen):
-            return resolve_vision_model(rules), f"{reason}+precheck_vision"
-        return chosen, reason
+        return lock_or_vision(skill_default, "single_model_fallback_default")
 
     if run_mode == "partial":
         if _is_concrete(selected):
-            if has_images and not _vision_ok(selected):
-                return resolve_vision_model(rules), "user_partial_priority+precheck_vision"
-            return selected, "user_partial_priority"
+            return lock_or_vision(selected, "user_partial_priority")
         return from_precheck("partial_precheck")
 
     if selected in ("auto", "doubao", "deepseek", "glm", "kimi") or not selected:
         return from_precheck("precheck_lane")
 
     if _is_concrete(selected):
-        if has_images and not _vision_ok(selected):
-            return resolve_vision_model(rules), "user_locked+precheck_vision"
-        return selected, "user_locked"
+        return lock_or_vision(selected, "user_locked")
 
     return from_precheck("precheck_lane")
 
 
 def to_endpoint_model_id(model_ref: str) -> str:
-    ref = str(model_ref or "").strip().lower()
-    if ref == "deepseek":
-        return "deepseek-v4-pro"
-    if ref == "doubao":
-        return "doubao-seed-2-1-turbo"
-    if ref == "glm":
-        return "deepseek-v4-flash"
-    if ref == "kimi":
-        return "deepseek-v4-pro"
-    if ref:
-        return ref
-    return "doubao-seed-2-1-turbo"
+    """Pass through catalog / rule ids — no family→concrete inventing."""
+    return str(model_ref or "").strip().lower()

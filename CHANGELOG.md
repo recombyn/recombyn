@@ -8,6 +8,11 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+### Removed
+
+- Artboard **export** is PNG-only (non-PNG formats rejected)
+- File **import** is image-only (document convert paths removed)
+
 ### Added
 
 - Phase 1–3 foundation: monorepo / ADR / async hydrate jobs / LLM façade / correlation logs / upload magic sniff
@@ -26,8 +31,7 @@ for tagged releases (`vMAJOR.MINOR.PATCH`).
 - Admin hydrate **DLQ replay** (`/api/v1/admin/ops/hydrate-dlq`) + `recombyn_hydrate_dlq_depth`
 - Compose **obs** profile (Prometheus / Grafana / Alertmanager) and **av** overlay (`clamdscan`)
 - Admin Insights **失败队列** tab (hydrate DLQ list / replay / discard)
-- Async **artboard export** jobs (`POST/GET /api/v1/design/export/jobs`, PNG/PDF via Celery)
-- Editor **Export PDF (server)** menu item (save → enqueue → poll → download)
+- Async **artboard export** jobs (`POST/GET /api/v1/design/export/jobs`, PNG via Celery)
 - Admin **export DLQ** replay (`/api/v1/admin/ops/export-dlq`) + `recombyn_export_dlq_depth`
 - Async **chat image** jobs (`POST/GET /api/v1/chat/image/jobs`) so editor generate does not hold API workers
 - Async **chat video/audio** jobs (`POST/GET /api/v1/chat/video/jobs`, `/chat/audio/jobs`) — same poll contract as image (ADR 0005)

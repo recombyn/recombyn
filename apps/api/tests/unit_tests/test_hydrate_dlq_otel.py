@@ -187,7 +187,7 @@ def test_admin_export_dlq_list_replay_discard():
         "trace_id": "t1",
         "project_id": "p1",
         "user_id": "u1",
-        "format": "pdf",
+        "format": "png",
         "frame_id": "f1",
     }
     delay = MagicMock()

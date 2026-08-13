@@ -53,6 +53,29 @@ const ROUTE_PRESETS_FALLBACK: Record<
   },
 };
 
+/** Retired catalog ids still lingering in prefs / Admin preset rows. */
+const RETIRED_ROUTE_MODEL_IDS: Record<string, string> = {
+  'or-gpt-image-1': 'or-gpt-image-2',
+  'or-gpt-image-1-mini': 'or-gpt-image-2',
+};
+
+function remapRetiredRouteModelId(id: string | undefined): string | undefined {
+  const v = String(id || '').trim();
+  if (!v) return id;
+  return RETIRED_ROUTE_MODEL_IDS[v] || v;
+}
+
+function remapRetiredRoutePrefs(prefs: AgentRoutePrefs): AgentRoutePrefs {
+  return {
+    ...prefs,
+    fast: remapRetiredRouteModelId(prefs.fast),
+    standard: remapRetiredRouteModelId(prefs.standard),
+    reasoning: remapRetiredRouteModelId(prefs.reasoning),
+    vision: remapRetiredRouteModelId(prefs.vision),
+    image: remapRetiredRouteModelId(prefs.image),
+  };
+}
+
 let cachedPresetRules: Record<string, string> | null = null;
 /** From GET /chat/models — null until first fetch. */
 let cachedOpenrouterAvailable: boolean | null = null;
@@ -134,14 +157,14 @@ export function resolveNamedPreset(
   const source = rules ?? cachedPresetRules;
   const raw = source?.[`precheck.user_preset.${name}`] || '';
   const parsed = parseUserPresetRoutes(raw);
-  return {
+  return remapRetiredRoutePrefs({
     preset: name,
     fast: parsed.fast || fallback.fast,
     standard: parsed.standard || fallback.standard,
     reasoning: parsed.reasoning || fallback.reasoning,
     vision: parsed.vision || fallback.vision,
     image: parsed.image || fallback.image,
-  };
+  });
 }
 
 export function emptyCustomRoutePrefs(): AgentRoutePrefs {
@@ -176,14 +199,14 @@ export function loadAgentRoutePrefs(rules?: Record<string, string> | null): Agen
       const migrated = migrateLegacyRouteKeys(parsed);
       const keep = (id: string | undefined) =>
         isCustomModelId(String(id || '').trim()) ? String(id).trim() : '';
-      return {
+      return remapRetiredRoutePrefs({
         preset: 'custom',
         fast: keep(migrated.fast),
         standard: keep(migrated.standard),
         reasoning: keep(migrated.reasoning),
         vision: keep(migrated.vision),
         image: keep(migrated.image),
-      };
+      });
     } catch {
       return emptyCustomRoutePrefs();
     }
@@ -209,14 +232,14 @@ export function loadAgentRoutePrefs(rules?: Record<string, string> | null): Agen
     }
     if (preset === 'custom') {
       const migrated = migrateLegacyRouteKeys(parsed);
-      return {
+      return remapRetiredRoutePrefs({
         preset: 'custom',
         fast: migrated.fast,
         standard: migrated.standard,
         reasoning: migrated.reasoning,
         vision: migrated.vision,
         image: migrated.image,
-      };
+      });
     }
     return { preset: 'platform' };
   } catch {

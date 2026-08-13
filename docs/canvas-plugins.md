@@ -1,6 +1,6 @@
 # Canvas plugins (authoring)
 
-Canvas plugins extend the **editor UI** (toolbar today). They are separate from AI Skill packs (`plugins/skills/`).
+You can add editor UI with a canvas plugin (toolbar buttons today). This is separate from AI Skill packs (`plugins/skills/`) — don’t mix the two roots.
 
 ## Layout
 

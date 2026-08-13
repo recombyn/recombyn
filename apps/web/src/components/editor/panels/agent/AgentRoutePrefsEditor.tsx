@@ -524,7 +524,7 @@ function AgentRoutePrefsEditorImpl({
     return opts.find((o) => o.id === v)?.label || v;
   };
 
-  /** Only return a catalog hit — never invent a stub (stub still draws a brand icon). */
+  /** Catalog hit only — missing id stays empty (fix data / prefs, do not invent). */
   const modelRefOf = (id: string | undefined, opts: { id: string; label: string }[]) => {
     const v = String(id || '').trim() || opts[0]?.id || '';
     if (!v) return null;
@@ -939,15 +939,17 @@ function AgentRoutePrefsEditorImpl({
                               {row.label}
                             </span>
                             <span className="grid w-[8.25rem] grid-cols-[0.875rem_minmax(0,1fr)_0.875rem] items-center gap-1 text-[12px] text-[var(--muted)]">
-                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
+                              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-hidden">
                                 {laneModel ? (
                                   <ModelBrandIcon model={laneModel} size={14} />
-                                ) : null}
+                                ) : (
+                                  <span className="block h-3.5 w-3.5" aria-hidden />
+                                )}
                               </span>
                               <span className="min-w-0 truncate">
                                 {modelLabelOf(routePrefs[row.key], row.opts)}
                               </span>
-                              <HiChevronRight className="h-3.5 w-3.5" />
+                              <HiChevronRight className="h-3.5 w-3.5 shrink-0" />
                             </span>
                           </button>
                         ),

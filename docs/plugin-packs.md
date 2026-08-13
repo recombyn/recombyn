@@ -1,6 +1,6 @@
 # Plugin packs (``.recombyn-plugin``)
 
-Branded installable artifact for Skill and Canvas extensions.
+You can pack a Skill or Canvas plugin into a `.recombyn-plugin` file and install it (Skills library upload, or API). Canvas packs must install to disk.
 
 ## Build
 

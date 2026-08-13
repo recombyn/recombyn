@@ -1,8 +1,8 @@
 # API
 
-Base: `http://localhost:8000/api/v1` · Swagger: http://127.0.0.1:8000/docs
+The HTTP API is FastAPI. Local base: `http://localhost:8000/api/v1` · Swagger: http://127.0.0.1:8000/docs
 
-架构 / Agent：[self-hosting.md](./self-hosting.md#architecture) · Profile / 子代理：[agent-profile.md](./agent-profile.md) · 用户文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
+Architecture / Agent: [self-hosting.md](./self-hosting.md#architecture) · Profile / sub-agents: [agent-profile.md](./agent-profile.md) · User docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
 
 | Prefix | Notes |
 |--------|-------|

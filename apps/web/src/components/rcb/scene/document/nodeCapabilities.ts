@@ -143,6 +143,22 @@ function isClosedFilletPath(node: SceneNodeRef): boolean {
   return /z\s*$/i.test(d);
 }
 
+/**
+ * Outlined text / multi-glyph paths: many M…Z rings. Selection R-dots would
+ * carpet every silhouette corner — edit anchors only in path-edit mode.
+ * Same threshold as `requestEnterPathEdit` (skip auto-enter).
+ */
+function isMultiGlyphOutlinePath(node: SceneNodeRef): boolean {
+  const d = String(node?.attrs?.path || node?.attrs?.d || '').trim();
+  if (!d) return false;
+  const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
+  return rings >= 4;
+}
+
+function pathAllowsCornerRadius(node: SceneNodeRef): boolean {
+  return isClosedFilletPath(node) && !isMultiGlyphOutlinePath(node);
+}
+
 /** Nodes that expose corner-radius toolbar + on-canvas handles. */
 export function supportsCornerRadius(node: SceneNodeRef) {
   if (!node) return false;
@@ -152,7 +168,8 @@ export function supportsCornerRadius(node: SceneNodeRef) {
   if (node.key === 'rect' || node.key === 'image') return true;
   // Closed boolean / outlined paths: fillet sharp corners (same R dots as rect).
   // Open pen / pencil / freehand stay out — no meaningful box corners.
-  if (node.key === 'path') return isClosedFilletPath(node);
+  // Multi-glyph outlines (text→path): no R-dots until path-edit mode.
+  if (node.key === 'path') return pathAllowsCornerRadius(node);
   if (node.key === 'shape') {
     const t = String(node.attrs?.shapeType || 'rect');
     if (t === 'circle' || t === 'ellipse') return false;
@@ -160,7 +177,7 @@ export function supportsCornerRadius(node: SceneNodeRef) {
       return true;
     }
     if (t === 'pen' || t === 'pencil' || t === 'line' || t === 'arrow') return false;
-    if (t === 'path') return isClosedFilletPath(node);
+    if (t === 'path') return pathAllowsCornerRadius(node);
   }
   return false;
 }

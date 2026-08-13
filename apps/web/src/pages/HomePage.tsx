@@ -4,9 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   createImportJob,
   getImportJob,
-  importDocx,
   importImage,
-  importPdf,
   type ImportJobResult,
   type ImportSourceType,
 } from '@/service/import';
@@ -36,7 +34,6 @@ function detectImportSourceType(file: File): ImportSourceType | null {
   if (/\.(psd|xd|rp|fig)$/i.test(name) || /photoshop|x-psd/i.test(type)) return null;
   if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(name)) return 'image';
   if (type.startsWith('image/')) return 'image';
-  // PDF / DOCX import is not a supported product path (image-only).
   return null;
 }
 
@@ -49,15 +46,8 @@ function fileForm(file: File, extra?: Record<string, string>): FormData {
   return data;
 }
 
-async function importSync(file: File, sourceType: ImportSourceType): Promise<ImportJobResult> {
-  const form = fileForm(file);
-  const sync =
-    sourceType === 'pdf'
-      ? importPdf(form)
-      : sourceType === 'docx'
-        ? importDocx(form)
-        : importImage(form);
-  const res: any = await sync;
+async function importSync(file: File, _sourceType: ImportSourceType): Promise<ImportJobResult> {
+  const res: any = await importImage(fileForm(file));
   return {
     job_id: res?.job_id ?? null,
     status: (res?.status as ImportJobResult['status']) || 'done',
@@ -152,27 +142,16 @@ function mapAgentBootAttachments(attachments: HomeAgentSubmitPayload['attachment
 
 function resolveImportEmptyMessage(
   t: (key: string, opts?: Record<string, unknown>) => string,
-  sourceType: ImportSourceType,
-  warnings: string[]
+  _sourceType: ImportSourceType,
+  _warnings: string[]
 ): string {
-  const joined = warnings.join('\n');
-  if (/Poppler|pdftoppm/i.test(joined)) return t('home.importNeedPoppler');
-  if (/LibreOffice|soffice/i.test(joined) && sourceType === 'docx') {
-    return t('home.importNeedLibreOffice');
-  }
-  if (sourceType === 'image') return t('home.importImageEmpty');
-  if (sourceType === 'pdf') return t('home.importPdfEmpty');
-  return t('home.importEmpty');
+  return t('home.importImageEmpty');
 }
 
 function showImportWarningsIfAny(
   t: (key: string, opts?: Record<string, unknown>) => string,
   warnings: string[]
 ) {
-  if (warnings.some((w) => /text-only DOCX|approximate/i.test(w))) {
-    message.warning(t('home.importDocxFallback'), 6);
-    return;
-  }
   if (warnings.some((w) => /raster-fallback|OCR produced no text/i.test(w))) {
     message.warning(t('home.importRasterFallback'), 6);
   }
@@ -212,7 +191,6 @@ function HomePage() {
   };
 
   const handleOpenCase = (meta: OfficialCaseMeta) => {
-    // Blank canvas + skill chip in chat 鈥?do not clone the case document or dump prompt text.
     goEditor({
       createNew: true,
       fromHomeAgent: true,
@@ -328,11 +306,6 @@ function HomePage() {
         importing={importing}
         onCreate={handleCreate}
       />
-      {/*
-        Rail is position:absolute (does not take flow width). Reserve the same 64px on md+
-        so hero/composer center in the remaining column 鈥?otherwise left gap looks tighter
-        than the right by exactly the rail width.
-      */}
       <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden md:pl-[64px]">
         <HomeTopBar nav={nav} setNav={setNav} />
         <HomeTemplateList

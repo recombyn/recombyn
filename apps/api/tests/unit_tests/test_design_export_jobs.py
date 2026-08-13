@@ -147,31 +147,18 @@ def test_render_artboard_png_draws_text():
     assert dark > 20
 
 
-def test_render_and_store_pdf(monkeypatch: pytest.MonkeyPatch):
+def test_render_and_store_rejects_non_png(monkeypatch: pytest.MonkeyPatch):
     from app.services.design import export_render as er
 
-    stored: dict[str, Any] = {}
-
-    class _FakeStorage:
-        def url_for(self, key: str) -> str:
-            return f"/{key}"
-
-    def _put(key: str, data: bytes, **_k):
-        stored["key"] = key
-        stored["data"] = data
-        return key
-
-    monkeypatch.setattr(er, "put_bytes", _put)
-    monkeypatch.setattr(er, "get_storage", lambda: _FakeStorage())
-    result = er.render_and_store_export(
-        document=_sample_document(),
-        user_id="u1",
-        job_id="j1",
-        fmt="pdf",
-    )
-    assert result["format"] == "pdf"
-    assert result["pages"] == 1
-    assert stored["data"][:4] == b"%PDF"
+    monkeypatch.setattr(er, "put_bytes", lambda *_a, **_k: None)
+    monkeypatch.setattr(er, "get_storage", lambda: MagicMock())
+    with pytest.raises(ValueError, match="png"):
+        er.render_and_store_export(
+            document=_sample_document(),
+            user_id="u1",
+            job_id="j1",
+            fmt="svg",
+        )
 
 
 def test_create_export_job_enqueues(monkeypatch: pytest.MonkeyPatch):

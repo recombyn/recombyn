@@ -55,6 +55,16 @@ def _sse_data(obj: dict[str, Any]) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
+def _outcome_from_event_type(et: str | None) -> str | None:
+    if et == "error":
+        return "error"
+    if et in ("done", "finished", "complete"):
+        return "ok"
+    if et == "paused":
+        return "paused"
+    return None
+
+
 @dataclass
 class _PipelineSseState:
     """Mutable Explored-pipeline bookkeeping for one /run SSE stream."""
@@ -346,7 +356,7 @@ def design_skills_picker(
         list_skills_for_picker,
     )
 
-    scene_l = (scene or "website").strip() or "website"
+    scene_l = (scene or "").strip() or ""
     if manage:
         return {"items": list_skills_for_manage(user_id=current_user.id, scene=scene_l)}
     if mine:
@@ -545,12 +555,11 @@ async def design_run(
                 if isinstance(payload, dict):
                     for frame in _pipeline_side_effects(state, payload):
                         yield _sse_data(frame)
-                    if et == "error":
-                        outcome = "error"
-                    elif et in ("done", "finished", "complete"):
-                        outcome = "ok"
-                    elif et == "paused":
-                        outcome = "paused"
+                    next_outcome = _outcome_from_event_type(
+                        et if isinstance(et, str) else None
+                    )
+                    if next_outcome:
+                        outcome = next_outcome
 
                 if _should_log_sse(et if isinstance(et, str) else None, state.out_n):
                     line = _sse_log_line(

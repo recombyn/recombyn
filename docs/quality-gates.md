@@ -1,6 +1,6 @@
 # Quality gates
 
-Local / CI gates for Recombyn. Monorepo foundation (shared configs, ADR): see [`docs/roadmap/platform.md`](./roadmap/platform.md) and [`docs/adr/`](./adr/README.md).
+You can run the same Pytest / Playwright / k6 / Prometheus checks locally that CI uses. Monorepo conventions: [`docs/roadmap/platform.md`](./roadmap/platform.md) · [`docs/adr/`](./adr/README.md).
 
 ## Quick commands
 

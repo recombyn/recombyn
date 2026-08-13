@@ -1,4 +1,4 @@
-"""Async design artboard export jobs — Celery + Redis poll (ADR 0005)."""
+"""Async artboard export jobs."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ _KIND = "export"
 
 class ExportJobCreateRequest(BaseModel):
     projectId: str = Field(min_length=1, max_length=64)
-    format: Literal["png", "pdf"] = "png"
+    format: Literal["png"] = "png"
     frameId: str | None = Field(default=None, max_length=64)
     trace_id: str | None = None
 
@@ -136,7 +136,8 @@ def download_export_job(current_user: CurrentUser, job_id: str):
     if not data:
         raise HTTPException(status_code=404, detail="Export file missing")
     content_type = str(result.get("contentType") or "application/octet-stream")
-    ext = "pdf" if content_type.endswith("pdf") else "png"
+    ext = "png"
+
     return Response(
         content=data,
         media_type=content_type,

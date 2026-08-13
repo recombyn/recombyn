@@ -1,6 +1,6 @@
 # Desktop API sidecar
 
-Local desktop builds embed FastAPI here after:
+Local desktop builds embed FastAPI here. `npm run build:desktop` runs the sidecar step automatically if this folder is missing.
 
 ```bash
 npm run build:desktop:sidecar

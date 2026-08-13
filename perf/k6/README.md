@@ -1,6 +1,6 @@
 # Gate B — k6 load scenarios
 
-Requires [k6](https://k6.io/docs/get-started/installation/) and a running API (`BASE_URL`).
+Load scripts for a running API (`BASE_URL`). Install [k6](https://k6.io/docs/get-started/installation/) first. Full matrix: [docs/quality-gates.md](../../docs/quality-gates.md).
 
 | Script | Purpose | Auth |
 |--------|---------|------|
