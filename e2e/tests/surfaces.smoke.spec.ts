@@ -1,5 +1,5 @@
 /**
- * Functional surface smoke �?auth shell, home/plaza, projects, me, editor mount.
+ * Functional surface smoke — auth shell, home/plaza, projects, me, editor mount.
  * Complements journey.* with broader product coverage at low flake risk.
  *
  * Requires: web on E2E_BASE_URL. Authed cases need E2E_TOKEN / .tmp-token.txt.
@@ -50,7 +50,7 @@ test.describe('surfaces smoke (unauthed)', () => {
     await page.goto('/home', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(/\/home/);
     await expect(page.locator('body')).toBeVisible();
-    // Guest home may paint without a modal �?open account to force auth shell.
+    // Guest home may paint without a modal — open account to force auth shell.
     const me = page.getByRole('button', { name: /^Me$|^我的$|Account|账户|账号/i }).first();
     if (await me.isVisible({ timeout: 8_000 }).catch(() => false)) {
       await me.click({ force: true });
@@ -79,7 +79,7 @@ test.describe('surfaces smoke (authed)', () => {
     await page.waitForURL(/\/home/, { timeout: 60_000 });
     await dismissBlockingDialogs(page);
     await expect(
-      page.getByRole('heading', { name: /Recent projects|最�?i }).first()
+      page.getByRole('heading', { name: /Recent projects|最近/i }).first()
     ).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: /New project|新建/i }).first()).toBeVisible({
       timeout: 15_000,
@@ -131,7 +131,7 @@ test.describe('surfaces smoke (authed)', () => {
     await expect(page.locator('body')).toBeVisible();
     const login = page.getByRole('heading', { name: /^Log in$|^登录$/i }).first();
     if (await login.isVisible({ timeout: 1_500 }).catch(() => false)) {
-      throw new Error('editor opened behind login �?auth token not applied');
+      throw new Error('editor opened behind login — auth token not applied');
     }
     const stage = page.locator('canvas, [data-testid="editor-stage"], .rcb-stage, svg').first();
     await expect(stage).toBeVisible({ timeout: 45_000 });

@@ -317,11 +317,7 @@ function SvgCanvas({
     const n = Number(s.editor.penStrokeOpacity);
     return Number.isFinite(n) ? Math.max(1, Math.min(100, n)) : 100;
   });
-  const bucketFill = useSelector((s: RootState) => s.editor.bucketFill || {
-    fillType: 'solid',
-    fillColor: '#333333',
-    fillOpacity: 100,
-  });
+  const bucketFill = useSelector((s: RootState) => s.editor.bucketFill);
   const bucketFillRef = useRef(bucketFill);
   bucketFillRef.current = bucketFill;
   const workspaceMode = useSelector(

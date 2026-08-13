@@ -205,6 +205,11 @@ const initialState = {
     fillType: 'solid' as const,
     fillColor: '#333333',
     fillOpacity: 100,
+    fillGradient: undefined as string | undefined,
+    fillImageSrc: undefined as string | undefined,
+    fillImageFit: undefined as 'fill' | 'fit' | 'crop' | 'tile' | undefined,
+    fillImageRotate: undefined as number | undefined,
+    fillImageAdjust: undefined as Record<string, number> | undefined,
   },
   /** Pencil brush wheel selection (default = first: 矢量墨线). */
   pencilBrushId: 'vector-ink' as string,

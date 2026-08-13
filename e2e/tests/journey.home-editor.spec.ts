@@ -1,5 +1,5 @@
 /**
- * Full product journey E2E: Home �?project data/covers �?Editor �?agent CRUD �?back Home covers.
+ * Full product journey E2E: Home → project data/covers → Editor → agent CRUD → back Home covers.
  *
  * Requires: web on E2E_BASE_URL (default http://localhost:3000), API, token in ../.tmp-token.txt
  */
@@ -19,7 +19,7 @@ function sleep(ms: number) {
 }
 
 async function injectAuth(page: Page) {
-  // Context-level so home �?editor `window.open` tabs also get the token.
+  // Context-level so home → editor `window.open` tabs also get the token.
   await page.context().addInitScript((tok) => {
     localStorage.setItem('recombine-auth-token-v1', tok);
     // Skip editor onboarding tour for E2E (user-scoped + global keys).
@@ -76,7 +76,7 @@ async function waitHomeProjects(page: Page) {
   await page.waitForLoadState('domcontentloaded');
   await dismissBlockingDialogs(page);
   await expect(page.locator('body')).toBeVisible();
-  const recent = page.getByRole('heading', { name: /Recent projects|最�?i }).first();
+  const recent = page.getByRole('heading', { name: /Recent projects|最近/i }).first();
   await expect(recent).toBeVisible({ timeout: 60_000 });
   await expect
     .poll(async () => projectCards(page).count(), { timeout: 60_000 })
@@ -188,7 +188,7 @@ async function sendAgent(page: Page, prompt: string) {
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
   await page.keyboard.type(prompt, { delay: 5 });
   await sleep(300);
-  const send = page.getByRole('button', { name: /send|发�?i }).first();
+  const send = page.getByRole('button', { name: /send|发送/i }).first();
   for (let i = 0; i < 30; i += 1) {
     if (!(await send.isDisabled().catch(() => true))) {
       await send.click({ force: true });
@@ -204,7 +204,7 @@ async function waitAgentIdle(page: Page, maxMs = 240_000) {
   let sawStop = false;
   while (Date.now() - t0 < maxMs) {
     const stop = page.getByRole('button', { name: /stop|停止|取消/i }).first();
-    const send = page.getByRole('button', { name: /send|发�?i }).first();
+    const send = page.getByRole('button', { name: /send|发送/i }).first();
     const stopVis = await stop.isVisible({ timeout: 300 }).catch(() => false);
     if (stopVis) sawStop = true;
     const sendOk = !(await send.isDisabled().catch(() => true));
@@ -221,7 +221,7 @@ async function waitAgentIdle(page: Page, maxMs = 240_000) {
   return true;
 }
 
-test.describe('home �?editor journey', () => {
+test.describe('home → editor journey', () => {
   test.skip(!TOKEN, E2E_TOKEN_SKIP_REASON);
   test.beforeAll(() => {
     fs.mkdirSync(OUT, { recursive: true });
@@ -273,7 +273,7 @@ test.describe('home �?editor journey', () => {
     expect(editor.url()).toMatch(/\/editor\/[A-Za-z0-9_-]+/);
   });
 
-  test('C: agent CRUD then return home �?cover still valid', async ({ page }) => {
+  test('C: agent CRUD then return home — cover still valid', async ({ page }) => {
     await injectAuth(page);
     await waitHomeProjects(page);
     const editor = await openFirstProject(page);
@@ -288,18 +288,18 @@ test.describe('home �?editor journey', () => {
 
     await sendAgent(
       editor,
-      '在画布上新增一个红色矩形，�?00�?20，位置靠近左上，不要删除已有内容�?
+      '在画布上新增一个红色矩形，宽200高120，位置靠近左上，不要删除已有内容。'
     );
     const idle1 = await waitAgentIdle(editor, 300_000);
     await shot(editor, '03-after-add-rect');
     expect(idle1).toBeTruthy();
 
-    await sendAgent(editor, '把刚才的红色矩形改成蓝色�?);
+    await sendAgent(editor, '把刚才的红色矩形改成蓝色。');
     const idle2 = await waitAgentIdle(editor, 240_000);
     await shot(editor, '04-after-recolor');
     expect(idle2).toBeTruthy();
 
-    // Leave editor �?home (cover refresh path). Prefer home button; fall back to goto.
+    // Leave editor → home (cover refresh path). Prefer home button; fall back to goto.
     const homeBtn = editor.getByRole('button', { name: /home|首页/i }).first();
     if (await homeBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await homeBtn.click();

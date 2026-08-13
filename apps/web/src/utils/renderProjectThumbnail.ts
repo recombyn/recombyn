@@ -222,7 +222,7 @@ async function rasterizeElementTile(
   try {
     const exportFormat = format === 'webp' ? 'png' : format;
     const result = await renderExport({
-      document: slice,
+      document: slice as SceneDocument,
       selectionOnly: true,
       nodeIds: [nodeId],
       multiplier: 1,

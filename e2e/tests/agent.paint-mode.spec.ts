@@ -1,7 +1,7 @@
 /**
  * Browser E2E + light stress: Agent settings「板式生成」→ paint_mode=img_layers.
  *
- * A) Settings �?Agent: toggle board paint + localStorage
+ * A) Settings → Agent: toggle board paint + localStorage
  * B) Intercept /design/run body includes paint_mode (prefs via localStorage)
  * D) UI stress on settings page
  * C) Optional full gen+split (E2E_IMG_LAYERS_FULL=1)
@@ -66,7 +66,7 @@ async function seedAuthSession(page: Page) {
   await page.evaluate(
     ({ tok, user: u }) => {
       localStorage.setItem('recombine-auth-token-v1', tok);
-      localStorage.setItem('recombyn-auth-v1', JSON.stringify({ user: u }));
+      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
       localStorage.setItem('recombyn-editor-tour-v3', '1');
       localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
     },
@@ -83,7 +83,7 @@ async function openEditor(page: Page) {
   await sleep(500);
 }
 
-/** Open Account �?Agent (full AgentRoutePrefsEditor with board paint control). */
+/** Open Account → Agent (full AgentRoutePrefsEditor with board paint control). */
 async function openAgentSettings(page: Page) {
   await page.goto('/account?tab=agent', { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await expect(page).toHaveURL(/\/account/, { timeout: 20_000 });
@@ -116,7 +116,7 @@ async function ensureAgentDock(page: Page) {
     }
   });
 
-  // Placeholder is a sibling overlay �?textbox itself often has no accessible name.
+  // Placeholder is a sibling overlay — textbox itself often has no accessible name.
   let composer = page.locator('aside [role="textbox"], [data-agent-composer][role="textbox"]').last();
   if (!(await composer.isVisible({ timeout: 2_000 }).catch(() => false))) {
     const agentBtn = page.getByRole('button', { name: /^Agent$/i }).first();
@@ -142,12 +142,12 @@ async function ensureAgentInteractionMode(page: Page) {
     .first();
   if (!(await picker.isVisible({ timeout: 5_000 }).catch(() => false))) return;
   const label = ((await picker.getAttribute('aria-label')) || '').trim();
-  if (/^Agent$|^智能�?/i.test(label)) return;
+  if (/^Agent$|^智能体$/i.test(label)) return;
   await picker.click({ force: true });
   await sleep(200);
   const agentItem = page
-    .getByRole('button', { name: /^Agent$|^智能�?/i })
-    .or(page.getByText(/^Agent$|^智能�?/i))
+    .getByRole('button', { name: /^Agent$|^智能体$/i })
+    .or(page.getByText(/^Agent$|^智能体$/i))
     .last();
   if (await agentItem.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await agentItem.click({ force: true });
@@ -176,7 +176,7 @@ async function sendShortPrompt(page: Page, prompt: string) {
       timeout: 10_000,
     })
     .toBeGreaterThan(5);
-  const send = page.locator('aside').getByRole('button', { name: /send|发�?i }).first();
+  const send = page.locator('aside').getByRole('button', { name: /send|发送/i }).first();
   await expect(send).toBeEnabled({ timeout: 30_000 });
   await send.click({ force: true });
 }
@@ -241,7 +241,7 @@ test.describe('agent paint_mode browser E2E', () => {
     await page.screenshot({ path: path.join(OUT, 'b-request-asserted.png'), fullPage: false });
   });
 
-  test('D: UI stress �?settings paint mode 8×', async ({ page }) => {
+  test('D: UI stress — settings paint mode 8×', async ({ page }) => {
     await injectAuth(page);
     await seedAuthSession(page);
     for (let i = 0; i < 8; i += 1) {
@@ -269,7 +269,7 @@ test.describe('agent paint_mode browser E2E', () => {
     while (Date.now() - t0 < 10 * 60_000) {
       const stop = page.getByRole('button', { name: /stop|停止|取消/i }).first();
       if (await stop.isVisible({ timeout: 400 }).catch(() => false)) sawStop = true;
-      const send = page.getByRole('button', { name: /send|发�?i }).first();
+      const send = page.getByRole('button', { name: /send|发送/i }).first();
       const sendOk = !(await send.isDisabled().catch(() => true));
       const nodes = page.locator('[data-rcb-shape-layer], [data-node-id]');
       if ((await nodes.count()) > 2) sawNodes = true;

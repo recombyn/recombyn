@@ -40,7 +40,7 @@ async function seedAuthSession(page: Page) {
   await page.evaluate(
     ({ tok, user: u }) => {
       localStorage.setItem('recombine-auth-token-v1', tok);
-      localStorage.setItem('recombyn-auth-v1', JSON.stringify({ user: u }));
+      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
       localStorage.setItem('recombyn-editor-tour-v3', '1');
       localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
     },
@@ -75,7 +75,7 @@ async function openEditor(page: Page) {
   }
   // Toolstrip appears before/with canvas; wait for it then the stage host.
   await expect(
-    page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first()
+    page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
   ).toBeVisible({ timeout: 45_000 });
   const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
   await expect(stage).toBeVisible({ timeout: 45_000 });
@@ -104,7 +104,7 @@ test.describe('canvas generators + element tools', () => {
     await injectAuth(page);
   });
 
-  /** Tiny 1×1 PNG �?enough for promote after mocked /chat/image. */
+  /** Tiny 1×1 PNG — enough for promote after mocked /chat/image. */
   const MOCK_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
@@ -118,13 +118,13 @@ test.describe('canvas generators + element tools', () => {
       await sleep(300);
     }
 
-    const genBtn = page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first();
+    const genBtn = page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first();
     await expect(genBtn).toBeVisible({ timeout: 15_000 });
     await expect(genBtn).toBeEnabled();
     await genBtn.click({ force: true });
     await sleep(500);
 
-    const layerHit = page.getByText(/^Image generator$|^图像生成�?/i).first();
+    const layerHit = page.getByText(/^Image generator$|^图像生成器$/i).first();
     const plate = page.locator('[data-image-generator]').first();
     const spawned =
       (await plate.isVisible({ timeout: 8_000 }).catch(() => false)) ||
@@ -209,7 +209,7 @@ test.describe('canvas generators + element tools', () => {
       process.env.E2E_PAID_IMAGE_GEN !== '1',
       'Set E2E_PAID_IMAGE_GEN=1 (+ provider keys on API) to run paid image finish'
     );
-    // Do not mock �?hits live POST /api/v1/chat/image/jobs.
+    // Do not mock — hits live POST /api/v1/chat/image/jobs.
     await spawnImageGeneratorPlate(page);
     const plate = page.locator('[data-image-generator]').first();
     const input = plate.locator('[contenteditable="true"], textarea').first();
@@ -245,7 +245,7 @@ test.describe('canvas generators + element tools', () => {
     await page.keyboard.press('Escape');
     await sleep(200);
     await page.mouse.click(x, y, { button: 'right' });
-    const generators = page.getByText(/^Generators$|^生成�?/i).first();
+    const generators = page.getByText(/^Generators$|^生成器$/i).first();
     await expect(generators).toBeVisible({ timeout: 10_000 });
     await generators.hover();
     await sleep(400);

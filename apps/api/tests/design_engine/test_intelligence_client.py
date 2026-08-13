@@ -140,10 +140,13 @@ def test_remote_provider_applies_usable_research(monkeypatch):
     from app.services.design.intelligence_runtime import (
         BasicLocalProvider,
         RemoteIntelligenceProvider,
+        apply_intelligence_result,
     )
 
     remote = RemoteIntelligenceProvider(
-        base_url="http://example.invalid", fallback=BasicLocalProvider()
+        base_url="http://example.invalid",
+        fallback=BasicLocalProvider(),
+        apply_result=apply_intelligence_result,
     )
     payload = {
         "category": "ai_landing",
@@ -181,10 +184,13 @@ def test_remote_applies_advanced_hooks(monkeypatch):
     from app.services.design.intelligence_runtime import (
         BasicLocalProvider,
         RemoteIntelligenceProvider,
+        apply_intelligence_result,
     )
 
     remote = RemoteIntelligenceProvider(
-        base_url="http://example.invalid", fallback=BasicLocalProvider()
+        base_url="http://example.invalid",
+        fallback=BasicLocalProvider(),
+        apply_result=apply_intelligence_result,
     )
 
     async def _post(method: str, _rt: object):

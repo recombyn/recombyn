@@ -90,8 +90,8 @@ export function normalizeMeshPoints(
   const normalized = points.map((p) => {
     const rec = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
     return {
-      x: clampPct(rec.x ?? 50),
-      y: clampPct(rec.y ?? 50),
+      x: clampPct(Number(rec.x ?? 50)),
+      y: clampPct(Number(rec.y ?? 50)),
       color: normalizeColor(String(rec.color || fallbackColor)),
     };
   });
