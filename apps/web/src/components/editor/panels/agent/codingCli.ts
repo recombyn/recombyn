@@ -8,8 +8,8 @@ import type {
 } from '@/components/editor/panels/agent/AgentDockHeader';
 import type { AgentToolOp } from '@/components/editor/panels/agent/toolOpsContract';
 
-const AGENT_ENGINE_MODE_KEY = 'resume.agentEngineMode.v1';
-const AGENT_CODING_CLI_KEY = 'resume.agentCodingCli.v1';
+const AGENT_ENGINE_MODE_KEY = 'recombyn.agentEngineMode.v1';
+const AGENT_CODING_CLI_KEY = 'recombyn.agentCodingCli.v1';
 
 export function readStoredEngineMode(): AgentEngineMode {
   try {

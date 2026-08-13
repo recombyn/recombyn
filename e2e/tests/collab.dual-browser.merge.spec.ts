@@ -1,7 +1,7 @@
 /**
  * Dual-browser Yjs merge via two Playwright browser contexts.
  * Uses the same collab protocol as the editor (no CDN) by driving
- * apps/collab/dual_client_merge.test.mjs once per context barrier â€”
+ * apps/collab/dual_client_merge.test.mjs once per context barrier â€?
  * and opens two blank pages so the gate explicitly covers "two browsers".
  *
  * Requires E2E_COLLAB_WS (and matching COLLAB_TOKEN_SECRET).

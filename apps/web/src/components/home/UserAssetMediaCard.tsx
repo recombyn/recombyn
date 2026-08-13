@@ -21,6 +21,7 @@ import { LuAudioLines, LuFilm } from 'react-icons/lu';
 import lottie, { type AnimationItem } from 'lottie-web';
 import Image from '@/components/base/image';
 import Tooltip from '@/components/base/tooltip';
+import { SoftGlowSurface } from '@/components/base';
 import { VideoFullscreenPreview } from '@/components/editor/nodes/VideoNode/VideoFullscreenPreviewButton';
 import type { UserAsset } from '@/models/assets';
 import { FLOW_ITEM_CLASS, FLOW_SKELETON_COUNT } from '@/components/home/FlowScrollSection';
@@ -372,8 +373,9 @@ function UserAssetCardSkeleton({
       aria-busy="true"
       aria-hidden
     >
-      <div
-        className="rcb-skeleton-bone block w-full rounded-xl shadow-none"
+      <SoftGlowSurface
+        seed={index}
+        className="block w-full rounded-xl shadow-none"
         style={{ aspectRatio: ratio }}
       />
     </div>

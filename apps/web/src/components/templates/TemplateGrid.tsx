@@ -40,7 +40,10 @@ function ImportSkeletonCard({ name }: { name: string }) {
   const { t } = useTranslation();
   return (
     <>
-      <ProjectCardSkeleton label={`${name || t('home.untitled')} — ${t('home.importing')}`} />
+      <ProjectCardSkeleton
+        seed="import"
+        label={`${name || t('home.untitled')} — ${t('home.importing')}`}
+      />
       <span className="sr-only">
         {name || t('home.untitled')} — {t('home.importing')}
       </span>
@@ -367,7 +370,7 @@ function TemplateGrid({
               <NewProjectCard disabled={createDisabled} onClick={onCreate} />
             ) : null}
             {Array.from({ length: GRID_SKELETON_COUNT }, (_, i) => (
-              <ProjectCardSkeleton key={`sk-${i}`} />
+              <ProjectCardSkeleton key={`sk-${i}`} seed={i} />
             ))}
           </>
         }

@@ -22,7 +22,7 @@ type NoticeDto = {
 
 type NoticeTab = 'announcement' | 'notification';
 
-const READ_KEY = 'resume.notices.read.v1';
+const READ_KEY = 'recombyn.notices.read.v1';
 
 function loadReadIds(): Set<string> {
   try {

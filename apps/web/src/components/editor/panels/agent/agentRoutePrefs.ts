@@ -18,8 +18,7 @@ export type AgentRoutePrefs = {
   image?: string;
 };
 
-const ROUTE_PREFS_KEY = 'resume.agentRoutePrefs.v2';
-const ROUTE_PREFS_KEY_LEGACY = 'resume.agentRoutePrefs.v1';
+const ROUTE_PREFS_KEY = 'recombyn.agentRoutePrefs.v1';
 
 /** Code fallback if Admin has not seeded precheck.user_preset.* yet. */
 const ROUTE_PRESETS_FALLBACK: Record<
@@ -191,8 +190,7 @@ export function loadAgentRoutePrefs(rules?: Record<string, string> | null): Agen
   // Local desktop: no platform catalog — only custom/BYOK lane picks.
   if (isDesktopLocal()) {
     try {
-      const raw =
-        localStorage.getItem(ROUTE_PREFS_KEY) || localStorage.getItem(ROUTE_PREFS_KEY_LEGACY);
+      const raw = localStorage.getItem(ROUTE_PREFS_KEY);
       if (!raw) return emptyCustomRoutePrefs();
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       if (!parsed || typeof parsed !== 'object') return emptyCustomRoutePrefs();
@@ -212,8 +210,7 @@ export function loadAgentRoutePrefs(rules?: Record<string, string> | null): Agen
     }
   }
   try {
-    const raw =
-      localStorage.getItem(ROUTE_PREFS_KEY) || localStorage.getItem(ROUTE_PREFS_KEY_LEGACY);
+    const raw = localStorage.getItem(ROUTE_PREFS_KEY);
     if (!raw) return { preset: 'platform' };
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed || typeof parsed !== 'object') return { preset: 'platform' };

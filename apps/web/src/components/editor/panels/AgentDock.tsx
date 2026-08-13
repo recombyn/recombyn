@@ -48,6 +48,8 @@ import {
   consumePendingAgentContexts,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
+import type { RootState } from '@/store';
+import { cloneDocument } from '@/store/modules/editorHistory';
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/MentionAttachPanel';
@@ -718,10 +720,10 @@ function AgentDock({
 }: AgentDockProps): ReactNode {
   const { t, i18n } = useTranslation();
   const dispatch = useDispatch();
-  const store = useStore();
-  const document = useSelector((s: any) => s.editor.document);
+  const store = useStore<RootState>();
+  const document = useSelector((s: RootState) => s.editor.document);
   const activeFrameId = useSelector(
-    (s: any) => (s.editor.document?.activeFrameId as string | null) ?? null
+    (s: RootState) => (s.editor.document?.activeFrameId as string | null) ?? null
   );
   const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
@@ -791,16 +793,16 @@ function AgentDock({
   // First paint must use stored width — a later setState(360→stored) reflows the stage.
   const [dockWidth, setDockWidth] = useState(readStoredAgentDockWidth);
   const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
-  const currentId = useSelector((s: any) => s.editor.currentId as string | null);
+  const currentId = useSelector((s: RootState) => s.editor.currentId as string | null);
   const canvasAttachPick = useSelector(
-    (s: any) => s.editor.canvasAttachPick as null | { target: string }
+    (s: RootState) => s.editor.canvasAttachPick as null | { target: string }
   );
   const pickingFromCanvas = canvasAttachPick?.target === 'agent';
   const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
+    (s: RootState) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
   );
   const selectedFrameIds = useSelector(
-    (s: any) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
+    (s: RootState) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   const location = useLocation();
@@ -1235,7 +1237,7 @@ function AgentDock({
 
   /** Mark tool selections → insert @ chips into the composer. */
   const pendingAgentContexts = useSelector(
-    (s: any) =>
+    (s: RootState) =>
       (s.editor.pendingAgentContexts || []) as Array<{
         key: string;
         label: string;
@@ -1695,7 +1697,7 @@ function AgentDock({
 
   /** Composer "Add from canvas" pick result (node composers use pending; agent uses attachToChat). */
   const pendingCanvasAttach = useSelector(
-    (s: any) =>
+    (s: RootState) =>
       s.editor.pendingCanvasAttach as null | { target: string; payload: string | string[] }
   );
   useEffect(() => {
@@ -1860,7 +1862,7 @@ function AgentDock({
       const url = String(src || '').trim();
       const id = String(nodeId || '').trim();
       if (!url || !id) return false;
-      const doc = (store.getState() as any).editor?.document;
+      const doc = store.getState().editor?.document;
       const node = doc?.deltaSetLike?.[id];
       if (!node) return false;
       const key = String(node.key || '').toLowerCase();
@@ -2021,7 +2023,7 @@ function AgentDock({
         sessionId,
         projectId: chatScopeId || '__none__',
         dispatch,
-        getDocument: () => (store.getState() as any).editor.document,
+        getDocument: () => store.getState().editor.document,
         signal: ac.signal,
         onEvent: (ev) => {
           if (ev.type === 'task') liveDesignTaskRef.current = ev.taskId;
@@ -2201,7 +2203,7 @@ function AgentDock({
     const userMessageForApi = options.raw
       ? sendText
       : buildUserMessage(sendText);
-    const docForFill = (store.getState() as any).editor?.document;
+    const docForFill = store.getState().editor?.document;
     const {
       imageGenCount,
       imageGenAspect,
@@ -2364,7 +2366,7 @@ function AgentDock({
           );
           return;
         }
-        const docNow = (store.getState() as any).editor?.document;
+        const docNow = store.getState().editor?.document;
         const {
           chipFrameId,
           targetFrameId,
@@ -2382,7 +2384,7 @@ function AgentDock({
         });
         if (docNow) {
           try {
-            checkpointsRef.current.set(userMsg.id, JSON.parse(JSON.stringify(docNow)));
+            checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
           } catch {
             /* ignore snapshot failure */
           }
@@ -2419,7 +2421,7 @@ function AgentDock({
           const paint = await applyAgentToolOps({
             ops,
             dispatch,
-            getDocument: () => (store.getState() as any).editor?.document,
+            getDocument: () => store.getState().editor?.document,
             frameId: targetFrameId,
             signal: ac.signal,
             sceneNodes,
@@ -2603,7 +2605,7 @@ function AgentDock({
     }
 
     // P0 agent: lean canvas digest (sync) — no focus-frame screenshot (that stalled 40s).
-    const docNow = (store.getState() as any).editor.document;
+    const docNow = store.getState().editor.document;
     const {
       chipFrameId,
       targetFrameId,
@@ -2633,7 +2635,7 @@ function AgentDock({
     };
     if (docNow) {
       try {
-        checkpointsRef.current.set(userMsg.id, JSON.parse(JSON.stringify(docNow)));
+        checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
       } catch {
         /* ignore snapshot failure */
       }
@@ -2749,7 +2751,7 @@ function AgentDock({
           );
         },
         dispatch,
-        getDocument: () => (store.getState() as any).editor.document,
+        getDocument: () => store.getState().editor.document,
         targetFrameId,
         // Explicit @ frame / @ node→frame only — not last-agent inference.
         pinnedFrameId: chipFrameId || null,
@@ -2940,7 +2942,7 @@ function AgentDock({
       message.warning(t('agent.checkpointInvalid'));
       return;
     }
-    dispatch(setDocument(JSON.parse(JSON.stringify(snap))));
+    dispatch(setDocument(cloneDocument(snap) ?? snap));
     checkpointsRef.current.delete(userMessageId);
     setMessages((prev) =>
       prev.map((m) => (m.id === userMessageId ? { ...m, canRestore: false } : m))

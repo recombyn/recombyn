@@ -27,7 +27,7 @@ Two gates, one metrics truth. Local full matrix: **`npm run test:gate:full`** (o
 | **Playwright** | UI / collab / surface + full shells | `npm run test:e2e` |
 | **Vitest** | Pure canvas/geometry | `npm run test:web` |
 | **Agent stress** | Design craft + system cases | `npm run stress:agent` (+ `--system`) |
-| **Eval** | Design Agent craft | `npm run eval:agent` |
+| **Eval** | Design Agent craft (40 V3 tasks) | `npm run eval:agent -- --v3-tasks` then `npm run eval:compare` |
 
 ```bash
 # Prefer 127.0.0.1 (Vite binds host 127.0.0.1). Token optional for smoke; required for journeys.
@@ -112,7 +112,8 @@ View in Prometheus **Alerts**. Alertmanager listens on `:9093` (compose profile 
 | `e2e-tests.yml` | Path-filtered — Playwright |
 | `perf-k6.yml` | Path-filtered / dispatch — k6 smoke |
 | `dependency-audit.yml` | Lockfile PRs + weekly — soft audit |
-| `nightly-quality.yml` | Nightly — eval shape + soak |
+| `nightly-quality.yml` | Nightly — eval shape + skill compare + soak |
+| `skill-regression.yml` | Skill / eval path changes — 40-task dataset + compare (avg drop > 3 or key task drop > 5 → fail) |
 | `block-cursor-coauthor.yml` | All PRs — reject Cursor co-author trailer |
 
 Branch protection should require **`CI / gate`**. Full web `tsc` is intentionally **not** in the gate yet (tracked Phase 1 debt). Rollback: [self-hosting.md § Rollback](./self-hosting.md#rollback-docker-compose).
@@ -124,7 +125,8 @@ Branch protection should require **`CI / gate`**. Full web `tsc` is intentionall
 | `scripts/run-quality-gate.mjs` | Unified Gate A/B runner |
 | `scripts/functional-api-suite.mjs` | Full HTTP surface functional suite |
 | `perf/k6/` | Gate B scenarios |
-| `eval/design-agent/` | Agent quality eval |
+| `eval/design-agent/` | Public Agent quality suite (`rubric.json` = Runtime Review caps) · see [ADR 0023](./adr/0023-public-private-eval.md) |
+| `packages/eval-framework` | Open compare helpers (no private rankings) |
 | `deploy/observability/` | Prometheus + Grafana |
 | `scripts/ci-mint-token.mjs` | CI/local session mint |
 | `apps/api/seeds/design_agent_eval_suite.json` | Eval cases |

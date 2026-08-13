@@ -1,5 +1,5 @@
 /**
- * Canvas tools stress — remaining gaps:
+ * Canvas tools stress �?remaining gaps:
  * image AI tool panels, align/boolean hard asserts, density, video trim.
  */
 import path from 'node:path';
@@ -112,7 +112,7 @@ async function seedAuthSession(page: Page) {
   await page.evaluate(
     ({ tok, user: u }) => {
       localStorage.setItem('recombine-auth-token-v1', tok);
-      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
+      localStorage.setItem('recombyn-auth-v1', JSON.stringify({ user: u }));
       localStorage.setItem('recombyn-editor-tour-v3', '1');
       localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
     },
@@ -155,7 +155,7 @@ async function openBlankEditor(page: Page) {
   await expect(page).toHaveURL(/\/editor\//, { timeout: 45_000 });
   await dismissBlockingDialogs(page);
   await expect(
-    page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
+    page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first()
   ).toBeVisible({ timeout: 45_000 });
   const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
   await expect(stage).toBeVisible({ timeout: 45_000 });
@@ -249,7 +249,7 @@ test.describe('canvas tools stress', () => {
 
     const tools: Array<{ name: RegExp }> = [
       { name: /^橡皮工具$|^Eraser$/i },
-      { name: /^多角度$|^Multi-angle$/i },
+      { name: /^多角�?|^Multi-angle$/i },
       { name: /^裁剪$|^Crop$/i },
       { name: /^扩展$|^Expand$/i },
       { name: /^调整$|^Adjust$/i },
@@ -277,7 +277,7 @@ test.describe('canvas tools stress', () => {
     expect(opened).toBeGreaterThanOrEqual(1);
     await expect(page).toHaveURL(/\/editor\//);
     await expect(
-      page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
+      page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first()
     ).toBeVisible();
   });
 
@@ -307,7 +307,7 @@ test.describe('canvas tools stress', () => {
     // Align group must appear for multi-select.
     const alignGroup = page.getByRole('group', { name: /^对齐$/i }).first();
     await expect(alignGroup).toBeVisible({ timeout: 10_000 });
-    const alignLeft = page.getByRole('button', { name: /^左对齐$/i }).first();
+    const alignLeft = page.getByRole('button', { name: /^左对�?/i }).first();
     await expect(alignLeft).toBeVisible({ timeout: 5_000 });
     await alignLeft.click({ force: true });
     await sleep(250);
@@ -366,7 +366,7 @@ test.describe('canvas tools stress', () => {
     });
     await expect(page).toHaveURL(/\/editor\//);
     await expect(
-      page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
+      page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first()
     ).toBeVisible();
   });
 

@@ -200,8 +200,8 @@ def test_critique_does_not_run_layout_craft(monkeypatch):
             {
                 "id": "t1",
                 "type": "text",
-                "x": 280,
-                "y": 10,
+                "x": 40,
+                "y": 40,
                 "w": 80,
                 "h": 30,
                 "fontSize": 20,

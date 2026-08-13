@@ -51,6 +51,8 @@ export type DesignJobEvent =
   | {
       type: 'status';
       task_id?: string;
+      trace_id?: string;
+      resumed?: boolean;
       status?: string;
       hold_credits?: number;
       scene?: string;
@@ -62,6 +64,7 @@ export type DesignJobEvent =
       /** Host should open a new artboard (WxH) then paint content into it. */
       open_artboard?: boolean;
       intent?: string;
+      frame_id?: string;
     }
   | {
       type: 'permission';
@@ -78,6 +81,7 @@ export type DesignJobEvent =
       index: number;
       skill_id: number;
       skill_name: string;
+      skill_key?: string;
       category?: string;
       model?: string;
       model_reason?: string;
@@ -194,6 +198,7 @@ export type DesignJobEvent =
       blank_artboard?: boolean;
       intent?: string;
       decision_log?: Record<string, unknown>;
+      proposal_id?: string;
     }
   | {
       type: 'tool_ops';
@@ -205,6 +210,51 @@ export type DesignJobEvent =
       /** True when ops are pushed mid-stream (边想边画). */
       stream?: boolean;
       agent_round?: number;
+      /** Design Engine V3 — groups chunks into one undo / ACK unit. */
+      transaction_id?: string;
+      transaction_phase?: string;
+      chunk_index?: number;
+      chunk_total?: number;
+    }
+  | {
+      type: 'transaction.begin';
+      transaction_id: string;
+      turn_id?: string;
+      design_id?: string;
+      phase?: string;
+      intent?: string;
+      base_revision?: number;
+      ops_count?: number;
+      task_id?: string;
+      round?: number;
+    }
+  | {
+      type: 'transaction.chunk';
+      transaction_id: string;
+      phase?: string;
+      chunk_index?: number;
+      chunk_total?: number;
+      /** Metadata only — apply via companion `tool_ops` (do not double-apply). */
+      ops?: Array<{ name: string; args?: Record<string, unknown>; op_id?: string }>;
+      task_id?: string;
+      round?: number;
+    }
+  | {
+      type: 'transaction.commit';
+      transaction_id: string;
+      phase?: string;
+      ops_count?: number;
+      await_ack?: boolean;
+      task_id?: string;
+      round?: number;
+    }
+  | {
+      type: 'transaction.rollback';
+      transaction_id: string;
+      phase?: string;
+      reason?: string;
+      task_id?: string;
+      round?: number;
     }
   | {
       type: 'scene_feedback_request';
@@ -212,6 +262,8 @@ export type DesignJobEvent =
       round?: number;
       rounds?: number;
       wait_ms?: number;
+      timeout_ms?: number;
+      transaction_id?: string;
     }
   | { type: 'critique_start'; round: number; reason?: string }
   | {
@@ -224,6 +276,58 @@ export type DesignJobEvent =
       strengths?: string[];
       weaknesses?: string[];
       market_gap?: string;
+      scores?: Record<string, number>;
+      lanes?: Array<{
+        lane?: string;
+        score?: number | null;
+        evidence?: string[];
+        hits?: string[];
+      }>;
+      overall?: number | null;
+      total?: number | null;
+      top_issues?: Array<{
+        priority?: number;
+        issue?: string;
+        evidence?: string[];
+        fix?: string;
+        lane?: string;
+      }>;
+      visual_diff?: {
+        deltas?: Record<string, number>;
+        visual_change?: Record<string, number | null>;
+        pixel_available?: boolean;
+      } | null;
+      pareto?: Record<string, number | null> | null;
+      pareto_note?: string | null;
+      review_action?: string;
+    }
+  | {
+      type: 'reference_intel';
+      composition?: string;
+      thesis?: string;
+      visual_dna?: Record<string, number>;
+      stages?: string[];
+    }
+  | {
+      type: 'optimization';
+      decision?: string;
+      reason?: string;
+      strategy?: string;
+      iteration?: number;
+      restore_index?: number | null;
+      targets?: string[];
+      pareto?: Record<string, number | null> | null;
+      pareto_note?: string | null;
+    }
+  | {
+      type: 'design_summary';
+      iterations?: number;
+      removed?: number;
+      score_from?: number | null;
+      score_to?: number | null;
+      whitespace?: number | null;
+      hero_dominance?: number | null;
+      timeline?: Array<{ iteration?: number; overall?: number }>;
     }
   | {
       type: 'memory_patch';
@@ -254,14 +358,6 @@ export type DesignJobEvent =
       task_id?: string;
       trace_id?: string;
       refunded_credits?: number;
-    }
-  | {
-      type: 'status';
-      task_id?: string;
-      trace_id?: string;
-      resumed?: boolean;
-      status?: string;
-      [key: string]: unknown;
     };
 
 /** Known wire `type` values — boundary check before casting to DesignJobEvent. */
@@ -281,9 +377,16 @@ const DESIGN_JOB_EVENT_TYPES = [
   'decision',
   'result',
   'tool_ops',
+  'transaction.begin',
+  'transaction.chunk',
+  'transaction.commit',
+  'transaction.rollback',
   'scene_feedback_request',
   'critique_start',
   'critique_done',
+  'reference_intel',
+  'optimization',
+  'design_summary',
   'memory_patch',
   'replan',
   'subgoals',
@@ -476,6 +579,10 @@ export const postDesignSceneFeedback = (
     /** JPEG/PNG data URL of focus artboard for CLIP critique. */
     preview_image?: string;
     round?: number;
+    /** Design Engine V3 — ACK / rollback for DesignTransaction. */
+    transaction_id?: string;
+    transaction_status?: 'ack' | 'rollback';
+    base_revision?: number;
   },
   signal?: AbortSignal
 ) =>

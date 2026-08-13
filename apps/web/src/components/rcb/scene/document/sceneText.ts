@@ -281,19 +281,48 @@ export function textVerticalOriginY(
   return Math.max(0, (Math.max(1, boxH) - contentH) / 2);
 }
 
-export function parseNodeText(attrs: Record<string, any> = {}) {
+function asRec(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+function originBlocksToPlain(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  return raw
+    .map((block) => {
+      const children = asRec(block)?.children;
+      if (!Array.isArray(children)) return '';
+      return children
+        .map((child) => {
+          const text = asRec(child)?.text;
+          return typeof text === 'string' ? text : '';
+        })
+        .join('');
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function dataRunsToPlain(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  return raw
+    .map((run) => {
+      const chars = asRec(run)?.chars;
+      if (!Array.isArray(chars)) return '';
+      return chars
+        .map((item) => {
+          const ch = asRec(item)?.char;
+          return typeof ch === 'string' ? ch : '';
+        })
+        .join('');
+    })
+    .join('\n');
+}
+
+export function parseNodeText(attrs: Record<string, unknown> = {}) {
   if (attrs.ORIGIN_DATA) {
     try {
-      const blocks = JSON.parse(attrs.ORIGIN_DATA);
-      return blocks
-        .map((block: any) => {
-          if (block.children) {
-            return block.children.map((child: any) => child.text || '').join('');
-          }
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n');
+      const plain = originBlocksToPlain(JSON.parse(String(attrs.ORIGIN_DATA)));
+      if (plain) return plain;
     } catch {
       /* fall through */
     }
@@ -301,10 +330,7 @@ export function parseNodeText(attrs: Record<string, any> = {}) {
 
   if (attrs.DATA) {
     try {
-      const runs = JSON.parse(attrs.DATA);
-      return runs
-        .map((run: any) => (run.chars || []).map((item: any) => item.char).join(''))
-        .join('\n');
+      return dataRunsToPlain(JSON.parse(String(attrs.DATA)));
     } catch {
       /* fall through */
     }
@@ -314,25 +340,31 @@ export function parseNodeText(attrs: Record<string, any> = {}) {
 }
 
 /** Markdown source for the property editor (falls back to plain text). */
-export function parseNodeMarkdown(attrs: Record<string, any> = {}) {
+export function parseNodeMarkdown(attrs: Record<string, unknown> = {}) {
   if (typeof attrs.markdown === 'string') return attrs.markdown;
   return parseNodeText(attrs);
 }
 
-export function parseNodeTextStyle(attrs: Record<string, any> = {}): TextStyle {
+export function parseNodeTextStyle(attrs: Record<string, unknown> = {}): TextStyle {
   const style: TextStyle = { ...DEFAULT_TEXT_STYLE };
 
   if (attrs.DATA) {
     try {
-      const runs = JSON.parse(attrs.DATA);
-      const firstChar = runs?.[0]?.chars?.find((item: any) => item.char?.trim());
-      const config = firstChar?.config || {};
+      const runs = JSON.parse(String(attrs.DATA));
+      const firstRun = Array.isArray(runs) ? asRec(runs[0]) : null;
+      const chars = Array.isArray(firstRun?.chars) ? firstRun.chars : [];
+      const firstChar = chars.find((item) => {
+        const ch = asRec(item)?.char;
+        return typeof ch === 'string' && ch.trim();
+      });
+      const config = asRec(asRec(firstChar)?.config) || {};
       if (config.SIZE) style.fontSize = Number(config.SIZE) || style.fontSize;
-      if (config.COLOR) style.fill = normalizeColor(config.COLOR);
-      if (config.WEIGHT) style.fontWeight = config.WEIGHT === 'bold' ? 'bold' : String(config.WEIGHT);
+      if (config.COLOR) style.fill = normalizeColor(String(config.COLOR));
+      if (config.WEIGHT)
+        style.fontWeight = config.WEIGHT === 'bold' ? 'bold' : String(config.WEIGHT);
       if (config.FAMILY) style.fontFamily = toFabricFontFamily(config.FAMILY);
-      if (config.STYLE) style.fontStyle = config.STYLE;
-      if (config.ALIGN) style.textAlign = config.ALIGN;
+      if (config.STYLE) style.fontStyle = String(config.STYLE);
+      if (config.ALIGN) style.textAlign = String(config.ALIGN);
       if (config.LINE_HEIGHT) style.lineHeight = Number(config.LINE_HEIGHT) || style.lineHeight;
       if (config.LETTER_SPACING != null) style.letterSpacing = Number(config.LETTER_SPACING) || 0;
       if (config.DECORATION) style.textDecoration = String(config.DECORATION);
@@ -343,9 +375,11 @@ export function parseNodeTextStyle(attrs: Record<string, any> = {}): TextStyle {
 
   if (attrs.ORIGIN_DATA) {
     try {
-      const blocks = JSON.parse(attrs.ORIGIN_DATA);
-      const child = blocks?.[0]?.children?.[0];
-      const fontBase = child?.['font-base'] || {};
+      const blocks = JSON.parse(String(attrs.ORIGIN_DATA));
+      const firstBlock = Array.isArray(blocks) ? asRec(blocks[0]) : null;
+      const children = Array.isArray(firstBlock?.children) ? firstBlock.children : [];
+      const child = asRec(children[0]);
+      const fontBase = asRec(child?.['font-base']) || {};
       if (child?.bold) style.fontWeight = 'bold';
       if (child?.italic) style.fontStyle = 'italic';
       {
@@ -359,12 +393,18 @@ export function parseNodeTextStyle(attrs: Record<string, any> = {}): TextStyle {
               .join(' ')
           : 'none';
       }
-      if (fontBase.fontSize) style.fontSize = fontBase.fontSize;
-      if (fontBase.color) style.fill = normalizeColor(fontBase.color);
+      if (fontBase.fontSize != null && Number.isFinite(Number(fontBase.fontSize))) {
+        style.fontSize = Number(fontBase.fontSize);
+      }
+      if (fontBase.color) style.fill = normalizeColor(String(fontBase.color));
       if (fontBase.fontFamily) style.fontFamily = toFabricFontFamily(fontBase.fontFamily);
-      if (fontBase.textAlign) style.textAlign = fontBase.textAlign;
-      if (fontBase.lineHeight) style.lineHeight = fontBase.lineHeight;
-      if (fontBase.letterSpacing != null) style.letterSpacing = fontBase.letterSpacing;
+      if (fontBase.textAlign) style.textAlign = String(fontBase.textAlign);
+      if (fontBase.lineHeight != null && Number.isFinite(Number(fontBase.lineHeight))) {
+        style.lineHeight = Number(fontBase.lineHeight);
+      }
+      if (fontBase.letterSpacing != null && Number.isFinite(Number(fontBase.letterSpacing))) {
+        style.letterSpacing = Number(fontBase.letterSpacing);
+      }
       if (fontBase.textDecoration) style.textDecoration = String(fontBase.textDecoration);
     } catch {
       /* ignore */
@@ -446,7 +486,7 @@ export function buildMarkdownTextAttrs(markdown: string, style: Partial<TextStyl
 
 /** Style-only update while preserving existing markdown source. */
 export function buildTextAttrsPreservingMarkdown(
-  attrs: Record<string, any> = {},
+  attrs: Record<string, unknown> = {},
   style: Partial<TextStyle> = {}
 ) {
   const md = parseNodeMarkdown(attrs);

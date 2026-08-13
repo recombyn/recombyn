@@ -1,8 +1,8 @@
 /**
- * Browser eval: category craft flows (poster / banner / …).
+ * Browser eval: category craft flows (poster / banner / �?.
  * Prompts from apps/api/seeds/design_agent_eval_suite.json.
  *
- * Stall rule (suite note): >150s with no canvas growth → Stop and retry once.
+ * Stall rule (suite note): >150s with no canvas growth �?Stop and retry once.
  *
  * Requires: web, API, token. Opt-in: E2E_EVAL=1
  */
@@ -15,7 +15,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const OUT = path.join(ROOT, '.tmp-e2e-category-eval');
 const SUITE = path.join(ROOT, 'apps/api/seeds/design_agent_eval_suite.json');
 const TOKEN = resolveE2EToken(ROOT);
-/** Opt-in only — do not run this long suite on default CI. */
+/** Opt-in only �?do not run this long suite on default CI. */
 const EVAL_ENABLED = (process.env.E2E_EVAL || '').trim() === '1';
 const EVAL_SKIP_REASON = EVAL_ENABLED
   ? E2E_TOKEN_SKIP_REASON
@@ -109,7 +109,7 @@ async function openEditor(page: Page) {
     await page.waitForURL(/\/editor\//, { timeout: 15_000 });
     await dismissBlockingDialogs(page);
     await sleep(600);
-    // Composer must appear — otherwise fall through to New project.
+    // Composer must appear �?otherwise fall through to New project.
     const composer = page.locator('aside [role="textbox"]').last();
     if (await composer.isVisible({ timeout: 8_000 }).catch(() => false)) return;
   } catch {
@@ -179,7 +179,7 @@ async function sendPrompt(page: Page, prompt: string) {
   // fill is faster/more reliable than per-char type for long eval prompts.
   await composer.fill(prompt);
   await sleep(400);
-  const send = page.getByRole('button', { name: /send|发送/i }).first();
+  const send = page.getByRole('button', { name: /send|发�?i }).first();
   for (let i = 0; i < 30; i += 1) {
     const visible = await send.isVisible({ timeout: 500 }).catch(() => false);
     if (!visible) break;
@@ -316,7 +316,7 @@ async function waitRunSettle(
     const shimmer = page.locator('[data-artboard-process-shimmer]');
     if (await shimmer.count()) sawShimmer = true;
 
-    const send = page.getByRole('button', { name: /send|发送/i }).first();
+    const send = page.getByRole('button', { name: /send|发�?i }).first();
     const stop = page.getByRole('button', { name: /stop|停止|取消/i }).first();
     const stopVisible = await stop.isVisible({ timeout: 400 }).catch(() => false);
     if (stopVisible) sawStop = true;
@@ -363,7 +363,7 @@ async function waitRunSettle(
       break;
     }
 
-    // Settle: task-complete / Keep — do not require Send enabled (models can stick disabled).
+    // Settle: task-complete / Keep �?do not require Send enabled (models can stick disabled).
     if ((kept || completedHint) && !stopVisible && Date.now() - t0 > 10_000) break;
     if (sawStop && !stopVisible && sendEnabled && Date.now() - t0 > 15_000) break;
     if (!stopVisible && sendEnabled && sawOps && Date.now() - t0 > 25_000) break;
@@ -439,7 +439,7 @@ test.describe('agent category eval (poster / UI / image)', () => {
     const results: CaseResult[] = [];
     for (const c of cases) {
       boot('case_start', { id: c.id });
-      // Soft reload between cases — skip if it costs more than 20s (can hang the page).
+      // Soft reload between cases �?skip if it costs more than 20s (can hang the page).
       if (results.length > 0) {
         boot('reload', { id: c.id });
         try {

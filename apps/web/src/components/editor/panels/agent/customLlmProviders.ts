@@ -110,9 +110,8 @@ export type CustomLlmProvider = {
   serverBacked?: boolean;
 };
 
-const STORAGE_KEY = 'resume.customLlmProviders.v2';
-const LEGACY_STORAGE_KEY = 'resume.customLlmProviders.v1';
-const DEVICE_KEY_STORAGE = 'resume.byok.deviceKey.v1';
+const STORAGE_KEY = 'recombyn.customLlmProviders.v1';
+const DEVICE_KEY_STORAGE = 'recombyn.byok.deviceKey.v1';
 export const CUSTOM_MODEL_ID_PREFIX = 'custom:';
 
 export function isCustomModelId(id: string | null | undefined): boolean {
@@ -224,8 +223,7 @@ function mapDto(
 
 function readLocalRaw(): CustomLlmProvider[] {
   try {
-    let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -253,7 +251,7 @@ function readLocalRaw(): CustomLlmProvider[] {
 
 function writeLocalEncrypted(list: CustomLlmProvider[]) {
   try {
-    // Persist ciphertext / hints only 鈥?never plaintext apiKey.
+    // Persist ciphertext / hints only — never plaintext apiKey.
     const safe = list.map((p) => ({
       id: p.id,
       name: p.name,
@@ -269,7 +267,6 @@ function writeLocalEncrypted(list: CustomLlmProvider[]) {
       serverBacked: Boolean(p.serverBacked),
     }));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     /* ignore quota */
   }

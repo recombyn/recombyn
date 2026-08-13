@@ -6,6 +6,99 @@ import json
 from typing import Any
 
 
+def format_design_memory_block(design: dict[str, Any] | None) -> str:
+    """Decide-facing summary. No DNA axis numbers (those stay in Brief, not Paint)."""
+    src = design if isinstance(design, dict) else {}
+    user = src.get("user") if isinstance(src.get("user"), dict) else {}
+    project = src.get("project") if isinstance(src.get("project"), dict) else {}
+    session = src.get("session") if isinstance(src.get("session"), dict) else {}
+    pref_map = user.get("preference") if isinstance(user.get("preference"), dict) else {}
+    committed_bits: list[str] = []
+    pending_n = 0
+    committed_n = 0
+    for val in pref_map.values():
+        if not isinstance(val, dict):
+            continue
+        if val.get("committed") or val.get("signal"):
+            if val.get("committed"):
+                committed_n += 1
+                target = str(val.get("target") or "").strip()
+                sig = str(val.get("signal") or "").strip()
+                direction = str(val.get("direction") or "").strip()
+                rng = val.get("preferred_range") if isinstance(val.get("preferred_range"), dict) else None
+                bit = " ".join(x for x in (target, sig, direction) if x)
+                if rng and rng.get("min") is not None and rng.get("max") is not None:
+                    bit = f"{bit} {rng.get('min')}-{rng.get('max')}".strip()
+                if bit:
+                    committed_bits.append(bit[:80])
+            else:
+                pending_n += 1
+        else:
+            pending_n += 1
+    pref_n = committed_n
+    rejected_n = len(user.get("rejected_patterns") or []) if isinstance(user.get("rejected_patterns"), list) else 0
+    accepted_n = len(user.get("accepted_patterns") or []) if isinstance(user.get("accepted_patterns"), list) else 0
+    lock = {}
+    brief = session.get("brief") if isinstance(session.get("brief"), dict) else {}
+    if isinstance(brief.get("reference_lock"), dict):
+        lock = brief["reference_lock"]
+    elif isinstance(project.get("reference_dna"), dict) and project.get("reference_dna"):
+        lock = {"has_dna": True}
+    lock_comp = ""
+    if isinstance(lock.get("composition"), dict):
+        lock_comp = str(lock["composition"].get("type") or "").strip()
+    thesis = str(brief.get("visual_thesis") or "").strip()
+    review = session.get("review") if isinstance(session.get("review"), dict) else {}
+    total = review.get("total")
+    action = str(review.get("action") or "").strip()
+    try:
+        iteration = int(session.get("iteration") or 0)
+    except (TypeError, ValueError):
+        iteration = 0
+    has_brand = bool(project.get("brand_dna"))
+    has_system = bool(project.get("design_system"))
+    has_dna = bool(project.get("reference_dna"))
+    if not (
+        pref_n
+        or pending_n
+        or rejected_n
+        or accepted_n
+        or has_brand
+        or has_system
+        or has_dna
+        or lock_comp
+        or thesis
+        or total is not None
+        or iteration
+    ):
+        return ""
+    user_line = (
+        f"- user: committed={pref_n} learning={pending_n} "
+        f"rejected={rejected_n} accepted={accepted_n}"
+    )
+    if committed_bits:
+        user_line += "; " + "; ".join(committed_bits[:4])
+    lines = [
+        user_line,
+        "- project: "
+        + ", ".join(
+            x
+            for x in (
+                "reference_dna locked" if has_dna else "",
+                f"language={lock_comp}" if lock_comp else "",
+                "brand_dna" if has_brand else "",
+                "design_system" if has_system else "",
+            )
+            if x
+        )
+        or "empty",
+        f"- session: iteration={iteration}"
+        + (f"; thesis={thesis[:120]}" if thesis else "")
+        + (f"; review={total} {action}".rstrip() if total is not None else ""),
+    ]
+    return "[Design memory]\n" + "\n".join(lines)
+
+
 def compose_memory_blocks(
     *,
     medium: dict[str, Any],
@@ -58,17 +151,6 @@ def compose_memory_blocks(
             task_lines.append(f"referents: {json.dumps(referents, ensure_ascii=False)[:1200]}")
         except Exception:
             pass
-    if design:
-        try:
-            design_slim = {
-                k: v for k, v in design.items() if k != "subgoals"
-            }
-            if design_slim:
-                task_lines.append(
-                    f"design: {json.dumps(design_slim, ensure_ascii=False)[:800]}"
-                )
-        except Exception:
-            pass
     if last_run:
         lr = {
             k: last_run.get(k)
@@ -89,6 +171,10 @@ def compose_memory_blocks(
 
     if task_lines:
         parts.append("[Task state]\n" + "\n".join(task_lines))
+
+    design_block = format_design_memory_block(design)
+    if design and design_block:
+        parts.append(design_block)
 
     if design:
         from app.services.agent_memory.subgoals import format_queue_block, normalize_queue

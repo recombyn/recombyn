@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 /**
  * Browser stress: mount a design-like mixed scene (rects / text / paths / heavy
  * outlines), cull with a grid index, paint LOD full hosts + shared proxy SVG,
- * then measure pan frames â€” mirrors RcbShapesLayer after the opt pass.
+ * then measure pan frames â€?mirrors RcbShapesLayer after the opt pass.
  */
 test.describe('canvas stress (browser)', () => {
   test('editor route responds (login redirect ok)', async ({ page }) => {

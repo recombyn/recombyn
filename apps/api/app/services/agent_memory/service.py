@@ -15,9 +15,16 @@ from typing import Any
 
 from app.services.agent_memory.compose import compose_memory_blocks
 from app.services.agent_memory.episodes import list_recent_episodes
-from app.services.agent_memory.long_term import list_long_hits
-from app.services.agent_memory.medium_term import load_task_state_from_session, persist_medium_term
-from app.services.agent_memory.schema import deep_merge, empty_task_state, normalize_task_state
+from app.services.agent_memory.long_term import list_long_hits, load_user_design_memory
+from app.services.agent_memory.medium_term import load_project_design_memory, load_task_state_from_session, persist_medium_term
+from app.services.agent_memory.schema import (
+    deep_merge,
+    empty_task_state,
+    merge_user_design_layers,
+    normalize_design_memory,
+    normalize_task_state,
+    overlay_project_design,
+)
 from app.services.agent_memory.short_term import (
     build_short_term_from_messages,
     load_short_term_from_session,
@@ -43,6 +50,30 @@ def _mem_print(msg: str) -> None:
 def _rule_on(rules: dict[str, str], key: str, default: str) -> bool:
     val = str(rules.get(key) if rules.get(key) is not None else default).strip().lower()
     return val in ("1", "true", "yes", "on")
+
+
+def _hydrate_design_memory_layers(
+    medium: dict[str, Any],
+    *,
+    user_id: str,
+    session_id: str,
+    project_id: str,
+) -> dict[str, Any]:
+    """Fill User from long-term and Project from the latest sibling session."""
+    out = dict(medium or {})
+    design = normalize_design_memory(out.get("design"))
+    design["user"] = merge_user_design_layers(
+        design.get("user"),
+        load_user_design_memory(user_id),
+    )
+    design["project"] = overlay_project_design(
+        design.get("project"),
+        load_project_design_memory(
+            user_id, project_id, exclude_session_id=session_id
+        ),
+    )
+    out["design"] = design
+    return out
 
 
 @dataclass
@@ -111,6 +142,12 @@ class MemoryService:
             medium = normalize_task_state(
                 base, session_id=session_id, project_id=project_id, user_id=user_id
             )
+        medium = _hydrate_design_memory_layers(
+            medium,
+            user_id=user_id,
+            session_id=session_id,
+            project_id=project_id,
+        )
         _mem("medium_ok", has_client=bool(client_medium), has_server=bool(server_medium))
 
         short_in = mem.get("short")

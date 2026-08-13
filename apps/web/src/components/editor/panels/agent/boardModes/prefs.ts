@@ -8,7 +8,7 @@ import {
   normalizeAgentPaintMode,
 } from './types';
 
-const PAINT_MODE_KEY = 'resume.agentPaintMode.v1';
+const PAINT_MODE_KEY = 'recombyn.agentPaintMode.v1';
 
 export function loadAgentPaintMode(): AgentPaintMode {
   try {

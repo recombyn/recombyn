@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 /**
  * Browser-runtime canvas foundations (no app login / API).
- * Validates snap magnets + boolean clipping in Chromium â€” same algorithms
+ * Validates snap magnets + boolean clipping in Chromium â€?same algorithms
  * the editor uses, exercised outside the Redux mount so CI can run headless
  * without the Python API.
  */

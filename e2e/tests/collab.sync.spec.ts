@@ -1,5 +1,5 @@
 /**
- * Gate A â€” collab room identity, dual-client WS presence, project revision conflict.
+ * Gate A â€?collab room identity, dual-client WS presence, project revision conflict.
  *
  * Requires E2E_TOKEN. Optional live WS: set E2E_COLLAB_WS=ws://127.0.0.1:1234
  * and run apps/collab with the same COLLAB_TOKEN_SECRET as the API.

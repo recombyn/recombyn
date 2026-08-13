@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
+import { SoftGlowSurface } from '@/components/base';
 import TemplateThumbnail from '@/components/templates/TemplateThumbnail';
 import {
   projectThumbFrameClass,
@@ -55,7 +56,7 @@ function LazyTemplateThumb({
         {active && document ? (
           <TemplateThumbnail document={document} fit={fit} />
         ) : (
-          <div className="rcb-skeleton-bone h-full w-full !rounded-none" />
+          <SoftGlowSurface className="h-full w-full !rounded-none" seed="lazy-thumb" aria-hidden />
         )}
       </div>
       {children}

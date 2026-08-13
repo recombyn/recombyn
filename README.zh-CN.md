@@ -71,7 +71,7 @@
 
 ### Skills
 
-每个技能一个目录：`apps/api/seeds/design_skills/<key>/`（`_meta.json` + `SKILL.md`；可选 `schema.json`、`assets/` 等）。
+每个技能一个目录：`skills/foundation/<key>/` 或 `skills/domains/<key>/`（`_meta.json` + `SKILL.md`；可选 `schema.json`、`assets/` 等）。
 
 - **`_meta.json`**：什么时候用、触发词、`preferred_tools`、互斥组 —— Decide 靠它选技能  
 - **`SKILL.md`**：这个品类怎么做（落地页 / 海报 / 简历 / 仪表盘 / 动效……）
@@ -89,7 +89,7 @@
 | [`apps/api/seeds/agents/profiles/design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) | **默认 Profile**：阶段、roles、subagents、skills/tools catalog、`$kv` 路由 |
 | [`apps/api/seeds/agents/bindings.yaml`](apps/api/seeds/agents/bindings.yaml) | `product` / `surface` → 用哪个 Profile |
 | [`apps/api/seeds/design_prompt_packs/`](apps/api/seeds/design_prompt_packs/) | 各 stage 提示词正文 |
-| [`apps/api/seeds/design_skills/`](apps/api/seeds/design_skills/) | 新增 / 改技能 |
+| [`skills/`](skills/) | 新增 / 改技能（foundation + domains） |
 | [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) | 工具目录 |
 | `apps/api/.env` → `AGENT_PROFILE_ID` | 强制指定 Profile（默认 `design.canvas`；空串则走 bindings） |
 
@@ -115,7 +115,7 @@
 
 | 类型 | 路径 | 扩展什么 | 示例 |
 |------|------|----------|------|
-| **Skill 包** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent 品类工艺（布局同 `seeds/design_skills`） | [`festival_poster`](plugins/skills/festival_poster/) |
+| **Skill 包** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent 品类工艺（布局同 `skills/`） | [`festival_poster`](plugins/skills/festival_poster/) |
 | **画布插件** | [`plugins/canvas/<id>/`](plugins/canvas/) | 编辑器 UI（目前：底部工具条按钮） | [`watermark`](plugins/canvas/watermark/) |
 
 **Skill 包**
