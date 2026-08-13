@@ -563,7 +563,8 @@ class ChatSession(SQLModel, table=True):
     title: str = Field(default="", max_length=255)
     updated_at: float = Field(default=0.0)
     created_at: float = Field(default=0.0)
-    meta_json: Optional[str] = Field(default=None)
+    # MySQL maps bare str → VARCHAR(255); session task_state JSON needs TEXT.
+    meta_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
 
 
 class ChatMessage(SQLModel, table=True):
@@ -572,9 +573,10 @@ class ChatMessage(SQLModel, table=True):
     id: str = Field(primary_key=True, max_length=64)
     session_id: str = Field(index=True, max_length=64)
     role: str = Field(max_length=16)
-    content: str = Field(default="")
-    thinking: Optional[str] = Field(default=None)
-    meta_json: Optional[str] = Field(default=None)
+    # Bare str → VARCHAR(255); messages + context thumbs exceed that on MySQL.
+    content: str = Field(default="", sa_column=Column(Text, nullable=False))
+    thinking: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    meta_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: float = Field(default=0.0)
     sort_order: int = Field(default=0)
 
@@ -611,8 +613,9 @@ class DesignGlobalRule(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     rule_key: str = Field(max_length=64, unique=True)
-    rule_value: str = Field(default="")
-    description: Optional[str] = Field(default=None)
+    # MySQL maps bare str → VARCHAR(255); stage rules / JSON payloads exceed that.
+    rule_value: str = Field(default="", sa_column=Column(Text, nullable=False))
+    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     enabled: int = Field(default=1)
     updated_at: float = Field(default=0.0)
 
