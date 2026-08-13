@@ -60,8 +60,8 @@
     "test:collab:merge": "npm run test:merge --workspace=apps/collab",
     "stress:agent": "node scripts/design-agent-stress.mjs",
     "plaza:agent-showcase": "node scripts/plaza-agent-showcase.mjs",
-    "install:api": "cd apps/api && pip install -e \".[dev]\"",
-    "install:api:otel": "cd apps/api && pip install -e \".[dev,otel]\""
+    "install:api": "cd apps/api && pip install -e ../../packages/scene-builder-py && pip install -e ../../packages/protocol && pip install -e ../../packages/runtime && pip install -e ../../packages/intelligence-client && pip install -e ../../packages/agent-sdk && pip install -e ../../packages/skill-sdk && pip install -e ../../packages/plugin-sdk && pip install -e \".[dev]\"",
+    "install:api:otel": "cd apps/api && pip install -e ../../packages/scene-builder-py && pip install -e ../../packages/protocol && pip install -e ../../packages/runtime && pip install -e ../../packages/intelligence-client && pip install -e ../../packages/agent-sdk && pip install -e ../../packages/skill-sdk && pip install -e ../../packages/plugin-sdk && pip install -e \".[dev,otel]\""
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
