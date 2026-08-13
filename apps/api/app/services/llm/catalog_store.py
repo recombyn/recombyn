@@ -621,6 +621,8 @@ def _pub(r: Any) -> dict[str, Any]:
         'price': (str(price_raw).strip() if price_raw else None),
         'price_meta': price_meta,
         'priceMeta': price_meta,
+        'pricing_id': (_row_get(r, 'pricing_id') or None),
+        'pricingId': (_row_get(r, 'pricing_id') or None),
         'max_attachments': int(_row_get(r, 'max_attachments') or 8),
         'maxAttachments': int(_row_get(r, 'max_attachments') or 8),
         'thinking': bool(int(_row_get(r, 'thinking') or 0)),
@@ -712,6 +714,10 @@ def upsert_model(payload: dict[str, Any]) -> dict[str, Any]:
     icon_url = payload.get('iconUrl') or payload.get('icon_url')
     price_raw = payload.get('price')
     price = (str(price_raw).strip() if price_raw is not None else '') or None
+    pricing_id_raw = payload.get('pricingId') or payload.get('pricing_id')
+    pricing_id = (str(pricing_id_raw).strip() if pricing_id_raw is not None else '') or None
+    if not pricing_id:
+        pricing_id = f'price:{mid}'
     max_attachments = int(payload.get('maxAttachments') or payload.get('max_attachments') or 8)
     thinking = 1 if payload.get('thinking') else 0
     enabled = 1 if payload.get('enabled', True) else 0
@@ -774,6 +780,7 @@ def upsert_model(payload: dict[str, Any]) -> dict[str, Any]:
                 reference_types=ref_types_json,
                 image_limits=limits_json,
                 price_meta=price_meta_json,
+                pricing_id=pricing_id,
                 created_at=now if not existing else float(existing.created_at or now),
                 updated_at=now,
             ),

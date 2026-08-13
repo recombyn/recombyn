@@ -44,3 +44,4 @@ Cross-cutting or hard-to-undo technical choices live here. Product how-tos stay 
 | [0022](./0022-open-runtime-helpers.md) | Open runtime helpers package | Accepted |
 | [0023](./0023-public-private-eval.md) | Public vs private Design Agent eval | Accepted |
 | [0024](./0024-protocol-version-cross-repo-ci.md) | Protocol version pin + cross-repo CI | Accepted |
+| [0025](./0025-billing-protocol.md) | Billing Protocol open / strategy private | Accepted |

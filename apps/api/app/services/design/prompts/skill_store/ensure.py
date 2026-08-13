@@ -352,7 +352,7 @@ def _skills_disk_signature() -> str:
     return "|".join(parts)
 
 def _prune_legacy_seed_skills(session: Session) -> None:
-    """Drop leftover SOURCE_SEED rows — playbooks live under ``seeds/design_skills/``."""
+    """Drop leftover SOURCE_SEED rows — playbooks live under ``skills/`` file packs."""
     from sqlmodel import select
 
     from app.models import DesignSkill

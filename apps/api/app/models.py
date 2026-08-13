@@ -722,6 +722,27 @@ class LlmModel(SQLModel, table=True):
     reference_types: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     image_limits: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     price_meta: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    pricing_id: Optional[str] = Field(default=None, max_length=128)
+    created_at: float = Field(default=0.0)
+    updated_at: float = Field(default=0.0)
+
+
+class PricingVersion(SQLModel, table=True):
+    """Immutable provider price sheet (Billing Protocol PricingVersionSchema)."""
+
+    __tablename__ = "pricing_versions"
+
+    pricing_version_id: str = Field(primary_key=True, max_length=128)
+    pricing_id: str = Field(default="", max_length=128, index=True)
+    provider: str = Field(default="", max_length=64)
+    model_id: str = Field(default="", max_length=128, index=True)
+    currency: str = Field(default="USD", max_length=16)
+    rates_json: str = Field(default="[]", sa_column=Column(Text, nullable=False))
+    status: str = Field(default="draft", max_length=32, index=True)
+    effective_from: Optional[float] = Field(default=None)
+    effective_to: Optional[float] = Field(default=None)
+    source: str = Field(default="", max_length=64)
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: float = Field(default=0.0)
     updated_at: float = Field(default=0.0)
 
@@ -754,6 +775,7 @@ class ModelUsage(SQLModel, table=True):
     image_count: Optional[int] = Field(default=None)
     credits_charged: Optional[int] = Field(default=None)
     cost_cny: Optional[float] = Field(default=None)
+    pricing_version_id: Optional[str] = Field(default=None, max_length=128)
     provider_request_id: Optional[str] = Field(default=None, max_length=128)
     usage_json: Optional[str] = Field(default=None)
     meta_json: Optional[str] = Field(default=None)

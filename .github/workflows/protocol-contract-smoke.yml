@@ -42,13 +42,42 @@ jobs:
           from recombyn_runtime import remote_result_usable as runtime_usable
           assert version("recombyn-protocol")
           parts = [int(x) for x in version("recombyn-protocol").split(".")[:3]]
-          assert parts >= [0, 1, 1], version("recombyn-protocol")
+          assert parts >= [0, 1, 2], version("recombyn-protocol")
           assert len(INTELLIGENCE_METHODS) >= 15
           assert intelligence_wire_methods() >= set(INTELLIGENCE_METHODS)
           assert not remote_result_usable("research", {})
           assert remote_result_usable("research", {"summary": "ok"})
           assert remote_result_usable("govern", {"status": "pass"})
           assert runtime_usable("govern", {"status": "pass"})
+          from recombyn_protocol.billing import (
+              BILLING_LIFECYCLE_STAGES,
+              BudgetPolicySchema,
+              CostBreakdownSchema,
+              PricingRateSchema,
+              PricingSchema,
+              PricingVersionSchema,
+              TaskCostSchema,
+              UsageEventSchema,
+              money_to_micros,
+              resolve_pricing,
+          )
+          assert "reserve" in BILLING_LIFECYCLE_STAGES
+          assert money_to_micros(1) == 1_000_000
+          rate = PricingRateSchema(metric="input_tokens", unit="per_1m_tokens", amount_micros=2_500_000)
+          fam = PricingSchema(
+              pricing_id="p1",
+              active_version_id="pv1",
+              versions=[PricingVersionSchema(
+                  pricing_version_id="pv1", pricing_id="p1", status="active",
+                  effective_from=0, rates=[rate],
+              )],
+          )
+          assert resolve_pricing(catalog=[fam], pricing_id="p1", timestamp=1).pricing_version_id == "pv1"
+          br = CostBreakdownSchema(provider_cost_micros=100, infrastructure_cost_micros=20)
+          assert br.internal_cost_micros == 120
+          assert TaskCostSchema(task_id="t1").credits_reserved == 0
+          assert BudgetPolicySchema(max_credits_per_task=100).max_credits_per_task == 100
+          assert UsageEventSchema(pricing_version_id="pv1").pricing_version_id == "pv1"
           print("protocol contract smoke ok", version("recombyn-protocol"), len(INTELLIGENCE_METHODS), "methods")
           PY
 

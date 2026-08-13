@@ -36,6 +36,7 @@ jobs:
           pip install -e "../../packages/agent-sdk"
           pip install -e "../../packages/skill-sdk"
           pip install -e "../../packages/plugin-sdk"
+          pip install -e "../../packages/billing-sdk"
           pip install -e ".[dev]"
 
       - name: Alembic single head

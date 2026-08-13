@@ -190,6 +190,7 @@ class ModelUpsertIn(BaseModel):
     imageLimits: dict[str, Any] | None = None
     imageLimitPreset: str | None = Field(default=None, max_length=64)
     priceMeta: dict[str, Any] | None = None
+    pricingId: str | None = Field(default=None, max_length=128)
 
 class SyncPricesIn(BaseModel):
     provider: Literal["openrouter", "ark"] = "openrouter"
