@@ -105,9 +105,6 @@ def validate_skill_meta(item: dict[str, Any], *, source: str) -> list[str]:
     body = str(item.get("prompt_positive") or item.get("promptPositive") or "").strip()
     if not body:
         errs.append("prompt_positive_required")
-    scenes = str(item.get("scenes") or "").strip()
-    if not scenes:
-        errs.append("scenes_required")
     ns = _normalize_namespace(
         item.get("namespace"), source=source
     )
