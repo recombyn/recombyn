@@ -2,7 +2,7 @@
 
 Namespaces (conflict isolation):
   - core  — legacy SOURCE_SEED only (no longer shipped); bare keys stay BC aliases
-  - ext   — file packs under ``seeds/design_skills`` + ``plugins/skills`` (source=file)
+  - ext   — file packs under ``skills/foundation|domains`` + ``plugins/skills`` (source=file)
   - user  — admin / user-extension skills (source=admin); keys use ``user.<local>``
 
 Also:
@@ -75,6 +75,12 @@ from .pack_io import (
     _repo_root,
     _resolve_pack_logo,
     _skill_item_from_parts,
+    approve_skill_proposal,
+    build_skill_proposal,
+    deploy_skill_proposal,
+    mine_skill_failures,
+    reject_skill_proposal,
+    regression_blocks_deploy,
     _skill_md_path,
     _split_skill_md_frontmatter,
     _unquote_yaml_scalar,
@@ -98,6 +104,7 @@ from .runtime import (
     format_skills_catalog,
     format_skills_details,
     format_skills_details_checked,
+    expand_skill_extends,
     invalidate_skill_key_cache,
     list_runtime_skills,
     normalize_need_skills,
@@ -202,11 +209,18 @@ __all__ = [
     "_locale_pick",
     "_resolve_pack_logo",
     "_skill_item_from_parts",
+    "mine_skill_failures",
+    "build_skill_proposal",
+    "approve_skill_proposal",
+    "reject_skill_proposal",
+    "deploy_skill_proposal",
+    "regression_blocks_deploy",
     # runtime
     "list_runtime_skills",
     "format_skills_catalog",
     "format_skills_details",
     "format_skills_details_checked",
+    "expand_skill_extends",
     "filter_ops_by_skill_allowlist",
     "filter_ops_by_skill_output_schema",
     "filter_need_resources_by_skill_acl",

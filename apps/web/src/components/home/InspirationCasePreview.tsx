@@ -11,6 +11,7 @@ import {
 } from '@/utils/officialCases';
 import AuthorFollowAvatar from '@/components/home/AuthorFollowAvatar';
 import TemplateThumbnail from '@/components/templates/TemplateThumbnail';
+import { SoftGlowSurface } from '@/components/base';
 import {
   extractFrameDocument,
   listArtboardFrames,
@@ -458,7 +459,7 @@ function InspirationCasePreview({
                             {thumb ? (
                               <TemplateThumbnail document={thumb} fit="cover" />
                             ) : (
-                              <div className="rcb-skeleton-bone h-full w-full" aria-hidden />
+                              <SoftGlowSurface className="h-full w-full" seed={id} aria-hidden />
                             )}
                           </PreviewFrameThumb>
                         );
@@ -476,8 +477,9 @@ function InspirationCasePreview({
                     <TemplateThumbnail document={previewDoc} fit="contain" />
                   </div>
                 ) : (
-                  <div
-                    className="rcb-skeleton-bone h-full w-full max-w-5xl rounded-2xl"
+                  <SoftGlowSurface
+                    className="h-full w-full max-w-5xl rounded-2xl"
+                    seed="case-preview"
                     aria-busy="true"
                   />
                 )}
@@ -559,7 +561,7 @@ function InspirationCasePreview({
                               {thumb ? (
                                 <TemplateThumbnail document={thumb} fit="cover" />
                               ) : (
-                                <div className="rcb-skeleton-bone h-full w-full" aria-hidden />
+                                <SoftGlowSurface className="h-full w-full" seed={id} aria-hidden />
                               )}
                             </PreviewFrameThumbMobile>
                           );

@@ -34,8 +34,10 @@ export function createTextNode({
   // Empty autoSize = caret only (tiny width). Fixed-width keeps the dragged box.
   const w = width ?? (content ? measured.width : autoSize ? 2 : 160);
   const h = height ?? measured.height;
-  const attrs = buildMarkdownTextAttrs(content, style);
-  (attrs as any).autoSize = autoSize ? 'true' : 'false';
+  const attrs: Record<string, unknown> = {
+    ...buildMarkdownTextAttrs(content, style),
+    autoSize: autoSize ? 'true' : 'false',
+  };
   return {
     id,
     node: {

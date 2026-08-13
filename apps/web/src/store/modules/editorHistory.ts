@@ -25,9 +25,9 @@ export type EditorHistoryHost = {
 };
 
 export function isHistoryEntry(x: unknown): x is HistoryEntry {
-  return Boolean(
-    x && typeof x === 'object' && ((x as any).kind === 'snap' || (x as any).kind === 'nodes')
-  );
+  if (!x || typeof x !== 'object') return false;
+  const kind = (x as HistoryEntry).kind;
+  return kind === 'snap' || kind === 'nodes';
 }
 
 /** Accept legacy raw-document entries still sitting in session state. */
@@ -188,7 +188,7 @@ export function restoreNodesIntoDocument(
   if (!doc?.deltaSetLike || !nodes) return doc;
   return {
     ...doc,
-    deltaSetLike: patchDeltaSetLike(doc.deltaSetLike, nodes) as SceneDocument['deltaSetLike'],
+    deltaSetLike: patchDeltaSetLike(doc.deltaSetLike, nodes),
   };
 }
 

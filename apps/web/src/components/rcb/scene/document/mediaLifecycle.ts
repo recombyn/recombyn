@@ -2,6 +2,7 @@ import { nanoid } from '@reduxjs/toolkit';
 import { buildMarkdownTextAttrs } from './sceneText';
 import {
   addNodeToDocument,
+  cloneSceneValue,
   normalizeDocument,
   removeNodesFromDocument,
 } from './sceneDocument';
@@ -33,7 +34,7 @@ export function documentForSharePreview(doc: SceneDocument): SceneDocument {
     ? delta.ROOT.children.filter(keepId)
     : [];
   const pages = Array.isArray(doc.pages)
-    ? doc.pages.map((p: any) => ({
+    ? doc.pages.map((p) => ({
         ...p,
         children: Array.isArray(p.children) ? p.children.filter(keepId) : p.children,
       }))
@@ -73,7 +74,7 @@ export function canvasAttachPickPayload(
 }
 
 /** Layer locked — still visible/selectable, but transforms are blocked. */
-export function parseImageVariants(attrs: any): string[] {
+export function parseImageVariants(attrs: SceneNode['attrs'] | null | undefined): string[] {
   const raw = attrs?.imageVariants;
   if (Array.isArray(raw)) {
     return raw.map((u) => String(u || '').trim()).filter(Boolean);
@@ -327,7 +328,7 @@ export function detachImageVariantToNode(
  */
 export function cloneAudioNodeSibling(
   doc: SceneDocument,
-  sourceNode: any,
+  sourceNode: SceneNode,
   {
     attrsPatch,
     defaultName,
@@ -342,7 +343,7 @@ export function cloneAudioNodeSibling(
   const w = Math.max(1, Math.round(Number(sourceNode.width) || 360));
   const h = Math.max(1, Math.round(Number(sourceNode.height) || 200));
   const id = nanoid(10);
-  const clone = JSON.parse(JSON.stringify(sourceNode));
+  const clone = cloneSceneValue(sourceNode);
   clone.id = id;
   clone.x = Math.round((Number(sourceNode.x) || 0) + w + gap);
   clone.y = Math.round(Number(sourceNode.y) || 0);
@@ -521,7 +522,7 @@ export function spawnImportPlaceholderNode(
   if (!doc) return { document: doc, id: null as string | null };
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   const active =
-    frames.find((f: any) => f.id === doc.activeFrameId) || frames[0] || null;
+    frames.find((f) => f.id === doc.activeFrameId) || frames[0] || null;
   const width = Math.max(120, Math.round(opts.width ?? 420));
   const height = Math.max(160, Math.round(opts.height ?? 594));
   let x = 40;
@@ -583,7 +584,7 @@ export function spawnImageUploadPlaceholderNode(
   if (!doc || !opts?.src) return { document: doc, id: null as string | null };
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   const active =
-    frames.find((f: any) => f.id === doc.activeFrameId) || frames[0] || null;
+    frames.find((f) => f.id === doc.activeFrameId) || frames[0] || null;
   const width = Math.max(1, Math.round(opts.width) || 1);
   const height = Math.max(1, Math.round(opts.height) || 1);
   const x = centerInFrameOrDocument({
@@ -661,7 +662,7 @@ export function spawnImageProcessNode(
   // Upscale raises bitmap resolution only — keep on-canvas node size.
   // Expand may grow the plate; other kinds stay source-sized.
   const { width, height } = processCloneSize(src, opts);
-  const node = JSON.parse(JSON.stringify(src));
+  const node = cloneSceneValue(src);
   node.id = id;
   node.x = (Number(src.x) || 0) + (Number(src.width) || width) + gap;
   node.y = Number(src.y) || 0;

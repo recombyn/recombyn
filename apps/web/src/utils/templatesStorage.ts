@@ -10,6 +10,19 @@
  */
 export type TemplateSource = 'user' | 'import' | 'case' | 'scratch';
 
+/** In-memory library row (projects come from API; this is session/editor state). */
+export type EditorLibraryItem = {
+  id: string;
+  name?: string;
+  source?: TemplateSource;
+  document?: unknown;
+  originCaseId?: string;
+  updatedAt?: number;
+  openedAt?: number;
+  thumbnail?: string | null;
+  thumbnailCustom?: boolean;
+};
+
 /** Listed under Projects / Me assets — not mere open sessions. */
 export function isOwnedTemplate(item: { source?: string } | null | undefined) {
   return Boolean(item && (item.source === 'user' || item.source === 'import'));
@@ -21,8 +34,8 @@ export function isSessionTemplate(item: { source?: string } | null | undefined) 
 }
 
 /** Always empty — projects come from GET /api/v1/projects. */
-export function loadTemplates() {
-  return [] as any[];
+export function loadTemplates(): EditorLibraryItem[] {
+  return [];
 }
 
 /** No-op — do not write project library to disk. */

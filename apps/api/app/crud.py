@@ -3195,6 +3195,29 @@ def upsert_agent_session_snapshot(
     return row
 
 
+def get_latest_agent_session_snapshot_for_project(
+    *,
+    session: Session,
+    user_id: str,
+    project_id: str,
+    exclude_session_id: str = "",
+) -> AgentSessionSnapshot | None:
+    pid = str(project_id or "").strip()
+    uid = str(user_id or "").strip()
+    if not uid or not pid or pid == "__none__":
+        return None
+    stmt = (
+        select(AgentSessionSnapshot)
+        .where(AgentSessionSnapshot.user_id == uid)
+        .where(AgentSessionSnapshot.project_id == pid)
+    )
+    skip = str(exclude_session_id or "").strip()
+    if skip:
+        stmt = stmt.where(AgentSessionSnapshot.session_id != skip)
+    stmt = stmt.order_by(col(AgentSessionSnapshot.updated_at).desc()).limit(1)
+    return session.exec(stmt).first()
+
+
 def list_chat_message_role_content(
     *, session: Session, session_id: str
 ) -> list[ChatMessage]:
@@ -3714,6 +3737,7 @@ def upsert_llm_model(*, session: Session, row: LlmModel) -> LlmModel:
             "reference_types",
             "image_limits",
             "price_meta",
+            "pricing_id",
             "updated_at",
         ):
             setattr(existing, name, getattr(row, name))

@@ -51,6 +51,32 @@ _ALWAYS_ALLOW_OPS = frozenset(
 MAX_SKILL_DETAIL_CHARS = 14000
 _META_NAMES = ("_meta.json", "meta.json")
 _SKILL_MD_NAMES = ("SKILL.md", "skill.md")
+# Skill V3 category order: foundation → brand → craft → surface → qa
+_SKILL_CATEGORY_ORDER: dict[str, int] = {
+    "foundation": 0,
+    "brand": 1,
+    "craft": 2,
+    "surface": 3,
+    "deliverable": 3,  # legacy alias for surface
+    "ui": 3,  # legacy alias for surface
+    "image": 2,  # helper craft (image_gen), not a competing surface
+    "qa": 4,
+    "agent": 5,
+}
+# Per-category char budgets when assembling SKILL_DETAILS (paint path).
+_SKILL_CATEGORY_BUDGET: dict[str, int] = {
+    "foundation": 1600,
+    "craft": 1200,
+    "image": 1200,
+    "brand": 1400,
+    "surface": 4200,
+    "deliverable": 4200,
+    "ui": 4200,
+    "qa": 700,
+    "agent": 1000,
+}
+# Disk-pack graph (rebuilt on file load) — avoids DB migration for extends.
+_SKILL_GRAPH: dict[str, dict[str, Any]] = {}
 _NS_KEY_RE = re.compile(r"^(core|ext|user)[.:/](.+)$", re.IGNORECASE)
 _PIN_RE = re.compile(r"^(.+?)@([0-9]+(?:\.[0-9]+){0,2})$")
 

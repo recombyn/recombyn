@@ -426,6 +426,15 @@ async def load_deferred_resources(
         if k not in need_skills:
             need_skills.append(k)
 
+    # Surface → Core via _meta.extends (dedupe + category order inside expand).
+    try:
+        from app.services.design.prompts.skill_store import expand_skill_extends
+
+        need_skills = expand_skill_extends(need_skills, scene=rt.scene_key or "")
+        turn["need_skills"] = list(need_skills)
+    except Exception:
+        pass
+
     fresh_s = _fresh_skill_keys(need_skills, skills_loaded=st.skills_loaded)
     load_skills = bool(need_skills) and not (
         set(need_skills) <= set(st.skills_loaded) and "*" not in need_skills

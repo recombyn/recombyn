@@ -3,17 +3,17 @@ import { clearAllProjectDrafts } from '@/components/editor/projectDraftStore';
 import { clearHomeAgentBoot } from '@/utils/homeAgentBoot';
 import { getToken, setToken as persistToken } from '@/utils/token';
 
-const STORAGE_KEY = 'resume-scene-auth-v1';
+const STORAGE_KEY = 'recombyn-auth-v1';
 
 /** Account-bound local keys cleared on logout (not device UI prefs like theme). */
 const SESSION_STORAGE_KEYS = [
-  'resume-scene-wallet-v3',
-  'resume-scene-wallet-v2',
-  'resume.agentRoutePrefs.v1',
-  'resume.agentRoutePrefs.v2',
-  'resume.customLlmProviders.v1',
-  'resume.customLlmProviders.v2',
-  'resume.notices.read.v1',
+  'recombyn.agentRoutePrefs.v1',
+  'recombyn.customLlmProviders.v1',
+  'recombyn.notices.read.v1',
+  'recombyn.agentPaintMode.v1',
+  'recombyn.agentEngineMode.v1',
+  'recombyn.agentCodingCli.v1',
+  'recombyn.byok.deviceKey.v1',
   'recombyn:custom-project-thumbs',
   'recombyn-google-oauth-nonce-v1',
 ] as const;
@@ -83,7 +83,7 @@ export function clearSessionCaches() {
   clearHomeAgentBoot();
   try {
     sessionStorage.removeItem('recombyn-google-oauth-nonce-v1');
-    sessionStorage.removeItem('resume.byok.deviceKey.v1');
+    sessionStorage.removeItem('recombyn.byok.deviceKey.v1');
   } catch {
     /* ignore */
   }

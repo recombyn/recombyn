@@ -1,7 +1,6 @@
 import { imageSrcToFile } from '@/utils/uploadImage';
 import { getSvgBoard, type SvgBoardHandle } from '@/components/rcb/canvas/svgBoardRegistry';
-import { createSvgBoard, loadSceneOntoSvg } from './sceneToSvg';
-import { nodeLeftTop } from './sceneToSvg';
+import { createSvgBoard, loadSceneOntoSvg, nodeLeftTop, type SceneSvgHost } from './sceneToSvg';
 import {
   isExportableSceneNode
 } from '../document/nodeCapabilities';
@@ -36,7 +35,7 @@ export type ExportImageOptions = {
   /** Fill behind crop (HTML frame bg is not in the SVG board). */
   backgroundColor?: string;
   /** Scene document — preferred for selection crop boxes. */
-  document?: any;
+  document?: SceneDocument | null;
 };
 
 export type ExportAffixMode = 'prefix' | 'suffix';
@@ -272,7 +271,7 @@ function snapExportCrop(crop: SceneBox): SceneBox {
 function unionNodeBBoxes(
   board: SvgBoardHandle,
   nodeIds: string[],
-  document?: any
+  document?: SceneDocument | null
 ): SceneBox | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -283,16 +282,12 @@ function unionNodeBBoxes(
   const rootSvg = board.getSvgElement();
 
   for (const id of nodeIds) {
-    let b: SceneBox | null = boxFromSceneNode(document, document?.deltaSetLike?.[id]);
+    const node = document?.deltaSetLike?.[id];
+    let b: SceneBox | null =
+      document && node ? boxFromSceneNode(document, node) : null;
 
     if (!b) {
-      const el = board.nodeEls.get(id) as (SVGGraphicsElement & {
-        __sceneLeft?: number;
-        __sceneTop?: number;
-        sceneWidth?: number;
-        sceneHeight?: number;
-        __sceneAngle?: number;
-      }) | undefined;
+      const el = board.nodeEls.get(id) as (SceneSvgHost & SVGGraphicsElement) | undefined;
       if (!el) continue;
 
       const left = Number(el.__sceneLeft);
@@ -458,7 +453,7 @@ async function fetchHrefAsDataUrl(
  */
 export async function inlineSvgImages(
   svgString: string,
-  sceneDocument?: any,
+  sceneDocument?: SceneDocument | null,
   opts?: { failClosed?: boolean }
 ): Promise<string> {
   const failClosed = opts?.failClosed !== false;
@@ -471,7 +466,7 @@ export async function inlineSvgImages(
   const uploadKeyBySrc = new Map<string, string>();
   const nodes = sceneDocument?.deltaSetLike;
   if (nodes && typeof nodes === 'object') {
-    for (const node of Object.values(nodes) as any[]) {
+    for (const node of Object.values(nodes) as SceneNode[]) {
       const key = String(node?.attrs?.uploadKey || '').trim();
       if (!key) continue;
       const src = String(node?.attrs?.src || '').trim();
@@ -1148,7 +1143,7 @@ export async function renderComposerChipThumb(opts: {
 
   const frameId = String(opts.frameId || '').trim();
   if (frameId) {
-    const frames: any[] = Array.isArray(doc.frames) ? doc.frames : [];
+    const frames = Array.isArray(doc.frames) ? doc.frames : [];
     const frame = frames.find((f) => f?.id === frameId);
     if (!frame) return null;
     const w = Math.max(1, Number(frame.width) || 1);
@@ -1219,7 +1214,7 @@ export async function exportSelectionSlots(opts: {
   baseName: string;
   compress: boolean;
   slots: ExportSlotConfig[];
-  document?: any;
+  document?: SceneDocument | null;
 }): Promise<{ saved: number; cancelled: number; failed: number }> {
   const { nodeIds, baseName, compress, slots, document } = opts;
   const tally = { saved: 0, cancelled: 0, failed: 0 };
@@ -1251,7 +1246,7 @@ export async function exportCropSlots(opts: {
   compress: boolean;
   slots: ExportSlotConfig[];
   /** Required on infinite canvas — live SvgBoard is not registered. */
-  document?: any;
+  document?: SceneDocument | null;
 }): Promise<{ saved: number; cancelled: number; failed: number }> {
   const { crop, backgroundColor, baseName, compress, slots, document } = opts;
   const tally = { saved: 0, cancelled: 0, failed: 0 };

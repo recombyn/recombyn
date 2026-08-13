@@ -1,6 +1,7 @@
 # Skill plugins (`plugins/skills`)
 
-You can drop private Skill packs here. Same layout as shipped `apps/api/seeds/design_skills/` — Compose already mounts this folder.
+You can drop private Skill packs here. Same layout as shipped packs under
+`skills/foundation` and `skills/domains`. Compose already mounts this folder.
 
 ## Canonical pack layout
 
@@ -16,12 +17,14 @@ my_poster_plugin/
 
 Skills are **playbooks** by default (LLM paint). With the ops runner enabled, `handler.py` may return `tool_ops` first.
 
-## Two product roots only
+## Product roots
 
 | Root | Who |
 |------|-----|
-| `apps/api/seeds/design_skills/` | Shipped / first-party |
+| `skills/foundation/` | Shipped core craft (open) |
+| `skills/domains/` | Shipped surfaces / deliverables (open) |
 | `plugins/skills/` | Private deploy mount |
+| `apps/api/seeds/design_skills/` | Legacy empty shim (still scanned) |
 
 `.agents/skills/` is for Cursor/IDE agents only — **not** loaded by the Design Agent.
 

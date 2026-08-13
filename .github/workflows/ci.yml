@@ -59,6 +59,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e "../../packages/scene-builder-py"
+          pip install -e "../../packages/protocol"
+          pip install -e "../../packages/runtime"
+          pip install -e "../../packages/intelligence-client"
+          pip install -e "../../packages/agent-sdk"
+          pip install -e "../../packages/skill-sdk"
+          pip install -e "../../packages/plugin-sdk"
+          pip install -e "../../packages/billing-sdk"
           pip install -e ".[dev]"
       - name: Alembic single head
         run: python -m pytest tests/unit_tests/test_llm_facade_adr0006.py::test_alembic_single_head -q

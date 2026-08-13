@@ -28,3 +28,11 @@ export { Icon } from './icon';
 export { message, MessageContainer } from './message';
 export { VirtualList } from './VirtualList';
 export type { VirtualListHandle } from './VirtualList';
+export {
+  SoftGlowSurface,
+  pickSoftGlowTone,
+  resolveSoftGlowTone,
+  softGlowClassName,
+  SOFT_GLOW_LIST_TONES,
+} from './SoftGlowSurface';
+export type { SoftGlowListTone, SoftGlowTone } from './SoftGlowSurface';

@@ -22,6 +22,8 @@ export type ArtboardFrame = {
   width: number;
   height: number;
   backgroundColor: string;
+  /** Legacy alias some exporters still read; prefer backgroundColor. */
+  fill?: string;
   layoutMode?: 'auto' | 'manual';
   /** When true, frame cannot be moved or resized. */
   locked?: boolean;
@@ -34,7 +36,10 @@ export type ArtboardFrame = {
   /** Size before first ratio preset — restored by 「原始」. */
   aspectOriginalWidth?: number;
   aspectOriginalHeight?: number;
-  /** Agent / import loading chrome on the artboard itself (not a separate node). */
+  /**
+   * Legacy artboard generating chrome. AI overlay now lives in editor
+   * `aiOperationState` (ephemeral). Kept so old Yjs/clipboard docs can strip it.
+   */
   processStatus?: 'running' | null;
   processLabel?: string;
   processKind?: 'design' | 'import' | string;

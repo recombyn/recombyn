@@ -7,10 +7,13 @@ import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, RetryPolicy, TimeoutPolicy
+
+from recombyn_agent_sdk import KERNEL_CANVAS_REQUIRED
 
 from app.services.design.readpath.canvas_scene import resolve_agent_scene, scene_key as _scene_key
 from app.services.design.runtime.decision_log import DesignRunDecision
@@ -38,6 +41,7 @@ from app.services.design.runtime.graph.nodes import (
     _node_settle,
 )
 from app.services.design.runtime.graph.state import (
+    AgentGraphRunInput,
     AgentRunState,
     AgentRuntime,
     GraphState,
@@ -75,16 +79,36 @@ from app.services.design.admin.task_store import (
 )
 
 _log = logging.getLogger(__name__)
-# Compiled graphs keyed by topology template id (AgentProfile.topology.template).
-_TEMPLATE_GRAPHS: dict[str, Any] = {}
-# Back-compat alias — tests / callers that still poke the singleton.
-_LC_DESIGN_GRAPH: Any = None
-_DESIGN_HOLD_FNS: dict[str, tuple[Any, Any]] = {}
-_DESIGN_HOLD_LOCK = threading.Lock()
-# Cooperative control for an in-flight graph asyncio task.
-_RUN_INTENT: dict[str, str] = {}  # task_id → pause | cancel
-_ACTIVE_RUN_TASKS: dict[str, asyncio.Task[Any]] = {}
-_RUN_CONTROL_LOCK = threading.Lock()
+
+
+@dataclass
+class _GraphCompileCache:
+    """Compiled LangGraph templates (not per-run state)."""
+
+    templates: dict[str, Any] = field(default_factory=dict)
+    lc_design: Any = None
+    checkpoint_sweep_started: bool = False
+
+
+@dataclass
+class _RunControl:
+    """In-process pause/cancel + wallet hold bindings for active tasks."""
+
+    intent: dict[str, str] = field(default_factory=dict)
+    tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    hold_fns: dict[str, tuple[Any, Any]] = field(default_factory=dict)
+    hold_lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_CACHE = _GraphCompileCache()
+_RUN = _RunControl()
+# Back-compat names — tests / older pokes still import these module attrs.
+_TEMPLATE_GRAPHS = _CACHE.templates
+_LC_DESIGN_GRAPH = None
+_DESIGN_HOLD_FNS = _RUN.hold_fns
+_RUN_INTENT = _RUN.intent
+_ACTIVE_RUN_TASKS = _RUN.tasks
 
 _INTENT_PAUSE = "pause"
 _INTENT_CANCEL = "cancel"
@@ -107,7 +131,7 @@ _CANVAS_OPS_V1_SUPPORTED = frozenset(
         "settle",
     }
 )
-_CANVAS_OPS_V1_REQUIRED = frozenset({"intent", "decide", "paint", "observe"})
+_CANVAS_OPS_V1_REQUIRED = frozenset(KERNEL_CANVAS_REQUIRED)
 
 
 class _SceneInterruptPark(Exception):
@@ -119,22 +143,22 @@ def _bind_design_hold_fns(task_id: str, settle: Any, refund: Any) -> None:
     tid = str(task_id or "").strip()
     if not tid:
         return
-    with _DESIGN_HOLD_LOCK:
-        _DESIGN_HOLD_FNS[tid] = (settle, refund)
+    with _RUN.hold_lock:
+        _RUN.hold_fns[tid] = (settle, refund)
 
 
 def _unbind_design_hold_fns(task_id: str) -> None:
     tid = str(task_id or "").strip()
     if not tid:
         return
-    with _DESIGN_HOLD_LOCK:
-        _DESIGN_HOLD_FNS.pop(tid, None)
+    with _RUN.hold_lock:
+        _RUN.hold_fns.pop(tid, None)
 
 
 def _design_settle_hold_fn(rt: AgentRuntime) -> Any:
     tid = str(rt.run.task_id or "").strip()
-    with _DESIGN_HOLD_LOCK:
-        pair = _DESIGN_HOLD_FNS.get(tid)
+    with _RUN.hold_lock:
+        pair = _RUN.hold_fns.get(tid)
     if pair and callable(pair[0]):
         return pair[0]
     fn = getattr(rt, "settle_hold_fn", None)
@@ -145,8 +169,8 @@ def _design_settle_hold_fn(rt: AgentRuntime) -> Any:
 
 def _design_refund_hold_fn(rt: AgentRuntime) -> Any:
     tid = str(rt.run.task_id or "").strip()
-    with _DESIGN_HOLD_LOCK:
-        pair = _DESIGN_HOLD_FNS.get(tid)
+    with _RUN.hold_lock:
+        pair = _RUN.hold_fns.get(tid)
     if pair and callable(pair[1]):
         return pair[1]
     fn = getattr(rt, "refund_hold_fn", None)
@@ -160,25 +184,25 @@ def _register_active_run(task_id: str, task: asyncio.Task[Any] | None = None) ->
     if not tid:
         return
     cur = task or asyncio.current_task()
-    with _RUN_CONTROL_LOCK:
+    with _RUN.lock:
         if cur is not None:
-            _ACTIVE_RUN_TASKS[tid] = cur
-        _RUN_INTENT.pop(tid, None)
+            _RUN.tasks[tid] = cur
+        _RUN.intent.pop(tid, None)
 
 
 def _unregister_active_run(task_id: str) -> None:
     tid = str(task_id or "").strip()
     if not tid:
         return
-    with _RUN_CONTROL_LOCK:
-        _ACTIVE_RUN_TASKS.pop(tid, None)
-        _RUN_INTENT.pop(tid, None)
+    with _RUN.lock:
+        _RUN.tasks.pop(tid, None)
+        _RUN.intent.pop(tid, None)
 
 
 def _get_run_intent(task_id: str) -> str | None:
     tid = str(task_id or "").strip()
-    with _RUN_CONTROL_LOCK:
-        local = _RUN_INTENT.get(tid)
+    with _RUN.lock:
+        local = _RUN.intent.get(tid)
     if local in (_INTENT_PAUSE, _INTENT_CANCEL):
         return local
     try:
@@ -192,9 +216,9 @@ def _request_run_intent(task_id: str, intent: str) -> bool:
     tid = str(task_id or "").strip()
     if not tid or intent not in (_INTENT_PAUSE, _INTENT_CANCEL):
         return False
-    with _RUN_CONTROL_LOCK:
-        _RUN_INTENT[tid] = intent
-        running = _ACTIVE_RUN_TASKS.get(tid)
+    with _RUN.lock:
+        _RUN.intent[tid] = intent
+        running = _RUN.tasks.get(tid)
     try:
         set_run_intent(tid, intent)
     except Exception:
@@ -439,7 +463,8 @@ def _persist_lifecycle(
 def invalidate_agent_graph_cache(flow_id: str | None = None) -> None:
     del flow_id
     global _LC_DESIGN_GRAPH
-    _TEMPLATE_GRAPHS.clear()
+    _CACHE.templates.clear()
+    _CACHE.lc_design = None
     _LC_DESIGN_GRAPH = None
 
 
@@ -505,9 +530,6 @@ def _get_design_graph_checkpointer() -> Any:
     return cp
 
 
-_CHECKPOINT_SWEEP_STARTED = False
-
-
 async def sweep_stale_design_checkpoints(*, limit: int = 50) -> dict[str, Any]:
     """Delete checkpoints and expire DB rows for orphaned resumable runs past TTL."""
     from app.core.config import settings
@@ -538,8 +560,7 @@ async def sweep_stale_design_checkpoints(*, limit: int = 50) -> dict[str, Any]:
 
 def start_design_checkpoint_ttl_scheduler() -> None:
     """Background thread: expire orphaned paused/waiting checkpoints."""
-    global _CHECKPOINT_SWEEP_STARTED
-    if _CHECKPOINT_SWEEP_STARTED:
+    if _CACHE.checkpoint_sweep_started:
         return
     from app.core.config import settings
 
@@ -567,7 +588,7 @@ def start_design_checkpoint_ttl_scheduler() -> None:
     threading.Thread(
         target=_loop, name="design-checkpoint-ttl", daemon=True
     ).start()
-    _CHECKPOINT_SWEEP_STARTED = True
+    _CACHE.checkpoint_sweep_started = True
     _log.info(
         "design checkpoint TTL scheduler started ttl_h=%.2f interval_h=%.2f",
         ttl,
@@ -722,13 +743,14 @@ def resolve_topology_graph(profile: Any | None = None) -> Any:
     validate_profile_topology(prof)
     validate_profile_surface(prof)
     tid = str(prof.topology_template).strip()
-    cached = _TEMPLATE_GRAPHS.get(tid)
+    cached = _CACHE.templates.get(tid)
     if cached is not None:
         return cached
     builder = _topology_registry()[tid]["builder"]
     graph = builder()
-    _TEMPLATE_GRAPHS[tid] = graph
+    _CACHE.templates[tid] = graph
     if tid == TEMPLATE_CANVAS_OPS_V1:
+        _CACHE.lc_design = graph
         _LC_DESIGN_GRAPH = graph
     return graph
 
@@ -781,38 +803,50 @@ def _bind_pending_ask_proposal(
     }
 
 
-async def run_agent_graph(
-    *,
-    user_id: str,
-    mode: str,
-    prompt: str,
-    rules: dict[str, str],
-    user_selected_model: str | None,
-    canvas_id: str | None,
-    canvas_size: str | None,
-    scene: str | None,
-    scene_nodes: list[dict[str, Any]],
-    scene_frames: list[dict[str, Any]],
-    spatial_summary: dict[str, Any] | None,
-    focus_frame_id: str | None,
-    images: list[str] | None,
-    memory_in: dict[str, Any] | None,
-    session_id: str,
-    project_id: str,
-    hold: int,
-    free_daily: bool,
-    t0: float,
-    reserve_hold_fn: Any,
-    settle_hold_fn: Any,
-    refund_hold_fn: Any,
-    apply_ops: list[dict[str, Any]] | None = None,
-    proposal_id: str | None = None,
-    proposal_task_id: str | None = None,
-    interaction_mode: str | None = None,
-    skill_refs: list[str] | None = None,
-) -> AsyncIterator[dict[str, Any]]:
+def _review_loop_max_from_profile() -> int | None:
+    try:
+        from app.services.design.runtime.agent_profile import get_active_agent_profile
+
+        for frm, when, to, mx in get_active_agent_profile().topology_loops or ():
+            if (
+                str(frm).lower() == "review"
+                and str(when).lower() == "must_fix"
+                and str(to).lower() in ("paint", "paint_ops")
+            ):
+                return max(1, int(mx))
+    except Exception:
+        return None
+    return None
+
+
+async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, Any]]:
     """Internal graph runner (public entry: ``design_stream``)."""
-    del reserve_hold_fn
+    user_id = inp.user_id
+    mode = inp.mode
+    prompt = inp.prompt
+    rules = inp.rules
+    user_selected_model = inp.user_selected_model
+    canvas_id = inp.canvas_id
+    canvas_size = inp.canvas_size
+    scene = inp.scene
+    scene_nodes = inp.scene_nodes
+    scene_frames = inp.scene_frames
+    spatial_summary = inp.spatial_summary
+    focus_frame_id = inp.focus_frame_id
+    images = inp.images
+    memory_in = inp.memory_in
+    session_id = inp.session_id
+    project_id = inp.project_id
+    hold = inp.hold
+    free_daily = inp.free_daily
+    t0 = inp.t0
+    settle_hold_fn = inp.settle_hold_fn
+    refund_hold_fn = inp.refund_hold_fn
+    apply_ops = inp.apply_ops
+    proposal_id = inp.proposal_id
+    proposal_task_id = inp.proposal_task_id
+    interaction_mode = inp.interaction_mode
+    skill_refs = inp.skill_refs
 
     task_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
@@ -831,21 +865,7 @@ async def run_agent_graph(
     pid = _as_text(project_id).strip() or "__none__"
     max_rounds = S._int_rule(rules, "agent.react.max_rounds", _DEFAULT_MAX_ROUNDS) or _DEFAULT_MAX_ROUNDS
     max_reflect = S._int_rule(rules, "agent.react.max_reflect", _DEFAULT_MAX_REFLECT)
-    # Profile topology.loops: review must_fix → paint max (Review Agent budget).
-    review_loop_max: int | None = None
-    try:
-        from app.services.design.runtime.agent_profile import get_active_agent_profile
-
-        for frm, when, to, mx in get_active_agent_profile().topology_loops or ():
-            if (
-                str(frm).lower() == "review"
-                and str(when).lower() == "must_fix"
-                and str(to).lower() in ("paint", "paint_ops")
-            ):
-                review_loop_max = max(1, int(mx))
-                break
-    except Exception:
-        review_loop_max = None
+    review_loop_max = _review_loop_max_from_profile()
 
     scene_key, _ = resolve_agent_scene(scene, prompt, canvas_size, rules=rules)
     scene_key = scene_key or _scene_key(scene) or ""
