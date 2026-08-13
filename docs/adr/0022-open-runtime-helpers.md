@@ -1,0 +1,34 @@
+# ADR 0022: Open runtime helpers package
+
+- **Status:** Accepted
+- **Date:** 2026-08-14
+
+## Context
+
+The optional HTTP Intelligence adapter and private providers must share one request
+body shape. Empty remote stubs must not override BasicLocal (Kernel quality).
+
+## Decision
+
+1. Ship `packages/runtime` (`recombyn_runtime`) with:
+   - `build_intelligence_request` (Runtime → HTTP JSON body)
+   - re-export of `remote_result_usable` from `recombyn_protocol` (empty /
+     status-less bodies → unusable). The canonical definition lives in
+     `packages/protocol` so Private can depend on one contract package.
+2. API `RemoteIntelligenceProvider` uses these helpers, then
+   `apply_intelligence_result` (API-local) writes usable payloads into Runtime
+   slots so Decide/Settle see the same fields as BasicLocal.
+3. LangGraph / Scene apply remain in the API; this package stays thin.
+4. Public docs still omit proprietary provider internals.
+
+## Consequences
+
+- Remote + private services stay aligned on payload contract.
+- Unimplemented remotes safely fall back to BasicLocal.
+
+## References
+
+- `packages/runtime`
+- `packages/intelligence-client`
+- [ADR 0017](./0017-intelligence-provider-boundary.md)
+- [ADR 0021](./0021-open-agent-sdk.md)

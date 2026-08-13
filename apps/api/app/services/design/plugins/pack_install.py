@@ -31,14 +31,14 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from recombyn_plugin_sdk import (
+    PLUGIN_JSON as _PLUGIN_JSON,
+    PLUGIN_SIG as _PLUGIN_SIG,
+    parse_plugin_manifest,
+    slug_plugin_id as _slug_id,
+)
 
-_PLUGIN_JSON = "plugin.json"
-_PLUGIN_SIG = "plugin.sig"
-_FORMAT = "recombyn-plugin"
-_KINDS = frozenset({"skill", "canvas"})
-_INSTALL_TARGETS = frozenset({"user", "disk"})
-_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
+logger = logging.getLogger(__name__)
 
 # Extra files allowed inside a branded plugin pack (beyond skill meta/logo).
 _PLUGIN_EXTRA_NAMES = frozenset(
@@ -130,11 +130,6 @@ def _safe_rel(name: str) -> str | None:
     return "/".join(parts)
 
 
-def _slug_id(raw: str) -> str:
-    s = _SLUG_RE.sub("-", str(raw or "").strip().lower()).strip("-_")
-    return s[:64] or "plugin"
-
-
 def _zip_check(kind: str, ok: bool, label: str, detail: str | None = None) -> dict[str, Any]:
     item: dict[str, Any] = {"kind": kind, "ok": bool(ok), "label": label}
     if detail:
@@ -206,48 +201,6 @@ def verify_plugin_signature(zf: zipfile.ZipFile, *, secret: str) -> tuple[bool, 
     if not hmac.compare_digest(claimed, expected):
         return False, "signature_mismatch"
     return True, "signature_ok"
-
-
-def parse_plugin_manifest(meta: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
-    errs: list[str] = []
-    fmt = str(meta.get("format") or "").strip().lower()
-    if fmt != _FORMAT:
-        errs.append("format_invalid")
-    try:
-        ver = int(meta.get("formatVersion") or meta.get("format_version") or 1)
-    except (TypeError, ValueError):
-        ver = 0
-    if ver < 1:
-        errs.append("format_version_invalid")
-    kind = str(meta.get("kind") or "skill").strip().lower()
-    if kind not in _KINDS:
-        errs.append("kind_invalid")
-    pid = _slug_id(str(meta.get("id") or meta.get("skill_key") or meta.get("name") or ""))
-    if not pid or pid == "plugin" and not str(meta.get("id") or "").strip():
-        # allow folder fallback later
-        pass
-    install = str(meta.get("install") or ("disk" if kind == "canvas" else "user")).strip().lower()
-    if install not in _INSTALL_TARGETS:
-        errs.append("install_invalid")
-    if kind == "canvas" and install != "disk":
-        errs.append("canvas_requires_disk_install")
-    if errs:
-        return None, errs
-    perms = meta.get("permissions")
-    if not isinstance(perms, list):
-        perms = []
-    return {
-        "format": _FORMAT,
-        "formatVersion": ver,
-        "id": pid,
-        "kind": kind,
-        "name": str(meta.get("name") or pid).strip() or pid,
-        "version": str(meta.get("version") or "1.0.0").strip() or "1.0.0",
-        "author": str(meta.get("author") or "").strip(),
-        "permissions": [str(x).strip() for x in perms if str(x).strip()],
-        "install": install,
-        "raw": meta,
-    }, []
 
 
 def looks_like_recombyn_plugin(filename: str, raw: bytes) -> bool:

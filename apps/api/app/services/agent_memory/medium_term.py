@@ -103,3 +103,45 @@ def persist_medium_term(
 ) -> None:
     save_task_state_to_session(user_id, session_id, task_state)
     upsert_session_snapshot(user_id, session_id, project_id, task_state)
+
+
+def project_design_from_task_state(raw: Any) -> dict[str, Any]:
+    from app.services.agent_memory.schema import empty_design_memory, normalize_design_memory
+
+    if not isinstance(raw, dict):
+        return empty_design_memory()["project"]
+    return normalize_design_memory(raw.get("design"))["project"]
+
+
+def load_project_design_memory(
+    user_id: str,
+    project_id: str,
+    *,
+    exclude_session_id: str = "",
+) -> dict[str, Any]:
+    """Latest project-layer DNA/system from another session of the same project."""
+    from app.services.agent_memory.schema import empty_design_memory
+
+    empty = empty_design_memory()["project"]
+    pid = str(project_id or "").strip()
+    uid = str(user_id or "").strip()
+    if not uid or not pid or pid == "__none__":
+        return empty
+    init_schema()
+    try:
+        with Session(engine) as session:
+            row = crud.get_latest_agent_session_snapshot_for_project(
+                session=session,
+                user_id=uid,
+                project_id=pid,
+                exclude_session_id=exclude_session_id,
+            )
+            if not row or not str(row.task_state_json or "").strip():
+                return empty
+            try:
+                blob = json.loads(str(row.task_state_json))
+            except Exception:
+                return empty
+            return project_design_from_task_state(blob)
+    except Exception:
+        return empty

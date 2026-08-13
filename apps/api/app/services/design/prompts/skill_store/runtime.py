@@ -25,6 +25,9 @@ from .constants import (
     _INTERNAL_RESOURCE_KINDS,
     _RUNTIME_SKILL_INDEX,
     _RUNTIME_SKILL_KEYS,
+    _SKILL_CATEGORY_BUDGET,
+    _SKILL_CATEGORY_ORDER,
+    _SKILL_GRAPH,
     _SKILLS_READY,
     _SOURCE_TO_NS,
 )
@@ -226,6 +229,10 @@ def _pub(r: Any) -> dict[str, Any]:
         "outputSchema": output_schema,
         "triggers": triggers,
         "mutexGroup": str(_row_get(r, "mutex_group") or "").strip() or None,
+        "extends": list((_SKILL_GRAPH.get(key.lower()) or {}).get("extends") or []),
+        "contextMode": str(
+            (_SKILL_GRAPH.get(key.lower()) or {}).get("context_mode") or "full"
+        ),
         "version": int(_row_get(r, "version") or 1),
         "packVersion": str(_row_get(r, "pack_version") or "").strip() or None,
         "logo": str(_row_get(r, "logo") or "").strip() or None,
@@ -493,6 +500,92 @@ def save_skill_revision(session: Session, *, skill_id: int, item: dict[str, Any]
     except Exception:
         logger.debug("skill revision save failed", exc_info=True)
 
+def expand_skill_extends(
+    keys: list[str],
+    *,
+    scene: str = "",
+    max_depth: int = 6,
+) -> list[str]:
+    """Resolve surface → extends: dedupe, BFS, category-stable order.
+
+    Order: foundation → brand → craft → surface → qa.
+    Decide still picks one surface; Host expands Core without dumping every body.
+    """
+    wanted = [str(k).strip() for k in (keys or []) if str(k).strip()]
+    if not wanted or any(k in ("*", "all") for k in wanted):
+        return wanted
+
+    # Soft cycle guard during expand (hard fail happens at pack load).
+    path_stack: list[str] = []
+    ordered: list[str] = []
+    seen: set[str] = set()
+    queue: list[tuple[str, int]] = []
+
+    for raw in wanted:
+        base, _pin_i, _pin_p = parse_skill_pin(raw)
+        storage = resolve_storage_skill_key(base, scene=scene) or base
+        storage_l = str(storage).strip().lower()
+        if not storage_l or storage_l in seen:
+            continue
+        seen.add(storage_l)
+        ordered.append(storage_l)
+        queue.append((storage_l, 0))
+
+    while queue:
+        key, depth = queue.pop(0)
+        if depth >= max_depth:
+            continue
+        if key in path_stack:
+            continue
+        path_stack.append(key)
+        graph = _SKILL_GRAPH.get(key) or {}
+        for dep in list(graph.get("extends") or []):
+            dep_l = str(dep or "").strip().lower()
+            if not dep_l:
+                continue
+            resolved = resolve_storage_skill_key(dep_l, scene=scene) or dep_l
+            resolved_l = str(resolved).strip().lower()
+            if not resolved_l or resolved_l in seen:
+                continue
+            if resolved_l in path_stack:
+                continue
+            seen.add(resolved_l)
+            ordered.append(resolved_l)
+            queue.append((resolved_l, depth + 1))
+        path_stack.pop()
+
+    def sort_key(skill_key: str) -> tuple[int, str]:
+        cat = str((_SKILL_GRAPH.get(skill_key) or {}).get("category") or "agent").lower()
+        return (_SKILL_CATEGORY_ORDER.get(cat, 50), skill_key)
+
+    return sorted(ordered, key=sort_key)
+
+
+def _skill_body_for_context(row: dict[str, Any], *, role: str = "paint") -> str:
+    """Pick full / rules / review body to avoid qa prompt bloat."""
+    key = str(row.get("skillKey") or "").strip().lower()
+    graph = _SKILL_GRAPH.get(key) or {}
+    category = str(row.get("category") or graph.get("category") or "agent").lower()
+    mode = str(row.get("contextMode") or graph.get("context_mode") or "full").lower()
+    body = str(row.get("promptPositive") or "").strip()
+    rules = str(graph.get("rules_excerpt") or "").strip()
+    review_docs = str(graph.get("review_docs") or "").strip()
+
+    if role == "review":
+        if category == "qa" and review_docs:
+            return review_docs[:2000]
+        if category == "qa" and rules:
+            return rules
+        return body
+
+    # paint path — compress qa / rules-mode skills
+    if category == "qa" or mode in ("rules", "compact"):
+        return rules or body[:700]
+    if mode == "review":
+        return rules or body[:700]
+    return body
+
+
 def format_skills_details(
     *,
     keys: list[str],
@@ -501,6 +594,7 @@ def format_skills_details(
     user_id: str | None = None,
     version_pins: dict[str, int | str] | None = None,
     input_args: dict[str, Any] | None = None,
+    role: str = "paint",
 ) -> str:
     text, _errs = format_skills_details_checked(
         keys=keys,
@@ -509,6 +603,7 @@ def format_skills_details(
         user_id=user_id,
         version_pins=version_pins,
         input_args=input_args,
+        role=role,
     )
     return text
 
@@ -520,12 +615,18 @@ def format_skills_details_checked(
     user_id: str | None = None,
     version_pins: dict[str, int | str] | None = None,
     input_args: dict[str, Any] | None = None,
+    role: str = "paint",
 ) -> tuple[str, list[str]]:
-    """Return (details_markdown, validation_errors)."""
+    """Return (details_markdown, validation_errors).
+
+    Expands ``extends``, dedupes, sorts by category, and applies per-category
+    char budgets so Core qa skills do not dump full review curricula into Paint.
+    """
     wanted_raw = [str(k).strip() for k in (keys or []) if str(k).strip()]
     if not wanted_raw:
         return "", []
     load_all = any(k in ("*", "all") for k in wanted_raw)
+    expanded = wanted_raw if load_all else expand_skill_extends(wanted_raw, scene=scene)
     pins = version_pins or {}
     args_by_key = input_args or {}
     errs: list[str] = []
@@ -536,27 +637,25 @@ def format_skills_details_checked(
     if load_all:
         resolved = list(runtime)
     else:
-        for raw in wanted_raw:
-            base, pin_i, pin_p = parse_skill_pin(raw)
-            storage = resolve_storage_skill_key(base, scene=scene)
-            if not storage:
-                errs.append(f"skill_unknown:{raw}")
-                continue
+        for storage in expanded:
             row = dict(by_key.get(storage) or {})
             if not row:
+                # Extends target missing — soft-skip (surface may still paint).
+                if storage not in {str(k).strip().lower() for k in wanted_raw}:
+                    continue
                 errs.append(f"skill_unavailable:{storage}")
                 continue
-            pin = pins.get(storage, pins.get(base))
-            if pin_i is not None:
-                pin = pin_i
-            elif pin_p is not None:
-                pin = pin_p
+            pin = pins.get(storage)
             pinned = _apply_skill_pin(row, storage=storage, pin=pin, errs=errs)
             if pinned is None:
                 continue
             row = pinned
             schema = row.get("inputSchema") if isinstance(row.get("inputSchema"), dict) else None
-            if schema:
+            if schema and storage in {
+                (resolve_storage_skill_key(parse_skill_pin(k)[0], scene=scene) or k).lower()
+                for k in wanted_raw
+                if k not in ("*", "all")
+            }:
                 arg_errs = validate_against_schema(schema, args_by_key.get(storage) or {})
                 if arg_errs:
                     errs.append(f"skill_input_invalid:{storage}:" + ",".join(arg_errs[:6]))
@@ -564,6 +663,22 @@ def format_skills_details_checked(
             resolved.append(row)
 
     rows = _apply_mutex(resolved)
+
+    wanted_norm = {
+        str(k).strip().lower()
+        for k in wanted_raw
+        if str(k).strip() and k not in ("*", "all")
+    }
+
+    def row_sort_key(r: dict[str, Any]) -> tuple[int, int, str]:
+        key = str(r.get("skillKey") or "").strip().lower()
+        cat = str(r.get("category") or (_SKILL_GRAPH.get(key) or {}).get("category") or "agent")
+        # Explicit need_skills first so extends deps cannot starve the requested pack.
+        explicit = 0 if key in wanted_norm else 1
+        return (explicit, _SKILL_CATEGORY_ORDER.get(str(cat).lower(), 50), key)
+
+    rows = sorted(rows, key=row_sort_key)
+
     from app.services.design.prompts.prompt_pack_store import render_prompt_body
 
     header = render_prompt_body("agent.prompt.skill_details_header").strip()
@@ -576,16 +691,18 @@ def format_skills_details_checked(
             continue
         name = str(r.get("name") or key)
         when = str(r.get("whenToUse") or "").strip()
-        body = str(r.get("promptPositive") or "").strip()
+        cat = str(r.get("category") or "agent").strip().lower() or "agent"
+        body = _skill_body_for_context(r, role=role)
+        budget = int(_SKILL_CATEGORY_BUDGET.get(cat, 1200))
+        if len(body) > budget:
+            body = body[: budget - 1].rstrip() + "…"
         neg = str(r.get("promptNegative") or "").strip()
         tools = r.get("preferredTools") or []
         ver = int(r.get("version") or 1)
         ns = str(r.get("namespace") or NS_USER)
-        head = f"## skill: {key} — {name} (v{ver}, ns={ns})"
+        head = f"## skill: {key} — {name} (v{ver}, ns={ns}, cat={cat})"
         if when:
             head += f"\nwhen: {when}"
-        # Prefer natural-language canvas actions in craft text — never leak op ids
-        # like create_image into SKILL_DETAILS (TOOL_DETAILS already owns schemas).
         action_hint = _preferred_tools_as_actions(tools)
         if action_hint:
             head += "\ncanvas_actions: " + action_hint
@@ -595,8 +712,11 @@ def format_skills_details_checked(
             if allowed_actions:
                 head += "\noutput_actions: " + allowed_actions
         block = f"{head}\n{body}".strip()
-        if neg:
+        if neg and cat != "qa":
             block += f"\n\nforbid: {neg}"
+        elif neg and cat == "qa":
+            # qa skills already carry forbid list in rules excerpt
+            block += f"\n\nforbid: {neg[:400]}"
         if total + len(block) + 2 > max_chars and used > 0:
             trunc = render_prompt_body("agent.prompt.skill_details_truncated").strip()
             if trunc:

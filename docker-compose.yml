@@ -17,7 +17,8 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      # mysql:8.4 images may omit healthcheck.sh; mysqladmin is always present.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -91,6 +92,11 @@ services:
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-recombyn-api}
+      # Design Intelligence (ADR 0017). Default local = BasicLocal.
+      - RECOMBYN_INTELLIGENCE_MODE=${RECOMBYN_INTELLIGENCE_MODE:-local}
+      - RECOMBYN_INTELLIGENCE_URL=${RECOMBYN_INTELLIGENCE_URL:-}
+      - RECOMBYN_INTELLIGENCE_API_KEY=${RECOMBYN_INTELLIGENCE_API_KEY:-}
+      - RECOMBYN_INTELLIGENCE_TIMEOUT_SEC=${RECOMBYN_INTELLIGENCE_TIMEOUT_SEC:-30}
 
     depends_on:
       redis:

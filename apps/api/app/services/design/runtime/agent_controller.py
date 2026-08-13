@@ -28,6 +28,7 @@ from app.services.design.runtime.graph.build import (
     validate_profile_topology,
 )
 from app.services.design.runtime.graph.state import (
+    AgentGraphRunInput,
     AgentRunState as _AgentRunState,
     AgentRuntime as _AgentRuntime,
     AgentTurnSchema,

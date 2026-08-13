@@ -67,7 +67,7 @@ import {
   waitForImageReady,
 } from '@/utils/uploadImage';
 import { getHttpErrorMessage } from '@/service/client';
-import store from '@/store';
+import store, { type RootState } from '@/store';
 import { message } from '@/components/base';
 import { useTranslation } from 'react-i18next';
 import {
@@ -167,7 +167,7 @@ import LottieNodeOverlay, {
 } from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
 import type { PencilEraseStroke } from '@/components/rcb';
 import { erasePencilNode } from '@/components/rcb';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
+import type { SceneDocument, ScenePage } from '@/components/rcb/sceneNode';
 import TextInlineEditor from '@/components/editor/nodes/TextNode/TextInlineEditor';
 import CanvasContextMenu, {
   type ContextMenuState,
@@ -294,41 +294,37 @@ function SvgCanvas({
   const collabViewOnly = isCollabViewOnly();
   // Collab share viewers: block mutations while still allowing pan/zoom/select chrome.
   readOnly = Boolean(readOnly || collabViewOnly);
-  const activeTool = useSelector((s: any) => s.editor.activeTool);
-  const shapeKind = useSelector((s: any) => s.editor.shapeKind);
-  const pendingImageSrc = useSelector((s: any) => s.editor.pendingImageSrc);
-  const penStrokeColor = useSelector((s: any) => String(s.editor.penStrokeColor || '#333333'));
-  const penStrokeWidth = useSelector((s: any) => {
+  const activeTool = useSelector((s: RootState) => s.editor.activeTool);
+  const shapeKind = useSelector((s: RootState) => s.editor.shapeKind);
+  const pendingImageSrc = useSelector((s: RootState) => s.editor.pendingImageSrc);
+  const penStrokeColor = useSelector((s: RootState) => String(s.editor.penStrokeColor || '#333333'));
+  const penStrokeWidth = useSelector((s: RootState) => {
     const n = Number(s.editor.penStrokeWidth);
     return Number.isFinite(n) && n > 0 ? n : 1;
   });
-  const pencilBrushId = useSelector((s: any) =>
+  const pencilBrushId = useSelector((s: RootState) =>
     String(s.editor.pencilBrushId || DEFAULT_PENCIL_BRUSH_ID)
   );
-  const pencilEraseMode = useSelector((s: any) => Boolean(s.editor.pencilEraseMode));
-  const pencilPressureEnabled = useSelector((s: any) =>
+  const pencilEraseMode = useSelector((s: RootState) => Boolean(s.editor.pencilEraseMode));
+  const pencilPressureEnabled = useSelector((s: RootState) =>
     s.editor.pencilPressureEnabled !== false
   );
-  const pencilHardness = useSelector((s: any) => {
+  const pencilHardness = useSelector((s: RootState) => {
     const n = Number(s.editor.pencilHardness);
     return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 80;
   });
-  const penStrokeOpacity = useSelector((s: any) => {
+  const penStrokeOpacity = useSelector((s: RootState) => {
     const n = Number(s.editor.penStrokeOpacity);
     return Number.isFinite(n) ? Math.max(1, Math.min(100, n)) : 100;
   });
-  const bucketFill = useSelector((s: any) => s.editor.bucketFill || {
-    fillType: 'solid',
-    fillColor: '#333333',
-    fillOpacity: 100,
-  });
+  const bucketFill = useSelector((s: RootState) => s.editor.bucketFill);
   const bucketFillRef = useRef(bucketFill);
   bucketFillRef.current = bucketFill;
   const workspaceMode = useSelector(
-    (s: any) => (s.editor.workspaceMode || 'design') as 'design' | 'dev'
+    (s: RootState) => (s.editor.workspaceMode || 'design') as 'design' | 'dev'
   );
   const canvasAttachPick = useSelector(
-    (s: any) =>
+    (s: RootState) =>
       s.editor.canvasAttachPick as null | { target: string; accept?: 'image' | 'media' }
   );
   const canvasAttachPickRef = useRef(canvasAttachPick);
@@ -342,8 +338,8 @@ function SvgCanvas({
     () => null
   );
   const [stampTintEpoch, setStampTintEpoch] = useState(0);
-  const reduxCanUndo = useSelector((s: any) => (s.editor.historyPast?.length || 0) > 0);
-  const reduxCanRedo = useSelector((s: any) => (s.editor.historyFuture?.length || 0) > 0);
+  const reduxCanUndo = useSelector((s: RootState) => (s.editor.historyPast?.length || 0) > 0);
+  const reduxCanRedo = useSelector((s: RootState) => (s.editor.historyFuture?.length || 0) > 0);
   useSyncExternalStore(subscribeCollabUndo, getCollabUndoEpoch, getCollabUndoEpoch);
   // Collab prefers Yjs undo; if that stack is empty (pre-seed / sync lag), fall
   // back to Redux so the menu and Ctrl+Z stay usable. View-only never undoes.
@@ -357,8 +353,8 @@ function SvgCanvas({
     : isCollabActive()
       ? canCollabRedo() || reduxCanRedo
       : reduxCanRedo;
-  const imageToolPanelKind = useSelector((s: any) => s.editor.imageToolPanel?.kind as string | undefined);
-  const shapeStylePanel = useSelector((s: any) => s.editor.shapeStylePanel as null | { kind: string });
+  const imageToolPanelKind = useSelector((s: RootState) => s.editor.imageToolPanel?.kind as string | undefined);
+  const shapeStylePanel = useSelector((s: RootState) => s.editor.shapeStylePanel as null | { kind: string });
   const shapeStylePanelOpen = Boolean(shapeStylePanel);
   const cropExpandOpen =
     imageToolPanelKind === 'crop' ||
@@ -372,19 +368,19 @@ function SvgCanvas({
     imageToolPanelKind === 'adjust' ||
     imageToolPanelKind === 'mark';
   const videoToolPanelKind = useSelector(
-    (s: any) => s.editor.videoToolPanel?.kind as string | undefined
+    (s: RootState) => s.editor.videoToolPanel?.kind as string | undefined
   );
   const videoToolOpen = videoToolPanelKind === 'trim';
   const audioToolPanelKind = useSelector(
-    (s: any) => s.editor.audioToolPanel?.kind as string | undefined
+    (s: RootState) => s.editor.audioToolPanel?.kind as string | undefined
   );
   const audioToolOpen =
     audioToolPanelKind === 'trim' || audioToolPanelKind === 'speed';
   const activeFrameId = useSelector(
-    (s: any) => (s.editor.document?.activeFrameId as string | null) ?? null
+    (s: RootState) => (s.editor.document?.activeFrameId as string | null) ?? null
   );
   const selectedFrameIds = useSelector(
-    (s: any) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
+    (s: RootState) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
 
   const paperRef = useRef<HTMLDivElement | null>(null);
@@ -482,10 +478,10 @@ function SvgCanvas({
     infinite,
     enabled: !infinite,
   });
-  const nodeElsRef = useRef(new Map<string, any>());
+  const nodeElsRef = useRef(new Map<string, SVGElement>());
   const perShapeBoardRef = useRef<SvgBoardHandle>({
-    root: null as any,
-    layer: null as any,
+    root: null as unknown as SVGSVGElement,
+    layer: null as unknown as SVGGElement,
     nodeEls: nodeElsRef.current,
     getSvgElement: () => null,
     toSvgString: () => '',
@@ -538,11 +534,11 @@ function SvgCanvas({
     lastLoadKeyRef.current = key;
 
     const seq = ++loadSeqRef.current;
-    (board as any).loadSeq = seq;
+    board.loadSeq = seq;
     // Drop stale wrappers immediately so in-place preview cannot re-attach detached ghosts.
     board.nodeEls = new Map();
     async function loadScene() {
-      const map = await loadSceneOntoSvg(board.root, board.layer, document, seq, board as any, {
+      const map = await loadSceneOntoSvg(board.root, board.layer, document, seq, board, {
         infinite,
         omitNonExportable,
       });
@@ -684,7 +680,8 @@ function SvgCanvas({
       runtime.clear();
       return runtime.index;
     }
-    const page = doc?.pages?.find((p: any) => p.id === doc?.activePageId) || doc?.pages?.[0];
+    const page: ScenePage | undefined =
+      doc?.pages?.find((p) => p.id === doc?.activePageId) || doc?.pages?.[0];
     const fromPage = page?.children;
     const childrenSrc: string[] =
       Array.isArray(fromPage) && fromPage.length
@@ -1048,9 +1045,8 @@ function SvgCanvas({
       const v = hidden ? '0' : '1';
       el.style.opacity = v;
       el.setAttribute('opacity', v);
-      // Legacy SVG.js wrappers (if any still linger).
-      const anyEl = el as any;
-      if (typeof anyEl.opacity === 'function') anyEl.opacity(hidden ? 0 : 1);
+      const wrap = el as SVGElement & { opacity?: (n: number) => void };
+      if (typeof wrap.opacity === 'function') wrap.opacity(hidden ? 0 : 1);
       return true;
     };
     applyHidden(true);
@@ -1262,7 +1258,7 @@ function SvgCanvas({
             'strokeLinejoin',
             'stroke-linejoin',
           ]) {
-            if (src[key] != null) (nnode.attrs as any)[key] = src[key];
+            if (src[key] != null) nnode.attrs[key] = src[key];
           }
           if (frag.pathPressure) {
             (nnode.attrs as Record<string, unknown>).pathPressure = frag.pathPressure;
@@ -1651,9 +1647,7 @@ function SvgCanvas({
         })
       );
       finishToSelect();
-      const spawnedId = String(
-        (store.getState() as any).editor?.pendingImageProcessId || ''
-      );
+      const spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
       const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
       try {
         const uploaded = await uploadImageFile(file, { signal });
@@ -1671,7 +1665,7 @@ function SvgCanvas({
       } finally {
         finishNodeUpload(spawnedId);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({}));
       message.error(getHttpErrorMessage(err, '图片上传失败'));
@@ -1717,7 +1711,7 @@ function SvgCanvas({
           },
         })
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       dispatch(failImageProcess({}));
       message.error(getHttpErrorMessage(err, '视频上传失败'));
     }
@@ -1770,7 +1764,7 @@ function SvgCanvas({
         })
       );
       finishToSelect();
-      const spawnedId = String((store.getState() as any).editor?.selectedNodeId || '');
+      const spawnedId = String(store.getState().editor?.selectedNodeId || '');
       const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
       try {
         const uploaded = await uploadImageFile(file, { signal });
@@ -1792,7 +1786,7 @@ function SvgCanvas({
       } finally {
         finishNodeUpload(spawnedId);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
       message.error(getHttpErrorMessage(err, '音频上传失败'));
     }
@@ -2357,7 +2351,7 @@ function SvgCanvas({
           const fid = ctxMenu?.frameId || activeFrameId;
           if (!fid) return false;
           const frame = (Array.isArray(document?.frames) ? document.frames : []).find(
-            (f: any) => f?.id === fid
+            (f) => f?.id === fid
           );
           return Boolean(frame?.locked);
         })()}

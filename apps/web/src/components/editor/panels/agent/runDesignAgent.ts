@@ -1,4 +1,5 @@
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { ArtboardFrame } from '@/components/rcb/frames/types';
 /**
  * Run backend design pipeline and stream progress into the agent UI.
  * Live-draw applies SVG via existing design tools (create_shape / create_text / …)
@@ -38,21 +39,22 @@ import {
 import {
   executeDesignTool,
   executeDesignToolAsync,
+  applySceneMutation,
   nextArtboardOrigin,
   nodeIdsInsideFrame,
   type CanvasUiBridge,
 } from '@/components/editor/panels/agent/designTools';
 import {
-  dedupeToolOpsById,
-  filterAllowedToolOps,
-} from '@/components/editor/panels/agent/toolOpsContract';
-import {
+  beginAiSceneMutation,
   cancelImportPlaceholder,
   clearArtboardGenerating,
+  endAiSceneMutation,
   pushEditorHistory,
   setDocument,
-  updateArtboardFrame,
+  undo,
+  setAiOperationState,
 } from '@/store/modules/editor';
+import { store } from '@/store';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { parseNodeText, parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
 
@@ -79,6 +81,21 @@ type AskChoiceUi = {
   options: Array<{ label: string; action: 'apply' | 'reply' | 'dismiss' }>;
   placeholder?: string;
 };
+
+type DesignStatusEvent = Extract<DesignJobEvent, { type: 'status' }>;
+type DesignSkillStartEvent = Extract<DesignJobEvent, { type: 'skill_start' }>;
+type DesignSkillProgressEvent = Extract<DesignJobEvent, { type: 'skill_progress' }>;
+type DesignActivityEvent = Extract<DesignJobEvent, { type: 'activity' }>;
+type DesignToolOpsEvent = Extract<DesignJobEvent, { type: 'tool_ops' }>;
+type DesignSceneFeedbackEvent = Extract<DesignJobEvent, { type: 'scene_feedback_request' }>;
+type DesignTransactionBeginEvent = Extract<DesignJobEvent, { type: 'transaction.begin' }>;
+type DesignTransactionCommitEvent = Extract<DesignJobEvent, { type: 'transaction.commit' }>;
+type DesignTransactionRollbackEvent = Extract<
+  DesignJobEvent,
+  { type: 'transaction.rollback' }
+>;
+type DesignSkillDoneEvent = Extract<DesignJobEvent, { type: 'skill_done' }>;
+type DesignResultEvent = Extract<DesignJobEvent, { type: 'result' }>;
 
 function normalizeChoiceUi(raw: unknown): AskChoiceUi | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -181,7 +198,7 @@ export function resolveDesignTargetFrame(
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
   if (!frames.length) return null;
   const pick = (id?: string | null) =>
-    id ? frames.find((f: any) => f && f.id === id) || null : null;
+    id ? frames.find((f) => f && f.id === id) || null : null;
   const frame =
     pick(chipFrameId) ||
     pick(lastAgentFrameId) ||
@@ -262,6 +279,7 @@ export type SceneNodeInventoryItem = {
   fontWeight?: string;
   fontFamily?: string;
   textAlign?: string;
+  lineHeight?: number;
   cornerRadius?: number;
   radiusTL?: number;
   radiusTR?: number;
@@ -286,9 +304,8 @@ function nodeFillForInventory(node: SceneNodeInput): string {
   }
   const grad = attrs.fill;
   if (grad && typeof grad === 'object') {
-    const from = String(
-      (grad as any).from || (grad as any).color || (grad as any).start || ''
-    ).trim();
+    const rec = grad as Record<string, unknown>;
+    const from = String(rec.from || rec.color || rec.start || '').trim();
     if (from && from !== 'none' && from !== 'transparent') return from;
   }
   return '';
@@ -404,6 +421,10 @@ function nodeToInventoryItem(
     item.text = text.slice(0, 500);
     const fontSizeRaw = Number(style?.fontSize) || Number(attrs.fontSize ?? attrs['font-size']);
     if (Number.isFinite(fontSizeRaw) && fontSizeRaw > 0) item.fontSize = Math.round(fontSizeRaw);
+    const lineHeightRaw = Number(style?.lineHeight);
+    if (Number.isFinite(lineHeightRaw) && lineHeightRaw > 0) {
+      item.lineHeight = Math.round(lineHeightRaw * 100) / 100;
+    }
     if (style?.fontWeight) item.fontWeight = String(style.fontWeight);
     if (style?.fontFamily) item.fontFamily = String(style.fontFamily);
     if (style?.textAlign) item.textAlign = String(style.textAlign);
@@ -441,7 +462,7 @@ export function buildSceneNodesForEdit(
 ): SceneNodeInventoryItem[] {
   if (!doc || !frameId) return [];
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const frame = frames.find((f: any) => f?.id === frameId);
+  const frame = frames.find((f) => f?.id === frameId);
   if (!frame) return [];
   const fx = Number(frame.x) || 0;
   const fy = Number(frame.y) || 0;
@@ -481,7 +502,7 @@ export function buildSceneNodesForCanvas(
   );
   const focus = String(opts?.focusFrameId || '').trim();
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const ordered = [...frames].sort((a: any, b: any) => {
+  const ordered = [...frames].sort((a, b) => {
     const aid = String(a?.id || '');
     const bid = String(b?.id || '');
     if (aid === focus) return -1;
@@ -535,7 +556,7 @@ export type SceneFrameSnapshot = {
 /** Artboard list for SCENE_FRAMES — sent with every agent turn. */
 export function buildSceneFramesSnapshot(doc: SceneDocument): SceneFrameSnapshot[] {
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  return frames.slice(0, 32).map((f: any) => {
+  return frames.slice(0, 32).map((f) => {
     const id = String(f.id);
     return {
       id,
@@ -737,7 +758,7 @@ export async function captureFocusFramePreview(
   const focus = summary.focus_frame_id;
   if (!focus) return null;
   const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
-    (f: any) => String(f?.id) === focus
+    (f) => String(f?.id) === focus
   );
   const fw = Math.max(64, Math.round(Number(frame?.width) || 1280));
   const fh = Math.max(64, Math.round(Number(frame?.height) || 720));
@@ -847,7 +868,7 @@ export async function captureCritiquePreview(
 ): Promise<string | null> {
   if (typeof window === 'undefined' || !doc) return null;
   const focus = String(focusFrameId || '').trim();
-  const frames: any[] = Array.isArray(doc.frames) ? doc.frames : [];
+  const frames: ArtboardFrame[] = Array.isArray(doc.frames) ? doc.frames : [];
   const frame =
     (focus && frames.find((f) => f?.id === focus)) ||
     frames.find((f) => f?.id) ||
@@ -889,6 +910,233 @@ export type ToolOpResult = {
   error?: string;
 };
 
+export type AiQueueStatus =
+  | 'idle'
+  | 'open'
+  | 'applying'
+  | 'paused'
+  | 'committed'
+  | 'rolled_back'
+  | 'cancelled';
+
+export type AiQueuedOp = {
+  name?: string;
+  args?: Record<string, unknown>;
+  op_id?: string;
+};
+
+/** One DesignTransaction's apply queue — enqueue / drain / pause / cancel / rollback. */
+export type AiOperationQueue = {
+  transactionId: string | null;
+  phase: string;
+  baseRevision: number;
+  status: AiQueueStatus;
+  historyPushed: boolean;
+  pending: AiQueuedOp[][];
+  opResults: ToolOpResult[];
+};
+
+export function createAiOperationQueue(): AiOperationQueue {
+  return {
+    transactionId: null,
+    phase: 'paint',
+    baseRevision: 0,
+    status: 'idle',
+    historyPushed: false,
+    pending: [],
+    opResults: [],
+  };
+}
+
+function aiQueueClosed(status: AiQueueStatus): boolean {
+  return (
+    status === 'rolled_back' || status === 'cancelled' || status === 'paused'
+  );
+}
+
+export function aiQueueBegin(
+  q: AiOperationQueue,
+  opts: { transactionId: string; phase?: string; baseRevision?: number }
+): void {
+  const tid = String(opts.transactionId || '').trim();
+  if (!tid) return;
+  q.transactionId = tid;
+  q.phase = String(opts.phase || 'paint').trim() || 'paint';
+  q.baseRevision = Math.max(0, Number(opts.baseRevision) || 0);
+  q.status = 'open';
+  q.historyPushed = false;
+  q.pending = [];
+  q.opResults = [];
+}
+
+export function aiQueueBindTransaction(
+  q: AiOperationQueue,
+  transactionId: string
+): void {
+  const tid = String(transactionId || '').trim();
+  if (!tid) return;
+  if (q.transactionId && q.transactionId !== tid) return;
+  q.transactionId = tid;
+  if (q.status === 'idle' || q.status === 'committed') q.status = 'open';
+}
+
+export function aiQueueEnqueue(
+  q: AiOperationQueue,
+  ops: AiQueuedOp[]
+): boolean {
+  if (!ops.length) return false;
+  if (aiQueueClosed(q.status)) return false;
+  if (q.status === 'idle') {
+    q.status = 'open';
+    q.historyPushed = false;
+  } else if (q.status === 'committed') {
+    // SSE commit is sync; drain may still be in-flight — keep history group.
+    q.status = 'open';
+  }
+  q.pending.push(ops);
+  return true;
+}
+
+export function aiQueueTakeChunk(q: AiOperationQueue): AiQueuedOp[] | null {
+  if (aiQueueClosed(q.status)) return null;
+  if (!q.pending.length) return null;
+  q.status = 'applying';
+  return q.pending.shift() || null;
+}
+
+export function aiQueueMarkApplied(
+  q: AiOperationQueue,
+  opts: { historyPushed: boolean; opResults: ToolOpResult[] }
+): void {
+  if (opts.historyPushed) q.historyPushed = true;
+  if (opts.opResults.length) q.opResults.push(...opts.opResults);
+  if (q.status === 'applying') {
+    q.status = q.pending.length ? 'open' : 'committed';
+  }
+}
+
+export function aiQueueShouldSkipHistory(
+  q: AiOperationQueue,
+  transactionId: string
+): boolean {
+  const tid = String(transactionId || '').trim();
+  return Boolean(tid && q.transactionId === tid && q.historyPushed);
+}
+
+export function aiQueuePause(q: AiOperationQueue): void {
+  if (q.status === 'open' || q.status === 'applying') q.status = 'paused';
+}
+
+export function aiQueueCommit(
+  q: AiOperationQueue,
+  transactionId?: string
+): void {
+  const tid = String(transactionId || '').trim();
+  if (tid && !q.transactionId) q.transactionId = tid;
+  if (q.status === 'rolled_back' || q.status === 'cancelled') return;
+  // Do not drop pending — commit SSE is sync and can race ahead of async drain.
+  if (!q.pending.length && q.status !== 'applying') q.status = 'committed';
+}
+
+export function aiQueueRollback(
+  q: AiOperationQueue,
+  transactionId?: string
+): boolean {
+  const tid = String(transactionId || '').trim();
+  if (tid && q.transactionId && tid !== q.transactionId) return false;
+  if (q.status === 'rolled_back' || q.status === 'cancelled') return false;
+  const shouldUndo = q.historyPushed;
+  q.status = 'rolled_back';
+  q.pending = [];
+  q.historyPushed = false;
+  return shouldUndo;
+}
+
+export function aiQueueCancel(q: AiOperationQueue): boolean {
+  if (q.status === 'rolled_back' || q.status === 'cancelled') return false;
+  const shouldUndo = q.historyPushed;
+  q.status = 'cancelled';
+  q.pending = [];
+  q.historyPushed = false;
+  return shouldUndo;
+}
+
+export function aiQueueFlushResults(q: AiOperationQueue): ToolOpResult[] {
+  const out = q.opResults;
+  q.opResults = [];
+  return out;
+}
+
+export function aiQueueAckStatus(q: AiOperationQueue): 'ack' | 'rollback' {
+  if (q.status === 'rolled_back' || q.status === 'cancelled') return 'rollback';
+  return 'ack';
+}
+
+function overlayArgId(args: Record<string, unknown> | undefined): string | null {
+  if (!args) return null;
+  const fromScalar = [args.id, args.nodeId, args.node_id]
+    .map((v) => String(v || '').trim())
+    .find(Boolean);
+  if (fromScalar) return fromScalar;
+  const list = args.ids ?? args.nodeIds;
+  if (!Array.isArray(list) || !list.length) return null;
+  const last = String(list[list.length - 1] || '').trim();
+  return last || null;
+}
+
+export function overlayLabelForAction(action?: string): string {
+  switch (action) {
+    case 'create_text':
+      return 'Adding text…';
+    case 'create_shape':
+      return 'Adding shape…';
+    case 'create_image':
+      return 'Adding image…';
+    case 'create_frame':
+      return 'Opening artboard…';
+    case 'update_node':
+      return 'Updating element…';
+    case 'delete_nodes':
+      return 'Removing elements…';
+    case 'delete_frame':
+      return 'Removing artboard…';
+    default:
+      return action ? `Applying ${action}…` : 'Editing elements…';
+  }
+}
+
+/** Map a tool_ops chunk onto ephemeral overlay fields (never SceneDocument). */
+export function overlayFromToolOps(opts: {
+  ops: Array<{ name?: string; args?: Record<string, unknown> }>;
+  frameId?: string | null;
+  transactionId?: string;
+  label?: string;
+  appliedNodeIds?: string[];
+}): {
+  active: true;
+  transactionId?: string;
+  frameId: string | null;
+  nodeId: string | null;
+  action?: string;
+  label: string;
+} {
+  const last = opts.ops.length ? opts.ops[opts.ops.length - 1] : undefined;
+  const applied = (opts.appliedNodeIds || []).filter(Boolean);
+  const nodeId =
+    (applied.length ? applied[applied.length - 1] : '') ||
+    overlayArgId(last?.args) ||
+    null;
+  const action = String(last?.name || '').trim() || undefined;
+  return {
+    active: true,
+    transactionId: opts.transactionId,
+    frameId: opts.frameId ?? null,
+    nodeId: nodeId || null,
+    action,
+    label: opts.label || overlayLabelForAction(action),
+  };
+}
+
 /** Apply allowlisted canvas tool_ops (Design Agent SSE + coding-CLI bridge). */
 export async function applyAgentToolOps(opts: {
   ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
@@ -902,6 +1150,13 @@ export async function applyAgentToolOps(opts: {
   /** Cross-chunk dedupe when SSE replays the same op_id. */
   appliedOpIds?: Set<string>;
   canvasUi?: CanvasUiBridge | null;
+  /** DesignTransaction: skip history push when already grouped for this tx. */
+  skipHistoryPush?: boolean;
+  /** Scene Mutation source — AI never writes Redux action shapes directly. */
+  source?: 'ai' | 'human' | 'collab';
+  transactionId?: string;
+  baseRevision?: number;
+  currentRevision?: number;
 }): Promise<{
   created: number;
   updated: number;
@@ -910,6 +1165,8 @@ export async function applyAgentToolOps(opts: {
   frameId: string | null;
   /** Per-op truth for scene_feedback — backend must not assume success. */
   opResults: ToolOpResult[];
+  historyPushed: boolean;
+  revisionAction?: 'apply' | 'rebase' | 'reject';
 }> {
   const { ops, dispatch, getDocument, frameId, signal, userImages, appliedOpIds } =
     opts;
@@ -928,26 +1185,6 @@ export async function applyAgentToolOps(opts: {
   let deleted = 0;
   let outFrameId: string | null = frameId;
   const nodeIds: string[] = [];
-  // Backend already normalized / hygiened ops — FE only allowlists + op_id dedupe, then executes.
-  const allowed = dedupeToolOpsById(filterAllowedToolOps(ops), appliedOpIds || new Set());
-  const rawDeletes = ops.filter((o) =>
-    ['delete_frame', 'delete_nodes'].includes(String(o?.name || '').trim())
-  );
-  if (rawDeletes.length) {
-    const allowedDeletes = allowed.filter((o) =>
-      ['delete_frame', 'delete_nodes'].includes(String(o?.name || '').trim())
-    );
-    console.info('[tool_ops delete filter]', {
-      raw: rawDeletes.length,
-      allowed: allowedDeletes.length,
-      dropped: rawDeletes.length - allowedDeletes.length,
-      rawOps: rawDeletes,
-    });
-  }
-  const opResults: ToolOpResult[] = [];
-  if (!allowed.length) {
-    return { created, updated, deleted, nodeIds, frameId: outFrameId, opResults };
-  }
 
   const pickTargetFrameIdForCreate = (
     doc: SceneDocument,
@@ -960,7 +1197,7 @@ export async function applyAgentToolOps(opts: {
     const explicit = String(args.frameId || args.id || '').trim();
     if (explicit) {
       const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-      if (frames.some((f: any) => f && String(f.id) === explicit)) return explicit;
+      if (frames.some((f) => f && String(f.id) === explicit)) return explicit;
     }
     const frames = Array.isArray(doc?.frames) ? doc.frames : [];
     if (frames.length <= 1) {
@@ -985,8 +1222,34 @@ export async function applyAgentToolOps(opts: {
     return best?.id || null;
   };
 
-  dispatch(pushEditorHistory());
-  for (let i = 0; i < allowed.length; i++) {
+  const mutation = await applySceneMutation({
+    source: opts.source || 'ai',
+    transactionId: opts.transactionId,
+    ops,
+    appliedOpIds: appliedOpIds || new Set(),
+    allowDestructive: true,
+    baseRevision: opts.baseRevision,
+    currentRevision: opts.currentRevision,
+    document: getDocument(),
+    skipHistory: Boolean(opts.skipHistoryPush),
+    dispatch,
+    execute: async (allowed) => {
+      const opResults: ToolOpResult[] = [];
+      const rawDeletes = ops.filter((o) =>
+        ['delete_frame', 'delete_nodes'].includes(String(o?.name || '').trim())
+      );
+      if (rawDeletes.length) {
+        const allowedDeletes = allowed.filter((o) =>
+          ['delete_frame', 'delete_nodes'].includes(String(o?.name || '').trim())
+        );
+        console.info('[tool_ops delete filter]', {
+          raw: rawDeletes.length,
+          allowed: allowedDeletes.length,
+          dropped: rawDeletes.length - allowedDeletes.length,
+          rawOps: rawDeletes,
+        });
+      }
+      for (let i = 0; i < allowed.length; i++) {
     if (signal?.aborted) break;
     const op = allowed[i];
     const name = String(op?.name || '').trim();
@@ -1088,27 +1351,58 @@ export async function applyAgentToolOps(opts: {
       }
     }
   }
-  if (deleted > 0) {
-    console.info('[tool_ops delete done]', { deleted, created, updated });
+      if (deleted > 0) {
+        console.info('[tool_ops delete done]', { deleted, created, updated });
+      }
+      return {
+        created,
+        updated,
+        deleted,
+        nodeIds,
+        frameId: outFrameId,
+        opResults,
+      };
+    },
+  });
+  if (!mutation.result) {
+    return {
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      nodeIds: [],
+      frameId: outFrameId,
+      opResults: mutation.opResults,
+      historyPushed: false,
+      revisionAction: mutation.revisionAction,
+    };
   }
-  return { created, updated, deleted, nodeIds, frameId: outFrameId, opResults };
+  return {
+    ...mutation.result,
+    historyPushed: mutation.historyPushed,
+    revisionAction: mutation.revisionAction,
+  };
 }
 
 /** Show artboard scan/shimmer while the design agent is generating. */
 function markArtboardGenerating(
   dispatch: Dispatch,
   frameId: string | null | undefined,
-  label = 'Preparing…'
+  label = 'Preparing…',
+  extra?: {
+    transactionId?: string;
+    nodeId?: string | null;
+    action?: string;
+  }
 ) {
   if (!frameId) return;
   dispatch(
-    updateArtboardFrame({
-      id: frameId,
-      patch: {
-        processStatus: 'running' as const,
-        processLabel: label,
-      },
-      skipHistory: true,
+    setAiOperationState({
+      active: true,
+      frameId,
+      label,
+      transactionId: extra?.transactionId,
+      nodeId: extra?.nodeId ?? null,
+      action: extra?.action,
     })
   );
 }
@@ -1131,7 +1425,7 @@ function ensureFrameSize(opts: {
   if (!doc) return null;
   let frameId = opts.frameId;
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  if (!frameId || !frames.some((f: any) => f.id === frameId)) {
+  if (!frameId || !frames.some((f) => f.id === frameId)) {
     const slot = nextArtboardOrigin(doc, opts.width, opts.height);
     const created = executeDesignTool(
       'create_frame',
@@ -1155,7 +1449,7 @@ function ensureFrameSize(opts: {
     }
     return frameId;
   }
-  const frame = frames.find((f: any) => f.id === frameId);
+  const frame = frames.find((f) => f.id === frameId);
   const fw = Math.round(Number(frame?.width) || 0);
   const fh = Math.round(Number(frame?.height) || 0);
   if (fw !== opts.width || fh !== opts.height) {
@@ -1923,7 +2217,7 @@ function frameSizeFromDoc(
   if (!frameId) return null;
   const doc = getDocument();
   const frame = (Array.isArray(doc?.frames) ? doc.frames : []).find(
-    (f: any) => f?.id === frameId
+    (f) => f?.id === frameId
   );
   const width = Math.round(Number(frame?.width) || 0);
   const height = Math.round(Number(frame?.height) || 0);
@@ -2018,6 +2312,51 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+export type DesignIntelligencePatch = {
+  reference?: {
+    thesis?: string;
+    composition?: string;
+    dna?: Record<string, number>;
+    stages?: string[];
+  };
+  review?: {
+    overall?: number | null;
+    action?: string;
+    scores?: Record<string, number>;
+    lanes?: Array<{
+      lane?: string;
+      score?: number | null;
+      evidence?: string[];
+    }>;
+    topIssues?: Array<{
+      priority?: number;
+      issue?: string;
+      evidence?: string[];
+      fix?: string;
+      lane?: string;
+    }>;
+  };
+  diff?: {
+    deltas?: Record<string, number>;
+    visualChange?: Record<string, number | null | undefined>;
+    pixelAvailable?: boolean;
+  };
+  iterations?: Array<{
+    iteration: number;
+    overall: number;
+    decision?: string;
+    reason?: string;
+  }>;
+  summary?: {
+    iterations?: number;
+    removed?: number;
+    whitespace?: number | null;
+    heroDominance?: number | null;
+    scoreFrom?: number | null;
+    scoreTo?: number | null;
+  };
+};
+
 export type AgentStepEvent =
   | {
       type: 'permission';
@@ -2032,6 +2371,10 @@ export type AgentStepEvent =
   | { type: 'phase'; progress: PipelineProgress }
   | { type: 'analysis'; text: string }
   | { type: 'analysis_delta'; text: string }
+  | {
+      type: 'intelligence';
+      patch: DesignIntelligencePatch;
+    }
   | { type: 'drawing'; active: boolean; done?: number; total?: number }
   | {
       type: 'activity';
@@ -2395,8 +2738,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   let toolOpsApplied = false;
   let blankArtboard = false;
   const appliedOpIdsRef = { current: new Set<string>() };
-  /** Per-op execution truth for this round — flushed into scene_feedback. */
-  let pendingOpResults: ToolOpResult[] = [];
+  /** Design Engine V3 — AIOperationQueue (one undo / one ACK per transaction). */
+  const aiQueue = createAiOperationQueue();
   let latestMemory: TaskState | null = params.memory?.medium || null;
   let liveTaskId: string | null = null;
 
@@ -2642,7 +2985,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     });
   };
 
-  const handleStreamStatus = (ev: any) => {
+  const handleStreamStatus = (ev: DesignStatusEvent) => {
 
     if (ev.task_id) {
       liveTaskId = String(ev.task_id);
@@ -2683,7 +3026,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       if (hostFrameId) {
         const docNow = params.getDocument();
         const exists = (Array.isArray(docNow?.frames) ? docNow.frames : []).some(
-          (f: any) => f && String(f.id) === hostFrameId
+          (f) => f && String(f.id) === hostFrameId
         );
         if (exists && nodeIdsInsideFrame(docNow, hostFrameId).length > 0) {
           hostFrameId = null;
@@ -2803,7 +3146,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     
   };
 
-  const handleStreamSkillStart = (ev: any) => {
+  const handleStreamSkillStart = (ev: DesignSkillStartEvent) => {
 
     const name = ev.skill_name || `Step ${ev.index + 1}`;
     while (labels.length <= ev.index) labels.push(`Step ${labels.length + 1}`);
@@ -2845,7 +3188,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     
   };
 
-  const handleStreamSkillProgress = (ev: any) => {
+  const handleStreamSkillProgress = (ev: DesignSkillProgressEvent) => {
 
     const meta = skillMeta.get(ev.index);
     const kind = activityKindForSkill(
@@ -2865,7 +3208,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     
   };
 
-  const handleStreamActivity = (ev: any) => {
+  const handleStreamActivity = (ev: DesignActivityEvent) => {
     // Backend-authored progress (counts / detail) — do not invent on the client.
     if (chatDiverted && (ev.kind === 'explored' || ev.kind === 'thought')) {
       return;
@@ -2914,7 +3257,65 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     });
   };
 
-  const handleStreamToolOps = (ev: any) => {
+  const undoQueuedTransaction = (shouldUndo: boolean) => {
+    if (!shouldUndo) return;
+    try {
+      params.dispatch(undo());
+    } catch {
+      /* ignore */
+    }
+  };
+
+  let aiMutationLocked = false;
+  const sceneRevisionNow = (): number => {
+    try {
+      return Math.max(0, Number(store.getState().editor?.sceneRevision) || 0);
+    } catch {
+      return 0;
+    }
+  };
+  const ensureAiMutationLock = () => {
+    if (aiMutationLocked) return;
+    params.dispatch(beginAiSceneMutation());
+    aiMutationLocked = true;
+  };
+  const releaseAiMutationLock = () => {
+    if (!aiMutationLocked) return;
+    params.dispatch(endAiSceneMutation());
+    aiMutationLocked = false;
+  };
+
+  const handleStreamTransactionBegin = (ev: DesignTransactionBeginEvent) => {
+    const tid = String(ev.transaction_id || '').trim();
+    if (!tid) return;
+    const incoming = Math.max(0, Number(ev.base_revision) || 0);
+    aiQueueBegin(aiQueue, {
+      transactionId: tid,
+      phase: ev.phase,
+      baseRevision: incoming > 0 ? incoming : sceneRevisionNow(),
+    });
+    ensureAiMutationLock();
+    const prev = store.getState().editor.aiOperationState;
+    if (prev?.active) {
+      params.dispatch(setAiOperationState({ ...prev, transactionId: tid }));
+    }
+  };
+
+  const handleStreamTransactionCommit = (ev: DesignTransactionCommitEvent) => {
+    const tid = String(ev.transaction_id || '').trim();
+    if (!tid) return;
+    aiQueueCommit(aiQueue, tid);
+    releaseAiMutationLock();
+  };
+
+  const handleStreamTransactionRollback = (ev: DesignTransactionRollbackEvent) => {
+    const tid = String(ev.transaction_id || '').trim();
+    if (!tid) return;
+    undoQueuedTransaction(aiQueueRollback(aiQueue, tid));
+    releaseAiMutationLock();
+  };
+
+  const handleStreamToolOps = (ev: DesignToolOpsEvent) => {
 
     const ops = Array.isArray(ev.ops) ? ev.ops : [];
     if (!ops.length) return;
@@ -2924,146 +3325,230 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     if (deleteish.length) {
       console.info('[sse tool_ops delete]', deleteish);
     }
+    const txId = String(ev.transaction_id || aiQueue.transactionId || '').trim();
+    if (txId) aiQueueBindTransaction(aiQueue, txId);
+    if (!aiQueueEnqueue(aiQueue, ops)) return;
     const prevPaint = paintChain;
-    async function runPaintToolOps() {
+    async function drainQueuedToolOps() {
       await prevPaint;
-      if (params.signal?.aborted) return;
-      params.onEvent({ type: 'drawing', active: true, done: 0, total: ops.length });
-      const pinned = explicitPinnedFrameId({
-        pinnedFrameId: params.pinnedFrameId,
-      });
-      const createFrameCount = ops.filter(
-        (o: { name?: string }) => String(o?.name || '').trim() === 'create_frame'
-      ).length;
-      const multiArtboards = createFrameCount >= 2;
-      const aiCreatesFrame = createFrameCount > 0;
-      // Host may already have opened a plate via open_artboard (create_frame stripped).
-      // Bind into that live plate — do not inherit ambient FOCUS alone.
-      const bindToBoard = Boolean(
-        pinned || aiCreatesFrame || editInPlace || live.frameId
-      );
-
-      // Single-plate fallback if backend did not emit open_artboard.
-      // Multi create_frame: do not pre-open — applyAgentToolOps retargets after each plate.
-      // When live.frameId is set (host shimmer), never spawn a second blank cover.
-      if (
-        !pinned &&
-        !live.frameId &&
-        aiCreatesFrame &&
-        !editInPlace &&
-        !multiArtboards
-      ) {
-        const fromOp = sizeFromCreateFrameOp(ops);
-        const resolved =
-          parseResolvedSize(paintCanvasSize()) ||
-          fromOp ||
-          null;
-        if (resolved) {
-          if (!parseResolvedSize(paintCanvasSize())) {
-            liveCanvasSize = `${resolved.width}x${resolved.height}`;
-          }
-          const opened = ensureFrameSize({
-            dispatch: params.dispatch,
-            getDocument: params.getDocument,
-            frameId: null,
-            width: resolved.width,
-            height: resolved.height,
-          });
-          if (opened) live.frameId = opened;
+      while (true) {
+        if (params.signal?.aborted) {
+          undoQueuedTransaction(aiQueueCancel(aiQueue));
+          releaseAiMutationLock();
+          return;
         }
-      }
-
-      // Host already opened one plate → drop model create_frame (avoid duplicate).
-      // Multi-artboard batches keep every create_frame so sibling boards are created.
-      const paintOps =
-        multiArtboards
-          ? ops
-          : live.frameId || pinned
-            ? ops.filter((o) => String(o?.name || '').trim() !== 'create_frame')
-            : ops;
-
-      const frameId = multiArtboards
-        ? null
-        : bindToBoard
-          ? resolveToolOpsFrameId({
-              editInPlace,
-              liveFrameId: live.frameId,
-              targetFrameId: params.targetFrameId,
-              pinnedFrameId: params.pinnedFrameId,
-            })
-          : null;
-      if (frameId) {
-        live.frameId = frameId;
-        // Cover through tool_ops → observe → review → reflect (not only blank boards).
-        coverLiveBoard(processLabels.editing || 'Editing elements…');
-      }
-      try {
-        const applied = await applyAgentToolOps({
-          ops: paintOps,
-          dispatch: params.dispatch,
-          getDocument: params.getDocument,
-          frameId,
-          signal: params.signal,
-          // Create has no prior nodes — don't rewrite create_shape against old bg.
-          sceneNodes: editInPlace ? params.sceneNodes : null,
-          userImages: params.images,
-          appliedOpIds: appliedOpIdsRef.current,
-          canvasUi: params.canvasUi,
+        const chunk = aiQueueTakeChunk(aiQueue);
+        if (!chunk) return;
+        const chunkTxId = String(aiQueue.transactionId || txId || '').trim();
+        params.onEvent({ type: 'drawing', active: true, done: 0, total: chunk.length });
+        const pinned = explicitPinnedFrameId({
+          pinnedFrameId: params.pinnedFrameId,
         });
-        pendingOpResults.push(...applied.opResults);
-        const failures = applied.opResults.filter((r) => !r.ok);
-        if (failures.length) {
-          // Correct the backend's pre-emitted counts — user must see the truth.
-          activitySeq += 1;
-          params.onEvent({
-            type: 'activity',
-            id: `opfail-${activitySeq}`,
-            kind: 'skipped',
-            status: 'done',
-            count: failures.length,
-            detail: `${failures.length} op(s) not applied: ${failures[0].error || 'target missing'}`,
-          });
+        const createFrameCount = chunk.filter(
+          (o: { name?: string }) => String(o?.name || '').trim() === 'create_frame'
+        ).length;
+        const multiArtboards = createFrameCount >= 2;
+        const aiCreatesFrame = createFrameCount > 0;
+        // Host may already have opened a plate via open_artboard (create_frame stripped).
+        // Bind into that live plate — do not inherit ambient FOCUS alone.
+        const bindToBoard = Boolean(
+          pinned || aiCreatesFrame || editInPlace || live.frameId
+        );
+
+        // Single-plate fallback if backend did not emit open_artboard.
+        // Multi create_frame: do not pre-open — applyAgentToolOps retargets after each plate.
+        // When live.frameId is set (host shimmer), never spawn a second blank cover.
+        if (
+          !pinned &&
+          !live.frameId &&
+          aiCreatesFrame &&
+          !editInPlace &&
+          !multiArtboards
+        ) {
+          const fromOp = sizeFromCreateFrameOp(chunk);
+          const resolved =
+            parseResolvedSize(paintCanvasSize()) ||
+            fromOp ||
+            null;
+          if (resolved) {
+            if (!parseResolvedSize(paintCanvasSize())) {
+              liveCanvasSize = `${resolved.width}x${resolved.height}`;
+            }
+            const opened = ensureFrameSize({
+              dispatch: params.dispatch,
+              getDocument: params.getDocument,
+              frameId: null,
+              width: resolved.width,
+              height: resolved.height,
+            });
+            if (opened) live.frameId = opened;
+          }
         }
-        const anyOk = applied.opResults.some((r) => r.ok);
-        toolOpsApplied = true;
-        painted = painted || anyOk;
-        if (applied.frameId && bindToBoard) {
-          live.frameId = applied.frameId;
-        }
-        if (applied.nodeIds.length) {
-          live.nodeIds = [...new Set([...live.nodeIds, ...applied.nodeIds])];
-        }
-        // Keep cover for review / reflect retries after paint lands.
-        if (live.frameId && (aiCreatesFrame || editInPlace || anyOk || shimmerFrameId)) {
+
+        // Host already opened one plate → drop model create_frame (avoid duplicate).
+        // Multi-artboard batches keep every create_frame so sibling boards are created.
+        const paintOps =
+          multiArtboards
+            ? chunk
+            : live.frameId || pinned
+              ? chunk.filter((o) => String(o?.name || '').trim() !== 'create_frame')
+              : chunk;
+
+        const frameId = multiArtboards
+          ? null
+          : bindToBoard
+            ? resolveToolOpsFrameId({
+                editInPlace,
+                liveFrameId: live.frameId,
+                targetFrameId: params.targetFrameId,
+                pinnedFrameId: params.pinnedFrameId,
+              })
+            : null;
+        if (frameId) {
+          live.frameId = frameId;
+          // Cover through tool_ops → observe → review → reflect (not only blank boards).
           coverLiveBoard(processLabels.editing || 'Editing elements…');
         }
-      } finally {
-        params.onEvent({
-          type: 'drawing',
-          active: false,
-          done: ops.length,
-          total: ops.length,
-        });
+        const skipHistoryPush = aiQueueShouldSkipHistory(aiQueue, chunkTxId);
+        ensureAiMutationLock();
+        try {
+          const applied = await applyAgentToolOps({
+            ops: paintOps,
+            dispatch: params.dispatch,
+            getDocument: params.getDocument,
+            frameId,
+            signal: params.signal,
+            // Create has no prior nodes — don't rewrite create_shape against old bg.
+            sceneNodes: editInPlace ? params.sceneNodes : null,
+            userImages: params.images,
+            appliedOpIds: appliedOpIdsRef.current,
+            canvasUi: params.canvasUi,
+            skipHistoryPush,
+            source: 'ai',
+            transactionId: chunkTxId || undefined,
+            baseRevision: aiQueue.baseRevision,
+            currentRevision: sceneRevisionNow(),
+          });
+          aiQueueMarkApplied(aiQueue, {
+            historyPushed: applied.historyPushed,
+            opResults: applied.opResults,
+          });
+          if (applied.revisionAction === 'rebase') {
+            activitySeq += 1;
+            params.onEvent({
+              type: 'activity',
+              id: `rebase-${activitySeq}`,
+              kind: 'tool',
+              status: 'done',
+              detail: 'Rebased onto current canvas',
+            });
+          }
+          if (applied.opResults.some((r) => r.error === 'revision_conflict')) {
+            undoQueuedTransaction(aiQueueRollback(aiQueue, chunkTxId));
+            releaseAiMutationLock();
+            activitySeq += 1;
+            params.onEvent({
+              type: 'activity',
+              id: `opfail-${activitySeq}`,
+              kind: 'skipped',
+              status: 'done',
+              detail: 'Revision conflict — canvas changed since this AI turn',
+            });
+            return;
+          }
+          const overlay = overlayFromToolOps({
+            ops: paintOps,
+            frameId: applied.frameId || frameId,
+            transactionId: chunkTxId || undefined,
+            appliedNodeIds: applied.nodeIds,
+          });
+          if (overlay.frameId) {
+            markArtboardGenerating(
+              params.dispatch,
+              overlay.frameId,
+              overlay.label,
+              {
+                transactionId: overlay.transactionId,
+                nodeId: overlay.nodeId,
+                action: overlay.action,
+              }
+            );
+          }
+          const failures = applied.opResults.filter((r) => !r.ok);
+          if (failures.length) {
+            // Correct the backend's pre-emitted counts — user must see the truth.
+            activitySeq += 1;
+            params.onEvent({
+              type: 'activity',
+              id: `opfail-${activitySeq}`,
+              kind: 'skipped',
+              status: 'done',
+              count: failures.length,
+              detail: `${failures.length} op(s) not applied: ${failures[0].error || 'target missing'}`,
+            });
+          }
+          const anyOk = applied.opResults.some((r) => r.ok);
+          toolOpsApplied = true;
+          painted = painted || anyOk;
+          if (applied.frameId && bindToBoard) {
+            live.frameId = applied.frameId;
+          }
+          if (applied.nodeIds.length) {
+            live.nodeIds = [...new Set([...live.nodeIds, ...applied.nodeIds])];
+          }
+          // Keep cover for review / reflect retries after paint lands.
+          if (live.frameId && (aiCreatesFrame || editInPlace || anyOk || shimmerFrameId)) {
+            coverLiveBoard(processLabels.editing || 'Editing elements…');
+          }
+          if (params.signal?.aborted) {
+            undoQueuedTransaction(aiQueueCancel(aiQueue));
+            releaseAiMutationLock();
+            return;
+          }
+        } catch (err) {
+          console.warn('[tool_ops apply failed]', err);
+          undoQueuedTransaction(aiQueueRollback(aiQueue, chunkTxId));
+          releaseAiMutationLock();
+          return;
+        } finally {
+          params.onEvent({
+            type: 'drawing',
+            active: false,
+            done: chunk.length,
+            total: chunk.length,
+          });
+        }
       }
     }
-    paintChain = runPaintToolOps();
+    paintChain = drainQueuedToolOps();
     return;
     
   };
 
-  const handleStreamSceneFeedback = (ev: any) => {
+  const handleStreamSceneFeedback = (ev: DesignSceneFeedbackEvent) => {
 
     const taskId = String(ev.task_id || liveTaskId || '').trim();
     const round = typeof ev.round === 'number' ? ev.round : undefined;
+    const feedbackTxId = String(
+      ev.transaction_id || aiQueue.transactionId || ''
+    ).trim();
     if (!taskId) return;
     // Wait until pending paints land, then POST real inventory via scene feedback.
     const prevPaint = paintChain;
     async function runSceneFeedbackAfterPaint() {
       await prevPaint;
-      if (params.signal?.aborted) return;
+      if (params.signal?.aborted) {
+        undoQueuedTransaction(aiQueueCancel(aiQueue));
+        releaseAiMutationLock();
+        return;
+      }
       // Let Redux (+ collab Y push) settle before snapshot — avoids empty-board false critique.
       await waitSceneInventorySettled(params.getDocument, { timeoutMs: 480, stableFrames: 2 });
-      if (params.signal?.aborted) return;
+      if (params.signal?.aborted) {
+        undoQueuedTransaction(aiQueueCancel(aiQueue));
+        releaseAiMutationLock();
+        return;
+      }
       coverLiveBoard(
         processLabels.reviewing ||
           processLabels.editing ||
@@ -3083,14 +3568,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           ? { x: vp.x, y: vp.y, w: vp.width, h: vp.height }
           : null,
       });
-      const opResults = pendingOpResults;
-      pendingOpResults = [];
+      const opResults = aiQueueFlushResults(aiQueue);
       let previewImage = null;
       try {
         previewImage = await captureCritiquePreview(docNow, focusId);
       } catch {
         previewImage = null;
       }
+      const txStatus = aiQueueAckStatus(aiQueue);
       console.info('[scene_feedback] post', {
         taskId,
         round,
@@ -3100,6 +3585,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         emptyRects: spatial.empty_rects.length,
         opFailed: opResults.filter((r) => !r.ok).length,
         hasPreview: Boolean(previewImage),
+        transactionId: feedbackTxId || null,
+        transactionStatus: feedbackTxId ? txStatus : null,
       });
       try {
         await postDesignSceneFeedback(
@@ -3113,6 +3600,15 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             ...(opResults.length ? { op_results: opResults } : {}),
             ...(previewImage ? { preview_image: previewImage } : {}),
             round,
+            ...(feedbackTxId
+              ? {
+                  transaction_id: feedbackTxId,
+                  transaction_status: txStatus,
+                  ...(aiQueue.baseRevision
+                    ? { base_revision: aiQueue.baseRevision }
+                    : {}),
+                }
+              : {}),
           },
           params.signal
         );
@@ -3125,7 +3621,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     
   };
 
-  const handleStreamSkillDone = (ev: any) => {
+  const handleStreamSkillDone = (ev: DesignSkillDoneEvent) => {
 
     if (ev.analysis) params.onEvent({ type: 'analysis', text: ev.analysis });
     const meta = skillMeta.get(ev.index);
@@ -3155,7 +3651,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     
   };
 
-  const handleStreamResult = (ev: any) => {
+  const handleStreamResult = (ev: DesignResultEvent) => {
 
     const size =
       (ev.canvas_size && String(ev.canvas_size)) ||
@@ -3189,8 +3685,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       | undefined;
     if (Array.isArray(ev.proposed_ops) && ev.proposed_ops.length) {
       resultProposed = ev.proposed_ops
-        .filter((o: unknown) => o && typeof o === 'object')
-        .map((o: { name?: string; args?: Record<string, unknown>; op_id?: string }) => ({
+        .filter((o) => o && typeof o === 'object')
+        .map((o) => ({
           name: o.name,
           args: o.args && typeof o.args === 'object' ? o.args : {},
           ...(o.op_id ? { op_id: String(o.op_id) } : {}),
@@ -3298,6 +3794,18 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         case 'tool_ops':
           handleStreamToolOps(ev);
           return;
+        case 'transaction.begin':
+          handleStreamTransactionBegin(ev);
+          return;
+        case 'transaction.chunk':
+          // Metadata only — apply stays on companion `tool_ops` (no double-apply).
+          return;
+        case 'transaction.commit':
+          handleStreamTransactionCommit(ev);
+          return;
+        case 'transaction.rollback':
+          handleStreamTransactionRollback(ev);
+          return;
         case 'scene_feedback_request':
           handleStreamSceneFeedback(ev);
           return;
@@ -3354,7 +3862,138 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
                 ? 'Review Agent'
                 : undefined,
           });
+          const scores =
+            ev.scores && typeof ev.scores === 'object'
+              ? (ev.scores as Record<string, number>)
+              : undefined;
+          const visualDiff =
+            ev.visual_diff && typeof ev.visual_diff === 'object'
+              ? ev.visual_diff
+              : null;
+          const overall =
+            typeof ev.overall === 'number'
+              ? ev.overall
+              : typeof ev.total === 'number'
+                ? ev.total
+                : null;
+          if (scores || overall != null || Array.isArray(ev.top_issues)) {
+            params.onEvent({
+              type: 'intelligence',
+              patch: {
+                review: {
+                  overall,
+                  action: String(ev.review_action || '').trim() || undefined,
+                  scores,
+                  lanes: Array.isArray(ev.lanes) ? ev.lanes : undefined,
+                  topIssues: Array.isArray(ev.top_issues) ? ev.top_issues : undefined,
+                },
+                diff: visualDiff
+                  ? {
+                      deltas:
+                        visualDiff.deltas && typeof visualDiff.deltas === 'object'
+                          ? visualDiff.deltas
+                          : undefined,
+                      visualChange:
+                        visualDiff.visual_change &&
+                        typeof visualDiff.visual_change === 'object'
+                          ? visualDiff.visual_change
+                          : undefined,
+                      pixelAvailable: Boolean(visualDiff.pixel_available),
+                    }
+                  : undefined,
+                iterations:
+                  overall != null
+                    ? [
+                        {
+                          iteration: Number(ev.round) || 0,
+                          overall: Number(overall),
+                          decision: String(ev.review_action || '').trim() || undefined,
+                        },
+                      ]
+                    : undefined,
+              },
+            });
+          }
           emitPhase(labels.length, 'critique');
+          return;
+        }
+        case 'reference_intel': {
+          const dna =
+            ev.visual_dna && typeof ev.visual_dna === 'object'
+              ? (ev.visual_dna as Record<string, number>)
+              : undefined;
+          params.onEvent({
+            type: 'activity',
+            id: 'reference-intel',
+            kind: 'explored',
+            status: 'done',
+            detail: String(ev.thesis || ev.composition || 'Reference DNA').slice(0, 120),
+          });
+          params.onEvent({
+            type: 'intelligence',
+            patch: {
+              reference: {
+                thesis: String(ev.thesis || '').trim() || undefined,
+                composition: String(ev.composition || '').trim() || undefined,
+                dna,
+                stages: Array.isArray(ev.stages)
+                  ? ev.stages.map((s) => String(s))
+                  : undefined,
+              },
+            },
+          });
+          return;
+        }
+        case 'optimization': {
+          const decision = String(ev.decision || '').trim();
+          params.onEvent({
+            type: 'activity',
+            id: `opt-${ev.iteration ?? 0}`,
+            kind: decision === 'rollback' ? 'skipped' : 'tool',
+            status: 'done',
+            detail: [decision, ev.reason, ev.pareto_note]
+              .filter(Boolean)
+              .join(' · ')
+              .slice(0, 140),
+          });
+          if (typeof ev.iteration === 'number') {
+            params.onEvent({
+              type: 'intelligence',
+              patch: {
+                iterations: [
+                  {
+                    iteration: ev.iteration,
+                    overall: 0,
+                    decision,
+                    reason: String(ev.reason || '').trim() || undefined,
+                  },
+                ],
+              },
+            });
+          }
+          return;
+        }
+        case 'design_summary': {
+          params.onEvent({
+            type: 'intelligence',
+            patch: {
+              summary: {
+                iterations: ev.iterations,
+                removed: ev.removed,
+                whitespace: ev.whitespace ?? null,
+                heroDominance: ev.hero_dominance ?? null,
+                scoreFrom: ev.score_from ?? null,
+                scoreTo: ev.score_to ?? null,
+              },
+              iterations: Array.isArray(ev.timeline)
+                ? ev.timeline.map((row, i) => ({
+                    iteration:
+                      typeof row?.iteration === 'number' ? row.iteration : i,
+                    overall: typeof row?.overall === 'number' ? row.overall : 0,
+                  }))
+                : undefined,
+            },
+          });
           return;
         }
         case 'replan':
@@ -3383,6 +4022,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         case 'paused': {
           const tid = String(ev.task_id || liveTaskId || '').trim();
           if (tid) liveTaskId = tid;
+          aiQueuePause(aiQueue);
+          releaseAiMutationLock();
           params.onEvent({
             type: 'paused',
             taskId: tid,
@@ -3393,6 +4034,8 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           return;
         }
         case 'cancelled':
+          undoQueuedTransaction(aiQueueCancel(aiQueue));
+          releaseAiMutationLock();
           params.onEvent({
             type: 'error',
             code: 'cancelled',
@@ -3486,6 +4129,12 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     } catch {
       /* ignore */
     }
+    if (params.signal?.aborted) {
+      undoQueuedTransaction(aiQueueCancel(aiQueue));
+      releaseAiMutationLock();
+    } else {
+      releaseAiMutationLock();
+    }
     // Only clear cover when the full Design→Review(+retry) run has finished.
     params.dispatch(cancelImportPlaceholder());
     clearProcessPill();
@@ -3526,6 +4175,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       }
     }
   } catch (err: unknown) {
+    releaseAiMutationLock();
     params.dispatch(cancelImportPlaceholder());
     clearProcessPill();
     if (params.signal?.aborted) return;

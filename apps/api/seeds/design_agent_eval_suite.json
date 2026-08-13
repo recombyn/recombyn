@@ -1,6 +1,7 @@
 {
-  "version": 2,
-  "note": "Category craft + system-state / unstable-input stress. System issues → prompt packs; design issues → skills. Browser E2E: stall >150s without canvas → Stop and retry.",
+  "version": 3,
+  "rubric": "eval/design-agent/rubric.json",
+  "note": "Category craft + system-state / unstable-input stress. V3 rubric matches Runtime Review. System issues → prompt packs; design issues → skills. Browser E2E: stall >150s without canvas → Stop and retry.",
   "cases": [
     {
       "id": "poster",

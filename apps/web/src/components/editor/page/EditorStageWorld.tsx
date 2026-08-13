@@ -5,7 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   RcbCanvas,
   RcbSvgDefs,
@@ -14,7 +14,7 @@ import {
   HtmlArtboardFrame,
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
@@ -56,8 +56,12 @@ import {
   setSelectedNodeIds,
   updateArtboardFrame,
   pushEditorHistory,
+  type AiOperationState,
 } from '@/store/modules/editor';
 import { canvasFillToDocumentMeta } from './EditorBottomHud';
+import type { RootState } from '@/store';
+import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 
 const EDITOR_PAN_BLOCK_SELECTOR = [
   '[data-scene-node-id]',
@@ -100,6 +104,85 @@ function blurStageEditableOnPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     return;
   }
   active.blur();
+}
+
+function aiNodeWorldBox(
+  document: SceneDocument,
+  nodeId: string | null | undefined
+): { left: number; top: number; width: number; height: number } | null {
+  const id = String(nodeId || '').trim();
+  if (!id || id === 'ROOT') return null;
+  const node = document.deltaSetLike?.[id] as SceneNode | undefined;
+  if (!node) return null;
+  const { left, top } = nodeLeftTop(document, node);
+  return {
+    left,
+    top,
+    width: Math.max(1, Number(node.width) || 1),
+    height: Math.max(1, Number(node.height) || 1),
+  };
+}
+
+function frameShowsAiOverlay(
+  frame: ArtboardFrame,
+  aiOp: AiOperationState | null
+): boolean {
+  if (!aiOp?.active) return String(frame.processStatus || '') === 'running';
+  const fid = String(aiOp.frameId || '').trim();
+  return Boolean(fid) && fid === frame.id;
+}
+
+/** Node highlight / operation label / AI cursor — world overlay, not SceneDocument. */
+function AiOperationNodeChrome({
+  box,
+  caption,
+  zoom,
+}: {
+  box: { left: number; top: number; width: number; height: number };
+  caption?: string;
+  zoom: number;
+}) {
+  const inv = 1 / Math.max(0.05, zoom);
+  return (
+    <>
+      <div
+        data-ai-op-outline
+        className="pointer-events-none absolute z-[42] border-[1.5px] border-[#3b82f6]"
+        style={{
+          left: box.left,
+          top: box.top,
+          width: box.width,
+          height: box.height,
+        }}
+        aria-hidden
+      />
+      <div
+        data-ai-op-cursor
+        className="pointer-events-none absolute z-[43] h-2.5 w-2.5 rounded-full bg-[#3b82f6] shadow-[0_0_0_3px_rgba(59,130,246,0.28)]"
+        style={{
+          left: box.left + box.width,
+          top: box.top + box.height,
+          transform: `translate(-50%, -50%) scale(${inv})`,
+          transformOrigin: 'center',
+        }}
+        aria-hidden
+      />
+      {caption ? (
+        <div
+          data-ai-op-label
+          className="pointer-events-none absolute z-[43] whitespace-nowrap rounded-full bg-[rgba(37,99,235,0.88)] px-2 py-0.5 text-[10px] font-medium leading-none text-white"
+          style={{
+            left: box.left + box.width / 2,
+            top: box.top - 6 * inv,
+            transform: `translate(-50%, -100%) scale(${inv})`,
+            transformOrigin: 'center bottom',
+          }}
+        >
+          {caption}
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 function canvasDiffuseMeshGradient(
@@ -226,6 +309,9 @@ function EditorStageWorld({
   onAddToChat,
 }: Props) {
   const dispatch = useDispatch();
+  const aiOperationState = useSelector(
+    (state: RootState) => state.editor.aiOperationState
+  );
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
   const [frameMoveGuides, setFrameMoveGuides] = useState<SmartGuideLine[]>([]);
 
@@ -359,6 +445,10 @@ function EditorStageWorld({
     selectedNodeIds.length === 0 &&
     Boolean(activeFrame) &&
     movingFrameId !== activeFrame?.id;
+  const aiNodeBox = aiOperationState?.active
+    ? aiNodeWorldBox(document, aiOperationState.nodeId)
+    : null;
+  const aiNodeCaption = aiOperationState?.label || undefined;
 
   return (
     <div
@@ -387,6 +477,7 @@ function EditorStageWorld({
               zIndex={stackZIndex(document, 'frame', frame.id)}
               selected={!isDevMode && selectedFrameIds.includes(frame.id)}
               layer="body"
+              aiGenerating={frameShowsAiOverlay(frame, aiOperationState)}
             />
           )
         )}
@@ -413,9 +504,23 @@ function EditorStageWorld({
               key={`process-${frame.id}`}
               frame={frame}
               layer="process"
+              aiGenerating={frameShowsAiOverlay(frame, aiOperationState)}
+              aiProcessLabel={
+                frameShowsAiOverlay(frame, aiOperationState)
+                  ? aiOperationState?.label || frame.processLabel
+                  : undefined
+              }
             />
           )
         )}
+
+        {aiNodeBox ? (
+          <AiOperationNodeChrome
+            box={aiNodeBox}
+            caption={aiNodeCaption}
+            zoom={rcbCameraCssZoom(camera)}
+          />
+        ) : null}
 
         <ImageProcessWatcher />
         <ImageToolPanelHost document={document} />

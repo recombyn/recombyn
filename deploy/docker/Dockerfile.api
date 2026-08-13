@@ -14,6 +14,12 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 COPY packages/scene-builder-py ./packages/scene-builder-py
+COPY packages/protocol ./packages/protocol
+COPY packages/intelligence-client ./packages/intelligence-client
+COPY packages/skill-sdk ./packages/skill-sdk
+COPY packages/plugin-sdk ./packages/plugin-sdk
+COPY packages/agent-sdk ./packages/agent-sdk
+COPY packages/runtime ./packages/runtime
 COPY apps/api ./apps/api
 
 ARG INSTALL_OCR=false
@@ -21,6 +27,12 @@ ARG INSTALL_AV=false
 
 RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --trusted-host mirrors.aliyun.com \
       ./packages/scene-builder-py \
+      ./packages/protocol \
+      ./packages/intelligence-client \
+      ./packages/skill-sdk \
+      ./packages/plugin-sdk \
+      ./packages/agent-sdk \
+      ./packages/runtime \
     && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --trusted-host mirrors.aliyun.com \
       ./apps/api \
     && if [ "$INSTALL_OCR" = "true" ]; then \

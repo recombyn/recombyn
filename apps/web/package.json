@@ -1,5 +1,5 @@
 {
-  "name": "@resume-scene/web",
+  "name": "@recombyn/web",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -16,7 +16,7 @@
     "@orpc/openapi-client": "^1.15.0",
     "@orpc/tanstack-query": "^1.15.0",
     "@reduxjs/toolkit": "^2.12.0",
-    "@resume-scene/contracts": "^0.0.0",
+    "@recombyn/contracts": "^0.0.0",
     "@repo/eslint-config": "*",
     "@repo/tsconfig": "*",
     "@streamdown/cjk": "^1.0.3",

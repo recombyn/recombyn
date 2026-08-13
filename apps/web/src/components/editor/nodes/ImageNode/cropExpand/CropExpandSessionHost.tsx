@@ -26,7 +26,8 @@ import {
   type ImageToolPanelKind,
 } from '@/store/modules/editor';
 import {
-  addNodeToDocument
+  addNodeToDocument,
+  cloneSceneValue,
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
   isVideoGeneratorNode
@@ -312,7 +313,7 @@ function CropExpandSessionHost({ document }: { document: SceneDocument }): React
   const spawnSiblingAtCrop = (attrPatch: Record<string, unknown>, outW: number, outH: number) => {
     const gap = 16;
     const id = nanoid(10);
-    const clone = JSON.parse(JSON.stringify(node));
+    const clone = cloneSceneValue(node);
     clone.id = id;
     clone.x = Math.round(box.left + box.width + gap);
     clone.y = Math.round(box.top);

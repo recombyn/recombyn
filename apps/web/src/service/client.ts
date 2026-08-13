@@ -2,7 +2,7 @@
  * oRPC + TanStack Query client:
  * OpenAPILink(contract) → createORPCClient → createTanstackQueryUtils → apiQuery
  *
- * Contract comes from `@resume-scene/contracts` (OpenAPI → hey-api orpc codegen).
+ * Contract comes from `@recombyn/contracts` (OpenAPI → hey-api orpc codegen).
  * Call sites: `useQuery(apiQuery.projectsListMyProjects.queryOptions({ input: { query: {...} } }))`
  */
 
@@ -13,7 +13,7 @@ import { OpenAPILink } from '@orpc/openapi-client/fetch';
 import { createTanstackQueryUtils } from '@orpc/tanstack-query';
 import { QueryClient } from '@tanstack/react-query';
 import { HTTPError } from 'ky';
-import { apiRouterContract } from '@resume-scene/contracts';
+import { apiRouterContract } from '@recombyn/contracts';
 import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken, setToken } from '@/utils/token';
 

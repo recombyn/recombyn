@@ -1,4 +1,4 @@
-# `@resume-scene/web`
+# `@recombyn/web`
 
 React 画布 + 首页 / Agent UI（Vite）。
 

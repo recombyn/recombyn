@@ -1,7 +1,9 @@
 import { nanoid } from '@reduxjs/toolkit';
 import { z } from 'zod';
+import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
   addNodeToDocument,
+  cloneSceneValue,
   getActivePage,
   listSceneNodes,
   normalizeDocument,
@@ -23,7 +25,7 @@ export function nodeIdsInsideFrames(
   const wanted = new Set(frameIds.filter(Boolean).map(String));
   if (!wanted.size) return [];
   const frames = (Array.isArray(doc.frames) ? doc.frames : []).filter(
-    (f: any) => f?.id && wanted.has(String(f.id))
+    (f) => f?.id && wanted.has(String(f.id))
   );
   if (!frames.length) return [];
   const out: string[] = [];
@@ -35,7 +37,7 @@ export function nodeIdsInsideFrames(
     const h = Math.max(1, Number(node.height) || 1);
     const cx = left + w / 2;
     const cy = top + h / 2;
-    const inside = frames.some((f: any) => {
+    const inside = frames.some((f) => {
       const fx = Number(f.x) || 0;
       const fy = Number(f.y) || 0;
       const fw = Math.max(1, Number(f.width) || 1);
@@ -188,7 +190,7 @@ export function snapshotNodesForClipboard(
   ids.forEach((id) => {
     const raw = doc.deltaSetLike?.[id];
     if (!raw) return;
-    nodes.push({ id, node: JSON.parse(JSON.stringify(raw)) });
+    nodes.push({ id, node: cloneSceneValue(raw) });
   });
   return nodes.length ? { nodes } : null;
 }
@@ -202,9 +204,9 @@ export function snapshotFramesForClipboard(
   if (!wanted.size || !doc) return [];
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   const out: NonNullable<SceneClipboardPayload['frames']> = [];
-  frames.forEach((f: any) => {
+  frames.forEach((f) => {
     if (!f?.id || !wanted.has(String(f.id))) return;
-    out.push({ id: String(f.id), frame: JSON.parse(JSON.stringify(f)) });
+    out.push({ id: String(f.id), frame: cloneSceneValue(f) });
   });
   return out;
 }
@@ -248,7 +250,7 @@ export function pasteClipboardIntoDocument(
 
   const newIds: string[] = [];
   (clip.nodes || []).forEach(({ id, node: raw }) => {
-    const node = JSON.parse(JSON.stringify(raw));
+    const node = cloneSceneValue(raw);
     const newId = idMap.get(id)!;
     node.id = newId;
     node.x = (Number(node.x) || 0) + ox;
@@ -267,7 +269,7 @@ export function pasteClipboardIntoDocument(
     const frames = Array.isArray(next.frames) ? [...next.frames] : [];
     const order = Array.isArray(next.stackOrder) ? [...next.stackOrder] : [];
     clip.frames.forEach(({ id, frame: raw }) => {
-      const frame = JSON.parse(JSON.stringify(raw));
+      const frame = cloneSceneValue(raw);
       const newId = frameIdMap.get(id)!;
       frame.id = newId;
       frame.x = (Number(frame.x) || 0) + ox;
@@ -276,7 +278,7 @@ export function pasteClipboardIntoDocument(
       delete frame.processStatus;
       delete frame.processLabel;
       delete frame.processKind;
-      frames.push(frame);
+      frames.push(frame as ArtboardFrame);
       newFrameIds.push(newId);
       order.push(stackFrameKey(newId));
     });

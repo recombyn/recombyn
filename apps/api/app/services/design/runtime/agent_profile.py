@@ -27,16 +27,19 @@ import yaml
 from app.core.config import resolve_seed_dir, settings
 from app.services.design.runtime.subagent import SubAgentDef
 
+from recombyn_agent_sdk import (
+    DEFAULT_CONTRACT_IDS,
+    KERNEL_CANVAS_REQUIRED,
+    PROFILE_KIND,
+)
+
 _LOCK = threading.RLock()
 _PROFILE_CACHE: dict[str, "AgentProfile"] = {}
 _BINDINGS_CACHE: dict[str, Any] | None = None
 _ACTIVE_ID: str | None = None
 
 _DEFAULT_CONTRACTS: dict[str, str] = {
-    "intent": "IntentTurn.v1",
-    "decide": "DecideTurn.v1",
-    "act": "ToolOpsBatch.v1",
-    "review": "ReviewTurn.v1",
+    k: v for k, v in DEFAULT_CONTRACT_IDS.items() if k in ("intent", "decide", "act", "review")
 }
 
 _CONTRACT_SCHEMA_REGISTRY: dict[str, Any] | None = None
@@ -121,7 +124,7 @@ class AgentProfile:
     runtime_flags: dict[str, Any] = field(default_factory=dict)
     # P2 topology — live LangGraph selected by template id (not Admin flow JSON).
     topology_template: str = "canvas_ops_v1"
-    stages_enabled: tuple[str, ...] = ("intent", "decide", "paint", "observe")
+    stages_enabled: tuple[str, ...] = KERNEL_CANVAS_REQUIRED
     topology_loops: tuple[tuple[str, str, str, int], ...] = ()
     # Roles — primary + specialists. forked_context → SubAgent catalog.
     roles: tuple[AgentRoleSpec, ...] = ()
@@ -429,7 +432,7 @@ def _parse_topology(
             if s and s not in stages:
                 stages.append(s)
     if not stages:
-        stages = ["intent", "decide", "paint", "observe"]
+        stages = list(KERNEL_CANVAS_REQUIRED)
 
     loops: list[tuple[str, str, str, int]] = []
     loops_raw = topo.get("loops")
@@ -460,7 +463,7 @@ def _default_roles_from_stages(stages_enabled: tuple[str, ...]) -> tuple[AgentRo
     """Infer primary + optional review specialist when YAML omits ``roles``."""
     enabled = [s for s in stages_enabled if s]
     if not enabled:
-        enabled = ["intent", "decide", "paint", "observe"]
+        enabled = list(KERNEL_CANVAS_REQUIRED)
     specialists = [s for s in enabled if s == "review"]
     primary_stages = tuple(s for s in enabled if s != "review") or ("decide",)
     roles: list[AgentRoleSpec] = [
@@ -704,8 +707,8 @@ def _parse_capabilities(
 def _profile_from_dict(raw: dict[str, Any], *, source: str) -> AgentProfile:
     if _as_text(raw.get("apiVersion")) != "recombyn.agent/v1":
         raise ValueError(f"{source}: unsupported apiVersion {raw.get('apiVersion')!r}")
-    if _as_text(raw.get("kind")) != "AgentProfile":
-        raise ValueError(f"{source}: kind must be AgentProfile")
+    if _as_text(raw.get("kind")) != PROFILE_KIND:
+        raise ValueError(f"{source}: kind must be {PROFILE_KIND}")
 
     pid = _as_text(raw.get("id"))
     if not pid:
@@ -958,8 +961,19 @@ def ensure_contract_registry() -> dict[str, Any]:
         return _CONTRACT_SCHEMA_REGISTRY
     from app.services.design.runtime.graph.state import (
         DecideTurnSchema,
+        DesignCandidateSetSchema,
+        DesignCounterfactualSchema,
+        DesignGovernanceSchema,
+        AutonomousArtDirectorSchema,
+        DesignResearchReportSchema,
+        DesignSimulationSchema,
+        DesignStrategySchema,
+        DesignSwarmResultSchema,
+        DesignTournamentResultSchema,
         PaintOpsSchema,
+        ReferenceIntelligenceTurnSchema,
         ResearchTurnSchema,
+        ReviewLaneSchema,
         ReviewTurnSchema,
         VisionScoutTurnSchema,
     )
@@ -970,8 +984,19 @@ def ensure_contract_registry() -> dict[str, Any]:
         "DecideTurn.v1": DecideTurnSchema,
         "ToolOpsBatch.v1": PaintOpsSchema,
         "ReviewTurn.v1": ReviewTurnSchema,
+        "ReviewLane.v1": ReviewLaneSchema,
         "VisionScoutTurn.v1": VisionScoutTurnSchema,
         "ResearchTurn.v1": ResearchTurnSchema,
+        "DesignResearch.v1": DesignResearchReportSchema,
+        "DesignStrategy.v1": DesignStrategySchema,
+        "DesignCandidates.v1": DesignCandidateSetSchema,
+        "DesignTournament.v1": DesignTournamentResultSchema,
+        "DesignSwarm.v1": DesignSwarmResultSchema,
+        "DesignSimulation.v1": DesignSimulationSchema,
+        "DesignCounterfactual.v1": DesignCounterfactualSchema,
+        "DesignGovernance.v1": DesignGovernanceSchema,
+        "AutonomousArtDirector.v1": AutonomousArtDirectorSchema,
+        "ReferenceIntel.v1": ReferenceIntelligenceTurnSchema,
     }
     return _CONTRACT_SCHEMA_REGISTRY
 

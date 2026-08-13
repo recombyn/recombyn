@@ -189,7 +189,7 @@ function readNodeCropNorm(node: SceneNodeInput): { x: number; y: number; w: numb
   return null;
 }
 
-function num(v: any, fallback = 0) {
+function num(v: unknown, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -504,10 +504,44 @@ type SceneGeom = {
   abs: boolean;
 };
 
+/** Runtime fields painted onto SVG hosts (not in the DOM schema). */
+export type SceneSvgHost = SVGElement & {
+  __sceneLeft?: number;
+  __sceneTop?: number;
+  sceneWidth?: number;
+  sceneHeight?: number;
+  __sceneAbsPos?: boolean;
+  sceneNodeId?: string;
+  sceneNodeKey?: string;
+  sceneShapeType?: string;
+  __sceneAngle?: number;
+  __sceneFlipX?: boolean;
+  __sceneFlipY?: boolean;
+  __sceneSides?: number;
+  __sceneCornerRadii?: CornerRadii;
+  __sceneEllipseInner?: number;
+  __sceneEllipseArc?: number;
+  __sceneEllipseStart?: number;
+  __sceneBasePath?: string;
+  __sceneFontSize?: number;
+  __sceneLineHeight?: number;
+  __sceneLineCount?: number;
+  __scenePlainText?: string;
+  __sceneDragBaseW?: number;
+  __sceneDragBaseH?: number;
+  __sceneDragBaseFontSize?: number;
+  __sceneDragBaseLetterSpacing?: number;
+  __sceneDidResize?: boolean;
+};
+
+function asHost(el: SVGElement): SceneSvgHost {
+  return el as SceneSvgHost;
+}
+
 const geomByDom = new WeakMap<SVGElement, SceneGeom>();
 
 function writeGeom(el: SVGElement, geom: SceneGeom) {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   anyEl.__sceneLeft = geom.left;
   anyEl.__sceneTop = geom.top;
   anyEl.sceneWidth = geom.width;
@@ -517,7 +551,7 @@ function writeGeom(el: SVGElement, geom: SceneGeom) {
 }
 
 function readGeom(el: SVGElement): SceneGeom | null {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   const fromMap = geomByDom.get(el);
   if (fromMap) return { ...fromMap };
   const left = Number(anyEl.__sceneLeft);
@@ -544,7 +578,7 @@ function tagNode(
     'shape-rendering': 'geometricPrecision',
     ...(shapeType ? { 'data-scene-shape-type': shapeType } : {}),
   });
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   anyEl.sceneNodeId = nodeId;
   anyEl.sceneNodeKey = key;
   if (shapeType) anyEl.sceneShapeType = shapeType;
@@ -560,7 +594,7 @@ function applyMeta(
   width = 0,
   height = 0
 ) {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   anyEl.__sceneAngle = meta.angle;
   anyEl.__sceneFlipX = meta.flipX;
   anyEl.__sceneFlipY = meta.flipY;
@@ -580,7 +614,7 @@ function applyMeta(
 }
 
 function reapplySceneTransform(el: SVGElement, left: number, top: number, width: number, height: number) {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   const angle = Number(anyEl.__sceneAngle) || 0;
   const flipX = !!anyEl.__sceneFlipX;
   const flipY = !!anyEl.__sceneFlipY;
@@ -616,18 +650,18 @@ function syncStrokeUnderlayTransform(el: SVGElement) {
 function markAbsPos(el: SVGElement) {
   const geom = readGeom(el);
   if (geom) writeGeom(el, { ...geom, abs: true });
-  else (el as any).__sceneAbsPos = true;
+  else asHost(el).__sceneAbsPos = true;
   return el;
 }
 
 function writeSceneSides(el: SVGElement, sides: number) {
   const n = clampShapeSides(sides);
-  (el as any).__sceneSides = n;
+  asHost(el).__sceneSides = n;
   setAttrs(el, { 'data-scene-sides': String(n) });
 }
 
-function readSceneSides(el: any): number {
-  const fromMem = Number(el?.__sceneSides);
+function readSceneSides(el: SVGElement | null | undefined): number {
+  const fromMem = Number(el ? asHost(el).__sceneSides : undefined);
   if (Number.isFinite(fromMem) && fromMem >= 3) return clampShapeSides(fromMem);
   const fromAttr = Number(el?.getAttribute?.('data-scene-sides'));
   if (Number.isFinite(fromAttr) && fromAttr >= 3) return clampShapeSides(fromAttr);
@@ -637,7 +671,7 @@ function readSceneSides(el: any): number {
 /** Keep live corner radii on the host so geometry preview does not flash sharp. */
 function rememberSceneCornerRadii(el: SVGElement | null | undefined, r: CornerRadii) {
   if (!el) return;
-  (el as any).__sceneCornerRadii = {
+  asHost(el).__sceneCornerRadii = {
     tl: Number(r.tl) || 0,
     tr: Number(r.tr) || 0,
     br: Number(r.br) || 0,
@@ -646,7 +680,7 @@ function rememberSceneCornerRadii(el: SVGElement | null | undefined, r: CornerRa
 }
 
 function readSceneCornerRadii(el: SVGElement): CornerRadii {
-  const mem = (el as any).__sceneCornerRadii;
+  const mem = asHost(el).__sceneCornerRadii;
   if (
     mem &&
     [mem.tl, mem.tr, mem.br, mem.bl].every((n: unknown) => Number.isFinite(Number(n)))
@@ -668,24 +702,26 @@ function rememberSceneEllipseParams(
   startDeg: number
 ) {
   if (!el) return;
-  (el as any).__sceneEllipseInner = clampEllipseInnerRatio(innerRatio);
-  (el as any).__sceneEllipseArc = clampEllipseArcPercent(arcPercent);
-  (el as any).__sceneEllipseStart = clampEllipseStartDeg(startDeg);
+  const bag = asHost(el);
+  bag.__sceneEllipseInner = clampEllipseInnerRatio(innerRatio);
+  bag.__sceneEllipseArc = clampEllipseArcPercent(arcPercent);
+  bag.__sceneEllipseStart = clampEllipseStartDeg(startDeg);
   setAttrs(el, {
-    'data-ellipse-inner': String((el as any).__sceneEllipseInner),
-    'data-ellipse-arc': String((el as any).__sceneEllipseArc),
-    'data-ellipse-start': String((el as any).__sceneEllipseStart),
+    'data-ellipse-inner': String(bag.__sceneEllipseInner),
+    'data-ellipse-arc': String(bag.__sceneEllipseArc),
+    'data-ellipse-start': String(bag.__sceneEllipseStart),
   });
 }
 
-function readSceneEllipseParams(el: any): {
+function readSceneEllipseParams(el: SVGElement | null | undefined): {
   innerRatio: number;
   arcPercent: number;
   startDeg: number;
 } {
-  const memInner = Number(el?.__sceneEllipseInner);
-  const memArc = Number(el?.__sceneEllipseArc);
-  const memStart = Number(el?.__sceneEllipseStart);
+  const bag = el ? asHost(el) : null;
+  const memInner = Number(bag?.__sceneEllipseInner);
+  const memArc = Number(bag?.__sceneEllipseArc);
+  const memStart = Number(bag?.__sceneEllipseStart);
   const attrInner = Number(el?.getAttribute?.('data-ellipse-inner'));
   const attrArc = Number(el?.getAttribute?.('data-ellipse-arc'));
   const attrStart = Number(el?.getAttribute?.('data-ellipse-start'));
@@ -1135,7 +1171,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
     setAttrs(path, { 'data-baseline': '1' });
     if (closed && shapeType !== 'pen') {
       setAttrs(path, { 'data-scene-base-path': baseD });
-      (path as any).__sceneBasePath = baseD;
+      asHost(path).__sceneBasePath = baseD;
     }
     applySvgFill(root, path, fillPaint, `n-${nodeId}`);
     const fillRule = String(node.attrs?.['fill-rule'] || '');
@@ -1280,7 +1316,7 @@ export async function nodeToSvgElement(
     }
 
     tagNode(el, nodeId, 'text', undefined, left, top, finalW, finalH);
-    const anyEl = el as any;
+    const anyEl = asHost(el);
     anyEl.__sceneFontSize = fontSize;
     anyEl.__sceneLineHeight = lineHeight;
     anyEl.__sceneLineCount = Math.max(1, visualLines.length);
@@ -1530,7 +1566,7 @@ export async function nodeToSvgElement(
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       applyNodeShadow(root, g, node);
-      (g as any).__sceneCornerRadii = { ...cornerR };
+      rememberSceneCornerRadii(g, cornerR);
       return g;
     }
 
@@ -1556,7 +1592,7 @@ export async function nodeToSvgElement(
     defs.appendChild(clip);
     setAttrs(img, { 'clip-path': urlRef(clipId) });
     setAttrs(g, { 'data-radius-clip-id': clipId });
-    (g as any).__sceneCornerRadii = { ...cornerR };
+    rememberSceneCornerRadii(g, cornerR);
     // Invisible baseline for host-mirrored selection chrome (clip path lives in defs).
     appendChild(
       g,
@@ -1607,7 +1643,7 @@ export async function nodeToSvgElement(
       setFill(plate, '#B9CBDA');
       setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
-      (g as any).__sceneCornerRadii = { ...cornerR };
+      rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
@@ -1664,7 +1700,7 @@ export async function nodeToSvgElement(
         });
       }
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
-      (g as any).__sceneCornerRadii = { ...cornerR };
+      rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
       if (isGen || isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
@@ -1683,7 +1719,7 @@ export async function nodeToSvgElement(
     if (!svgOwnsPixels) {
       appendHtmlMediaMount(g, { nodeId, width: boxW, height: boxH, kind: 'lottie' });
     }
-    (g as any).__sceneCornerRadii = { ...cornerR };
+    rememberSceneCornerRadii(g, cornerR);
     tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
     applyMeta(g, left, top, meta, boxW, boxH);
     applyNodeShadow(root, g, node);
@@ -1787,7 +1823,7 @@ export async function nodeToSvgElement(
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       applyNodeShadow(root, g, node);
-      (g as any).__sceneCornerRadii = { ...cornerR };
+      rememberSceneCornerRadii(g, cornerR);
       return g;
     }
 
@@ -1849,7 +1885,7 @@ export async function nodeToSvgElement(
     if (!svgOwnsPixels && src) {
       appendHtmlMediaMount(g, { nodeId, width: boxW, height: boxH, kind: 'video' });
     }
-    (g as any).__sceneCornerRadii = { ...cornerR };
+    rememberSceneCornerRadii(g, cornerR);
     tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
     if (isGen || isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
     applyMeta(g, left, top, meta, boxW, boxH);
@@ -1880,7 +1916,7 @@ export async function nodeToSvgElement(
       setFill(plate, '#B9CBDA');
       setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
-      (g as any).__sceneCornerRadii = { ...cornerR };
+      rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
@@ -1945,7 +1981,7 @@ export async function nodeToSvgElement(
         });
       }
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
-      (g as any).__sceneCornerRadii = { ...cornerR };
+      rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
       if (isGen || isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
@@ -2009,7 +2045,7 @@ export async function nodeToSvgElement(
     if (!svgOwnsPixels && hasSrc) {
       appendHtmlMediaMount(g, { nodeId, width: boxW, height: boxH, kind: 'audio' });
     }
-    (g as any).__sceneCornerRadii = { ...cornerR };
+    rememberSceneCornerRadii(g, cornerR);
     tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
     applyMeta(g, left, top, meta, boxW, boxH);
     applyNodeShadow(root, g, node);
@@ -2612,14 +2648,15 @@ function setPathD(target: Element | null | undefined, d: string): boolean {
   return true;
 }
 
-export function clearSceneDragPreview(nodeEls: Map<string, any>, nodeId: string) {
-  const el = nodeEls.get(nodeId) as any;
+export function clearSceneDragPreview(nodeEls: Map<string, SVGElement>, nodeId: string) {
+  const el = nodeEls.get(nodeId);
   if (!el) return;
-  delete el.__sceneDragBaseW;
-  delete el.__sceneDragBaseH;
-  delete el.__sceneDragBaseFontSize;
-  delete el.__sceneDragBaseLetterSpacing;
-  delete el.__sceneDidResize;
+  const bag = asHost(el);
+  delete bag.__sceneDragBaseW;
+  delete bag.__sceneDragBaseH;
+  delete bag.__sceneDragBaseFontSize;
+  delete bag.__sceneDragBaseLetterSpacing;
+  delete bag.__sceneDidResize;
 }
 
 function previewResizeText(
@@ -2631,7 +2668,7 @@ function previewResizeText(
     textStyle?: ReturnType<typeof parseNodeTextStyle>;
   }
 ): boolean {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   if (String(anyEl.sceneNodeKey || '') !== 'text') return false;
 
   const geom = readGeom(el);
@@ -2748,7 +2785,7 @@ function previewResizeImage(
   el: SVGElement,
   box: { left: number; top: number; width: number; height: number }
 ): boolean {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   const key = String(anyEl.sceneNodeKey || el.getAttribute('data-scene-node-key') || '');
   // Video / lottie / audio plates use the same poster/<image> (or path) group layout as images.
   if (key !== 'image' && key !== 'video' && key !== 'lottie' && key !== 'audio') {
@@ -2801,17 +2838,17 @@ function previewResizeImage(
 }
 
 export function previewSvgNodeAngle(
-  nodeEls: Map<string, any>,
+  nodeEls: Map<string, SVGElement>,
   nodeId: string,
   angleDeg: number,
-  _sceneDocument?: any
+  _sceneDocument?: SceneDocument | null
 ): boolean {
   const el = nodeEls.get(nodeId);
   if (!el) return false;
   const geom = readGeom(el);
   if (!geom) return false;
 
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   anyEl.__sceneAngle = angleDeg;
   const baseW = Number(anyEl.__sceneDragBaseW);
   const baseH = Number(anyEl.__sceneDragBaseH);
@@ -2840,7 +2877,7 @@ function reapplySceneTransformScaled(
   sx: number,
   sy: number
 ) {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   const angle = Number(anyEl.__sceneAngle) || 0;
   const flipX = !!anyEl.__sceneFlipX;
   const flipY = !!anyEl.__sceneFlipY;
@@ -2870,7 +2907,7 @@ function reapplySceneTransformScaled(
 }
 
 function previewResizeLocalGeometry(el: SVGElement, width: number, height: number): boolean {
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   const shapeType = String(
     anyEl.sceneShapeType || el.getAttribute('data-scene-shape-type') || ''
   );
@@ -2979,7 +3016,7 @@ function dmoveAbs(el: SVGElement, dx: number, dy: number) {
 }
 
 export function previewSvgNodeGeometry(
-  nodeEls: Map<string, any>,
+  nodeEls: Map<string, SVGElement>,
   nodeId: string,
   box: { left: number; top: number; width: number; height: number },
   options?: {
@@ -2990,7 +3027,7 @@ export function previewSvgNodeGeometry(
 ): boolean {
   const el = nodeEls.get(nodeId);
   if (!el) return false;
-  const anyEl = el as any;
+  const anyEl = asHost(el);
   const nodeKey = String(anyEl.sceneNodeKey || el.getAttribute('data-scene-node-key') || '');
 
   if (nodeKey === 'image' || nodeKey === 'video' || nodeKey === 'lottie' || nodeKey === 'audio') {
@@ -3201,7 +3238,7 @@ export function previewSvgNodeGeometry(
  * Live circle / ellipse inner-radius + arc preview without remounting.
  */
 export function previewSvgNodeEllipseParams(
-  nodeEls: Map<string, any>,
+  nodeEls: Map<string, SVGElement>,
   nodeId: string,
   opts: {
     width: number;
@@ -3250,7 +3287,7 @@ export function previewSvgNodeEllipseParams(
  * (Redux skipHistory patches remount via documentPatchToken and can leave ghosts.)
  */
 export function previewSvgNodeCornerRadii(
-  nodeEls: Map<string, any>,
+  nodeEls: Map<string, SVGElement>,
   nodeId: string,
   opts: {
     width: number;
@@ -3271,7 +3308,7 @@ export function previewSvgNodeCornerRadii(
   let d = '';
   if (t === 'path') {
     const base =
-      String((el as any).__sceneBasePath || '') ||
+      String(asHost(el).__sceneBasePath || '') ||
       el.getAttribute('data-scene-base-path') ||
       '';
     if (!base.trim()) return false;

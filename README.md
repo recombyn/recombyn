@@ -72,7 +72,7 @@ Typical turn: `intent` → (chat settle / lean `paint` / design `decide`) → `p
 
 ### Skills
 
-One folder per skill: `apps/api/seeds/design_skills/<key>/` (`_meta.json` + `SKILL.md`; optional `schema.json`, `assets/`, …).
+One folder per skill: `skills/foundation/<key>/` or `skills/domains/<key>/` (`_meta.json` + `SKILL.md`; optional `schema.json`, `assets/`, …).
 
 - **`_meta.json`** — when to use, triggers, `preferred_tools`, mutex — Decide picks skills from this  
 - **`SKILL.md`** — how to craft that deliverable (landing, poster, resume, dashboard, motion, …)
@@ -90,7 +90,7 @@ Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/s
 | [`apps/api/seeds/agents/profiles/design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) | **Default Profile**: stages, roles, subagents, skills/tools catalogs, `$kv` routing |
 | [`apps/api/seeds/agents/bindings.yaml`](apps/api/seeds/agents/bindings.yaml) | `product` / `surface` → Profile id |
 | [`apps/api/seeds/design_prompt_packs/`](apps/api/seeds/design_prompt_packs/) | Stage prompt bodies |
-| [`apps/api/seeds/design_skills/`](apps/api/seeds/design_skills/) | Add / edit skills |
+| [`skills/`](skills/) | Add / edit shipped skills (foundation + domains) |
 | [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) | Tool catalog |
 | `apps/api/.env` → `AGENT_PROFILE_ID` | Force Profile id (default `design.canvas`; empty → use bindings) |
 
@@ -116,7 +116,7 @@ Two extension surfaces — don’t mix them up:
 
 | Kind | Path | What it extends | Sample |
 |------|------|-----------------|--------|
-| **Skill pack** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent craft (same layout as `seeds/design_skills`) | [`festival_poster`](plugins/skills/festival_poster/) |
+| **Skill pack** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent craft (same layout as `skills/`) | [`festival_poster`](plugins/skills/festival_poster/) |
 | **Canvas plugin** | [`plugins/canvas/<id>/`](plugins/canvas/) | Editor UI (toolbar buttons today) | [`watermark`](plugins/canvas/watermark/) |
 
 **Skill pack**

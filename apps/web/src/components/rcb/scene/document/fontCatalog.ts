@@ -14,23 +14,30 @@ let facesInjected = false;
 function normalizeCatalog(raw: unknown): FontFamilyNode[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   return raw
-    .map((item: any) => ({
-      family: String(item?.family || ''),
-      displayName: String(item?.displayName || item?.family || ''),
-      url: item?.url ? String(item.url) : undefined,
-      format: item?.format as FontFaceFormat | undefined,
-      children: Array.isArray(item?.children)
-        ? item.children
-            .map((c: any) => ({
-              family: String(c?.family || item?.family || ''),
-              displayName: String(c?.displayName || 'Regular'),
-              url: c?.url ? String(c.url) : undefined,
-              format: c?.format as FontFaceFormat | undefined,
-              weight: Number.isFinite(Number(c?.weight)) ? Number(c.weight) : undefined,
-            }))
-            .filter((c: { url?: string }) => Boolean(c.url))
-        : [],
-    }))
+    .map((item) => {
+      const rec = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+      const childrenRaw = rec.children;
+      return {
+        family: String(rec.family || ''),
+        displayName: String(rec.displayName || rec.family || ''),
+        url: rec.url ? String(rec.url) : undefined,
+        format: rec.format as FontFaceFormat | undefined,
+        children: Array.isArray(childrenRaw)
+          ? childrenRaw
+              .map((c) => {
+                const child = c && typeof c === 'object' ? (c as Record<string, unknown>) : {};
+                return {
+                  family: String(child.family || rec.family || ''),
+                  displayName: String(child.displayName || 'Regular'),
+                  url: child.url ? String(child.url) : undefined,
+                  format: child.format as FontFaceFormat | undefined,
+                  weight: Number.isFinite(Number(child.weight)) ? Number(child.weight) : undefined,
+                };
+              })
+              .filter((c: { url?: string }) => Boolean(c.url))
+          : [],
+      };
+    })
     .filter((f) => f.family);
 }
 

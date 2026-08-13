@@ -339,6 +339,7 @@ def record_model_usage(
     meta: dict[str, Any] | None = None,
     error: str | None = None,
     response: Any = None,
+    pricing_version_id: str | None = None,
 ) -> None:
     """Insert one usage row. Safe to call from any path (swallows errors).
 
@@ -400,6 +401,22 @@ def record_model_usage(
             elif cost is not None:
                 meta_out.setdefault("cost_currency", "cny")
 
+            pv_id = (pricing_version_id or "").strip() or None
+            if not pv_id:
+                try:
+                    from app.services.llm.pricing_registry import (
+                        resolve_active_pricing_version_id,
+                    )
+
+                    pv_id = resolve_active_pricing_version_id(
+                        catalog_model_id=catalog_model_id,
+                        provider=provider,
+                    )
+                except Exception:
+                    pv_id = None
+            if pv_id:
+                meta_out.setdefault("pricing_version_id", pv_id)
+
             # Persist full usage + any leftover top-level response usage-like keys.
             usage_blob: Any = usage
             if usage_blob is None and isinstance(response, dict) and isinstance(
@@ -429,6 +446,7 @@ def record_model_usage(
                     else (ctx.credits_charged if ctx else None)
                 ),
                 "cost_cny": cost,
+                "pricing_version_id": (pv_id or "")[:128] or None,
                 "provider_request_id": (req_id or "")[:128] or None,
                 "usage_json": (
                     json.dumps(usage_blob, ensure_ascii=False)
@@ -469,6 +487,7 @@ def record_model_usage(
                             image_count=row["image_count"],
                             credits_charged=row["credits_charged"],
                             cost_cny=row["cost_cny"],
+                            pricing_version_id=row["pricing_version_id"],
                             provider_request_id=row["provider_request_id"],
                             usage_json=row["usage_json"],
                             meta_json=row["meta_json"],

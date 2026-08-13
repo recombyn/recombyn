@@ -11,6 +11,8 @@ cd apps/api
 python -m venv .venv
 .venv\Scripts\activate   # Unix: source .venv/bin/activate
 pip install -e ../../packages/scene-builder-py
+pip install -e ../../packages/protocol
+pip install -e ../../packages/intelligence-client
 pip install -e ".[dev]"
 # Redis: 仓库根 docker compose up -d redis
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000

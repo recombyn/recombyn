@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from app.core.config import api_seeds_dir, resolve_seed_dir
+from app.core.config import api_seeds_dir
 
 
 def _suite() -> dict:
@@ -14,10 +14,14 @@ def _suite() -> dict:
 
 
 def _skill_dirs() -> set[str]:
-    root = resolve_seed_dir("design_skills")
-    if not root.is_dir():
-        return set()
-    return {p.name for p in root.iterdir() if p.is_dir() and (p / "SKILL.md").is_file()}
+    from app.services.design.prompts.skill_store.pack_io import _file_skills_dirs
+
+    out: set[str] = set()
+    for root in _file_skills_dirs():
+        for p in root.iterdir():
+            if p.is_dir() and (p / "SKILL.md").is_file():
+                out.add(p.name)
+    return out
 
 
 def test_stress_suite_cases_shape():
@@ -63,7 +67,8 @@ def test_stress_suite_skill_expect_exist_on_disk():
         for k in c.get("skill_expect") or []:
             if k not in skills:
                 missing.append(f"{c.get('id')}:{k}")
-    assert not missing, f"skill_expect not found under seeds/design_skills: {missing}"
+    assert not missing, f"skill_expect not found under skills catalog: {missing}"
+
 
 
 def test_stress_suite_ids_unique_across_pools():

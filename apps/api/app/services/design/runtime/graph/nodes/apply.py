@@ -19,6 +19,8 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     GraphState,
     _SCENE_WAIT_SEC,
+    new_design_transaction,
+    resolve_transaction_phase,
 )
 from app.services.design.runtime.graph.support import (
     _ask_propose_user_text,
@@ -92,6 +94,162 @@ def _mark_ops_emitted(st: AgentRunState, ops: list[dict[str, Any]]) -> None:
             continue
         st.emitted_op_ids.append(oid)
         seen.add(oid)
+
+
+def _chunk_ops(ops: list[dict[str, Any]], *, chunk_size: int = 12) -> list[list[dict[str, Any]]]:
+    """Split ops into SSE chunks (one transaction, many chunks)."""
+    size = max(1, int(chunk_size or 12))
+    if len(ops) <= size:
+        return [list(ops)]
+    return [list(ops[i : i + size]) for i in range(0, len(ops), size)]
+
+
+def _emit_design_transaction(
+    rt: AgentRuntime,
+    *,
+    paint_ops: list[dict[str, Any]],
+    round_i: int,
+    skill_key: str = "react",
+    skill_name: str = "Design Agent",
+) -> str:
+    """BEGIN → tool_ops chunks (BC) → COMMIT. Returns transaction_id.
+
+    Keeps legacy ``tool_ops`` events so older FE clients still apply.
+    New clients also see ``transaction.begin|chunk|commit``.
+    """
+    st = rt.run
+    phase = resolve_transaction_phase(rt)
+    base_rev = 0
+    try:
+        base_rev = int(
+            (rt.flags or {}).get("base_revision")
+            or (rt.flags or {}).get("scene_revision")
+            or 0
+        )
+    except (TypeError, ValueError):
+        base_rev = 0
+    tx = new_design_transaction(
+        task_id=st.task_id,
+        turn_id=str(round_i),
+        phase=phase,
+        intent=str(st.intent or rt.classified_intent or ""),
+        base_revision=base_rev,
+        ops_count=len(paint_ops),
+    )
+    st.active_transaction_id = tx.transaction_id
+    st.active_transaction_phase = tx.phase
+    st.active_transaction_base_revision = tx.base_revision
+    _emit(
+        {
+            "type": "transaction.begin",
+            "transaction_id": tx.transaction_id,
+            "turn_id": tx.turn_id,
+            "design_id": tx.design_id,
+            "phase": tx.phase,
+            "intent": tx.intent,
+            "base_revision": tx.base_revision,
+            "ops_count": tx.ops_count,
+            "task_id": st.task_id,
+            "trace_id": st.trace_id,
+            "round": round_i,
+        }
+    )
+    chunks = _chunk_ops(paint_ops)
+    for ci, chunk in enumerate(chunks):
+        sse_ops = tool_ops_for_sse(chunk)
+        _emit(
+            {
+                "type": "transaction.chunk",
+                "transaction_id": tx.transaction_id,
+                "phase": tx.phase,
+                "chunk_index": ci,
+                "chunk_total": len(chunks),
+                "ops": sse_ops,
+                "task_id": st.task_id,
+                "trace_id": st.trace_id,
+                "round": round_i,
+            }
+        )
+        # BC: existing FE only listens for tool_ops.
+        _emit(
+            {
+                "type": "tool_ops",
+                "index": round_i,
+                "task_id": st.task_id,
+                "trace_id": st.trace_id,
+                "skill_key": skill_key,
+                "skill_name": skill_name,
+                "schema_version": TOOL_OPS_SCHEMA_VERSION,
+                "transaction_id": tx.transaction_id,
+                "transaction_phase": tx.phase,
+                "chunk_index": ci,
+                "chunk_total": len(chunks),
+                "ops": sse_ops,
+            }
+        )
+        for act in _tool_ops_activity_events(
+            batch=chunk,
+            totals={"created": 0, "updated": 0, "deleted": 0},
+            skill_index=round_i,
+        ):
+            _emit(act)
+    _emit(
+        {
+            "type": "transaction.commit",
+            "transaction_id": tx.transaction_id,
+            "phase": tx.phase,
+            "ops_count": len(paint_ops),
+            "task_id": st.task_id,
+            "trace_id": st.trace_id,
+            "round": round_i,
+            # FE must ACK via scene_feedback with this transaction_id.
+            "await_ack": True,
+        }
+    )
+    st.push_log(
+        phase="transaction",
+        transaction_id=tx.transaction_id,
+        transaction_phase=tx.phase,
+        ops_count=len(paint_ops),
+        chunks=len(chunks),
+        base_revision=tx.base_revision or None,
+        summary=f"tx {tx.transaction_id} {tx.phase} ×{len(paint_ops)}",
+    )
+    return tx.transaction_id
+
+
+def _emit_transaction_rollback(
+    rt: AgentRuntime,
+    *,
+    reason: str,
+    round_i: int = 0,
+) -> None:
+    st = rt.run
+    tid = str(st.active_transaction_id or "").strip()
+    if not tid:
+        return
+    _emit(
+        {
+            "type": "transaction.rollback",
+            "transaction_id": tid,
+            "phase": st.active_transaction_phase or "paint",
+            "reason": str(reason or "failed")[:240],
+            "task_id": st.task_id,
+            "trace_id": st.trace_id,
+            "round": round_i,
+        }
+    )
+    st.push_log(
+        phase="transaction_rollback",
+        transaction_id=tid,
+        reason=str(reason or "")[:160],
+        summary=f"rollback {tid}: {str(reason or '')[:80]}",
+    )
+    st.active_transaction_id = ""
+    st.active_transaction_phase = ""
+    st.active_transaction_base_revision = 0
+
+
 from app.services.design.runtime.scene_feedback import begin_wait
 
 
@@ -160,24 +318,13 @@ async def _node_apply_confirm(state: GraphState) -> Command:
             )
             return Command(update=_bump(rt), goto="observe")
         return Command(update=_bump(rt), goto="__settle__")
-    _emit(
-        {
-            "type": "tool_ops",
-            "index": 0,
-            "task_id": st.task_id,
-            "trace_id": st.trace_id,
-            "skill_key": "react",
-            "skill_name": "Design Agent",
-            "schema_version": TOOL_OPS_SCHEMA_VERSION,
-            "ops": tool_ops_for_sse(paint_ops)
-        }
+    _emit_design_transaction(
+        rt,
+        paint_ops=paint_ops,
+        round_i=0,
+        skill_key="react",
+        skill_name="Design Agent",
     )
-    for act in _tool_ops_activity_events(
-        batch=paint_ops,
-        totals={"created": 0, "updated": 0, "deleted": 0},
-        skill_index=0,
-    ):
-        _emit(act)
     _mark_ops_emitted(st, paint_ops)
     _mark_ops_emitted(st, step_ops)
     st.applied_ops.extend(paint_ops)
@@ -197,6 +344,7 @@ async def _node_apply_confirm(state: GraphState) -> Command:
         apply_confirm=True,
         model=st.family or None,
         reply=(st.reply or "")[:500] or None,
+        transaction_id=st.active_transaction_id or None,
         **({"image_model": img_mid, "images_hydrated": int(n_img)} if n_img and img_mid else {}),
     )
     rt.skip_loop = True
@@ -208,6 +356,7 @@ async def _node_apply_confirm(state: GraphState) -> Command:
             "trace_id": st.trace_id,
             "round": 0,
             "timeout_ms": int(_SCENE_WAIT_SEC * 1000),
+            "transaction_id": st.active_transaction_id or None,
         }
     )
     return Command(update=_bump(rt), goto="observe")
@@ -334,24 +483,13 @@ async def _node_action(state: GraphState) -> Command:
     rt.paint_ops = paint_ops
     ops_sent = bool(paint_ops)
     if ops_sent:
-        _emit(
-            {
-                "type": "tool_ops",
-                "index": round_i,
-                "task_id": st.task_id,
-                "trace_id": st.trace_id,
-                "skill_key": "react",
-                "skill_name": "Design Agent",
-                "schema_version": TOOL_OPS_SCHEMA_VERSION,
-                "ops": tool_ops_for_sse(paint_ops)
-            }
+        _emit_design_transaction(
+            rt,
+            paint_ops=paint_ops,
+            round_i=round_i,
+            skill_key="react",
+            skill_name="Design Agent",
         )
-        for act in _tool_ops_activity_events(
-            batch=paint_ops,
-            totals={"created": 0, "updated": 0, "deleted": 0},
-            skill_index=round_i,
-        ):
-            _emit(act)
         _mark_ops_emitted(st, paint_ops)
         _mark_ops_emitted(st, step_ops)
         st.applied_ops.extend(paint_ops)
@@ -372,6 +510,7 @@ async def _node_action(state: GraphState) -> Command:
         ops_detail=_ops_for_log(paint_ops if ops_sent else step_ops),
         tokens=rt.last_used,
         model=st.family,
+        transaction_id=st.active_transaction_id or None,
         **({"image_model": img_mid, "images_hydrated": int(n_img)} if n_img and img_mid else {}),
         **({"ops_idempotent_skip": True} if (not ops_sent and st.painted) else {}),
     )
@@ -386,6 +525,7 @@ async def _node_action(state: GraphState) -> Command:
             "trace_id": st.trace_id,
             "round": round_i,
             "timeout_ms": int(_SCENE_WAIT_SEC * 1000),
+            "transaction_id": st.active_transaction_id or None,
         }
     )
     return Command(update=_bump(rt), goto="observe")

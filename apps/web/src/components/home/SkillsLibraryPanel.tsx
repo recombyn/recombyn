@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiOutlinePlus, HiOutlineQuestionMarkCircle } from 'react-icons/hi2';
-import { Button, Dialog, message, Switch, Tooltip } from '@/components/base';
+import { Button, Dialog, message, SoftGlowSurface, Switch, Tooltip } from '@/components/base';
 import {
   importDesignSkillZip,
   type DesignSkillCard,
@@ -87,9 +87,13 @@ function formatSkillUpdatedAt(ts: number | null | undefined, locale: string): st
 }
 
 /** Same shell metrics as the real skill card. */
-function SkillCardSkeleton(): ReactNode {
+function SkillCardSkeleton({ seed = 0 }: { seed?: number }): ReactNode {
   return (
-    <div className={cn(SKILL_CARD_SHELL, 'rcb-skeleton-bone min-h-[76px] !rounded-xl shadow-none')} aria-hidden />
+    <SoftGlowSurface
+      seed={seed}
+      className={cn(SKILL_CARD_SHELL, 'min-h-[76px] !rounded-xl shadow-none')}
+      aria-hidden
+    />
   );
 }
 
@@ -112,7 +116,7 @@ function SkillGroupSkeleton({
       <div className={gridClassName}>
         {leading}
         {Array.from({ length: count }, (_, i) => (
-          <SkillCardSkeleton key={`sk-${i}`} />
+          <SkillCardSkeleton key={`sk-${i}`} seed={i} />
         ))}
       </div>
     </section>

@@ -20,6 +20,7 @@ import {
 import { exportFabricImage } from '@/components/rcb/scene/paint/exportImage';
 import {
   addNodeToDocument,
+  cloneSceneValue,
   removeNodesFromDocument,
   reorderNodesInDocument
 } from '@/components/rcb/scene/document/sceneDocument';
@@ -58,7 +59,7 @@ import {
   type BoolMode,
 } from '@/components/rcb/selection/shapeBoolean';
 import { nanoid } from '@reduxjs/toolkit';
-import { getAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
+import { getAllowedCanvasToolKeys, filterAllowedToolOps, dedupeToolOpsById, type AgentToolOp } from '@/components/editor/panels/agent/toolOpsContract';
 import {
   buildOutlinePathAsync,
   canOutlineNode,
@@ -101,6 +102,425 @@ export type DesignToolContext = {
   /** Skip per-tool undo snapshots (e.g. batch SVG → nodes import). */
   skipHistory?: boolean;
 };
+
+export type SceneMutationSource = 'ai' | 'human' | 'collab';
+export type SceneMutationStage =
+  | 'validate'
+  | 'permission'
+  | 'revision'
+  | 'apply'
+  | 'history'
+  | 'sync';
+
+export type SceneMutationOpResult = {
+  op_id: string;
+  name: string;
+  ok: boolean;
+  error?: string;
+};
+
+export type SceneMutationGate = {
+  ok: boolean;
+  stage: SceneMutationStage;
+  reason?: string;
+  ops: AgentToolOp[];
+  /** PR8 — how revision was resolved. Absent when the gate failed earlier. */
+  revisionAction?: 'apply' | 'rebase' | 'reject';
+  dropped?: Array<{ op_id: string; name: string; reason: string }>;
+};
+
+export type SceneMutationDocView = {
+  deltaSetLike?: Record<string, unknown> | null;
+  frames?: Array<{ id?: string } | null> | null;
+  activeFrameId?: string | null;
+};
+
+const DESTRUCTIVE_SCENE_OPS = new Set(['delete_nodes', 'delete_frame']);
+
+export function sceneMutationValidate(
+  ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>,
+  appliedOpIds?: Set<string>
+): SceneMutationGate {
+  if (!ops.length) {
+    return { ok: false, stage: 'validate', reason: 'empty_ops', ops: [] };
+  }
+  const allowed = dedupeToolOpsById(
+    filterAllowedToolOps(ops),
+    appliedOpIds || new Set()
+  );
+  if (!allowed.length) {
+    return { ok: false, stage: 'validate', reason: 'no_allowed_ops', ops: [] };
+  }
+  return { ok: true, stage: 'validate', ops: allowed };
+}
+
+export function sceneMutationPermission(opts: {
+  source: SceneMutationSource;
+  allowDestructive?: boolean;
+  ops: AgentToolOp[];
+}): SceneMutationGate {
+  if (opts.source === 'collab') {
+    return { ok: true, stage: 'permission', ops: opts.ops };
+  }
+  const destructive = opts.ops.some((o) => DESTRUCTIVE_SCENE_OPS.has(o.name));
+  if (destructive && !opts.allowDestructive) {
+    return {
+      ok: false,
+      stage: 'permission',
+      reason: 'destructive_not_allowed',
+      ops: opts.ops,
+    };
+  }
+  return { ok: true, stage: 'permission', ops: opts.ops };
+}
+
+export function sceneMutationRevision(opts: {
+  source: SceneMutationSource;
+  baseRevision?: number;
+  currentRevision?: number;
+}): SceneMutationGate {
+  if (opts.source === 'collab') {
+    return { ok: true, stage: 'revision', ops: [], revisionAction: 'apply' };
+  }
+  const base = Math.max(0, Number(opts.baseRevision) || 0);
+  const current = Math.max(0, Number(opts.currentRevision) || 0);
+  // Legacy / first paint: no revision yet — do not block.
+  if (base <= 0 || current <= 0) {
+    return { ok: true, stage: 'revision', ops: [], revisionAction: 'apply' };
+  }
+  if (base !== current) {
+    return {
+      ok: false,
+      stage: 'revision',
+      reason: 'revision_conflict',
+      ops: [],
+      revisionAction: 'reject',
+    };
+  }
+  return { ok: true, stage: 'revision', ops: [], revisionAction: 'apply' };
+}
+
+function mutationArgIds(args: Record<string, unknown>, keys: string[]): string[] {
+  const out: string[] = [];
+  for (const key of keys) {
+    const raw = args[key];
+    if (Array.isArray(raw)) {
+      for (const item of raw) {
+        const id = String(item || '').trim();
+        if (id) out.push(id);
+      }
+      continue;
+    }
+    const id = String(raw || '').trim();
+    if (id) out.push(id);
+  }
+  return [...new Set(out)];
+}
+
+function sceneHasNode(doc: SceneMutationDocView | null | undefined, id: string): boolean {
+  const nid = String(id || '').trim();
+  if (!nid) return false;
+  const bag = doc?.deltaSetLike;
+  return Boolean(bag && typeof bag === 'object' && bag[nid]);
+}
+
+function sceneHasFrame(doc: SceneMutationDocView | null | undefined, id: string): boolean {
+  const fid = String(id || '').trim();
+  if (!fid) return false;
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  return frames.some((f) => f && String(f.id || '').trim() === fid);
+}
+
+function mutationMinLiveIds(name: string): number {
+  if (
+    name === 'align_nodes' ||
+    name === 'distribute_nodes' ||
+    name === 'group_nodes' ||
+    name === 'boolean_op'
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+function rebaseRewriteCreateFrame(
+  op: AgentToolOp,
+  doc: SceneMutationDocView
+): AgentToolOp | { drop: string } {
+  const args = { ...(op.args || {}) };
+  const frameId = String(args.frameId || '').trim();
+  if (!frameId || sceneHasFrame(doc, frameId)) return { ...op, args };
+  const fallback = String(doc.activeFrameId || '').trim();
+  if (fallback && sceneHasFrame(doc, fallback)) {
+    return { ...op, args: { ...args, frameId: fallback } };
+  }
+  return { drop: 'target_missing' };
+}
+
+/**
+ * Replay AI ops onto the current SceneDocument after a revision mismatch.
+ * Additive creates + updates to still-living ids rebase; live deletes reject.
+ */
+export function rebaseSceneMutationOps(
+  ops: AgentToolOp[],
+  doc: SceneMutationDocView | null | undefined
+): {
+  action: 'rebase' | 'reject';
+  ops: AgentToolOp[];
+  dropped: Array<{ op_id: string; name: string; reason: string }>;
+  reason?: string;
+} {
+  const dropped: Array<{ op_id: string; name: string; reason: string }> = [];
+  if (!doc) {
+    return {
+      action: 'reject',
+      ops,
+      dropped,
+      reason: 'revision_conflict',
+    };
+  }
+  const kept: AgentToolOp[] = [];
+  for (const op of ops) {
+    const name = String(op.name || '').trim();
+    const opId = String(op.op_id || op.args?.op_id || '');
+    const args = op.args && typeof op.args === 'object' ? op.args : {};
+    const drop = (reason: string) => {
+      dropped.push({ op_id: opId, name, reason });
+    };
+
+    if (name === 'delete_frame') {
+      const fid = mutationArgIds(args, ['frameId', 'id'])[0] || '';
+      if (fid && sceneHasFrame(doc, fid)) {
+        return {
+          action: 'reject',
+          ops,
+          dropped: [...dropped, { op_id: opId, name, reason: 'unsafe_delete' }],
+          reason: 'revision_conflict',
+        };
+      }
+      drop('target_missing');
+      continue;
+    }
+
+    if (name === 'delete_nodes') {
+      const ids = mutationArgIds(args, ['nodeIds', 'ids', 'nodeId', 'id']);
+      const live = ids.filter((id) => sceneHasNode(doc, id));
+      if (live.length) {
+        return {
+          action: 'reject',
+          ops,
+          dropped: [...dropped, { op_id: opId, name, reason: 'unsafe_delete' }],
+          reason: 'revision_conflict',
+        };
+      }
+      drop('target_missing');
+      continue;
+    }
+
+    if (name.startsWith('create_')) {
+      if (name === 'create_frame' || name === 'create_page') {
+        kept.push(op);
+        continue;
+      }
+      const rewritten = rebaseRewriteCreateFrame(op, doc);
+      if ('drop' in rewritten) {
+        drop(rewritten.drop);
+        continue;
+      }
+      kept.push(rewritten);
+      continue;
+    }
+
+    if (name === 'update_frame') {
+      const fid = mutationArgIds(args, ['frameId', 'id'])[0] || '';
+      if (fid && sceneHasFrame(doc, fid)) {
+        kept.push(op);
+        continue;
+      }
+      drop('target_missing');
+      continue;
+    }
+
+    const targetIds = mutationArgIds(args, ['nodeIds', 'ids', 'nodeId', 'id']);
+    if (!targetIds.length) {
+      kept.push(op);
+      continue;
+    }
+    const liveIds = targetIds.filter((id) => sceneHasNode(doc, id));
+    if (liveIds.length < mutationMinLiveIds(name)) {
+      drop('target_missing');
+      continue;
+    }
+    if (liveIds.length === targetIds.length) {
+      kept.push(op);
+      continue;
+    }
+    const nextArgs = { ...args };
+    if (Array.isArray(args.nodeIds)) nextArgs.nodeIds = liveIds;
+    else if (Array.isArray(args.ids)) nextArgs.ids = liveIds;
+    else nextArgs.nodeId = liveIds[0];
+    kept.push({ ...op, args: nextArgs });
+  }
+
+  if (!kept.length) {
+    return {
+      action: 'reject',
+      ops,
+      dropped,
+      reason: 'revision_conflict',
+    };
+  }
+  return { action: 'rebase', ops: kept, dropped };
+}
+
+export function resolveSceneMutationRevision(opts: {
+  source: SceneMutationSource;
+  ops: AgentToolOp[];
+  baseRevision?: number;
+  currentRevision?: number;
+  document?: SceneMutationDocView | null;
+}): SceneMutationGate {
+  const checked = sceneMutationRevision({
+    source: opts.source,
+    baseRevision: opts.baseRevision,
+    currentRevision: opts.currentRevision,
+  });
+  if (checked.ok) {
+    return { ...checked, ops: opts.ops, revisionAction: 'apply' };
+  }
+  const rebased = rebaseSceneMutationOps(opts.ops, opts.document);
+  if (rebased.action === 'reject') {
+    return {
+      ok: false,
+      stage: 'revision',
+      reason: rebased.reason || 'revision_conflict',
+      ops: opts.ops,
+      revisionAction: 'reject',
+      dropped: rebased.dropped,
+    };
+  }
+  return {
+    ok: true,
+    stage: 'revision',
+    reason: 'rebased',
+    ops: rebased.ops,
+    revisionAction: 'rebase',
+    dropped: rebased.dropped,
+  };
+}
+
+export function gateSceneMutation(req: {
+  source: SceneMutationSource;
+  ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
+  appliedOpIds?: Set<string>;
+  allowDestructive?: boolean;
+  baseRevision?: number;
+  currentRevision?: number;
+  document?: SceneMutationDocView | null;
+}): SceneMutationGate {
+  const validated = sceneMutationValidate(req.ops, req.appliedOpIds);
+  if (!validated.ok) return validated;
+  const permitted = sceneMutationPermission({
+    source: req.source,
+    allowDestructive: req.allowDestructive,
+    ops: validated.ops,
+  });
+  if (!permitted.ok) return permitted;
+  return resolveSceneMutationRevision({
+    source: req.source,
+    ops: validated.ops,
+    baseRevision: req.baseRevision,
+    currentRevision: req.currentRevision,
+    document: req.document,
+  });
+}
+
+function mutationRejectResults(
+  ops: Array<{ name?: string; op_id?: string; args?: Record<string, unknown> }>,
+  reason: string
+): SceneMutationOpResult[] {
+  return ops.map((op) => ({
+    op_id: String(op.op_id || op.args?.op_id || ''),
+    name: String(op.name || ''),
+    ok: false,
+    error: reason,
+  }));
+}
+
+/**
+ * Scene Mutation Pipeline: validate → permission → revision → history → apply → sync.
+ * AI / human / collab writes go through here — never AI → Redux action shapes.
+ */
+export async function applySceneMutation<T extends { opResults: SceneMutationOpResult[] }>(opts: {
+  source: SceneMutationSource;
+  transactionId?: string;
+  ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
+  appliedOpIds?: Set<string>;
+  allowDestructive?: boolean;
+  baseRevision?: number;
+  currentRevision?: number;
+  document?: SceneMutationDocView | null;
+  skipHistory?: boolean;
+  dispatch: Dispatch;
+  execute: (ops: AgentToolOp[]) => Promise<T>;
+}): Promise<{
+  ok: boolean;
+  stage: SceneMutationStage;
+  reason?: string;
+  historyPushed: boolean;
+  revisionAction?: 'apply' | 'rebase' | 'reject';
+  dropped?: Array<{ op_id: string; name: string; reason: string }>;
+  result: T | null;
+  opResults: SceneMutationOpResult[];
+}> {
+  const gate = gateSceneMutation({
+    source: opts.source,
+    ops: opts.ops,
+    appliedOpIds: opts.appliedOpIds,
+    allowDestructive: opts.allowDestructive,
+    baseRevision: opts.baseRevision,
+    currentRevision: opts.currentRevision,
+    document: opts.document,
+  });
+  if (!gate.ok) {
+    const opResults = mutationRejectResults(
+      gate.ops.length ? gate.ops : opts.ops,
+      String(gate.reason || 'mutation_denied')
+    );
+    return {
+      ok: false,
+      stage: gate.stage,
+      reason: gate.reason,
+      historyPushed: false,
+      revisionAction: gate.revisionAction || 'reject',
+      dropped: gate.dropped,
+      result: null,
+      opResults,
+    };
+  }
+  let historyPushed = false;
+  if (!opts.skipHistory && opts.source !== 'collab') {
+    opts.dispatch(pushEditorHistory());
+    historyPushed = true;
+  }
+  const result = await opts.execute(gate.ops);
+  const droppedResults: SceneMutationOpResult[] = (gate.dropped || []).map((row) => ({
+    op_id: row.op_id,
+    name: row.name,
+    ok: false,
+    error: row.reason,
+  }));
+  return {
+    ok: true,
+    stage: 'sync',
+    reason: gate.reason,
+    historyPushed,
+    revisionAction: gate.revisionAction || 'apply',
+    dropped: gate.dropped,
+    result,
+    opResults: [...droppedResults, ...result.opResults],
+  };
+}
 
 /**
  * Resolve which artboard a frame op should hit.
@@ -2868,7 +3288,7 @@ function execDuplicateNodes(
     for (const oldId of ids) {
       const raw = next?.deltaSetLike?.[oldId];
       if (!raw) continue;
-      const node = JSON.parse(JSON.stringify(raw));
+      const node = cloneSceneValue(raw);
       const newId = nanoid(10);
       node.id = newId;
       node.x = (Number(node.x) || 0) + ox;

@@ -1,4 +1,4 @@
-# @resume-scene/contracts
+# @recombyn/contracts
 
 Web 客户端用的 OpenAPI → oRPC 契约（`OpenAPILink` + TanStack Query）。API 跑着或能离线导出 OpenAPI 时，从仓库根执行 `npm run gen:contracts`。
 

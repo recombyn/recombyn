@@ -17,6 +17,7 @@ import {
   type PlazaStatus,
 } from '@/models/plaza';
 import ProjectCoverThumb from '@/components/home/ProjectCoverThumb';
+import { SoftGlowSurface } from '@/components/base';
 import { useGoEditor } from '@/utils/goEditor';
 import { projectThumbFrameClass } from '@/utils/projectThumb';
 import { cn } from '@/utils/classnames';
@@ -53,11 +54,21 @@ function statusLabelKey(status: PlazaStatus): string {
   return 'plaza.statusRejected';
 }
 
-/** Shared card skeleton 鈥?cover + title lines. */
-function ProjectCardSkeleton({ label }: { label?: string }): ReactNode {
+/** Shared card skeleton — soft-glow cover (list random) + title lines. */
+function ProjectCardSkeleton({
+  label,
+  seed = 0,
+}: {
+  label?: string;
+  seed?: string | number;
+}): ReactNode {
   return (
     <article className="group" aria-busy="true" aria-label={label || 'loading'}>
-      <div className={projectThumbFrameClass('rcb-skeleton-bone shadow-none')} />
+      <SoftGlowSurface
+        seed={seed}
+        className={projectThumbFrameClass('shadow-none')}
+        aria-hidden
+      />
       <div className="rcb-skeleton-card mt-2.5 space-y-1.5 rounded-lg px-0.5 py-0.5">
         <div className="rcb-skeleton-bone h-3.5 w-[72%]" />
         <div className="rcb-skeleton-bone h-2.5 w-[48%]" />

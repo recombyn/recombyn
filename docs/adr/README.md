@@ -36,3 +36,12 @@ Cross-cutting or hard-to-undo technical choices live here. Product how-tos stay 
 | [0014](./0014-canvas-plugins.md) | Canvas toolbar plugins (Phase B) | Accepted |
 | [0015](./0015-skill-ops-runner.md) | Skill `handler.py` ops runner (Phase C) | Accepted |
 | [0016](./0016-recombyn-plugin-pack.md) | `.recombyn-plugin` pack install (Phase D) | Accepted |
+| [0017](./0017-intelligence-provider-boundary.md) | Design Intelligence provider boundary | Accepted |
+| [0018](./0018-public-skills-catalog.md) | Public skills catalog layout | Accepted |
+| [0019](./0019-open-skill-sdk.md) | Open skill-sdk package | Accepted |
+| [0020](./0020-open-plugin-sdk.md) | Open plugin-sdk package | Accepted |
+| [0021](./0021-open-agent-sdk.md) | Open agent-sdk package | Accepted |
+| [0022](./0022-open-runtime-helpers.md) | Open runtime helpers package | Accepted |
+| [0023](./0023-public-private-eval.md) | Public vs private Design Agent eval | Accepted |
+| [0024](./0024-protocol-version-cross-repo-ci.md) | Protocol version pin + cross-repo CI | Accepted |
+| [0025](./0025-billing-protocol.md) | Billing Protocol open / strategy private | Accepted |

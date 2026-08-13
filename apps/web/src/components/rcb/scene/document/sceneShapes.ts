@@ -748,11 +748,12 @@ export function distPointToPathD(px: number, py: number, d: string): number {
 }
 
 /** Resolve SVG.js wrapper or raw DOM element → Element. */
-function asDomElement(el: any): Element | null {
-  if (!el) return null;
-  if (typeof el.nodeType === 'number' && el.nodeType === 1) return el as Element;
-  if (el.node && typeof el.node.nodeType === 'number' && el.node.nodeType === 1) {
-    return el.node as Element;
+function asDomElement(el: unknown): Element | null {
+  if (!el || typeof el !== 'object') return null;
+  const rec = el as { nodeType?: number; node?: { nodeType?: number } };
+  if (typeof rec.nodeType === 'number' && rec.nodeType === 1) return el as Element;
+  if (rec.node && typeof rec.node.nodeType === 'number' && rec.node.nodeType === 1) {
+    return rec.node as Element;
   }
   return null;
 }
@@ -859,7 +860,7 @@ export function pathStrokeHitsSceneBox(
  * Returns false when the element is missing — caller should fall back.
  */
 export function hitTestSvgNodeAtClient(
-  el: any,
+  el: unknown,
   clientX: number,
   clientY: number,
   opts?: { mode?: 'stroke' | 'fill' | 'auto'; strokeHitWidth?: number }

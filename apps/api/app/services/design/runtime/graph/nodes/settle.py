@@ -30,9 +30,216 @@ from app.services.wallet.db import get_user_tokens
 _log = logging.getLogger(__name__)
 
 
+def _taste_notes_from_rt(rt: AgentRuntime) -> list[str]:
+    """Intelligence Client taste/memory notes already applied onto Runtime flags."""
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    out: list[str] = []
+    for key in ("memory_notes", "taste_principles"):
+        raw = flags.get(key)
+        if not isinstance(raw, list):
+            continue
+        for item in raw:
+            text = str(item or "").strip()
+            if text and text not in out:
+                out.append(text[:160])
+    write = flags.get("intelligence_principle_write")
+    if isinstance(write, dict):
+        for item in list(write.get("principles") or []):
+            text = str(item or "").strip()
+            if text and text not in out:
+                out.append(text[:160])
+    return out[:16]
+
+
+def _merge_taste_into_user_layer(
+    user: dict[str, Any], notes: list[str]
+) -> dict[str, Any]:
+    """Bridge private Taste KG notes into public design.user memory (no Private import)."""
+    out = dict(user or {})
+    accepted = [
+        str(x).strip()
+        for x in list(out.get("accepted_patterns") or [])
+        if str(x).strip()
+    ]
+    rejected = [
+        str(x).strip()
+        for x in list(out.get("rejected_patterns") or [])
+        if str(x).strip()
+    ]
+    pref = (
+        dict(out.get("preference") or {})
+        if isinstance(out.get("preference"), dict)
+        else {}
+    )
+    for note in notes:
+        low = note.lower()
+        if low.startswith("research:avoid:") or "avoid:" in low[:24]:
+            tip = note.split(":", 1)[-1].strip() if note.lower().startswith("avoid:") else note
+            tip = tip.replace("research:", "", 1).strip()
+            if tip.startswith("avoid:"):
+                tip = tip.split(":", 1)[-1].strip()
+            if tip and tip not in rejected:
+                rejected.append(tip[:120])
+            continue
+        if note not in accepted and (
+            note.startswith("taste:")
+            or note.startswith("thesis:")
+            or note.startswith("research:")
+            or note.startswith("preference:")
+            or note.startswith("governance:")
+        ):
+            accepted.append(note[:160])
+        if "premium" in low:
+            pref.setdefault(
+                "premium_restraint",
+                {"kind": "preference", "text": "premium_restraint", "source": "taste"},
+            )
+        if "whitespace" in low or "留白" in note:
+            pref.setdefault(
+                "high_whitespace",
+                {"kind": "preference", "text": "high_whitespace", "source": "taste"},
+            )
+        if "glow" in low or "editorial_not_glow" in low:
+            pref.setdefault(
+                "anti_glow",
+                {"kind": "preference", "text": "anti_glow", "source": "taste"},
+            )
+    out["accepted_patterns"] = accepted[:24]
+    out["rejected_patterns"] = rejected[:24]
+    out["preference"] = pref
+    return out
+
+
+def _design_memory_patch_from_rt(rt: AgentRuntime, *, painted: bool) -> dict[str, Any]:
+    from app.services.agent_memory.schema import build_design_memory_patch
+    from app.services.design.runtime.graph.state import (
+        accumulate_preference_candidate,
+        analyze_edit_preference,
+        apply_committed_preferences_to_brief,
+    )
+
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    brief = flags.get("design_brief") if isinstance(flags.get("design_brief"), dict) else None
+    review = flags.get("review") if isinstance(flags.get("review"), dict) else None
+    medium = rt.mem_medium if isinstance(rt.mem_medium, dict) else {}
+    design = medium.get("design") if isinstance(medium.get("design"), dict) else {}
+    user = design.get("user") if isinstance(design.get("user"), dict) else {}
+    signal = analyze_edit_preference(str(getattr(rt, "prompt", "") or ""))
+    user, commits = accumulate_preference_candidate(user, signal)
+    user = _merge_taste_into_user_layer(user, _taste_notes_from_rt(rt))
+    if commits:
+        rt.flags["preference_commits"] = commits
+    if isinstance(brief, dict):
+        brief = apply_committed_preferences_to_brief(brief, user)
+        rt.flags["design_brief"] = brief
+    return build_design_memory_patch(
+        medium=medium,
+        brief=brief,
+        review=review,
+        reference_dna=getattr(rt, "reference_dna", None),
+        painted=painted,
+        user_layer=user,
+    )
+
+
+def _persist_preference_commits(user_id: str, commits: list[dict[str, Any]]) -> None:
+    """Write committed prefs to long-term. Never called for uncommitted evidence."""
+    from app.services.agent_memory.long_term import insert_long_memory
+
+    uid = str(user_id or "").strip()
+    if not uid:
+        return
+    for cand in commits:
+        if not isinstance(cand, dict) or not cand.get("committed"):
+            continue
+        kind = "rejected" if str(cand.get("direction") or "") == "avoid" else "preference"
+        try:
+            body = json.dumps(
+                {
+                    "signal": cand.get("signal"),
+                    "direction": cand.get("direction"),
+                    "target": cand.get("target"),
+                    "preferred_range": cand.get("preferred_range"),
+                    "committed": True,
+                },
+                ensure_ascii=False,
+            )[:2000]
+            insert_long_memory(uid, kind=kind, text=body)
+        except Exception:
+            _log.debug("preference commit persist failed", exc_info=True)
+
+
+def _persist_taste_notes_long_term(user_id: str, notes: list[str]) -> None:
+    """Mirror transferable taste lines into public long-term memory."""
+    from app.services.agent_memory.long_term import insert_long_memory
+
+    uid = str(user_id or "").strip()
+    if not uid:
+        return
+    for note in notes[:8]:
+        text = str(note or "").strip()
+        if not text:
+            continue
+        low = text.lower()
+        if not (
+            text.startswith("taste:")
+            or text.startswith("thesis:")
+            or text.startswith("preference:")
+            or text.startswith("research:")
+        ):
+            continue
+        kind = "rejected" if "avoid:" in low[:40] else "accepted"
+        try:
+            insert_long_memory(uid, kind=kind, text=text[:500])
+        except Exception:
+            _log.debug("taste note long-term persist failed", exc_info=True)
+
+
+async def _sync_intelligence_knowledge(rt: AgentRuntime) -> None:
+    """Final write_principle after governance — Private Taste KG + Runtime flags."""
+    from app.services.design.intelligence_runtime import get_design_intelligence_client
+
+    try:
+        await get_design_intelligence_client().write_principle(rt)
+    except Exception:
+        _log.debug("intelligence write_principle at settle failed", exc_info=True)
+
+
 async def _node_settle(state: GraphState) -> Command:
     rt = state["rt"]
     st = rt.run
+    # P41 — settle hard gate BEFORE charge / success claim.
+    from app.services.design.intelligence_runtime import get_design_intelligence_client
+
+    gov = await get_design_intelligence_client().govern(rt)
+    governance_failed = str(gov.get("status") or "") == "fail"
+    # Outcome-aware Taste KG write (Private via Client; BasicLocal no-op).
+    await _sync_intelligence_knowledge(rt)
+    if governance_failed:
+        st.push_log(
+            phase="settle",
+            summary="blocked by governance FAIL → Explain → Repair",
+            governance="fail",
+        )
+        _emit(
+            {
+                "type": "settle_blocked",
+                "reason": "governance_fail",
+                "explain": list(gov.get("explain") or [])[:8],
+            }
+        )
+        # Do not claim design success; surface repair draft.
+        st.reply = (
+            "Governance FAIL:\n"
+            + "\n".join(f"- {x}" for x in list(gov.get("explain") or [])[:6])
+            + "\nRepair draft ready (not applied)."
+        )[:2000]
+        if "governance_fail" not in (st.errors or []):
+            try:
+                st.note_error("governance_fail")
+            except Exception:
+                pass
+
     # Lazy import — build.py imports nodes; avoid cycle.
     from app.services.design.runtime.graph.build import _design_settle_hold_fn
     from app.services.design.admin.task_store import (
@@ -92,7 +299,10 @@ async def _node_settle(state: GraphState) -> Command:
             )
         ),
     )
-    failed_attempt = bool(st.errors) and not st.painted and not has_proposal
+    failed_attempt = (
+        governance_failed
+        or (bool(st.errors) and not st.painted and not has_proposal)
+    )
     settle_status = "error" if failed_attempt else "success"
     await asyncio.to_thread(_persist_task_meta, st.task_id, decision=rt.decision, state=st)
     await asyncio.to_thread(
@@ -121,6 +331,47 @@ async def _node_settle(state: GraphState) -> Command:
     fail_summary = ""
     if failed_attempt and st.errors:
         fail_summary = str(st.errors[-1])[:240]
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    hist = flags.get("optimization_history")
+    snap = rt.visual_snapshot if isinstance(rt.visual_snapshot, dict) else {}
+    diff = rt.visual_diff if isinstance(rt.visual_diff, dict) else {}
+    deltas = diff.get("deltas") if isinstance(diff.get("deltas"), dict) else {}
+    if isinstance(hist, list) and hist:
+        scores = [int(x.get("overall") or 0) for x in hist if isinstance(x, dict)]
+        removed = 0
+        try:
+            first_n = len((hist[0] or {}).get("nodes") or [])
+            last_n = len((hist[-1] or {}).get("nodes") or [])
+            removed = max(0, first_n - last_n)
+        except Exception:
+            removed = 0
+        hero = snap.get("hero_coverage")
+        white = snap.get("whitespace_ratio")
+        if hero is None and deltas.get("hero_coverage") is not None:
+            hero = deltas.get("hero_coverage")
+        _emit(
+            {
+                "type": "design_summary",
+                "iterations": len(hist),
+                "removed": removed,
+                "score_from": scores[0] if scores else None,
+                "score_to": scores[-1] if scores else None,
+                "whitespace": round(float(white), 4)
+                if isinstance(white, (int, float))
+                else None,
+                "hero_dominance": round(float(hero), 4)
+                if isinstance(hero, (int, float))
+                else None,
+                "timeline": [
+                    {
+                        "iteration": int(x.get("iteration") or i),
+                        "overall": int(x.get("overall") or 0),
+                    }
+                    for i, x in enumerate(hist)
+                    if isinstance(x, dict)
+                ][:8],
+            }
+        )
     _emit(
         {
             "type": "result",
@@ -175,6 +426,37 @@ async def _node_settle(state: GraphState) -> Command:
     except Exception:
         _log.exception("episode write failed task=%s", st.task_id)
 
+    try:
+        from app.services.agent_memory.kg import record_design_chain
+
+        flags = rt.flags if isinstance(rt.flags, dict) else {}
+        medium = rt.mem_medium if isinstance(rt.mem_medium, dict) else {}
+        design = medium.get("design") if isinstance(medium.get("design"), dict) else {}
+        session_layer = (
+            design.get("session") if isinstance(design.get("session"), dict) else {}
+        )
+        await asyncio.to_thread(
+            record_design_chain,
+            user_id=rt.user_id,
+            brief=flags.get("design_brief")
+            if isinstance(flags.get("design_brief"), dict)
+            else None,
+            observe_facts=rt.observe_facts
+            if isinstance(rt.observe_facts, dict)
+            else None,
+            review=flags.get("review") if isinstance(flags.get("review"), dict) else None,
+            scene=rt.scene_key or "",
+            skills=list(st.skills_loaded or []),
+            painted=bool(st.painted),
+            prev_review=session_layer.get("review")
+            if isinstance(session_layer.get("review"), dict)
+            else None,
+            flags=flags,
+            rules=rt.rules,
+        )
+    except Exception:
+        _log.exception("design chain kg write failed task=%s", st.task_id)
+
     if rt.session_id:
         patch = await asyncio.to_thread(
             _finalize_memory_patch,
@@ -201,8 +483,18 @@ async def _node_settle(state: GraphState) -> Command:
             short_turns=list(rt.mem_short_all or rt.mem_short or []),
             rules=rt.rules,
             await_user=bool(rt.flags.get("await_user") or has_proposal),
+            design_patch=_design_memory_patch_from_rt(rt, painted=st.painted),
         )
         _emit({"type": "memory_patch", **patch})
+        commits = list(rt.flags.get("preference_commits") or [])
+        if commits:
+            rt.flags.pop("preference_commits", None)
+            await asyncio.to_thread(_persist_preference_commits, rt.user_id, commits)
+        taste_notes = _taste_notes_from_rt(rt)
+        if taste_notes and st.painted and not governance_failed:
+            await asyncio.to_thread(
+                _persist_taste_notes_long_term, rt.user_id, taste_notes
+            )
     if not st.painted and not st.proposed_ops:
         _emit({"type": "chat_done"})
     exec_trace(

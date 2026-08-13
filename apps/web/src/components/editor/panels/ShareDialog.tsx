@@ -16,6 +16,8 @@ import { getToken } from '@/utils/token';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { useNavigate } from 'react-router-dom';
 import { setTemplateThumbnail } from '@/store/modules/editor';
+import { cloneDocument } from '@/store/modules/editorHistory';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
 
 type Props = {
@@ -543,7 +545,8 @@ function ShareDialog({ open, onClose }: Props) {
     try {
       let plazaDocument: Record<string, unknown> = document as Record<string, unknown>;
       try {
-        plazaDocument = JSON.parse(JSON.stringify(document)) as Record<string, unknown>;
+        const cloned = cloneDocument(document as SceneDocument);
+        if (cloned) plazaDocument = cloned as Record<string, unknown>;
       } catch {
         plazaDocument = document as Record<string, unknown>;
       }

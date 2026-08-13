@@ -17,7 +17,8 @@ import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { closeVideoToolPanel, setDocument, setSelectedNodeId, setSelectedNodeIds, EMPTY_ID_LIST } from '@/store/modules/editor';
 import {
-  addNodeToDocument
+  addNodeToDocument,
+  cloneSceneValue,
 } from '@/components/rcb/scene/document/sceneDocument';
 import { message, Tooltip } from '@/components/base';
 import { nanoid } from 'nanoid';
@@ -615,7 +616,7 @@ function VideoTrimSessionHost({ document }: { document: SceneDocument }): ReactN
       const width = Math.max(1, Math.round(Number(node.width) || 640));
       const height = Math.max(1, Math.round(Number(node.height) || 360));
       const id = nanoid(10);
-      const clone = JSON.parse(JSON.stringify(node));
+      const clone = cloneSceneValue(node);
       clone.id = id;
       clone.x = Math.round((Number(node.x) || 0) + width + SIBLING_GAP);
       clone.y = Math.round(Number(node.y) || 0);

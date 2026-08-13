@@ -91,6 +91,8 @@ export function tryClaimRoomSeed(doc: Y.Doc, clientId: number): boolean {
 }
 
 function cloneJson<T>(value: T): T {
+  if (value == null || typeof value !== 'object') return value;
+  if (typeof structuredClone === 'function') return structuredClone(value);
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
