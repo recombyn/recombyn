@@ -18,6 +18,7 @@ Docker Compose is the default (**MySQL** + Redis + web + API + **Yjs**). Local n
 | Agent seeds | prompt packs + skills + **AgentProfile** YAML from `apps/api/seeds/` |
 | **MySQL 8** | compose service + volume `mysql_data` |
 | Redis | Celery / queues |
+| Optional IntelligenceProvider | `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml --profile intelligence up` · HTTP only · see [ADR 0017](./adr/0017-intelligence-provider-boundary.md) |
 
 Default DB URL inside compose:
 
@@ -269,6 +270,15 @@ docker compose up -d --build
 - Web: http://localhost:3000  
 - API: http://localhost:8000  
 - MySQL: `127.0.0.1:3306` / db `recombyn`
+
+Design Intelligence defaults to **BasicLocal** (`RECOMBYN_INTELLIGENCE_MODE=local`). To attach an optional HTTP provider that implements the open `IntelligenceProvider` contract:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.intelligence.yml \
+  --profile intelligence up -d --build
+```
+
+Requires a compatible provider checkout at `RECOMBYN_INTELLIGENCE_CONTEXT` (default `../recombyn-intelligence`). Details: [ADR 0017](./adr/0017-intelligence-provider-boundary.md).
 
 On first API start, schema + seed data are applied automatically.
 

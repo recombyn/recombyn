@@ -8,10 +8,17 @@ from typing import Any
 from langgraph.types import Command
 
 from app.services.design.runtime.graph.state import (
-    AgentRunState,
     AgentRuntime,
     GraphState,
     _DEFAULT_MAX_ROUNDS,
+    ReferenceIntelligenceTurnSchema,
+    compile_reference_intelligence,
+    design_brief_p0_missing,
+    format_design_brief_for_paint,
+    format_design_brief_for_prompt,
+    format_reference_intel_for_decide,
+    merge_reference_into_brief,
+    parse_design_brief,
 )
 from app.services.design.runtime.graph.support import (
     _absorb_ask_choices,
@@ -43,12 +50,207 @@ from app.services.design.runtime.host.resources import load_deferred_resources
 from app.services.design.runtime.agent_profile import resolve_contract_schema
 
 
+_REFERENCE_INTEL_SYSTEM = (
+    "You read a design reference image. Return structured visual laws, not taste words. "
+    "Do not say premium / 高级 / 好看. Fill composition, hierarchy, density in [0,1], "
+    "palette hex, typography, imagery. Optionally fill visual_dna axes in [0,1]: "
+    "minimalism, editorial, contrast, density, asymmetry, texture, decoration. "
+    "Never emit canvas ops."
+)
+_REFERENCE_INTEL_USER = (
+    "Analyze this reference. Extract composition / hierarchy / density / palette / "
+    "typography / imagery laws, then optional visual_dna axes."
+)
+_BRIEF_P1_KEYS = (
+    "visual_focus",
+    "palette",
+    "typography",
+    "tokens",
+    "reference_lock",
+    "style_dna",
+    "reference_dna",
+    "design_strategy",
+)
+
+
+def ingest_reference_images(rt: AgentRuntime) -> list[str]:
+    """reference_ingest — user attachments only; empty means skip the pipeline."""
+    return [str(x).strip() for x in (getattr(rt, "images", None) or []) if str(x).strip()][:4]
+
+
+def should_run_reference_intelligence(rt: AgentRuntime) -> bool:
+    if getattr(rt, "reference_dna", None):
+        return False
+    if not ingest_reference_images(rt):
+        return False
+    intent = str(getattr(rt, "classified_intent", "") or "").strip().lower()
+    if intent in ("chat", "ask", "done"):
+        return False
+    return True
+
+
+def apply_reference_intelligence(rt: AgentRuntime, compiled: dict[str, Any]) -> None:
+    """Stash DNA/lock on Runtime. Never writes SceneDocument."""
+    if not isinstance(compiled, dict):
+        return
+    analyze = compiled.get("analyze") if isinstance(compiled.get("analyze"), dict) else None
+    dna = compiled.get("dna") if isinstance(compiled.get("dna"), dict) else None
+    lock = compiled.get("lock") if isinstance(compiled.get("lock"), dict) else None
+    if analyze:
+        rt.reference_analyze = analyze
+    if dna:
+        rt.reference_dna = dna
+    if lock:
+        rt.reference_lock = lock
+        if isinstance(rt.flags, dict):
+            rt.flags["reference_lock"] = lock
+            rt.flags["reference_dna"] = dna
+
+
+def _structured_as_dict(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if hasattr(raw, "model_dump"):
+        try:
+            dumped = raw.model_dump()
+            return dumped if isinstance(dumped, dict) else {}
+        except Exception:
+            return {}
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+async def run_reference_intelligence(rt: AgentRuntime) -> dict[str, Any] | None:
+    """analyze → segment → extract → dna → lock. Fail-open: missing DNA never blocks Decide."""
+    if not should_run_reference_intelligence(rt):
+        return None
+    images = ingest_reference_images(rt)
+    st = rt.run
+    _emit(
+        {
+            "type": "activity",
+            "id": "reference-intel",
+            "kind": "explored",
+            "status": "running",
+            "summary": "REFERENCE_INTEL: analyzing composition / color / type / imagery",
+        }
+    )
+    t0 = time.perf_counter()
+    try:
+        from app.services.llm import build_user_message_content
+        from app.services.llm.agent import ainvoke_structured
+
+        user_content = build_user_message_content(_REFERENCE_INTEL_USER, images)
+        structured_out = await ainvoke_structured(
+            schema=ReferenceIntelligenceTurnSchema,
+            messages=[{"role": "user", "content": user_content}],
+            model=st.family,
+            system=_REFERENCE_INTEL_SYSTEM,
+            source="design",
+            run_name=f"design_reference:{st.task_id[:8]}",
+            metadata={
+                "task_id": st.task_id,
+                "trace_id": st.trace_id,
+                "user_id": rt.user_id,
+                "stage": "reference_intel",
+            },
+            tags=["design", "lc_design", "reference_intel"],
+        )
+        payload = _structured_as_dict(structured_out.get("structured"))
+        compiled = compile_reference_intelligence(payload, payload.get("visual_dna"))
+    except Exception as err:  # noqa: BLE001
+        st.note_error(f"reference_intel_failed: {err}"[:240])
+        st.push_log(
+            phase="reference_intel",
+            error=str(err)[:200],
+            summary="reference intelligence failed (Decide continues)",
+            duration_ms=max(0, int((time.perf_counter() - t0) * 1000)),
+        )
+        _emit(
+            {
+                "type": "activity",
+                "id": "reference-intel",
+                "kind": "explored",
+                "status": "done",
+                "summary": "REFERENCE_INTEL: skipped (analyze failed)",
+            }
+        )
+        return None
+    apply_reference_intelligence(rt, compiled)
+    ctype = ""
+    analyze = compiled.get("analyze") if isinstance(compiled.get("analyze"), dict) else {}
+    comp = analyze.get("composition") if isinstance(analyze.get("composition"), dict) else {}
+    ctype = str(comp.get("type") or "").strip()
+    st.push_log(
+        phase="reference_intel",
+        summary=(ctype or "reference dna locked")[:160],
+        duration_ms=max(0, int((time.perf_counter() - t0) * 1000)),
+        composition=ctype or None,
+    )
+    dna = compiled.get("dna") if isinstance(compiled.get("dna"), dict) else {}
+    visual_dna = (
+        dna.get("visual_dna") if isinstance(dna.get("visual_dna"), dict) else {}
+    )
+    thesis = ""
+    brief = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
+    if isinstance(brief, dict):
+        thesis = str(brief.get("visual_thesis") or "").strip()
+    if not thesis:
+        imagery = analyze.get("imagery") if isinstance(analyze.get("imagery"), dict) else {}
+        thesis = str(imagery.get("style") or ctype or "").strip()
+    _emit(
+        {
+            "type": "activity",
+            "id": "reference-intel",
+            "kind": "explored",
+            "status": "done",
+            "summary": ("REFERENCE_DNA: " + (ctype or "locked"))[:200],
+        }
+    )
+    _emit(
+        {
+            "type": "reference_intel",
+            "composition": ctype,
+            "thesis": thesis[:240],
+            "visual_dna": {
+                str(k): float(v)
+                for k, v in visual_dna.items()
+                if isinstance(v, (int, float))
+            },
+            "stages": [
+                "composition",
+                "color",
+                "typography",
+                "whitespace",
+                "imagery",
+                "density",
+            ],
+        }
+    )
+    _emit(
+        {
+            "type": "analysis_delta",
+            "text": format_reference_intel_for_decide(
+                analyze=compiled.get("analyze"),
+                dna=compiled.get("dna"),
+                lock=compiled.get("lock"),
+            )[:1200],
+        }
+    )
+    return compiled
+
+
 def _extract_design_brief(turn: dict[str, Any] | None, rt: AgentRuntime) -> str:
+    """Return prompt-ready brief string; empty when missing/invalid for gate."""
     t = turn if isinstance(turn, dict) else {}
-    brief = str(
-        t.get("design_brief") or t.get("designBrief") or getattr(rt, "design_brief", "") or ""
-    ).strip()
-    return brief[:4000]
+    raw = t.get("design_brief")
+    if raw is None:
+        raw = t.get("designBrief")
+    if raw is None or raw == "":
+        raw = getattr(rt, "design_brief", "") or ""
+    parsed = parse_design_brief(raw)
+    if not parsed:
+        return ""
+    return format_design_brief_for_prompt(parsed)
 
 
 def _requires_design_brief(rt: AgentRuntime, intent: str) -> bool:
@@ -75,15 +277,53 @@ def _requires_design_brief(rt: AgentRuntime, intent: str) -> bool:
 
 
 def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int) -> str:
-    brief = _extract_design_brief(turn, rt)
-    if not brief:
+    """Validate + stash brief. Returns paint-facing text, or '' when missing/incomplete."""
+    t = turn if isinstance(turn, dict) else {}
+    raw = t.get("design_brief")
+    if raw is None:
+        raw = t.get("designBrief")
+    if raw is None or raw == "":
+        flagged = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
+        raw = flagged if flagged else (getattr(rt, "design_brief", "") or "")
+    parsed = parse_design_brief(raw)
+    if not parsed:
         return ""
-    rt.design_brief = brief
+
+    turn_analyze = t.get("reference_analyze") or t.get("referenceAnalyze")
+    turn_dna = t.get("reference_dna") or t.get("referenceDna")
+    if turn_analyze and not getattr(rt, "reference_analyze", None):
+        apply_reference_intelligence(
+            rt, compile_reference_intelligence(turn_analyze, turn_dna)
+        )
+
+    parsed = merge_reference_into_brief(
+        parsed,
+        analyze=getattr(rt, "reference_analyze", None),
+        dna=getattr(rt, "reference_dna", None),
+        lock=getattr(rt, "reference_lock", None),
+    )
+
+    missing = design_brief_p0_missing(parsed)
+    if missing:
+        # Incomplete structured brief — do not stash; Decide retries with note.
+        rt.flags["design_brief_missing"] = missing
+        return ""
+
+    review_text = format_design_brief_for_prompt(parsed)
+    paint_text = format_design_brief_for_paint(parsed)
+    if not paint_text:
+        return ""
+    rt.design_brief = paint_text
+    rt.flags["design_brief"] = parsed
+    rt.flags.pop("design_brief_missing", None)
     st = rt.run
+    thesis = str(parsed.get("visual_thesis") or "").strip()
     st.push_log(
         phase="design_brief",
-        summary=(brief[:160] + ("…" if len(brief) > 160 else "")),
-        chars=len(brief),
+        summary=(thesis[:160] or paint_text[:160])
+        + ("…" if len(thesis or paint_text) > 160 else ""),
+        chars=len(paint_text),
+        missing_p1=[k for k in _BRIEF_P1_KEYS if not parsed.get(k)] or None,
     )
     _emit(
         {
@@ -91,12 +331,12 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
             "id": f"design-brief-{round_i}",
             "kind": "explored",
             "status": "done",
-            "summary": ("DESIGN_BRIEF: " + brief[:120])[:200],
+            "summary": ("DESIGN_BRIEF: " + (thesis or paint_text)[:120])[:200],
             "index": round_i,
         }
     )
-    _emit({"type": "analysis_delta", "text": ("DESIGN_BRIEF\n" + brief)[:1200]})
-    return brief
+    _emit({"type": "analysis_delta", "text": ("DESIGN_BRIEF\n" + review_text)[:1200]})
+    return paint_text
 
 
 async def _node_resource(state: GraphState) -> Command:
@@ -130,6 +370,26 @@ async def _node_design_agent(state: GraphState) -> Command:
         has_images=bool(rt.images),
     )
     rt.last_reason = reason
+    from app.services.design.intelligence_runtime import get_design_intelligence_client
+    from app.services.design.runtime.graph.nodes.autonomous import (
+        format_autonomous_for_decide,
+    )
+
+    intel = get_design_intelligence_client()
+    await intel.analyze_reference(rt)
+    await intel.retrieve_memory(rt)
+    await intel.autonomous_plan(rt)
+    await intel.research(rt)
+    await intel.strategy(rt)
+    await intel.propose_candidates(rt)
+    await intel.tournament(rt)
+    await intel.swarm_direction(rt)
+    await intel.simulate(rt)
+    await intel.counterfactual(rt)
+    await intel.review(rt)
+    await intel.optimize(rt)
+    await intel.autonomous_sync(rt)
+    await intel.write_principle(rt)
 
     for _round in range(max_rounds):
         round_i = st.round
@@ -147,6 +407,83 @@ async def _node_design_agent(state: GraphState) -> Command:
             }
         )
         lc_system, user_msg = _format_thought_messages(rt)
+        ref_block = format_reference_intel_for_decide(
+            analyze=getattr(rt, "reference_analyze", None),
+            dna=getattr(rt, "reference_dna", None),
+            lock=getattr(rt, "reference_lock", None),
+        )
+        if ref_block:
+            user_msg = (user_msg + "\n\n" + ref_block).strip()
+        mem = getattr(rt, "flags", None) if isinstance(getattr(rt, "flags", None), dict) else {}
+        mem_notes = list(mem.get("memory_notes") or []) if isinstance(mem, dict) else []
+        if mem_notes:
+            mem_lines = ["TASTE_MEMORY (host-owned). Prefer these principles."]
+            mem_lines.extend(f"- {str(x)[:120]}" for x in mem_notes[:10] if str(x).strip())
+            user_msg = (user_msg + "\n\n" + "\n".join(mem_lines)[:1200]).strip()
+        from app.services.design.runtime.graph.nodes.research import (
+            format_research_for_decide,
+        )
+
+        research_block = format_research_for_decide(
+            getattr(rt, "design_research", None)
+        )
+        if research_block:
+            user_msg = (user_msg + "\n\n" + research_block).strip()
+        from app.services.design.runtime.graph.nodes.strategy import (
+            format_strategy_for_decide,
+        )
+
+        strategy_block = format_strategy_for_decide(
+            getattr(rt, "design_strategy", None)
+        )
+        if strategy_block:
+            user_msg = (user_msg + "\n\n" + strategy_block).strip()
+        from app.services.design.runtime.graph.nodes.candidates import (
+            format_candidates_for_decide,
+        )
+
+        candidates_block = format_candidates_for_decide(
+            getattr(rt, "design_candidates", None)
+        )
+        if candidates_block:
+            user_msg = (user_msg + "\n\n" + candidates_block).strip()
+        from app.services.design.runtime.graph.nodes.tournament import (
+            format_tournament_for_decide,
+        )
+
+        tournament_block = format_tournament_for_decide(
+            getattr(rt, "design_tournament", None)
+        )
+        if tournament_block:
+            user_msg = (user_msg + "\n\n" + tournament_block).strip()
+        from app.services.design.runtime.graph.nodes.swarm import format_swarm_for_decide
+
+        swarm_block = format_swarm_for_decide(getattr(rt, "design_swarm", None))
+        if swarm_block:
+            user_msg = (user_msg + "\n\n" + swarm_block).strip()
+        from app.services.design.runtime.graph.nodes.simulation import (
+            format_simulation_for_decide,
+        )
+
+        simulation_block = format_simulation_for_decide(
+            getattr(rt, "design_simulation", None)
+        )
+        if simulation_block:
+            user_msg = (user_msg + "\n\n" + simulation_block).strip()
+        from app.services.design.runtime.graph.nodes.counterfactual import (
+            format_counterfactual_for_decide,
+        )
+
+        counterfactual_block = format_counterfactual_for_decide(
+            getattr(rt, "design_counterfactual", None)
+        )
+        if counterfactual_block:
+            user_msg = (user_msg + "\n\n" + counterfactual_block).strip()
+        autonomous_block = format_autonomous_for_decide(
+            getattr(rt, "autonomous_art_director", None)
+        )
+        if autonomous_block:
+            user_msg = (user_msg + "\n\n" + autonomous_block).strip()
         if not str(lc_system or "").strip():
             # Decide stage prompt assembly — single entry (no A/B/C fallback chain).
             lc_system = assemble_stage_system(
@@ -339,10 +676,20 @@ async def _node_design_agent(state: GraphState) -> Command:
             and _requires_design_brief(rt, intent)
             and not brief
         ):
-            st.note_error(
-                "MISSING_DESIGN_BRIEF: emit non-empty design_brief "
-                "(paint/review contract) then paint. tool_ops stay empty here."
-            )
+            missing = list(rt.flags.get("design_brief_missing") or [])
+            if missing:
+                st.note_error(
+                    "INCOMPLETE_DESIGN_BRIEF: fill P0 fields "
+                    + ",".join(missing)
+                    + " (purpose,audience,emotion,visual_thesis,visual_hero,"
+                    "composition,avoid). P1 optional — do not invent junk. "
+                    "tool_ops stay empty here."
+                )
+            else:
+                st.note_error(
+                    "MISSING_DESIGN_BRIEF: emit non-empty design_brief "
+                    "(paint/review contract) then paint. tool_ops stay empty here."
+                )
             st.round = round_i + 1
             continue
 
