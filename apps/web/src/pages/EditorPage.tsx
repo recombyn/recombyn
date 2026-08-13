@@ -1007,8 +1007,11 @@ function EditorPage() {
     setAttachToChat(null);
   }, []);
 
-  const holdHomeAgentSubmit =
-    bootOpen || tourActive || !hasCompletedEditorTour(authUserId);
+  let holdForEditorTour = false;
+  if (!isMobileViewport) {
+    holdForEditorTour = tourActive || !hasCompletedEditorTour(authUserId);
+  }
+  const holdHomeAgentSubmit = bootOpen || holdForEditorTour;
 
   const goHomeFromEditor = useCallback(() => {
     void flushAndGoHome(navigate);
@@ -1734,11 +1737,14 @@ function EditorPage() {
         {shareOpen ? (
           <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} />
         ) : null}
-        <EditorOnboardingTour
-          ready={!bootOpen}
-          onOpenAgent={openAgentForTour}
-          onActiveChange={setTourActive}
-        />
+        {/* Mobile chrome differs (floating agent / no tool strip targets) — tour breaks layout. */}
+        {!isMobileViewport && (
+          <EditorOnboardingTour
+            ready={!bootOpen}
+            onOpenAgent={openAgentForTour}
+            onActiveChange={setTourActive}
+          />
+        )}
       </div>
     </CollabRoomProvider>
   );

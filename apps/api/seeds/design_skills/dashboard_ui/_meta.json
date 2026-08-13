@@ -3,11 +3,11 @@
   "name": "dashboard_ui",
   "displayName": "Dashboard / admin UI",
   "description": "Admin dashboard and console layout: sidebar, top bar, KPI row, tables/cards — scannable density",
-  "when_to_use": "Dashboard / 后台 / 控制台 / admin / console / analytics board / KPI / 数据看板 — multi-panel product UI (not marketing landing, not poster)",
+  "when_to_use": "Dashboard / 后台 / 控制台 / admin / console / analytics board / KPI / 数据看板 / 仪表盘 / SaaS — multi-panel product UI (not marketing landing, not poster)",
   "category": "ui",
   "scenes": "all",
-  "sort_weight": 83,
-  "version": "2.0.1",
+  "sort_weight": 89,
+  "version": "2.1.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -35,11 +35,16 @@
         "看板",
         "KPI",
         "analytics",
-        "管理端"
+        "管理端",
+        "仪表盘",
+        "SaaS",
+        "数据仪表",
+        "折线图",
+        "1440x900"
       ]
     }
   ],
-  "mutex_group": "",
+  "mutex_group": "surface",
   "prompt_negative": "Unless the user provides them, avoid inventing board facts such as metrics, chart series, logos, etc. Prefer console density over a festive poster. Prefer one primary action per region. Simple chrome/charts may stay vector; complex media widgets that look crude as shapes should use images.",
   "locales": {
     "zh-CN": {

@@ -17,6 +17,7 @@ Owner docs: [self-hosting.md](../../../docs/self-hosting.md) · AgentProfile: [a
 | `canvas_actions_seed.json`                                               | Canvas tool registry                              |
 | `design_agent_stress_suite.json`                                         | Agent SSE / browser stress cases (not loaded at runtime) |
 | `fonts_seed.json` · `design_tokens_seed.json` · `design_dicts_seed.json` | Fonts / tokens / dicts                            |
+| `plaza_agent_docs/*.json`                                                | Official plaza boards from **real** agent/video runs (`npm run plaza:agent-showcase`) |
 | `llm_models_seed.json`                                                   | Model catalog seed                                |
 | `stage_rule_defaults.json` · `progress_stages.json`                      | Platform KV defaults / progress labels            |
 

@@ -111,7 +111,7 @@ function ImgTile({ src, className }: { src: string; className?: string }) {
       <img
         src={src}
         alt=""
-        className="absolute inset-0 h-full w-full bg-white object-contain"
+        className="absolute inset-0 h-full w-full bg-[var(--canvas)] object-contain"
         loading="lazy"
         onError={() => setErrored(true)}
       />

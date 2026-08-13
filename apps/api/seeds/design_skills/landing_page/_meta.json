@@ -6,8 +6,8 @@
   "when_to_use": "Landing page / 落地页 / 官网 / website / marketing page / homepage hero — multi-section web layout (not resume, not pure poster)",
   "category": "deliverable",
   "scenes": "all",
-  "sort_weight": 79,
-  "version": "2.0.1",
+  "sort_weight": 86,
+  "version": "2.1.0",
   "preferred_tools": [
     "create_frame",
     "create_shape",
@@ -30,11 +30,13 @@
         "homepage",
         "网站",
         "网页",
-        "营销页"
+        "营销页",
+        "首屏",
+        "Hero"
       ]
     }
   ],
-  "mutex_group": "",
+  "mutex_group": "surface",
   "prompt_negative": "Prefer scannable sections over a single festive poster. Simple cards/icons/rules may stay vector; complex hero scenes that look crude as shapes should use images. Unless the user provides them, avoid inventing board facts such as pricing tiers, logos, testimonials, etc. Prefer one primary CTA.",
   "locales": {
     "zh-CN": {

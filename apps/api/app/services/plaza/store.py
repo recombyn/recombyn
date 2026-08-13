@@ -503,6 +503,25 @@ def _isolate_plaza_cover(
     return urls[0] if urls else None
 
 
+def _document_has_overlay_text(document: dict[str, Any] | None) -> bool:
+    """True when the board has readable text — list covers must not be raw bitmaps alone."""
+    if not isinstance(document, dict):
+        return False
+    dsl = document.get("deltaSetLike")
+    if not isinstance(dsl, dict):
+        return False
+    for key, raw in dsl.items():
+        if key == "ROOT" or not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("key") or "").strip().lower()
+        if kind != "text":
+            continue
+        attrs = raw.get("attrs") if isinstance(raw.get("attrs"), dict) else {}
+        if str(attrs.get("text") or "").strip():
+            return True
+    return False
+
+
 def _isolate_plaza_cover_urls(
     *,
     submission_id: str,
@@ -511,9 +530,18 @@ def _isolate_plaza_cover_urls(
     document: dict[str, Any] | None,
     thumbnail_url: str | None = None,
 ) -> list[str]:
-    """Build up to 4 plaza-owned cover URLs from document images + project thumb."""
+    """Build up to 4 plaza-owned cover URLs from document images + project thumb.
+
+    When the artboard has overlay text / UI chrome, skip raw image tiles — those
+    strip typography (posters) and show lifestyle photos instead of app UI.
+    The feed then falls back to ``coverDocument`` client rasterization.
+    """
     sid = (submission_id or "").strip()
     out: list[str] = []
+
+    # Posters / UI boards: never promote a lone create_image as the card face.
+    if _document_has_overlay_text(document):
+        return []
 
     if isinstance(document, dict) and sid:
         try:
