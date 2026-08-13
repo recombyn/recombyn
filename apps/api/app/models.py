@@ -613,8 +613,9 @@ class DesignGlobalRule(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     rule_key: str = Field(max_length=64, unique=True)
-    rule_value: str = Field(default="")
-    description: Optional[str] = Field(default=None)
+    # MySQL maps bare str → VARCHAR(255); stage rules / JSON payloads exceed that.
+    rule_value: str = Field(default="", sa_column=Column(Text, nullable=False))
+    description: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     enabled: int = Field(default=1)
     updated_at: float = Field(default=0.0)
 
