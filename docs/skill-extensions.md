@@ -1,15 +1,44 @@
 # Skill extensions (authoring)
 
-You can teach the Design Agent a new category of work with a Skill pack — same layout as shipped `apps/api/seeds/design_skills`. Shipped packs are built-in; yours go under `plugins/skills/`.
+You can teach the Design Agent a new category of work with a Skill pack — same layout as shipped packs under `skills/foundation` and `skills/domains`. Shipped packs are built-in; yours go under `plugins/skills/`.
 
-## Two roots only
+## Roots
 
 | Path | Role |
 |------|------|
-| `apps/api/seeds/design_skills/<key>/` | Shipped product skills |
+| `skills/foundation/<key>/` | Shipped core craft (open) |
+| `skills/domains/<key>/` | Shipped surfaces / deliverables (open) |
 | `plugins/skills/<key>/` | Private / self-host extensions (Compose-mounted) |
+| `apps/api/seeds/design_skills/<key>/` | Legacy empty shim (still scanned) |
 
 Do **not** put product skills in `.agents/skills/` — that tree is for Cursor/IDE coding agents only.
+
+## V3 shipped catalog
+
+```text
+skills/
+├── foundation/
+│   ├── design_brief/
+│   ├── visual_direction/
+│   ├── design_system/
+│   ├── composition/
+│   ├── typography/
+│   ├── color/
+│   ├── imagery/
+│   ├── layout/
+│   ├── responsive/
+│   ├── anti_ai_slop/
+│   ├── design_review/
+│   └── polish/
+└── domains/
+    ├── poster_craft/
+    ├── landing_page/
+    ├── dashboard_ui/
+    ├── image_gen/
+    └── …
+```
+
+Legacy surfaces (`banner_ad`, `mobile_app_ui`, …) live under `skills/domains`; Decide still picks one surface.
 
 ## Canonical layout
 

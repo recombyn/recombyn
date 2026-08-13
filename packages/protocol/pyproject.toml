@@ -1,6 +1,6 @@
 [project]
 name = "recombyn-protocol"
-version = "0.1.1"
+version = "0.1.2"
 description = "Open Design / Intelligence protocol constants and schemas"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }

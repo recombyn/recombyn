@@ -15,6 +15,10 @@ Recombyn ships a canvas web app, a Python Design Agent API, a collab server, and
 | `apps/api` | HTTP API, Design Agent, auth, projects | Python |
 | `apps/collab` | Yjs WebSocket room server | Node |
 | `packages/contracts` | OpenAPI → TS client contracts | Node (codegen) |
+| `packages/protocol` | Open Design / Intelligence / Paint / **Billing** contracts + schemas | Python |
+| `packages/intelligence-client` | DesignIntelligenceClient + provider protocol | Python |
+| `packages/billing-sdk` | Open Usage/Cost builders over Billing Protocol | Python |
+| `packages/eval-framework` | Public eval compare helpers | Node |
 | `packages/tsconfig` (`@repo/tsconfig`) | Shared TS bases | tooling |
 | `packages/eslint-config` (`@repo/eslint-config`) | Shared ESLint flat configs | tooling |
 | `packages/scene-schema` / `scene-builder-py` | Scene document schema / builders | dual |

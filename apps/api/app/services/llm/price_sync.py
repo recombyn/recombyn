@@ -278,6 +278,41 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
             "priceMeta": price_meta,
         }
         item = upsert_model(payload)
+        try:
+            from app.services.llm.pricing_registry import record_sync_draft
+            from recombyn_protocol.billing import money_to_micros
+
+            rates: list[dict] = []
+            if isinstance(usd_raw, (int, float)) and float(usd_raw) > 0:
+                rates.append(
+                    {
+                        "metric": "input_tokens",
+                        "unit": "per_1m_tokens",
+                        "amount_micros": money_to_micros(usd_raw),
+                        "currency": "USD",
+                    }
+                )
+            out_usd = price_meta.get("usd_per_output_token")
+            if isinstance(out_usd, (int, float)) and float(out_usd) > 0:
+                rates.append(
+                    {
+                        "metric": "output_tokens",
+                        "unit": "per_1m_tokens",
+                        "amount_micros": money_to_micros(out_usd),
+                        "currency": "USD",
+                    }
+                )
+            if rates:
+                record_sync_draft(
+                    model_id=str(item.get("id") or ""),
+                    provider="openrouter",
+                    currency="USD",
+                    rates=rates,
+                    source="openrouter",
+                    notes="openrouter sync → pending_review",
+                )
+        except Exception:
+            pass
         updated.append(
             {
                 "id": item.get("id"),

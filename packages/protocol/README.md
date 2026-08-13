@@ -2,7 +2,7 @@
 
 Stable **open** contracts for Design Runtime and `intelligence-client`.
 
-**Current pin:** `0.1.1` (Private `recombyn-intelligence` depends on `>=0.1.1`).
+**Current pin:** `0.1.2` (Private may keep `>=0.1.1`; prefer `>=0.1.2` for billing).
 
 - Intelligence method names / aliases / request field keys
 - `remote_result_usable` / `normalize_intelligence_method` / `intelligence_wire_methods`
@@ -12,9 +12,14 @@ Stable **open** contracts for Design Runtime and `intelligence-client`.
 - Observe / Review scores & caps / Judge / Visual Diff / Preference
 - Paint tool_ops / DecideTurn / PaintOps envelopes
 - VisionScout turn / DesignTransaction (+ phase helpers)
+- **Billing Protocol** (`recombyn_protocol.billing`): Model registry identity,
+  versioned `PricingRate` sheets, Usage / TaskCost, Budget Guard,
+  BillingEvent / Credit ledger, micros money helpers
+  — see [ADR 0025](../../docs/adr/0025-billing-protocol.md)
 
 This package describes **interfaces**. It does not document proprietary
-provider implementations, private datasets, or closed prompts.
+provider implementations, private datasets, closed prompts, margin policy,
+or provider API keys.
 
 Private providers must depend on this package (not hand-copy method lists).
 
@@ -33,7 +38,7 @@ Bump `packages/protocol/pyproject.toml` `version` on contract changes.
 ```bash
 pip install -e ./packages/protocol
 # or (after PyPI publish)
-pip install "recombyn-protocol>=0.1.1"
+pip install "recombyn-protocol>=0.1.2"
 ```
 
 ## CI / publish
