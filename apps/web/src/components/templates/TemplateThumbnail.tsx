@@ -1,4 +1,5 @@
 import { useEffect, useState, memo } from 'react';
+import { SoftGlowSurface } from '@/components/base';
 import {
   PREVIEW_PNG_MAX_EDGE,
   renderDocumentThumbnail,
@@ -65,7 +66,7 @@ function TemplateThumbnail({
   }
 
   if (!src) {
-    return <div className="rcb-skeleton-bone h-full w-full bg-[var(--canvas)]" />;
+    return <SoftGlowSurface className="h-full w-full" seed="thumb" aria-hidden />;
   }
 
   return (

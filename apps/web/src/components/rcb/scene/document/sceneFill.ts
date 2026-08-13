@@ -137,11 +137,14 @@ function normalizeStops(raw: unknown, fallbackColor: string): FillStop[] {
     ];
   }
   return raw
-    .map((s: any) => ({
-      offset: clamp01(Number(s?.offset) || 0),
-      color: normalizeColor(String(s?.color || fallbackColor)),
-      opacity: clampPct(s?.opacity ?? 100, 100),
-    }))
+    .map((s) => {
+      const rec = s && typeof s === 'object' ? (s as Record<string, unknown>) : {};
+      return {
+        offset: clamp01(Number(rec.offset) || 0),
+        color: normalizeColor(String(rec.color || fallbackColor)),
+        opacity: clampPct(rec.opacity ?? 100, 100),
+      };
+    })
     .sort((a, b) => a.offset - b.offset);
 }
 
@@ -247,7 +250,7 @@ export function parseFillImageRotate(raw: unknown): FillImageRotate {
 }
 
 export function parseFillImageAdjust(raw: unknown): FillImageAdjust {
-  let parsed: any = raw;
+  let parsed: unknown = raw;
   if (typeof raw === 'string' && raw.trim()) {
     try {
       parsed = JSON.parse(raw);
@@ -256,15 +259,16 @@ export function parseFillImageAdjust(raw: unknown): FillImageAdjust {
     }
   }
   if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_FILL_IMAGE_ADJUST };
+  const rec = parsed as Record<string, unknown>;
   return {
-    exposure: clampAdjust(parsed.exposure),
-    contrast: clampAdjust(parsed.contrast),
-    saturation: clampAdjust(parsed.saturation),
-    temperature: clampAdjust(parsed.temperature),
-    tint: clampAdjust(parsed.tint),
-    hue: clampAdjust(parsed.hue),
-    highlights: clampAdjust(parsed.highlights),
-    shadows: clampAdjust(parsed.shadows),
+    exposure: clampAdjust(rec.exposure),
+    contrast: clampAdjust(rec.contrast),
+    saturation: clampAdjust(rec.saturation),
+    temperature: clampAdjust(rec.temperature),
+    tint: clampAdjust(rec.tint),
+    hue: clampAdjust(rec.hue),
+    highlights: clampAdjust(rec.highlights),
+    shadows: clampAdjust(rec.shadows),
   };
 }
 
@@ -342,7 +346,7 @@ export function parseFillGradient(
   typeHint?: Exclude<FillType, 'solid' | 'image'>,
   fallbackColor = '#FFFFFF'
 ): FillGradient {
-  let parsed: any = raw;
+  let parsed: unknown = raw;
   if (typeof raw === 'string' && raw.trim()) {
     try {
       parsed = JSON.parse(raw);
@@ -350,35 +354,36 @@ export function parseFillGradient(
       parsed = null;
     }
   }
+  const rec = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
   const type: Exclude<FillType, 'solid' | 'image'> =
-    parsed?.type === 'linear' ||
-    parsed?.type === 'radial' ||
-    parsed?.type === 'angular' ||
-    parsed?.type === 'diffuse'
-      ? parsed.type
+    rec?.type === 'linear' ||
+    rec?.type === 'radial' ||
+    rec?.type === 'angular' ||
+    rec?.type === 'diffuse'
+      ? rec.type
       : typeHint || 'linear';
   const base = defaultGradient(type, fallbackColor);
-  if (!parsed || typeof parsed !== 'object') return base;
+  if (!rec) return base;
 
-  const meshSize = type === 'diffuse' ? normalizeMeshSize(parsed.meshSize ?? base.meshSize) : undefined;
+  const meshSize = type === 'diffuse' ? normalizeMeshSize(rec.meshSize ?? base.meshSize) : undefined;
   const meshPoints =
     type === 'diffuse'
-      ? normalizeMeshPoints(parsed.meshPoints ?? base.meshPoints, meshSize || 3, fallbackColor)
+      ? normalizeMeshPoints(rec.meshPoints ?? base.meshPoints, meshSize || 3, fallbackColor)
       : undefined;
 
   return {
     type,
-    angle: Number.isFinite(Number(parsed.angle)) ? Number(parsed.angle) : base.angle,
-    cx: clampPct(parsed.cx ?? base.cx, base.cx ?? 50),
-    cy: clampPct(parsed.cy ?? base.cy, base.cy ?? 50),
-    r: Math.max(1, Number(parsed.r ?? base.r ?? 50) || 50),
-    colorStops: normalizeStops(parsed.colorStops, fallbackColor),
-    ...(type === 'linear' && hasLinearEndpoints(parsed)
+    angle: Number.isFinite(Number(rec.angle)) ? Number(rec.angle) : base.angle,
+    cx: clampPct(rec.cx ?? base.cx, base.cx ?? 50),
+    cy: clampPct(rec.cy ?? base.cy, base.cy ?? 50),
+    r: Math.max(1, Number(rec.r ?? base.r ?? 50) || 50),
+    colorStops: normalizeStops(rec.colorStops, fallbackColor),
+    ...(type === 'linear' && hasLinearEndpoints(rec)
       ? {
-          x1: clampLinearPct(parsed.x1, 0),
-          y1: clampLinearPct(parsed.y1, 0),
-          x2: clampLinearPct(parsed.x2, 100),
-          y2: clampLinearPct(parsed.y2, 100),
+          x1: clampLinearPct(rec.x1, 0),
+          y1: clampLinearPct(rec.y1, 0),
+          x2: clampLinearPct(rec.x2, 100),
+          y2: clampLinearPct(rec.y2, 100),
         }
       : {}),
     ...(type === 'diffuse' ? { meshSize, meshPoints } : {}),
@@ -435,7 +440,7 @@ export function bakeAngularGradientDataUrl(
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
-  if (!ctx || typeof (ctx as any).createConicGradient !== 'function') {
+  if (!ctx || typeof ctx.createConicGradient !== 'function') {
     return { dataUrl: '', width: w, height: h };
   }
   const cx = (clampPct(gradient.cx ?? 50, 50) / 100) * w;
@@ -585,7 +590,7 @@ export function isTransparentFill(fill: SvgPaint | null | undefined) {
 }
 
 /** Preserve fill attrs when syncing engine → scene (panel remains source of truth). */
-export function fillAttrsFromElement(_el: any, prevAttrs: Record<string, any> = {}) {
+export function fillAttrsFromElement(_el: Element | null | undefined, prevAttrs: Record<string, unknown> = {}) {
   const fillType = parseFillType(prevAttrs['fill-type']);
   const base = {
     'fill-enabled': prevAttrs['fill-enabled'] ?? 'true',

@@ -1,4 +1,5 @@
 import { Children, isValidElement, type ReactNode, memo } from 'react';
+import { SoftGlowSurface } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import {
   ScrollLoadFooter,
@@ -101,11 +102,13 @@ function FlowFeedSkeleton({ count = FLOW_SKELETON_COUNT }: { count?: number }) {
     <>
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className={FLOW_ITEM_CLASS} aria-busy="true">
-          <div
+          <SoftGlowSurface
+            seed={i}
             className={cn(
-              'rcb-skeleton-bone w-full rounded-[8px] shadow-none',
+              'w-full rounded-[8px] shadow-none',
               FLOW_SKELETON_ASPECTS[i % FLOW_SKELETON_ASPECTS.length]
             )}
+            aria-hidden
           />
           <div className="mt-2.5 flex items-center gap-2">
             <div className="rcb-skeleton-bone !rounded-full h-8 w-8 shrink-0" />

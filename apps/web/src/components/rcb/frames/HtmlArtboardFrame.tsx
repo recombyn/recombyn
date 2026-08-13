@@ -50,6 +50,9 @@ type HtmlArtboardFrameProps = {
   layer?: 'body' | 'process' | 'label';
   /** Unified stack z-index (interleaves with shapes). */
   zIndex?: number;
+  /** PR9 ephemeral overlay — not read from SceneDocument. */
+  aiGenerating?: boolean;
+  aiProcessLabel?: string;
 };
 
 function paintFramePlate(
@@ -130,6 +133,8 @@ function HtmlArtboardFrame({
   hideTitle = false,
   layer = 'body',
   zIndex = 0,
+  aiGenerating = false,
+  aiProcessLabel,
 }: HtmlArtboardFrameProps): ReactNode {
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
@@ -137,8 +142,11 @@ function HtmlArtboardFrame({
   const inv = 1 / z;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const layerRef = useRef<SVGGElement | null>(null);
-  const generating = String(frame.processStatus || '') === 'running';
-  const processLabel = String(frame.processLabel || 'Preparing…');
+  const generating =
+    Boolean(aiGenerating) || String(frame.processStatus || '') === 'running';
+  const processLabel = String(
+    aiProcessLabel || frame.processLabel || 'Preparing…'
+  );
   // Remount into shared world SVG when it appears (same as RcbShapeHost).
   // Private fallback SVGs stack via HTML z-index and cover shared shape paint.
   const [worldEpoch, setWorldEpoch] = useState(() => getSceneWorldEpoch());
@@ -186,7 +194,6 @@ function HtmlArtboardFrame({
     frame.width,
     frame.height,
     frame.backgroundColor,
-    frame.processStatus,
     generating ? 1 : 0,
   ].join('|');
 
@@ -287,7 +294,7 @@ function HtmlArtboardFrame({
     );
   }
 
-  // Above SvgCanvas so paint/review/retry stays covered until processStatus clears.
+  // Above SvgCanvas so paint/review/retry stays covered until the AI overlay clears.
   if (layer === 'process') {
     if (!generating) return null;
     return (

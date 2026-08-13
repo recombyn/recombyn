@@ -1,7 +1,7 @@
 /**
  * Browser E2E: design agent with reference images.
- * Case A — mobile home from 转转-style ref.
- * Case B — long-scroll detail; focus the middle stall-map region (not full page chrome).
+ * Case A �?mobile home from 转转-style ref.
+ * Case B �?long-scroll detail; focus the middle stall-map region (not full page chrome).
  *
  * Requires API + web (reuseExistingServer). Token: E2E_TOKEN or ../.tmp-token.txt
  * Prefer E2E_BASE_URL=http://localhost:3000 (IPv6 listen) over 127.0.0.1.
@@ -20,13 +20,13 @@ const HOME_REF = path.join(FIX, 'zhuanzhuan-home.png');
 const DETAIL_REF = path.join(FIX, 'summer-detail-middle.png');
 
 const PROMPT_HOME =
-  '参考附图，做一张 390x844 手机 App 首页 UI（二手电商风格）。' +
-  '还原：顶栏搜索、分类入口、大促横幅区、双排品类、回收入口、底栏 Tab。' +
-  '可编辑矢量组件；图标用矢量字形，不要 emoji；不要整屏位图糊弄。';
+  '参考附图，做一�?390x844 手机 App 首页 UI（二手电商风格）�? +
+  '还原：顶栏搜索、分类入口、大促横幅区、双排品类、回收入口、底�?Tab�? +
+  '可编辑矢量组件；图标用矢量字形，不要 emoji；不要整屏位图糊弄�?;
 
 const PROMPT_DETAIL =
-  '参考附图做详情/活动长图里的「中间区域」：摊位导览地图板块（打卡必存超全摊位导览 + 等距摊位示意），' +
-  '不是整页从头到尾复制。画板约 750 宽；中间导览区要完整可读；矢量为主，不要 emoji 当图标。';
+  '参考附图做详情/活动长图里的「中间区域」：摊位导览地图板块（打卡必存超全摊位导�?+ 等距摊位示意），' +
+  '不是整页从头到尾复制。画板约 750 宽；中间导览区要完整可读；矢量为主，不要 emoji 当图标�?;
 
 test.setTimeout(12 * 60_000);
 
@@ -84,7 +84,7 @@ async function sendPrompt(page: Page, prompt: string) {
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
   await page.keyboard.type(prompt, { delay: 4 });
   await sleep(400);
-  const send = page.getByRole('button', { name: /send|发送/i }).first();
+  const send = page.getByRole('button', { name: /send|发�?i }).first();
   for (let i = 0; i < 40; i += 1) {
     const disabled = await send.isDisabled().catch(() => true);
     if (!disabled) {
@@ -104,7 +104,7 @@ async function waitRunSettle(page: Page, outName: string, maxMs = 480_000) {
   while (Date.now() - t0 < maxMs) {
     const shimmer = page.locator('[data-artboard-process-shimmer]');
     if (await shimmer.count()) sawShimmer = true;
-    const send = page.getByRole('button', { name: /send|发送/i }).first();
+    const send = page.getByRole('button', { name: /send|发�?i }).first();
     const stop = page.getByRole('button', { name: /stop|停止|取消/i }).first();
     const stopVisible = await stop.isVisible({ timeout: 400 }).catch(() => false);
     if (stopVisible) sawStop = true;

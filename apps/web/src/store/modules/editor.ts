@@ -43,8 +43,9 @@ import {
   loadTemplates,
   saveTemplates,
   isSessionTemplate,
+  type EditorLibraryItem,
+  type TemplateSource,
 } from '@/utils/templatesStorage';
-import type { TemplateSource } from '@/utils/templatesStorage';
 import {
   purgeLegacyCustomThumbCache,
 } from '@/utils/projectThumb';
@@ -55,8 +56,8 @@ import {
   asHistoryEntry,
   cloneDocument,
   cloneNodeForHistory,
-  pushHistory,
-  pushNodePatchHistory,
+  pushHistory as snapshotEditorHistory,
+  pushNodePatchHistory as snapshotNodePatchHistory,
   restoreNodesIntoDocument,
   scrubNodeIdsFromHistory,
   type HistoryEntry,
@@ -112,20 +113,20 @@ function createFrame(partial?: Partial<ArtboardFrame>): ArtboardFrame {
  * Claim session (`case`/`scratch`) as owned on first real edit.
  * Full document snapshots (local + cloud) are debounced in `useProjectCloudSync`.
  */
-function syncLibraryOnEdit(state: any, claim = true) {
+function syncLibraryOnEdit(state: typeof initialState, claim = true) {
   if (!state.currentId || !state.document) return;
-  const item = state.templates.find((t: any) => t.id === state.currentId);
+  const item = state.templates.find((t) => t.id === state.currentId);
   if (!item) return;
   // Share-edit sessions stay off the Projects library.
   if (String(state.currentId).startsWith('share_')) return;
   if (!(claim && isSessionTemplate(item))) return;
   item.source = 'user' as TemplateSource;
-  item.document = JSON.parse(JSON.stringify(state.document));
+  item.document = cloneDocument(state.document) ?? state.document;
   item.updatedAt = Date.now();
   saveTemplates(state.templates);
 }
 
-function touchOpened(item: any) {
+function touchOpened(item: EditorLibraryItem | null | undefined) {
   if (!item) return;
   item.openedAt = Date.now();
 }
@@ -134,6 +135,19 @@ const templates = loadTemplates();
 
 /** Stable empty id list for useSelector fallbacks (avoid `|| []` new refs). */
 export const EMPTY_ID_LIST: string[] = [];
+
+/**
+ * Ephemeral AI overlay (PR9). Highlight / outline / operation label / AI cursor.
+ * Must never enter SceneDocument, frames, or Yjs.
+ */
+export type AiOperationState = {
+  active: boolean;
+  transactionId?: string;
+  frameId?: string | null;
+  nodeId?: string | null;
+  action?: string;
+  label?: string;
+};
 
 const initialState = {
   templates,
@@ -144,6 +158,13 @@ const initialState = {
   /** Multi artboard selection (UI); document.activeFrameId is the primary. */
   selectedFrameIds: [] as string[],
   dirty: false,
+  /**
+   * Monotonic local scene version. Human edits bump it; AI transactions hold
+   * `aiMutationLock` so per-op setDocument snapshots do not look like user edits.
+   */
+  sceneRevision: 0,
+  /** >0 while an AI DesignTransaction is applying (PR7 Scene Mutation). */
+  aiMutationLock: 0,
   sceneReloadToken: 0,
   documentPatchToken: 0,
   /** Node ids last touched by `patchDocumentNode` — SvgCanvas refreshes these even with no selection. */
@@ -199,6 +220,8 @@ const initialState = {
   devHoverNodeId: null as string | null,
   /** True while the design agent is mutating the canvas (hides selection chrome). */
   agentBusy: false,
+  /** Local AI generating chrome — not persisted, not collab-synced. */
+  aiOperationState: null as AiOperationState | null,
   /**
    * Composer canvas pick — next click attaches (group-expanded) to the target.
    * `target`: `'agent'` | `` `node:${nodeId}` ``
@@ -240,15 +263,19 @@ const STAGE_CANVAS_META_KEYS = [
  * Embedded canvas passes a view document with `backgroundColor: 'transparent'`.
  * Geometry commits must not write that back over the real stage fill.
  */
-function preserveStageCanvasMeta(prev: any, incoming: any) {
+function preserveStageCanvasMeta(
+  prev: SceneDocument | null | undefined,
+  incoming: SceneDocument
+): SceneDocument {
   if (!prev || !incoming || typeof incoming !== 'object') return incoming;
   if (String(incoming.backgroundColor) !== 'transparent') return incoming;
   if (String(prev.backgroundColor ?? '') === 'transparent') return incoming;
-  const next = { ...incoming };
+  const next = { ...incoming } as Record<string, unknown>;
+  const src = prev as Record<string, unknown>;
   for (const key of STAGE_CANVAS_META_KEYS) {
-    if (key in prev) next[key] = prev[key];
+    if (key in prev) next[key] = src[key];
   }
-  return next;
+  return next as SceneDocument;
 }
 
 function clearSelection(state: typeof initialState) {
@@ -268,6 +295,26 @@ function clearPendingProcessIfNodeGone(state: typeof initialState) {
   if (!state.document?.deltaSetLike?.[pending]) {
     state.pendingImageProcessId = null;
   }
+}
+
+function bumpSceneRevisionIfUnlocked(state: typeof initialState) {
+  if ((state.aiMutationLock || 0) > 0) return;
+  state.sceneRevision = (state.sceneRevision || 0) + 1;
+}
+
+/** Remote Yjs is a user-visible scene change — AI must rebase, not silent-overwrite. */
+function bumpSceneRevisionForRemoteCollab(state: typeof initialState) {
+  state.sceneRevision = (state.sceneRevision || 0) + 1;
+}
+
+function pushHistory(state: typeof initialState) {
+  snapshotEditorHistory(state);
+  bumpSceneRevisionIfUnlocked(state);
+}
+
+function pushNodePatchHistory(state: typeof initialState, nodeIds: string[]) {
+  snapshotNodePatchHistory(state, nodeIds);
+  bumpSceneRevisionIfUnlocked(state);
 }
 
 const editorSlice = createSlice({
@@ -314,7 +361,7 @@ const editorSlice = createSlice({
       const item = state.templates.find((t) => t.id === action.payload);
       if (!item) return;
       state.currentId = item.id;
-      const doc = ensureDocumentContentOnCanvas(item.document);
+      const doc = ensureDocumentContentOnCanvas(item.document as SceneDocument);
       // Enter editor with nothing selected (cases often ship activeFrameId).
       doc.activeFrameId = null;
       state.document = doc;
@@ -382,12 +429,12 @@ const editorSlice = createSlice({
 
       if (hasUndoableChange) pushHistory(state);
 
-      let next: any = state.document;
+      let next: SceneDocument | null | undefined = state.document;
       if (nodeIds.length) next = removeNodesFromDocument(next, nodeIds);
       if (frameIds.length) {
         const idSet = new Set(frameIds);
         const frames = (Array.isArray(next.frames) ? next.frames : []).filter(
-          (f: any) => f && !idSet.has(String(f.id))
+          (f) => f && !idSet.has(String(f.id))
         );
         const active =
           next.activeFrameId && idSet.has(String(next.activeFrameId))
@@ -585,7 +632,7 @@ const editorSlice = createSlice({
         : [];
       const next = normalizeDocument(state.document);
       const valid = new Set(
-        (Array.isArray(next.frames) ? next.frames : []).map((f: any) => f?.id).filter(Boolean)
+        (Array.isArray(next.frames) ? next.frames : []).map((f) => f?.id).filter(Boolean)
       );
       const filtered = ids.filter((id) => valid.has(id));
       next.activeFrameId = filtered[0] || null;
@@ -606,7 +653,7 @@ const editorSlice = createSlice({
       const next = normalizeDocument(state.document);
       const valid = new Set(
         (Array.isArray(next.frames) ? next.frames : [])
-          .map((f: any) => String(f?.id || ''))
+          .map((f) => String(f?.id || ''))
           .filter(Boolean)
       );
       const frameIds = Array.from(new Set(frameIdsRaw.filter((id) => valid.has(id))));
@@ -644,7 +691,7 @@ const editorSlice = createSlice({
       const next = normalizeDocument(state.document);
       const idSet = new Set(ids);
       const frames = (Array.isArray(next.frames) ? next.frames : []).filter(
-        (f: any) => f && !idSet.has(f.id)
+        (f) => f && !idSet.has(f.id)
       );
       next.frames = frames;
       if (next.activeFrameId && idSet.has(next.activeFrameId)) {
@@ -673,7 +720,7 @@ const editorSlice = createSlice({
       pushHistory(state);
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? next.frames : [];
-      const frame = frames.find((f: any) => f.id === id);
+      const frame = frames.find((f) => f.id === id);
       if (frame) frame.name = String(name || frame.name || 'Frame');
       next.frames = frames;
       state.document = next;
@@ -687,7 +734,7 @@ const editorSlice = createSlice({
       if (!skipHistory) pushHistory(state);
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? next.frames : [];
-      const frame = frames.find((f: any) => f.id === id);
+      const frame = frames.find((f) => f.id === id);
       if (frame) Object.assign(frame, patch);
       next.frames = frames;
       state.document = next;
@@ -720,7 +767,7 @@ const editorSlice = createSlice({
       if (!skipHistory) pushHistory(state);
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? next.frames : [];
-      const byId = new Map<string, any>(frames.map((f: any) => [String(f?.id), f]));
+      const byId = new Map<string, ArtboardFrame>(frames.map((f) => [String(f?.id), f]));
       const chromeKeys = new Set([
         'x',
         'y',
@@ -735,7 +782,7 @@ const editorSlice = createSlice({
         const id = item?.id;
         const patch = item?.patch;
         if (!id || !patch) continue;
-        const frame: any = byId.get(String(id));
+        const frame = byId.get(String(id));
         if (!frame) continue;
         Object.assign(frame, patch);
         const keys = Object.keys(patch);
@@ -756,6 +803,16 @@ const editorSlice = createSlice({
       if (!state.document) return;
       pushHistory(state);
     },
+    /** AI DesignTransaction: freeze user revision while tool_ops apply. */
+    beginAiSceneMutation(state) {
+      state.aiMutationLock = (state.aiMutationLock || 0) + 1;
+    },
+    endAiSceneMutation(state) {
+      state.aiMutationLock = Math.max(0, (state.aiMutationLock || 0) - 1);
+      if (state.aiMutationLock === 0) {
+        state.sceneRevision = (state.sceneRevision || 0) + 1;
+      }
+    },
     renameTemplate(state, action) {
       const item = state.templates.find((t) => t.id === state.currentId);
       if (!item) return;
@@ -773,7 +830,7 @@ const editorSlice = createSlice({
       if (!state.currentId || !state.document) return;
       const item = state.templates.find((t) => t.id === state.currentId);
       if (!item) return;
-      item.document = JSON.parse(JSON.stringify(state.document));
+      item.document = cloneDocument(state.document) ?? state.document;
       item.updatedAt = Date.now();
       if (isSessionTemplate(item)) item.source = 'user';
       // keepDirty: cloud push not ACKed yet — stay dirty so refresh-before-upload retries.
@@ -803,6 +860,7 @@ const editorSlice = createSlice({
       ) {
         state.pendingImageProcessId = null;
       }
+      bumpSceneRevisionForRemoteCollab(state);
       syncLibraryOnEdit(state);
     },
     /**
@@ -829,6 +887,7 @@ const editorSlice = createSlice({
         ) {
           state.pendingImageProcessId = null;
         }
+        bumpSceneRevisionForRemoteCollab(state);
         syncLibraryOnEdit(state);
         return;
       }
@@ -912,6 +971,7 @@ const editorSlice = createSlice({
       ) {
         state.pendingImageProcessId = null;
       }
+      bumpSceneRevisionForRemoteCollab(state);
       syncLibraryOnEdit(state);
     },
     importDocument(state, action) {
@@ -931,7 +991,7 @@ const editorSlice = createSlice({
       // Reuse an unclaimed case session instead of duplicating Projects noise.
       if (source === 'case' && originCaseId) {
         const existing = state.templates.find(
-          (t: any) => t.originCaseId === originCaseId && t.source === 'case'
+          (t) => t.originCaseId === originCaseId && t.source === 'case'
         );
         if (existing) {
           const doc = documentFromExternalPayload(payload.document);
@@ -956,7 +1016,7 @@ const editorSlice = createSlice({
       const doc = documentFromExternalPayload(payload.document);
       // Inspiration / import → editor: do not pre-select an artboard.
       doc.activeFrameId = null;
-      const existingById = state.templates.find((t: any) => t.id === id);
+      const existingById = state.templates.find((t) => t.id === id);
       if (existingById) {
         existingById.document = doc;
         existingById.name = payload.name || existingById.name || '导入作品';
@@ -972,7 +1032,7 @@ const editorSlice = createSlice({
         saveTemplates(state.templates);
         return;
       }
-      const item: any = {
+      const item: EditorLibraryItem = {
         id,
         name: payload.name || '导入作品',
         updatedAt: now,
@@ -1067,8 +1127,30 @@ const editorSlice = createSlice({
       }
       state.pendingImportPlaceholderId = null;
     },
-    /** Clear artboard process shimmer / pill (design agent cover). */
+    /** Ephemeral AI overlay. Never writes SceneDocument. */
+    setAiOperationState(state, action: PayloadAction<AiOperationState | null>) {
+      const next = action.payload;
+      if (!next || !next.active) {
+        state.aiOperationState = null;
+        return;
+      }
+      const transactionId = String(next.transactionId || '').trim();
+      const frameId = next.frameId == null ? next.frameId : String(next.frameId).trim() || null;
+      const nodeId = next.nodeId == null ? next.nodeId : String(next.nodeId).trim() || null;
+      const actionName = String(next.action || '').trim();
+      const label = String(next.label || '').trim();
+      state.aiOperationState = {
+        active: true,
+        ...(transactionId ? { transactionId } : {}),
+        frameId: frameId ?? null,
+        nodeId: nodeId ?? null,
+        ...(actionName ? { action: actionName } : {}),
+        ...(label ? { label } : {}),
+      };
+    },
+    /** Clear AI overlay; also strip leftover pre-PR9 frame generating chrome. */
     clearArtboardGenerating(state) {
+      state.aiOperationState = null;
       if (!state.document) return;
       const frames = Array.isArray(state.document.frames) ? state.document.frames : [];
       let cleared = false;
@@ -1987,6 +2069,8 @@ export const {
   updateArtboardFrame,
   updateArtboardFrames,
   pushEditorHistory,
+  beginAiSceneMutation,
+  endAiSceneMutation,
   renameTemplate,
   persistCurrent,
   clearEditorDirty,
@@ -1997,6 +2081,7 @@ export const {
   startImportPlaceholder,
   finishImportPlaceholder,
   cancelImportPlaceholder,
+  setAiOperationState,
   clearArtboardGenerating,
   deleteTemplate,
   deleteTemplates,

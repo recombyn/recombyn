@@ -589,3 +589,33 @@ def insert_long_memory(
     except Exception:
         logger.warning("Store put failed for %s", mid, exc_info=True)
     return mid
+
+
+def load_user_design_memory(user_id: str) -> dict[str, Any]:
+    """Hydrate User layer from long-term preference / accepted / rejected rows."""
+    from app.services.agent_memory.schema import (
+        empty_design_memory,
+        user_design_from_long_hits,
+    )
+
+    uid = (user_id or "").strip()
+    if not uid:
+        return empty_design_memory()["user"]
+    try:
+        init_schema()
+        with Session(engine) as session:
+            rows = crud.list_agent_long_memory_recent(
+                session=session, user_id=uid, limit=40
+            )
+        hits = [
+            {
+                "kind": str(r.kind or "preference"),
+                "text": str(r.text or "").strip(),
+                "score": float(r.score) if r.score is not None else None,
+            }
+            for r in rows
+        ]
+        return user_design_from_long_hits(hits)
+    except Exception:
+        logger.debug("load_user_design_memory failed user=%s", uid[:12], exc_info=True)
+        return empty_design_memory()["user"]

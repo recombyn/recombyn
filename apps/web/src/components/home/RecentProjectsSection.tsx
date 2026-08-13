@@ -133,7 +133,7 @@ function RecentProjectsSection({
 
         {loading
           ? Array.from({ length: RECENT_HOME_LIMIT }).map((_, i) => (
-              <ProjectCardSkeleton key={`sk-${i}`} />
+              <ProjectCardSkeleton key={`sk-${i}`} seed={i} />
             ))
           : recent.map((item) => (
               <ProjectCard

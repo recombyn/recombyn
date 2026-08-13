@@ -1,5 +1,5 @@
 /**
- * Full UI functional coverage — every major routed shell with auth token.
+ * Full UI functional coverage �?every major routed shell with auth token.
  * Complements surfaces.smoke + journeys; keeps assertions shell-level (stable).
  *
  * Surfaces: home navs (home/mine/skills/account), account tabs, inspiration,
@@ -42,7 +42,7 @@ async function seedAuthSession(page: Page) {
     headers: { Authorization: `Bearer ${TOKEN}` },
   });
   if (!me.ok()) {
-    throw new Error(`auth/me ${me.status()} — cannot seed session`);
+    throw new Error(`auth/me ${me.status()} �?cannot seed session`);
   }
   const body = await me.json();
   const user = body?.user;
@@ -51,7 +51,7 @@ async function seedAuthSession(page: Page) {
   await page.evaluate(
     ({ tok, user: u }) => {
       localStorage.setItem('recombine-auth-token-v1', tok);
-      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
+      localStorage.setItem('recombyn-auth-v1', JSON.stringify({ user: u }));
       localStorage.setItem('recombyn-editor-tour-v3', '1');
       localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
     },
@@ -78,7 +78,7 @@ async function seedAuthOnHome(page: Page) {
   await seedAuthSession(page);
 }
 
-test.describe('functional UI — all major shells', () => {
+test.describe('functional UI �?all major shells', () => {
   test.skip(!TOKEN, E2E_TOKEN_SKIP_REASON);
 
   test.beforeEach(async ({ page }) => {
@@ -90,7 +90,7 @@ test.describe('functional UI — all major shells', () => {
     await dismissBlockingDialogs(page);
     await expect(page.locator('body')).toBeVisible();
     await expect(
-      page.getByRole('heading', { name: /Generate|Recent projects|最近|开始/i }).first()
+      page.getByRole('heading', { name: /Generate|Recent projects|最近|开�?i }).first()
     ).toBeVisible({ timeout: 30_000 });
   });
 
@@ -197,7 +197,7 @@ test.describe('functional UI — all major shells', () => {
       },
     });
     if (!create.ok()) {
-      test.skip(true, `share create ${create.status()} — skip preview`);
+      test.skip(true, `share create ${create.status()} �?skip preview`);
       return;
     }
     const body = await create.json();

@@ -203,134 +203,245 @@ html[data-theme='dark'] .rcb-home-composer-glow::before {
   color: var(--muted);
 }
 
-@keyframes skeleton-shimmer {
+/**
+ * Soft pastel loading surface (list covers random; artboard uses data-glow=canvas).
+ * Motion = inner bloom drifts (not a horizontal light sweep).
+ * Pair with SoftGlowSurface / data-glow="rose|sky|peach|lilac|mint|canvas".
+ */
+@keyframes soft-glow-drift {
   0% {
-    background-position: 100% 0;
+    transform: translate(-12%, -10%) scale(1);
+  }
+  40% {
+    transform: translate(14%, 6%) scale(1.12);
+  }
+  70% {
+    transform: translate(4%, 16%) scale(1.04);
   }
   100% {
-    background-position: -100% 0;
+    transform: translate(-8%, 4%) scale(1.08);
   }
 }
 
-.rcb-skeleton-bone {
-  border-radius: 4px;
-  background-image: linear-gradient(
-    90deg,
-    #e8e8e8 0%,
-    #e8e8e8 36%,
-    #f4f4f4 50%,
-    #e8e8e8 64%,
-    #e8e8e8 100%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.35s ease-in-out infinite;
+.rcb-soft-glow {
+  position: relative;
+  overflow: hidden;
+  background-color: #f7f8fa;
+}
+
+.rcb-soft-glow::before {
+  content: '';
+  position: absolute;
+  inset: -45%;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      ellipse 42% 48% at 58% 38%,
+      var(--rcb-glow-core, rgba(255, 176, 196, 0.52)),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 38% 42% at 32% 68%,
+      var(--rcb-glow-soft, rgba(170, 200, 255, 0.28)),
+      transparent 72%
+    );
+  background-repeat: no-repeat;
+  animation: soft-glow-drift 7.5s ease-in-out infinite alternate;
+  animation-delay: var(--rcb-glow-delay, 0s);
+  will-change: transform;
+}
+
+/** Opt-in class kept for SoftGlowSurface API; drift is the default motion. */
+.rcb-soft-glow--sweep::before,
+.rcb-soft-glow--drift::before {
+  animation-name: soft-glow-drift;
+}
+
+.rcb-soft-glow > * {
+  position: relative;
+  z-index: 1;
+}
+
+.rcb-soft-glow[data-glow='rose'] {
+  --rcb-glow-core: rgba(255, 176, 196, 0.58);
+  --rcb-glow-soft: rgba(255, 210, 220, 0.26);
+}
+
+.rcb-soft-glow[data-glow='sky'] {
+  --rcb-glow-core: rgba(160, 195, 255, 0.55);
+  --rcb-glow-soft: rgba(200, 220, 255, 0.28);
+}
+
+.rcb-soft-glow[data-glow='peach'] {
+  --rcb-glow-core: rgba(255, 200, 160, 0.52);
+  --rcb-glow-soft: rgba(255, 220, 190, 0.26);
+}
+
+.rcb-soft-glow[data-glow='lilac'] {
+  --rcb-glow-core: rgba(210, 185, 255, 0.5);
+  --rcb-glow-soft: rgba(230, 210, 255, 0.26);
+}
+
+.rcb-soft-glow[data-glow='mint'] {
+  --rcb-glow-core: rgba(170, 225, 205, 0.5);
+  --rcb-glow-soft: rgba(200, 235, 220, 0.26);
+}
+
+/** Fixed node / artboard plate — not random. */
+.rcb-soft-glow[data-glow='canvas'] {
+  background-color: #eef2f7;
+  --rcb-glow-core: rgba(175, 200, 230, 0.5);
+  --rcb-glow-soft: rgba(210, 225, 240, 0.32);
+}
+
+html[data-theme='dark'] .rcb-soft-glow {
+  background-color: #1c1e24;
+  --rcb-glow-core: rgba(255, 140, 180, 0.22);
+  --rcb-glow-soft: rgba(100, 150, 255, 0.18);
+}
+
+html[data-theme='dark'] .rcb-soft-glow[data-glow='rose'] {
+  --rcb-glow-core: rgba(255, 140, 180, 0.28);
+  --rcb-glow-soft: rgba(255, 170, 190, 0.12);
+}
+
+html[data-theme='dark'] .rcb-soft-glow[data-glow='sky'] {
+  --rcb-glow-core: rgba(100, 150, 255, 0.28);
+  --rcb-glow-soft: rgba(130, 170, 255, 0.12);
+}
+
+html[data-theme='dark'] .rcb-soft-glow[data-glow='peach'] {
+  --rcb-glow-core: rgba(255, 160, 100, 0.22);
+  --rcb-glow-soft: rgba(255, 180, 120, 0.1);
+}
+
+html[data-theme='dark'] .rcb-soft-glow[data-glow='lilac'] {
+  --rcb-glow-core: rgba(180, 140, 255, 0.26);
+  --rcb-glow-soft: rgba(200, 170, 255, 0.12);
+}
+
+html[data-theme='dark'] .rcb-soft-glow[data-glow='mint'] {
+  --rcb-glow-core: rgba(100, 200, 170, 0.22);
+  --rcb-glow-soft: rgba(130, 210, 180, 0.1);
+}
+
+html[data-theme='dark'] .rcb-soft-glow[data-glow='canvas'] {
+  background-color: #1a1e26;
+  --rcb-glow-core: rgba(120, 160, 210, 0.26);
+  --rcb-glow-soft: rgba(150, 180, 220, 0.12);
 }
 
 /**
- * Soft sweep on a compositor-friendly transform (not background-position).
- * Wide feathered band + slow cubic ease — avoids a stiff “white bar” look.
+ * Thin text / chip bones — static fill; soft pulse when inside `.rcb-skeleton-card`.
  */
-@keyframes shimmer-sweep {
-  0% {
-    transform: translateX(-130%);
-  }
-  100% {
-    transform: translateX(230%);
-  }
+.rcb-skeleton-bone {
+  border-radius: 4px;
+  background-color: #e8eaef;
+  background-image: none;
 }
 
-/** Image process loading plate — soft sweep over whatever sits underneath. */
+/** Image process loading plate — soft drifting wash over content underneath. */
 .rcb-image-process-shimmer {
   position: relative;
   overflow: hidden;
+  background-color: transparent;
 }
 
-.rcb-image-process-shimmer::after {
+.rcb-image-process-shimmer::before {
   content: '';
   position: absolute;
-  top: -20%;
-  bottom: -20%;
-  left: 0;
-  width: 48%;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.04) 18%,
-    rgba(255, 255, 255, 0.18) 38%,
-    rgba(255, 255, 255, 0.36) 50%,
-    rgba(255, 255, 255, 0.18) 62%,
-    rgba(255, 255, 255, 0.04) 82%,
-    transparent 100%
-  );
-  animation: shimmer-sweep 2.35s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
-  will-change: transform;
+  inset: -45%;
   pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 42% 48% at 58% 38%, rgba(255, 255, 255, 0.22), transparent 70%),
+    radial-gradient(ellipse 38% 42% at 32% 68%, rgba(200, 220, 255, 0.16), transparent 72%);
+  animation: soft-glow-drift 7.5s ease-in-out infinite alternate;
+  will-change: transform;
 }
 
 /**
- * Artboard generating plate — soft steel→pale base (like design loading) + sweep.
+ * Artboard generating plate — fixed soft-glow (canvas) + drifting bloom.
  * Used in screen-space overlay so zoom does not enlarge the animation.
  */
 .rcb-artboard-process-shimmer {
   position: relative;
   overflow: hidden;
-  /* Opaque cover — paint/review/retry must not show through until settle. */
-  background-color: #e4ecf4;
-  background-image: linear-gradient(105deg, #d5e0eb 0%, #e8eef5 45%, #eef3f8 100%);
-  background-repeat: no-repeat;
+  background-color: #eef2f7;
 }
 
-.rcb-artboard-process-shimmer::after {
+.rcb-artboard-process-shimmer::before {
   content: '';
   position: absolute;
-  top: -20%;
-  bottom: -20%;
-  left: 0;
-  width: 48%;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.1) 20%,
-    rgba(255, 255, 255, 0.42) 42%,
-    rgba(255, 255, 255, 0.55) 50%,
-    rgba(255, 255, 255, 0.42) 58%,
-    rgba(255, 255, 255, 0.1) 80%,
-    transparent 100%
-  );
-  animation: shimmer-sweep 2.35s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
-  will-change: transform;
+  inset: -45%;
   pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 42% 48% at 58% 38%, rgba(175, 200, 230, 0.55), transparent 70%),
+    radial-gradient(ellipse 38% 42% at 32% 68%, rgba(210, 225, 240, 0.35), transparent 72%);
+  animation: soft-glow-drift 7.5s ease-in-out infinite alternate;
+  will-change: transform;
 }
 
-/** Chat image-gen placeholders — sweep only, no center icon. */
+html[data-theme='dark'] .rcb-artboard-process-shimmer {
+  background-color: #1a1e26;
+}
+
+html[data-theme='dark'] .rcb-artboard-process-shimmer::before {
+  background-image:
+    radial-gradient(ellipse 42% 48% at 58% 38%, rgba(120, 160, 210, 0.28), transparent 70%),
+    radial-gradient(ellipse 38% 42% at 32% 68%, rgba(150, 180, 220, 0.14), transparent 72%);
+}
+
+/** Legacy chat class — prefer SoftGlowSurface; keep drift if still referenced. */
 .rcb-chat-image-gen-shimmer {
   position: relative;
   overflow: hidden;
-  background-color: #e4ecf4;
-  background-image: linear-gradient(105deg, #d5e0eb 0%, #eef3f8 42%, #f7f9fb 100%);
-  background-repeat: no-repeat;
+  background-color: #f7f8fa;
 }
 
-.rcb-chat-image-gen-shimmer::after {
+.rcb-chat-image-gen-shimmer::before {
   content: '';
   position: absolute;
-  top: -20%;
-  bottom: -20%;
-  left: 0;
-  width: 48%;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.1) 20%,
-    rgba(255, 255, 255, 0.42) 42%,
-    rgba(255, 255, 255, 0.55) 50%,
-    rgba(255, 255, 255, 0.42) 58%,
-    rgba(255, 255, 255, 0.1) 80%,
-    transparent 100%
-  );
-  animation: shimmer-sweep 2.35s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
-  will-change: transform;
+  inset: -45%;
   pointer-events: none;
+  background-image:
+    radial-gradient(
+      ellipse 42% 48% at 58% 38%,
+      var(--rcb-glow-core, rgba(160, 195, 255, 0.55)),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 38% 42% at 32% 68%,
+      var(--rcb-glow-soft, rgba(200, 220, 255, 0.28)),
+      transparent 72%
+    );
+  animation: soft-glow-drift 7.5s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.rcb-chat-image-gen-shimmer[data-glow='rose'] {
+  --rcb-glow-core: rgba(255, 176, 196, 0.58);
+  --rcb-glow-soft: rgba(255, 210, 220, 0.26);
+}
+
+.rcb-chat-image-gen-shimmer[data-glow='sky'] {
+  --rcb-glow-core: rgba(160, 195, 255, 0.55);
+  --rcb-glow-soft: rgba(200, 220, 255, 0.28);
+}
+
+.rcb-chat-image-gen-shimmer[data-glow='peach'] {
+  --rcb-glow-core: rgba(255, 200, 160, 0.52);
+  --rcb-glow-soft: rgba(255, 220, 190, 0.26);
+}
+
+.rcb-chat-image-gen-shimmer[data-glow='lilac'] {
+  --rcb-glow-core: rgba(210, 185, 255, 0.5);
+  --rcb-glow-soft: rgba(230, 210, 255, 0.26);
+}
+
+.rcb-chat-image-gen-shimmer[data-glow='mint'] {
+  --rcb-glow-core: rgba(170, 225, 205, 0.5);
+  --rcb-glow-soft: rgba(200, 235, 220, 0.26);
 }
 
 /* Plaza publish thank-you */
@@ -430,69 +541,40 @@ html[data-theme='dark'] .rcb-home-composer-glow::before {
   animation-delay: 0.8s;
 }
 
-/** Image process loading plate — soft wash only; spinner is HTML overlay. */
-
 html[data-theme='dark'] .rcb-skeleton-bone {
-  background-image: linear-gradient(
-    90deg,
-    #2c2c2c 0%,
-    #2c2c2c 36%,
-    #383838 50%,
-    #2c2c2c 64%,
-    #2c2c2c 100%
-  );
+  background-color: #2a2d36;
+  background-image: none;
 }
 
 /**
- * Card-level shimmer: single sweep over the whole card so multi-line skeletons
- * animate in unison instead of each bone sweeping independently.
- * Children .rcb-skeleton-bone lose their own animation and become static fills.
+ * Card-level title/meta bones — soft opacity pulse (no horizontal bar).
  */
+@keyframes skeleton-bone-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .rcb-skeleton-card {
   position: relative;
   overflow: hidden;
 }
 
 .rcb-skeleton-card::after {
-  content: '';
-  position: absolute;
-  top: -20%;
-  bottom: -20%;
-  left: 0;
-  width: 55%;
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.0) 30%,
-    rgba(255, 255, 255, 0.52) 50%,
-    rgba(255, 255, 255, 0.0) 70%,
-    transparent 100%
-  );
-  animation: shimmer-sweep 1.55s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
-  will-change: transform;
-  pointer-events: none;
+  display: none;
 }
 
 .rcb-skeleton-card .rcb-skeleton-bone {
-  animation: none;
-  background-image: none;
-  background-color: #e8e8e8;
-  background-size: auto;
-}
-
-html[data-theme='dark'] .rcb-skeleton-card::after {
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.0) 30%,
-    rgba(255, 255, 255, 0.10) 50%,
-    rgba(255, 255, 255, 0.0) 70%,
-    transparent 100%
-  );
+  background-color: #e4e7ee;
+  animation: skeleton-bone-pulse 2.2s ease-in-out infinite;
 }
 
 html[data-theme='dark'] .rcb-skeleton-card .rcb-skeleton-bone {
-  background-color: #2c2c2c;
+  background-color: #2a2d36;
 }
 
 /* Global thin scrollbar with track inset */

@@ -1,6 +1,6 @@
 /**
  * Full canvas product ops stress in a live editor (blank project).
- * Draws tools, clipboard, layers, generators — no paid gen APIs.
+ * Draws tools, clipboard, layers, generators �?no paid gen APIs.
  */
 import path from 'node:path';
 import { test, expect, type Page, type Locator } from '@playwright/test';
@@ -40,7 +40,7 @@ async function seedAuthSession(page: Page) {
   await page.evaluate(
     ({ tok, user: u }) => {
       localStorage.setItem('recombine-auth-token-v1', tok);
-      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
+      localStorage.setItem('recombyn-auth-v1', JSON.stringify({ user: u }));
       localStorage.setItem('recombyn-editor-tour-v3', '1');
       localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
     },
@@ -87,7 +87,7 @@ async function openBlankEditor(page: Page) {
     throw new Error('editor behind login');
   }
   await expect(
-    page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
+    page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first()
   ).toBeVisible({ timeout: 45_000 });
   const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
   await expect(stage).toBeVisible({ timeout: 45_000 });
@@ -261,7 +261,7 @@ test.describe('canvas ops stress (live editor)', () => {
     await page.keyboard.press('v');
     await sleep(100);
 
-    const genBtn = page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first();
+    const genBtn = page.locator('[aria-label="Image generator"], [aria-label="图像生成�?]').first();
     await genBtn.click({ force: true });
     await expect(page.locator('[data-image-generator]').first()).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press('Escape');
@@ -299,7 +299,7 @@ test.describe('canvas ops stress (live editor)', () => {
       await page.keyboard.press('Escape');
     }
 
-    // Burst draw (layers may virtualize labels — assert stability + >=1).
+    // Burst draw (layers may virtualize labels �?assert stability + >=1).
     for (let i = 0; i < 8; i += 1) {
       await page.keyboard.press('r');
       await sleep(80);

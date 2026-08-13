@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiCheck, HiOutlineSparkles } from 'react-icons/hi2';
-import { Button, Dialog, message } from '@/components/base';
+import { Button, Dialog, message, SoftGlowSurface } from '@/components/base';
 import ProjectCoverCollage from '@/components/home/ProjectCoverCollage';
 import { checkPlazaCoverForPublish, coverDocumentHasContent } from '@/utils/plazaCover';
 import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
@@ -143,7 +143,7 @@ function PlazaPublishForm({
       <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--canvas)]">
         <div className="aspect-[680/385] w-full overflow-hidden bg-[var(--canvas)]">
           {resolvingCover && !hasThumbCollage ? (
-            <div className="rcb-skeleton-bone h-full w-full !rounded-none" />
+            <SoftGlowSurface className="h-full w-full !rounded-none" seed="plaza-cover" aria-hidden />
           ) : (
             <ProjectCoverCollage
               urls={resolvedUrls}

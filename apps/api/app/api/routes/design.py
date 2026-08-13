@@ -325,6 +325,10 @@ class SceneFeedbackIn(BaseModel):
     # Per-op execution outcome from FE ({op_id, name, ok, error}) — truth for "did it apply".
     op_results: list[dict[str, Any]] | None = None
     round: int | None = None
+    # Design Engine V3 — ACK / rollback for DesignTransaction.
+    transaction_id: str | None = None
+    transaction_status: str | None = None  # ack | rollback
+    base_revision: int | None = None
 
 
 @router.get("/catalog")
@@ -635,8 +639,17 @@ async def design_run_scene_feedback(
         spatial=body.spatial_summary,
         op_results=body.op_results,
         round_n=body.round,
+        transaction_id=body.transaction_id,
+        transaction_status=body.transaction_status,
+        base_revision=body.base_revision,
     )
-    return {"ok": ok, "count": n, "frames": f}
+    return {
+        "ok": ok,
+        "count": n,
+        "frames": f,
+        "transaction_id": body.transaction_id,
+        "transaction_status": body.transaction_status,
+    }
 
 
 class DesignResumeIn(BaseModel):

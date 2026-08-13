@@ -87,11 +87,14 @@ export function normalizeMeshPoints(
   if (!Array.isArray(points) || points.length === 0) {
     return createMeshGrid(size, fallbackColor);
   }
-  const normalized = points.map((p: any) => ({
-    x: clampPct(p?.x ?? 50),
-    y: clampPct(p?.y ?? 50),
-    color: normalizeColor(String(p?.color || fallbackColor)),
-  }));
+  const normalized = points.map((p) => {
+    const rec = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+    return {
+      x: clampPct(rec.x ?? 50),
+      y: clampPct(rec.y ?? 50),
+      color: normalizeColor(String(rec.color || fallbackColor)),
+    };
+  });
   const expect = size * size;
   if (normalized.length === expect) return normalized;
   return remeshPoints(size, normalized, fallbackColor);

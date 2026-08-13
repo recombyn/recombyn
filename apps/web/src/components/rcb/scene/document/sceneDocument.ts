@@ -1,17 +1,52 @@
-import { produce } from 'immer';
+import { produce, type WritableDraft } from 'immer';
 import { nanoid } from '@reduxjs/toolkit';
-import type { SceneDeltaSet, SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import type {
+  SceneDeltaSet,
+  SceneDocument,
+  SceneNode,
+  SceneNodeAttrs,
+  SceneNodeInput,
+  ScenePage,
+} from '@/components/rcb/sceneNode';
 
 /** Default canvas size (approx A4 @ 96dpi); user can change freely */
 export const DEFAULT_CANVAS = { width: 794, height: 1123 };
 
 export const A4_PORTRAIT = { ...DEFAULT_CANVAS };
 
-function createPage(id?: string) {
+/** Partial node update: attrs shallow-merge onto the previous bag. */
+export type SceneNodePatch = Partial<Omit<SceneNode, 'attrs'>> & {
+  attrs?: SceneNodeAttrs | null;
+};
+
+/** Canvas chrome / size fields written by `setDocumentCanvasMeta`. */
+export type DocumentCanvasMetaPatch = {
+  backgroundColor?: string;
+  backgroundFillType?: string;
+  backgroundGradient?: unknown;
+  backgroundOpacity?: number;
+  backgroundImageSrc?: string;
+  backgroundImageFit?: string;
+  backgroundImageRotate?: number;
+  backgroundImageAdjust?: unknown;
+  width?: number;
+  height?: number;
+  gridSize?: number;
+};
+
+function createPage(id?: string): ScenePage {
   return {
     id: id || nanoid(8),
-    children: [] as string[],
+    children: [],
   };
+}
+
+/** Isolate a node/frame/doc slice without JSON.parse(JSON.stringify). */
+export function cloneSceneValue<T>(value: T): T {
+  if (value == null || typeof value !== 'object') return value;
+  if (typeof structuredClone === 'function') return structuredClone(value);
+  return { ...(value as object) } as T;
 }
 
 /** Unified paint / layer order: `frame:id` | `node:id` (bottom → top). */
@@ -48,7 +83,7 @@ function listRootNodeIds(doc: SceneDocument): string[] {
 export function reconcileStackOrder(doc: SceneDocument): string[] {
   if (!doc || typeof doc !== 'object') return [];
   const frameIds = (Array.isArray(doc.frames) ? doc.frames : [])
-    .map((f: any) => (f?.id != null ? String(f.id) : ''))
+    .map((f) => (f?.id != null ? String(f.id) : ''))
     .filter(Boolean);
   const nodeIds = listRootNodeIds(doc);
   const frameSet = new Set(frameIds);
@@ -65,7 +100,7 @@ export function reconcileStackOrder(doc: SceneDocument): string[] {
   }
 
   const seen = new Set<string>();
-  const kept: string[] = [];
+  let kept: string[] = [];
   for (const key of raw) {
     const parsed = parseStackKey(key);
     if (!parsed) continue;
@@ -81,12 +116,19 @@ export function reconcileStackOrder(doc: SceneDocument): string[] {
   for (let i = 0; i < kept.length; i += 1) {
     if (parseStackKey(kept[i])?.kind === 'frame') frameInsertAt = i + 1;
   }
+  const missingFrames: string[] = [];
   for (const id of frameIds) {
     const key = stackFrameKey(id);
     if (seen.has(key)) continue;
-    kept.splice(frameInsertAt, 0, key);
-    frameInsertAt += 1;
+    missingFrames.push(key);
     seen.add(key);
+  }
+  if (missingFrames.length) {
+    kept = [
+      ...kept.slice(0, frameInsertAt),
+      ...missingFrames,
+      ...kept.slice(frameInsertAt),
+    ];
   }
   for (const id of nodeIds) {
     const key = stackNodeKey(id);
@@ -195,11 +237,19 @@ export function createEmptyDocument(size?: {
 }
 
 /** Merge a partial node patch (attrs shallow-merge; preserve shapeType). */
-export function mergeNodePatch(prev: any, patch: any) {
+export function mergeNodePatch(prev: SceneNode, patch: SceneNodePatch | null | undefined): SceneNode;
+export function mergeNodePatch(
+  prev: SceneNode | null | undefined,
+  patch: SceneNodePatch | null | undefined
+): SceneNode | null | undefined;
+export function mergeNodePatch(
+  prev: SceneNode | null | undefined,
+  patch: SceneNodePatch | null | undefined
+): SceneNode | null | undefined {
   if (!prev) return prev;
   const { attrs, ...rest } = patch || {};
   const prevAttrs = prev.attrs || {};
-  let nextAttrs = prevAttrs;
+  let nextAttrs: SceneNodeAttrs = prevAttrs;
   if (attrs) {
     nextAttrs = { ...prevAttrs, ...attrs };
     if (
@@ -209,7 +259,7 @@ export function mergeNodePatch(prev: any, patch: any) {
       nextAttrs.shapeType = prevAttrs.shapeType;
     }
   }
-  return { ...prev, ...rest, attrs: nextAttrs } as SceneNode;
+  return { ...prev, ...rest, attrs: nextAttrs };
 }
 
 /**
@@ -220,15 +270,16 @@ export function mergeNodePatch(prev: any, patch: any) {
  * results in DEV, but normalize/add/remove still assign or delete top-level keys.
  */
 export function patchDeltaSetLike(
-  delta: any,
-  patches: Record<string, any>
-): Record<string, any> {
+  delta: SceneDeltaSet | null | undefined,
+  patches: Record<string, SceneNode>
+): SceneDeltaSet {
   const keys = patches ? Object.keys(patches) : [];
   if (!keys.length) {
     if (!delta || typeof delta !== 'object') return {};
     return Object.isExtensible(delta) ? delta : flattenDeltaSetLike(delta);
   }
-  const produced = produce(delta && typeof delta === 'object' ? delta : {}, (draft: any) => {
+  const base: SceneDeltaSet = delta && typeof delta === 'object' ? delta : {};
+  const produced = produce(base, (draft: WritableDraft<SceneDeltaSet>) => {
     for (const key of keys) {
       draft[key] = patches[key];
     }
@@ -237,7 +288,7 @@ export function patchDeltaSetLike(
 }
 
 /** Shallow copy for normalize/save (delta is always a plain object now). */
-export function flattenDeltaSetLike(delta: any): Record<string, any> {
+export function flattenDeltaSetLike(delta: SceneDeltaSet | null | undefined): SceneDeltaSet {
   if (!delta || typeof delta !== 'object') return {};
   return { ...delta };
 }
@@ -245,14 +296,14 @@ export function flattenDeltaSetLike(delta: any): Record<string, any> {
 /** Ensure older saved docs still work; keep a single logical page for editing */
 export function normalizeDocument(doc: unknown): SceneDocument {
   if (!doc || typeof doc !== 'object') return createEmptyDocument({ emptyWorld: true });
-  const src = doc as Record<string, any>;
+  const src = doc as SceneDocument;
   // Shallow COW shell — share node objects; never JSON deep-clone the whole map.
-  const next: any = {
+  const next: SceneDocument = {
     ...src,
     deltaSetLike: flattenDeltaSetLike(src.deltaSetLike),
     frames: Array.isArray(src.frames) ? src.frames.slice() : [],
     pages: Array.isArray(src.pages)
-      ? src.pages.map((p: any) =>
+      ? src.pages.map((p) =>
           p && typeof p === 'object'
             ? {
                 ...p,
@@ -269,10 +320,10 @@ export function normalizeDocument(doc: unknown): SceneDocument {
   if (next.backgroundColor == null) next.backgroundColor = '';
   delete next.orientation;
   if (!Array.isArray(next.frames)) next.frames = [];
-  next.frames = next.frames.map((f: any) => {
+  next.frames = next.frames.map((f) => {
     if (!f || typeof f !== 'object') return f;
     const bg = String(f.backgroundColor || '').trim();
-    const withBg =
+    const withBg: ArtboardFrame =
       !bg || bg === 'none' ? { ...f, backgroundColor: '#FFFFFF' } : { ...f };
     // Default: show overflow for legacy frames that never set the flag.
     if (withBg.clipContent === undefined) withBg.clipContent = false;
@@ -280,7 +331,7 @@ export function normalizeDocument(doc: unknown): SceneDocument {
   });
   // Keep activeFrameId nullable — null means no frame selected (do not force frames[0]).
   if (next.activeFrameId != null) {
-    const exists = next.frames.some((f: any) => f?.id === next.activeFrameId);
+    const exists = next.frames.some((f) => f?.id === next.activeFrameId);
     if (!exists) next.activeFrameId = null;
   }
 
@@ -290,9 +341,9 @@ export function normalizeDocument(doc: unknown): SceneDocument {
     page.children = [...(next.deltaSetLike?.ROOT?.children || [])];
     next.pages = [page];
   } else if (next.pages.length > 1) {
-    const merged = next.pages.flatMap((p: any) => p.children || []);
+    const merged = next.pages.flatMap((p) => p.children || []);
     const page = createPage(next.pages[0].id);
-    page.children = [...new Set(merged)] as string[];
+    page.children = [...new Set(merged)];
     next.pages = [page];
   }
   next.activePageId = next.pages[0].id;
@@ -401,7 +452,7 @@ export function ensureDocumentContentOnCanvas(doc: SceneDocument) {
 }
 
 export function syncRootChildren(doc: SceneDocument) {
-  const page = doc.pages?.find((p: any) => p.id === doc.activePageId) || doc.pages?.[0];
+  const page = doc.pages?.find((p) => p.id === doc.activePageId) || doc.pages?.[0];
   if (!doc.deltaSetLike?.ROOT || !page) return doc;
   const root = doc.deltaSetLike.ROOT;
   doc.deltaSetLike = patchDeltaSetLike(doc.deltaSetLike, {
@@ -415,7 +466,7 @@ export function syncRootChildren(doc: SceneDocument) {
 
 export function getActivePage(doc: SceneDocument) {
   if (!doc?.pages?.length) return null;
-  return doc.pages.find((p: any) => p.id === doc.activePageId) || doc.pages[0];
+  return doc.pages.find((p) => p.id === doc.activePageId) || doc.pages[0];
 }
 
 export function setDocumentSize(doc: SceneDocument, width: number, height: number) {
@@ -425,7 +476,7 @@ export function setDocumentSize(doc: SceneDocument, width: number, height: numbe
   return next;
 }
 
-export function setDocumentCanvasMeta(doc: SceneDocument, patch: Record<string, any> = {}) {
+export function setDocumentCanvasMeta(doc: SceneDocument, patch: DocumentCanvasMetaPatch = {}) {
   const next = normalizeDocument(doc);
   if (patch.backgroundColor != null) next.backgroundColor = patch.backgroundColor;
   if (patch.backgroundFillType != null) next.backgroundFillType = patch.backgroundFillType;
@@ -481,7 +532,7 @@ export function mergeImportedIntoDocument(
   children.forEach((oldId) => {
     const raw = src.deltaSetLike?.[oldId];
     if (!raw) return;
-    const node = JSON.parse(JSON.stringify(raw));
+    const node = cloneSceneValue(raw);
     const newId = idMap.get(oldId)!;
     node.id = newId;
     node.x = (Number(node.x) || 0) + ox;
@@ -493,10 +544,10 @@ export function mergeImportedIntoDocument(
   if (Array.isArray(src.frames) && src.frames.length) {
     const frames = Array.isArray(next.frames) ? [...next.frames] : [];
     const order = Array.isArray(next.stackOrder) ? [...next.stackOrder] : [];
-    src.frames.forEach((f: any) => {
+    src.frames.forEach((f) => {
       const newId = nanoid(8);
       frames.push({
-        ...JSON.parse(JSON.stringify(f)),
+        ...cloneSceneValue(f),
         id: newId,
         x: (Number(f.x) || 0) + ox,
         y: (Number(f.y) || 0) + oy,
@@ -533,11 +584,11 @@ export function removeNodesFromDocument(
 export function updateNodeInDocument(
   doc: SceneDocument | null | undefined,
   nodeId: string,
-  patch: Record<string, any>
+  patch: SceneNodePatch
 ) {
   const prev = doc?.deltaSetLike?.[nodeId];
   if (!prev || !doc) return doc;
-  return produce(doc, (draft: any) => {
+  return produce(doc, (draft: WritableDraft<SceneDocument>) => {
     draft.deltaSetLike[nodeId] = mergeNodePatch(draft.deltaSetLike[nodeId], patch);
   });
 }
@@ -545,10 +596,10 @@ export function updateNodeInDocument(
 /** Batch node patches in one Immer produce (align / distribute / multi-drag). */
 export function updateNodesInDocument(
   doc: SceneDocument | null | undefined,
-  patches: Array<{ nodeId: string; patch: Record<string, any> }>
+  patches: Array<{ nodeId: string; patch: SceneNodePatch }>
 ) {
   if (!doc || !Array.isArray(patches) || !patches.length) return doc;
-  return produce(doc, (draft: any) => {
+  return produce(doc, (draft: WritableDraft<SceneDocument>) => {
     for (const item of patches) {
       const nodeId = item?.nodeId ? String(item.nodeId) : '';
       const patch = item?.patch;

@@ -72,17 +72,31 @@ def _pack_payload(
     op_results: list[dict[str, Any]],
     round_n: int,
     preview_image: str | None = None,
+    transaction_id: str | None = None,
+    transaction_status: str | None = None,
+    base_revision: int | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "nodes": nodes,
         "frames": frames,
         "spatial": spatial,
         "op_results": op_results,
-        "round": int(round_n),
+        "round": int(round_n or 0),
     }
     prev = _sanitize_preview_image(preview_image)
     if prev:
         out["preview_image"] = prev
+    tid = str(transaction_id or "").strip()
+    if tid:
+        out["transaction_id"] = tid
+    status = str(transaction_status or "").strip().lower()
+    if status in ("ack", "rollback", "commit"):
+        out["transaction_status"] = status
+    if base_revision is not None:
+        try:
+            out["base_revision"] = int(base_revision)
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -104,7 +118,17 @@ def _unpack_payload(raw: Any) -> dict[str, Any] | None:
         else []
     )
     preview = _sanitize_preview_image(raw.get("preview_image"))
-    if not (out_nodes or out_frames or isinstance(spatial, dict) or op_results or preview):
+    tid = str(raw.get("transaction_id") or "").strip()
+    status = str(raw.get("transaction_status") or "").strip().lower()
+    has_tx = bool(tid) or status in ("ack", "rollback", "commit")
+    if not (
+        out_nodes
+        or out_frames
+        or isinstance(spatial, dict)
+        or op_results
+        or preview
+        or has_tx
+    ):
         if raw.get("ready") is False:
             return None
     out: dict[str, Any] = {
@@ -121,6 +145,15 @@ def _unpack_payload(raw: Any) -> dict[str, Any] | None:
         pass
     if preview:
         out["preview_image"] = preview
+    if tid:
+        out["transaction_id"] = tid
+    if status in ("ack", "rollback", "commit"):
+        out["transaction_status"] = status
+    if raw.get("base_revision") is not None:
+        try:
+            out["base_revision"] = int(raw.get("base_revision"))
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -408,6 +441,9 @@ async def publish_scene(
     op_results: list[dict[str, Any]] | None = None,
     preview_image: str | None = None,
     round_n: int | None = None,
+    transaction_id: str | None = None,
+    transaction_status: str | None = None,
+    base_revision: int | None = None,
 ) -> bool:
     tid = str(task_id or "").strip()
     if not tid:
@@ -470,6 +506,9 @@ async def publish_scene(
         op_results=results_clean,
         round_n=rn,
         preview_image=preview_clean,
+        transaction_id=transaction_id,
+        transaction_status=transaction_status,
+        base_revision=base_revision,
     )
     await asyncio.to_thread(
         _durable_write,
