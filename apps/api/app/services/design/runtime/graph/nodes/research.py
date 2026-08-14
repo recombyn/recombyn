@@ -12,14 +12,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.types import Command
-
 from app.services.design.runtime.graph.state import (
     AgentRuntime,
-    GraphState,
     parse_design_research_report,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
+from app.services.design.runtime.graph.support import _emit
 
 # Open ANTI-CATEGORY floor — keep small; Private may enrich via Remote.
 _CATEGORY_PATTERNS: dict[str, dict[str, list[str]]] = {
@@ -127,64 +124,28 @@ _CATEGORY_PATTERNS: dict[str, dict[str, list[str]]] = {
     },
 }
 
-_CATEGORY_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "ai_landing",
-        (
-            "ai product",
-            "ai 官网",
-            "ai landing",
-            "saas",
-            "llm",
-            "gpt",
-            "大模型",
-            "人工智能官网",
-            "ai 产品",
-        ),
-    ),
-    ("poster", ("海报", "poster", "易拉宝", "roll-up", "kv", "演唱会")),
-    ("dashboard", ("dashboard", "后台", "控制台", "kpi", "数据看板")),
-    ("landing", ("landing", "官网", "官网首页", "营销页", "落地页")),
-)
-
-_DIFF_HINTS = (
-    "不能千篇一律",
-    "不要千篇一律",
-    "别千篇一律",
-    "不落俗套",
-    "差异化",
-    "高级但不能",
-    "premium but not",
-    "not generic",
-    "not cliché",
-    "not cliche",
-    "avoid generic",
-    "differentiate",
+_CATEGORY_BY_SCENE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("poster", ("poster",)),
+    ("dashboard", ("dashboard",)),
+    # Website / mobile / landing scenes use the richer ai_landing floor catalog
+    # (still scene-keyed — never prompt keyword guessing).
+    ("ai_landing", ("landing", "website", "mobile")),
 )
 
 
 def research_request(prompt: str, *, scene_key: str = "") -> dict[str, Any]:
-    """Detect category + differentiation ask from the user goal."""
+    """Category from scene_key only — never prompt keyword/length guessing."""
     text = str(prompt or "").strip()
-    low = text.lower()
-    category = ""
-    for cat, hints in _CATEGORY_HINTS:
-        if any(h.lower() in low or h in text for h in hints):
+    scene = str(scene_key or "").strip().lower()
+    category = "generic"
+    for cat, keys in _CATEGORY_BY_SCENE:
+        if any(k in scene for k in keys):
             category = cat
             break
-    if not category:
-        scene = str(scene_key or "").strip().lower()
-        if "poster" in scene:
-            category = "poster"
-        elif "dashboard" in scene:
-            category = "dashboard"
-        elif "landing" in scene or "website" in scene:
-            category = "landing"
-    wants_diff = any(h.lower() in low or h in text for h in _DIFF_HINTS)
     return {
         "prompt": text[:800],
-        "category": category or "generic",
-        "wants_differentiation": wants_diff or bool(category),
+        "category": category,
+        "wants_differentiation": category != "generic",
         "scene_key": str(scene_key or ""),
     }
 
@@ -438,7 +399,7 @@ async def run_design_research(rt: AgentRuntime) -> dict[str, Any] | None:
         )
         block = format_research_for_decide(report)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit({"type": "analysis_delta", "text": block[:1200], "visibility": "developer"})
         return report
     except Exception as err:  # noqa: BLE001
         st.note_error(f"design_research_failed: {err}"[:240])
@@ -457,10 +418,3 @@ async def run_design_research(rt: AgentRuntime) -> dict[str, Any] | None:
             }
         )
         return None
-
-
-async def _node_research(state: GraphState) -> Command:
-    """Optional graph hop — research then continue to design_agent."""
-    rt = state["rt"]
-    await run_design_research(rt)
-    return Command(update=_bump(rt), goto="design_agent")

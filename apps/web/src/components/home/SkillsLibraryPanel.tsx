@@ -23,9 +23,13 @@ import { cn } from '@/utils/classnames';
 const DEFAULT_SKILL_GRID =
   'grid w-full grid-cols-2 gap-[10px] md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5';
 
-/** Loading placeholders only — not real totals (API count unknown until fetch). */
-const SKILL_SKELETON_MINE = 1;
-/** ~one row on the 2xl 5-col grid. */
+/**
+ * Loading placeholders only (same idea as GRID_SKELETON_COUNT on Me / feed).
+ * Not the API total — first fetch has no count yet.
+ */
+/** ~one row beside the upload tile on the 2xl 5-col grid (upload + 4). */
+const SKILL_SKELETON_MINE = 4;
+/** Official loading placeholders — several rows on the 2xl 5-col grid. */
 const SKILL_SKELETON_OFFICIAL = 5;
 
 /** Skill card — icon + title/2-line subtitle + switch; 10px pad. */
@@ -97,6 +101,7 @@ function SkillCardSkeleton({ seed = 0 }: { seed?: number }): ReactNode {
   );
 }
 
+/** Loading placeholders — fixed count like MePage GRID_SKELETON_COUNT, not API size. */
 function SkillGroupSkeleton({
   title,
   count,
@@ -255,7 +260,8 @@ function SkillsLibraryPanel(): ReactNode {
     message.error(t('agent.requestFailed'));
   }, [skillsQuery.isError, t, userId]);
 
-  const items =  ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items || []) as DesignSkillCard[];
+  const items = ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items ||
+    []) as DesignSkillCard[];
   const mine = items.filter((x) => x.mine);
   const official = items.filter((x) => !x.mine);
   const loading = skillsQuery.isPending || (skillsQuery.isFetching && items.length === 0);

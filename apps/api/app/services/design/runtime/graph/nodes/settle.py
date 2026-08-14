@@ -208,11 +208,15 @@ async def _sync_intelligence_knowledge(rt: AgentRuntime) -> None:
 async def _node_settle(state: GraphState) -> Command:
     rt = state["rt"]
     st = rt.run
-    # P41 — settle hard gate BEFORE charge / success claim.
-    from app.services.design.intelligence_runtime import get_design_intelligence_client
-
-    gov = await get_design_intelligence_client().govern(rt)
-    governance_failed = str(gov.get("status") or "") == "fail"
+    # P41 — quality gate already ran at the end of Review (design intent).
+    # Chat / canvas_op never enter Review, so they never show the checklist.
+    gov = getattr(rt, "design_governance", None)
+    if not isinstance(gov, dict):
+        gov = {}
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    governance_failed = bool(flags.get("governance_fail")) or str(
+        gov.get("status") or ""
+    ) == "fail"
     # Outcome-aware Taste KG write (Private via Client; BasicLocal no-op).
     await _sync_intelligence_knowledge(rt)
     if governance_failed:
@@ -229,11 +233,14 @@ async def _node_settle(state: GraphState) -> Command:
             }
         )
         # Do not claim design success; surface repair draft.
-        st.reply = (
-            "Governance FAIL:\n"
-            + "\n".join(f"- {x}" for x in list(gov.get("explain") or [])[:6])
-            + "\nRepair draft ready (not applied)."
-        )[:2000]
+        from app.services.design.runtime.graph.nodes.governance import (
+            format_governance_fail_reply,
+        )
+        from app.services.design.runtime.host.prompts import locale_for_runtime
+
+        st.reply = format_governance_fail_reply(
+            gov, locale=locale_for_runtime(rt)
+        )
         if "governance_fail" not in (st.errors or []):
             try:
                 st.note_error("governance_fail")
@@ -259,7 +266,29 @@ async def _node_settle(state: GraphState) -> Command:
     if already_settled:
         spend = prior_charged
         _log.debug("settle idempotent skip task=%s charged=%s", st.task_id, spend)
+    elif governance_failed:
+        # Governance FAIL: release authorize hold — do not capture design success.
+        spend = 0
+        try:
+            from app.services.design.runtime.graph.build import _design_refund_hold_fn
+
+            refund_fn = _design_refund_hold_fn(rt)
+            if callable(refund_fn) and int(rt.hold or 0) > 0:
+                await asyncio.to_thread(refund_fn, rt.user_id, int(rt.hold or 0), task_id=st.task_id)
+        except Exception:
+            _log.debug("governance_fail refund hold failed", exc_info=True)
+        rt.hold = 0
     else:
+        from app.services.llm import is_byok_model_ref
+
+        meters = dict(st.billing_meters or {})
+        if st.total_tokens and "llm.tokens_out" not in meters:
+            meters["llm.tokens_out"] = float(st.total_tokens)
+        if st.images_hydrated and "image.gen" not in meters:
+            meters["image.gen"] = float(st.images_hydrated)
+        if "agent.steps" not in meters:
+            meters["agent.steps"] = 3.0 if (rt.mode or "agent") == "agent" else 1.0
+
         spend = await asyncio.to_thread(
             _design_settle_hold_fn(rt),
             rt.user_id,
@@ -269,6 +298,10 @@ async def _node_settle(state: GraphState) -> Command:
             rules=rt.rules,
             free_daily=rt.free_daily,
             images_hydrated=st.images_hydrated,
+            byok=is_byok_model_ref(rt.user_selected_model),
+            mode=rt.mode or "agent",
+            meters=meters,
+            task_id=st.task_id,
         )
     has_proposal = bool(st.proposed_ops)
     settle_intent = (
@@ -314,7 +347,11 @@ async def _node_settle(state: GraphState) -> Command:
                 resumable=False,
                 interrupt_kind=None,
                 settled=True,
-            )
+            ),
+            "billing_meters": dict(st.billing_meters or {}),
+            "usage_events": list(st.usage_events or [])[:64],
+            "governance_failed": bool(governance_failed),
+            "charged_credits": spend,
         },
     )
     await asyncio.to_thread(
@@ -336,6 +373,49 @@ async def _node_settle(state: GraphState) -> Command:
     snap = rt.visual_snapshot if isinstance(rt.visual_snapshot, dict) else {}
     diff = rt.visual_diff if isinstance(rt.visual_diff, dict) else {}
     deltas = diff.get("deltas") if isinstance(diff.get("deltas"), dict) else {}
+    brief = flags.get("design_brief") if isinstance(flags.get("design_brief"), dict) else {}
+    judge = rt.judge_verdict if isinstance(rt.judge_verdict, dict) else {}
+    thesis = str(brief.get("visual_thesis") or "").strip()
+    why_bits = [
+        str(brief.get(k) or "").strip()
+        for k in ("purpose", "audience", "emotion")
+        if str(brief.get(k) or "").strip()
+    ]
+    strengths = [
+        str(x).strip()
+        for x in list(judge.get("strengths") or flags.get("review_strengths") or [])[:4]
+        if str(x).strip()
+    ]
+    weaknesses = [
+        str(x).strip()
+        for x in list(judge.get("weaknesses") or flags.get("review_weaknesses") or [])[:4]
+        if str(x).strip()
+    ]
+    next_steps: list[str] = []
+    for row in list(judge.get("top_issues") or [])[:5]:
+        if not isinstance(row, dict):
+            continue
+        fix = str(row.get("fix") or "").strip()
+        issue = str(row.get("issue") or "").strip()
+        if fix:
+            next_steps.append(fix)
+        elif issue:
+            next_steps.append(issue)
+    market_gap = str(judge.get("market_gap") or flags.get("market_gap") or "").strip()
+    summary_payload: dict[str, Any] = {
+        "type": "design_summary",
+        "visibility": "user",
+        "thesis": thesis[:240] or None,
+        "purpose": str(brief.get("purpose") or "").strip()[:160] or None,
+        "audience": str(brief.get("audience") or "").strip()[:120] or None,
+        "emotion": str(brief.get("emotion") or "").strip()[:120] or None,
+        "why": " · ".join(why_bits)[:280] or None,
+        "strengths": strengths or None,
+        "weaknesses": weaknesses or None,
+        "next_steps": next_steps[:5] or None,
+        "market_gap": market_gap[:280] or None,
+        "source": "settle",
+    }
     if isinstance(hist, list) and hist:
         scores = [int(x.get("overall") or 0) for x in hist if isinstance(x, dict)]
         removed = 0
@@ -349,9 +429,8 @@ async def _node_settle(state: GraphState) -> Command:
         white = snap.get("whitespace_ratio")
         if hero is None and deltas.get("hero_coverage") is not None:
             hero = deltas.get("hero_coverage")
-        _emit(
+        summary_payload.update(
             {
-                "type": "design_summary",
                 "iterations": len(hist),
                 "removed": removed,
                 "score_from": scores[0] if scores else None,
@@ -372,6 +451,20 @@ async def _node_settle(state: GraphState) -> Command:
                 ][:8],
             }
         )
+    # Always emit when we have something user-readable (brief and/or review).
+    if any(
+        summary_payload.get(k)
+        for k in (
+            "thesis",
+            "why",
+            "strengths",
+            "weaknesses",
+            "next_steps",
+            "market_gap",
+            "iterations",
+        )
+    ):
+        _emit(summary_payload)
     _emit(
         {
             "type": "result",

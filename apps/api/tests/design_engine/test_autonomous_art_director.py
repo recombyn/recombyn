@@ -68,8 +68,8 @@ def test_autonomous_hops_cover_spec_chain():
 
 
 def test_spec_goal_activates_autonomous():
-    assert is_goal_only_prompt(_SPEC_GOAL)
-    assert classify_autonomous_mode(_SPEC_GOAL) == "goal"
+    assert is_goal_only_prompt(_SPEC_GOAL, classified_intent="design")
+    assert classify_autonomous_mode(_SPEC_GOAL, classified_intent="design") == "goal"
     plan = build_autonomous_plan(prompt=_SPEC_GOAL, intent="design")
     assert plan["active"] is True
     assert plan["mode"] == "goal"
@@ -79,11 +79,19 @@ def test_spec_goal_activates_autonomous():
 
 
 def test_micro_edit_does_not_activate():
-    assert classify_autonomous_mode(_SPEC_MICRO) == "micro_edit"
-    assert not is_goal_only_prompt(_SPEC_MICRO)
+    assert (
+        classify_autonomous_mode(_SPEC_MICRO, classified_intent="canvas_op")
+        == "micro_edit"
+    )
+    assert not is_goal_only_prompt(_SPEC_MICRO, classified_intent="canvas_op")
     plan = build_autonomous_plan(prompt=_SPEC_MICRO, intent="edit")
     assert plan["active"] is False
     assert all(h["status"] == "skipped" for h in plan["hops"])
+
+
+def test_autonomous_without_intent_is_idle():
+    assert classify_autonomous_mode(_SPEC_GOAL) == "idle"
+    assert not is_goal_only_prompt(_SPEC_GOAL)
 
 
 def test_sync_marks_intelligence_hops_done_never_paints():

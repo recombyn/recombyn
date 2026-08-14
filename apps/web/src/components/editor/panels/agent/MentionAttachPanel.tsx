@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { HiOutlineMusicalNote, HiOutlinePlay } from 'react-icons/hi2';
 import type { AssetKind, UserAsset } from '@/models/assets';
 import { apiQuery } from '@/service/client';
+import { BrandWordmarkLoader } from '@/components/base/AppLogo';
 import { cn } from '@/utils/classnames';
 
 export type MentionAttachItem = {
@@ -277,9 +278,10 @@ function MentionAttachPanel({
     >
       <div className="max-h-[min(320px,calc(100vh-160px))] overflow-y-auto p-1">
         {showLoading ? (
-          <div className="px-2 py-4 text-center text-[12px] text-[var(--muted)]">
-            {t('common.loading', { defaultValue: '加载中…' })}
-          </div>
+          <BrandWordmarkLoader
+            label={t('common.loading')}
+            className="px-2 py-6"
+          />
         ) : null}
         {showEmpty ? (
           <div className="px-2 py-4 text-center text-[12px] text-[var(--muted)]">

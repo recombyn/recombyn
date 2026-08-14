@@ -11,14 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.types import Command
-
 from app.services.design.runtime.graph.state import (
     AgentRuntime,
-    GraphState,
     parse_design_strategy,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
+from app.services.design.runtime.graph.support import _emit
 
 # Category → default axis strategies (filled when Research reports that category).
 _CATEGORY_STRATEGY: dict[str, dict[str, str]] = {
@@ -379,7 +376,7 @@ async def run_design_strategy(rt: AgentRuntime) -> dict[str, Any] | None:
         )
         block = format_strategy_for_decide(strategy)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit({"type": "analysis_delta", "text": block[:1200], "visibility": "developer"})
         return strategy
     except Exception as err:  # noqa: BLE001
         st.note_error(f"design_strategy_failed: {err}"[:240])
@@ -398,10 +395,3 @@ async def run_design_strategy(rt: AgentRuntime) -> dict[str, Any] | None:
             }
         )
         return None
-
-
-async def _node_strategy(state: GraphState) -> Command:
-    """Optional graph hop — strategy then continue to design_agent."""
-    rt = state["rt"]
-    await run_design_strategy(rt)
-    return Command(update=_bump(rt), goto="design_agent")

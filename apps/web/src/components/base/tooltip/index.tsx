@@ -34,6 +34,9 @@ export type TooltipProps = {
   needsDelay?: boolean;
   /** Inline-block wrapper when true */
   asChild?: boolean;
+  /** Controlled open. Omit for hover/click internal state. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 };
 
@@ -49,8 +52,21 @@ const Tooltip: FC<TooltipProps> = ({
   offset: offsetValue = 8,
   asChild = true,
   needsDelay = true,
+  open: openProp,
+  onOpenChange,
 }) => {
-  const [open, setOpen] = React.useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? Boolean(openProp) : uncontrolledOpen;
+  const setOpen = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const prev = isControlled ? Boolean(openProp) : uncontrolledOpen;
+      const value = typeof next === 'function' ? next(prev) : next;
+      if (!isControlled) setUncontrolledOpen(value);
+      onOpenChange?.(value);
+    },
+    [isControlled, openProp, uncontrolledOpen, onOpenChange]
+  );
   const content = tip ?? title;
 
   const [isHoverPopup, { setTrue: setHoverPopup, setFalse: setNotHoverPopup }] = useBoolean(false);
@@ -126,11 +142,11 @@ const Tooltip: FC<TooltipProps> = ({
   });
 
   const hover = useHover(context, {
-    enabled: trigger === 'hover' && !disabled,
+    enabled: trigger === 'hover' && !disabled && !isControlled,
   });
 
   const click = useClick(context, {
-    enabled: trigger === 'click' && !disabled,
+    enabled: trigger === 'click' && !disabled && !isControlled,
   });
 
   const dismiss = useDismiss(context);
@@ -138,25 +154,28 @@ const Tooltip: FC<TooltipProps> = ({
   const { getReferenceProps, getFloatingProps } = useInteractions([hover, click, dismiss]);
 
   const handleMouseEnter = useCallback(() => {
+    if (isControlled) return;
     if (trigger === 'hover' && !disabled) {
       clearCloseTimeout();
       setHoverTrigger();
       tooltipManager.register(close);
       setOpen(true);
     }
-  }, [trigger, disabled, clearCloseTimeout, setHoverTrigger, close]);
+  }, [isControlled, trigger, disabled, clearCloseTimeout, setHoverTrigger, close, setOpen]);
 
   const handleMouseLeave = useCallback(() => {
+    if (isControlled) return;
     if (trigger === 'hover') {
       handleLeave(true);
     }
-  }, [trigger, handleLeave]);
+  }, [isControlled, trigger, handleLeave]);
 
   const handleClick = useCallback(() => {
+    if (isControlled) return;
     if (trigger === 'click' && !disabled) {
       setOpen((v) => !v);
     }
-  }, [trigger, disabled]);
+  }, [isControlled, trigger, disabled, setOpen]);
 
   const handlePopupMouseEnter = useCallback(() => {
     if (trigger === 'hover') {

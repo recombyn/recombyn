@@ -299,6 +299,16 @@ class DesignRunIn(BaseModel):
         default=None,
         description="User-pinned skill keys/ids from / picker chips (hard-load)",
     )
+    locale: str | None = Field(
+        default=None,
+        max_length=16,
+        description="UI locale (zh-CN | zh-TW | en | ja) — drives agent output language",
+    )
+    design_intensity: str | None = Field(
+        default=None,
+        max_length=16,
+        description="Design depth: light | medium | high | extreme (pipeline, not model thinking)",
+    )
 
 
 class UserSkillIn(BaseModel):
@@ -520,6 +530,8 @@ async def design_run(
                     client_country=client_country,
                     skill_refs=body.skill_refs,
                     paint_mode=body.paint_mode,
+                    locale=body.locale,
+                    design_intensity=body.design_intensity,
                 ):
                     await queue.put(("ev", ev))
             except Exception as err:  # noqa: BLE001

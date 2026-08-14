@@ -11,7 +11,6 @@ import {
   useFloating,
   useInteractions,
 } from '@floating-ui/react';
-import { HiOutlineBookOpen } from 'react-icons/hi2';
 import type { LlmModel, ChatModelsResponse } from '@/service/chat';
 import { apiQuery, queryClient } from '@/service/client';
 import {
@@ -52,6 +51,7 @@ import ModelPickerPanel, {
 } from '@/components/editor/panels/agent/ModelPickerPanel';
 import {
   loadAgentRoutePrefs,
+  loadDesignIntensity,
   warmOpenrouterAvailability,
   routeOverridesForApi,
 } from '@/components/editor/panels/agent/agentRoutePrefs';
@@ -186,19 +186,17 @@ const DEFAULT_VIDEO_DURATION = 5;
 
 function aspectRatioForCategory(category: HomeAgentCategory): string {
   switch (category) {
-    case 'mobile':
-      return '390x844';
-    case 'poster':
-      return '1080x1920';
-    case 'drawing':
-      return '1080x1080';
     case 'image':
       return DEFAULT_IMAGE_ASPECT_RATIO as string;
     case 'video':
       return DEFAULT_VIDEO_ASPECT_RATIO;
+    // Design agent categories: Smart only — LLM picks create_frame WxH.
+    case 'mobile':
+    case 'poster':
+    case 'drawing':
     case 'website':
     default:
-      return '1440x900';
+      return 'auto';
   }
 }
 
@@ -214,13 +212,6 @@ function interactionModeForCategory(category: HomeAgentCategory): ComposerIntera
   return 'agent';
 }
 
-function designSceneCategoryOf(
-  category: HomeAgentCategory
-): 'website' | 'mobile' | 'image' | 'poster' {
-  if (category === 'drawing' || category === 'video') return 'image';
-  return category;
-}
-
 function hasUploadingAttachment(contexts: ComposerContext[]): boolean {
   return contexts.some((c) => c.kind === 'attachment' && c.uploadStatus === 'uploading');
 }
@@ -234,6 +225,15 @@ function resolveHomeSubmitModelId(opts: {
     return opts.isImageModelSelected ? cloudImageFallbackId() || 'auto' : 'auto';
   }
   return opts.modelId;
+}
+
+function homeModelChipLabel(
+  modelId: string,
+  models: Array<{ id: string; label?: string }>,
+  autoLabel: string
+): string {
+  if (modelId === 'auto') return autoLabel;
+  return models.find((m) => m.id === modelId)?.label || modelId;
 }
 
 function resolveHomeIsImageSubmit(opts: {
@@ -325,6 +325,16 @@ function HomeAgentComposer({
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [modelsWanted, setModelsWanted] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [designIntensity, setDesignIntensity] = useState(() => loadDesignIntensity());
+  useEffect(() => {
+    const sync = () => setDesignIntensity(loadDesignIntensity());
+    window.addEventListener('storage', sync);
+    window.addEventListener('recombyn-design-intensity', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('recombyn-design-intensity', sync);
+    };
+  }, []);
   const [mentionPanelOpen, setMentionPanelOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [interactionMode, setInteractionMode] = useState<ComposerInteractionMode>(() =>
@@ -638,24 +648,11 @@ function HomeAgentComposer({
     : null;
 
   const imageAspectProps = {
-    // Design categories: show size/ratio on the right. Image / Video gen use their own settings.
-    showDesignSizePicker: !isImageInteraction && !isVideoInteraction,
+    // Agent canvas size defaults to Smart (auto) — no manual size popover.
+    showDesignSizePicker: false,
     imageAspectRatio,
     onImageAspectRatioChange: setImageAspectRatio,
     aspectMenuPlacement: 'bottom-end' as const,
-    aspectButtonPlacement: 'end' as const,
-    // Size panel has no "drawing" tab 鈥?use image presets (square canvases).
-    designSceneCategory: designSceneCategoryOf(category),
-    onDesignSceneChange: (scene: 'website' | 'mobile' | 'image' | 'poster' | null) => {
-      // Same as editor: picking Image in the size panel enters Image chat chrome.
-      // Do not force default WxH here 鈥?SizePresetPanel already applied the picked size
-      // (resetting to 1080脳1920 etc. made A0 / custom poster picks look like a no-op).
-      if (scene === 'image') {
-        enterImageModeWithModels();
-        return;
-      }
-      leaveImageMode();
-    },
   };
 
   const exampleChipKeys = exampleChipKeysForCategory(category);
@@ -737,6 +734,10 @@ function HomeAgentComposer({
     let submitAspect = imageAspectRatio;
     if (isImage) submitAspect = String(imageGenAspectRatio);
     else if (isVideoInteraction) submitAspect = String(videoGenAspectRatio);
+    else {
+      // Design agent: Smart only — LLM picks create_frame WxH (never lock category stock).
+      submitAspect = 'auto';
+    }
 
     onSubmit({
       prompt,
@@ -1019,8 +1020,9 @@ function HomeAgentComposer({
         videoModeControls={videoModeControls}
         {...imageAspectProps}
         modelButtonProps={{
-          title: t('home.designSystemCta'),
           variant: 'chip',
+          label: homeModelChipLabel(modelId, models, t('agent.autoToggle')),
+          labelSuffix: t(`agent.designIntensity.${designIntensity}.short`),
           open: modelOpen,
           panelPlacement: 'bottom-end',
           onOpenChange: (next) => {
@@ -1032,11 +1034,10 @@ function HomeAgentComposer({
             }
             setModelOpen(next);
           },
-          // Dropdown keeps portal mounted when closed 鈥?only mount prefs (catalog/models) when open.
+          // Dropdown keeps portal mounted when closed — only mount prefs (catalog/models) when open.
           panel: modelOpen ? (
             <AgentRoutePrefsEditor
               compact
-              modeLabel={t('agent.interactionAgent')}
               selectedModelId={modelId}
               autoOnly={!canPickModel}
               onPickModel={(id) => {
@@ -1047,7 +1048,6 @@ function HomeAgentComposer({
           ) : (
             <span className="hidden" aria-hidden />
           ),
-          icon: <HiOutlineBookOpen className="h-4 w-4 shrink-0" strokeWidth={1.75} />,
         }}
       />
       {mentionPanelOpen ? (

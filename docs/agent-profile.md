@@ -114,7 +114,7 @@ START → bootstrap
 | `design_agent` | shared | Decide: `need_*` then **design_brief**; no canvas ops |
 | `paint_ops` | shared | Structured `tool_ops`; executes DESIGN_BRIEF |
 | `observe` | shared | FE `interrupt` + deterministic structure critique only |
-| `review` | **forked** | Sparse craft gate (`review_mode=auto` by default); not every paint |
+| `review` | **forked** | Craft gate. Default Profile `review_mode=auto`; **user `design_intensity` overrides** (see below) |
 | `propose` / `action` / settle | shared | Ask hold / emit ops / finish |
 
 ### Observe ↔ scene feedback (do not infinite-repaint)
@@ -158,12 +158,38 @@ UX tip codes: `observe_scene_timeout`, `observe_ops_failed`, `observe_critique_f
 |-----|---------|--------|
 | `AGENT_PROFILE_ID` | `design.canvas` | Active Profile id（见上） |
 | `DESIGN_REVIEW_AGENT_ENABLED` | true | Off → never run LLM Review |
-| `DESIGN_REVIEW_MODE` | `auto` | `auto` sparse gates / `off` / `always` (non-lean design). Profile `runtime.flags.review_mode` / KV `design.review.mode` |
+| `DESIGN_REVIEW_MODE` | `auto` | Fallback when the run has no `design_intensity`. `auto` / `off` / `always`. Profile `runtime.flags.review_mode` / KV `design.review.mode` |
 | `DESIGN_CRITIQUE_ENABLED` | true | Structural critique in observe (cheap; not taste) |
 | `DESIGN_GRAPH_NODE_TIMEOUT_SEC` | 180 | Per-node timeout |
 | `DESIGN_GRAPH_RETRY_ATTEMPTS` | 3 | 通用节点；**review / observe 固定 `max_attempts=1`**（避免 3×180s 挂死） |
 
 **Review auto gates** (when mode=`auto`): structure signals with no reflect budget, paint retry flags, taste-complaint prompt, or narrow high-stakes (ref images + design / multi-artboard). Clean design first paints → Observe → settle.
+
+### Run request: locale + design intensity
+
+`POST /api/v1/design/run` body fields (FE: `runDesignAgent` / localStorage `recombyn.designIntensity.v1`). These are **pipeline knobs**, not “pick a more expensive model”.
+
+#### `locale` (output language)
+
+Supported: `zh-CN` | `zh-TW` | `en` | `ja`. Resolve order (`resolve_output_locale`):
+
+1. Client `locale` (UI language)
+2. Cheap script hint from the user prompt (CJK → `zh-CN`)
+3. AgentProfile `identity.locale`
+4. Default `zh-CN`
+
+Every stage system prompt gets `language_directive`: user-facing prose follows `output_language`; tool schemas / op names / hex stay as-is.
+
+#### `design_intensity` (pipeline depth)
+
+| Value | Review | Strategy stack (research → candidates → …) | `review_left` floor |
+|-------|--------|--------------------------------------------|---------------------|
+| `light` (极速) | `off` | Skip | Profile default |
+| `medium` (中, default) | `auto` | Run | Profile default |
+| `high` (高) | `always` | Run | ≥ 2 |
+| `extreme` (极高) | `always` | Run | ≥ 3 |
+
+User intensity **overrides** Profile / `DESIGN_REVIEW_MODE` for that run (`rt.flags.review_mode` / `review_left`). Higher intensity burns more review rounds (and quota), not a different model SKU.
 
 UX tips on failure / apply / Ask dismiss use `_emit_ux_tip` (`token.code` + English fallback); FE maps codes via i18n — do not add new UX LLM calls on those paths.
 
@@ -171,7 +197,7 @@ UX tips on failure / apply / Ask dismiss use `_emit_ux_tip` (`token.code` + Engl
 
 Eval seed: [`apps/api/seeds/design_agent_eval_suite.json`](../apps/api/seeds/design_agent_eval_suite.json) (not ingested by the live graph). Runner: `npm run eval:agent` → [`eval/design-agent/run.mjs`](../eval/design-agent/run.mjs). System failures → prompt packs; craft failures → skills. Load gates: [`docs/quality-gates.md`](./quality-gates.md).
 
-Review 重试预算：`rt.flags.review_left` ← Profile `topology.loops`（`from: review` / `when: must_fix` / `to: paint` 的 `max`）。
+Review 重试预算：`rt.flags.review_left` ← Profile `topology.loops`（`from: review` / `when: must_fix` / `to: paint` 的 `max`），再被 `design_intensity` 抬高（high ≥ 2，extreme ≥ 3）。
 
 Review 选模：用户锁模 / `single_model` → 同一模型（不强制看图专用模）；无预览或非 vision 时用 **DESIGN_BRIEF + SCENE** 文本对照。Auto 时可跟本轮 Design 模型或 Admin `agent.review.model`。
 
@@ -245,7 +271,7 @@ npm run dev:api
 
 Create 路径：Decide（带图则自己看）→ `design_brief` → Paint → Observe →（Review **auto 门控**，多数回合直接 settle）。
 
-单元：`apps/api/tests/unit_tests/test_agent_profile.py` · `test_subagent_spawn.py` · `test_design_critique.py`
+单元：`apps/api/tests/unit_tests/test_agent_profile.py` · `test_subagent_spawn.py` · `test_design_critique.py` · `apps/api/tests/design_engine/test_language_and_reply.py`
 
 ## Code map
 

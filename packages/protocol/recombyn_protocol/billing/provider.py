@@ -33,7 +33,7 @@ class ProviderBillingAdapter(Protocol):
     """Third-party / host billing adapter surface.
 
     Maps Provider Usage → Cost via PricingVersion; does **not** implement
-    private margin / credit pack / fraud policy.
+    host commercial policy (markup / packs / fraud).
     """
 
     def resolve_pricing_version(

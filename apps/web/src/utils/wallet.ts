@@ -49,9 +49,9 @@ export type PlanDef = {
 /** Free plan may only use Auto + this image model. */
 export const FREE_IMAGE_MODEL_ID = 'doubao-seedream-5-0-lite';
 
-/** Align with API ``billing.PLUS_*`` — ¥29 → 200 积分 face. */
-export const PLUS_LIST_PRICE_CNY = 29;
-export const PLUS_FACE_CREDITS = 200;
+/** Align with API ``billing.PLUS_*`` — Plus list ¥49 → 340 积分 face. */
+export const PLUS_LIST_PRICE_CNY = 49;
+export const PLUS_FACE_CREDITS = 340;
 
 /** How many 积分 equal ¥1 at Plus face value. */
 export function creditsPerCny(): number {
@@ -65,6 +65,7 @@ export function creditsFromSellPriceCny(priceCny: number): number {
   return Math.max(1, Math.round(n * creditsPerCny()));
 }
 
+/** OSS fallback when `/wallet/plans` is unavailable. Live SKUs come from the API. */
 export const PLAN_CATALOG: Record<PlanId, PlanDef> = {
   free: {
     id: 'free',
@@ -73,25 +74,25 @@ export const PLAN_CATALOG: Record<PlanId, PlanDef> = {
     imageCreditsIncluded: 0,
     dailyRuns: 1,
   },
-  /** ¥29 — 200 积分 / mo（与扣费锚点一致；约 100 张 Seedream）. */
+  /** ¥49 — 340 积分 / mo（与 Intelligence commercial + 扣费锚点一致）. */
   plus: {
     id: 'plus',
-    priceCny: 29,
-    creditsIncluded: 200,
-    imageCreditsIncluded: 200,
+    priceCny: 49,
+    creditsIncluded: 340,
+    imageCreditsIncluded: 340,
     recommended: true,
   },
   pro: {
     id: 'pro',
-    priceCny: 99,
-    creditsIncluded: 750,
-    imageCreditsIncluded: 750,
+    priceCny: 149,
+    creditsIncluded: 1030,
+    imageCreditsIncluded: 1030,
   },
   ultra: {
     id: 'ultra',
-    priceCny: 199,
-    creditsIncluded: 1600,
-    imageCreditsIncluded: 1600,
+    priceCny: 499,
+    creditsIncluded: 4000,
+    imageCreditsIncluded: 4000,
   },
 };
 
@@ -110,7 +111,7 @@ export function normalizePlanId(raw: unknown): PlanId {
   if (raw === 'free' || raw === 'plus' || raw === 'pro' || raw === 'ultra') return raw;
   if (raw === 'hobby') return 'free';
   if (raw === 'basic') return 'plus';
-  if (raw === 'pro_plus' || raw === 'teams' || raw === 'flagship') return 'ultra';
+  if (raw === 'studio' || raw === 'pro_plus' || raw === 'teams' || raw === 'flagship') return 'ultra';
   return 'free';
 }
 

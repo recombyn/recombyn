@@ -332,12 +332,14 @@ def _upsert_owned_skill(
         )
 
 def _skills_disk_signature() -> str:
+    """Pack fingerprint — meta + SKILL.md + list icon (logo changes must resync)."""
     parts: list[str] = []
     for root in _file_skills_dirs():
         for pack in sorted(p for p in root.iterdir() if p.is_dir()):
             try:
                 meta_m = 0
                 body_m = 0
+                icon_m = 0
                 for name in _META_NAMES:
                     mp = pack / name
                     if mp.is_file():
@@ -346,7 +348,12 @@ def _skills_disk_signature() -> str:
                 sp = _skill_md_path(pack)
                 if sp is not None:
                     body_m = sp.stat().st_mtime_ns
-                parts.append(f"{root.name}/{pack.name}:{meta_m}:{body_m}")
+                for icon_name in ("icon.png", "icon.webp", "icon.jpg", "icon.svg"):
+                    ip = pack / "assets" / icon_name
+                    if ip.is_file():
+                        icon_m = ip.stat().st_mtime_ns
+                        break
+                parts.append(f"{root.name}/{pack.name}:{meta_m}:{body_m}:{icon_m}")
             except Exception:
                 parts.append(f"{root.name}/{pack.name}:err")
     return "|".join(parts)

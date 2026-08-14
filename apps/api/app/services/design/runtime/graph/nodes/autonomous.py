@@ -2,40 +2,22 @@
 
 Kernel path: Decide → IntelligenceClient.autonomous_plan/sync → BasicLocal → here.
 
-Community floor: goal vs micro-edit classify + hop plan/sync over Kernel slots.
-Full AD orchestration density lives behind Remote → private Intelligence.
+Community floor: goal vs micro-edit from **LLM classified_intent** (design → goal,
+canvas_op → micro_edit). No prompt length / keyword guessing.
 
 Never emits canvas tool_ops. Execution/Observe/Review remain Kernel-owned.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
-
-from langgraph.types import Command
 
 from app.services.design.runtime.graph.state import (
     AUTONOMOUS_HOPS,
     AgentRuntime,
-    GraphState,
     parse_autonomous_art_director,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
-
-# Spec micro-edit: 「帮我调整标题。」 — not autonomous.
-_MICRO_EDIT_RX = re.compile(
-    r"(调整标题|改一下标题|帮我调|挪一下|改成|字号|换色|改色|"
-    r"resize\s+(the\s+)?title|move\s+(the\s+)?title|change\s+the\s+(title|color|font)|"
-    r"make\s+(it|the\s+title)\s+(bigger|smaller)|nudge\b)",
-    re.I,
-)
-# Spec goal: 「我要一个能让产品显得更贵、更专业、更有科技感的官网。」
-_GOAL_RX = re.compile(
-    r"(我要一个|做一个|官网|landing\s*page|显得更|更贵|更专业|科技感|"
-    r"premium|professional|tech(?:nical|nology)?\s*feel|brand\s*site|"
-    r"campaign|视觉方向|设计策略|art\s*direction)",
-    re.I,
-)
+from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.models_route import normalize_user_intent
 
 _HOP_SLOT: dict[str, str] = {
     "research": "design_research",
@@ -52,23 +34,32 @@ _HOP_SLOT: dict[str, str] = {
 }
 
 
-def classify_autonomous_mode(prompt: str) -> str:
-    """Return goal | micro_edit | idle from user text."""
-    text = str(prompt or "").strip()
-    if not text:
+def classify_autonomous_mode(
+    prompt: str = "",
+    *,
+    classified_intent: str | None = None,
+) -> str:
+    """Return goal | micro_edit | idle from LLM intent — never prompt keywords/length."""
+    del prompt
+    raw = str(classified_intent or "").strip()
+    if not raw:
         return "idle"
-    if _MICRO_EDIT_RX.search(text) and not _GOAL_RX.search(text):
+    intent = normalize_user_intent(raw)
+    if intent == "design":
+        return "goal"
+    if intent == "canvas_op":
         return "micro_edit"
-    if _GOAL_RX.search(text):
-        return "goal"
-    # Long aspirational briefs without micro verbs still count as goals.
-    if len(text) >= 40 and not _MICRO_EDIT_RX.search(text):
-        return "goal"
     return "idle"
 
 
-def is_goal_only_prompt(prompt: str) -> bool:
-    return classify_autonomous_mode(prompt) == "goal"
+def is_goal_only_prompt(
+    prompt: str = "",
+    *,
+    classified_intent: str | None = None,
+) -> bool:
+    return (
+        classify_autonomous_mode(prompt, classified_intent=classified_intent) == "goal"
+    )
 
 
 def _hop_row(hop_id: str, status: str = "pending", note: str = "") -> dict[str, Any]:
@@ -82,7 +73,7 @@ def build_autonomous_plan(
     force: bool | None = None,
 ) -> dict[str, Any]:
     """Build host-owned hop plan. Never includes tool_ops."""
-    mode = classify_autonomous_mode(prompt)
+    mode = classify_autonomous_mode(prompt, classified_intent=intent)
     if force is True:
         mode = "goal"
     elif force is False:
@@ -289,10 +280,14 @@ async def run_autonomous_controller(
             _emit(
                 {
                     "type": "activity",
-                    "id": "autonomous-art-director",
+                    "id": "explore-pipeline",
                     "kind": "explored",
                     "status": "running",
-                    "summary": "AUTONOMOUS_AD: goal → Research → Strategy → Tournament → …",
+                    "visibility": "user",
+                    "item": {
+                        "id": "autonomous-art-director",
+                        "name": "AUTONOMOUS_AD: goal → Research → Strategy → Tournament → …",
+                    },
                 }
             )
             st.push_log(
@@ -335,10 +330,3 @@ async def run_autonomous_controller(
         }
     )
     return synced
-
-
-async def node_autonomous(state: GraphState) -> Command:
-    """Optional graph node — plan then leave Decide to run intelligence hops."""
-    rt = state["rt"]
-    await run_autonomous_controller(rt, phase="plan")
-    return _bump(state, "decide")

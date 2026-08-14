@@ -13,7 +13,6 @@ import {
   useFloating,
   useInteractions,
 } from '@floating-ui/react';
-import { HiOutlineBookOpen } from 'react-icons/hi2';
 import {
   generateImage,
   generateVideo,
@@ -162,9 +161,9 @@ import {
   warmAgentRoutePresetRules,
   warmOpenrouterAvailability,
   loadAgentRoutePrefs,
+  loadDesignIntensity,
 } from '@/components/editor/panels/agent/agentRoutePrefs';
 import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/AgentRoutePrefsEditor';
-import { loadAgentPaintMode } from '@/components/editor/panels/agent/boardModes/prefs';
 import { setAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
 import {
@@ -190,7 +189,6 @@ import {
   buildStreamingAssistantSeed,
   buildVideoAssistantSeed,
   buildVideoModeControls,
-  canvasSizeFromChip,
   clampComposerImageCount,
   clearAskProposalFields,
   collectSendChipContext,
@@ -284,7 +282,7 @@ function applyDraftInteractionMode(opts: {
     return;
   }
   if (mode === 'ask') {
-    setInteractionMode('ask');
+    setInteractionMode('agent');
     setComposerMode('agent');
     return;
   }
@@ -305,7 +303,7 @@ function applyBootInteractionMode(
     return;
   }
   if (mode === 'ask') {
-    setInteractionMode('ask');
+    setInteractionMode('agent');
     setComposerMode('agent');
     return;
   }
@@ -453,7 +451,7 @@ const DETAIL_SUMMARY_KINDS = new Set([
 ]);
 const SUCCESS_VARIANT_KINDS = new Set(['added', 'updated', 'deleted']);
 const CONFIRM_VARIANT_KINDS = new Set(['thought', 'explored', 'tool']);
-const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'ask', 'image', 'video'];
+const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'image', 'video'];
 
 type FinishAssistant = (
   m: ChatUiMessage,
@@ -587,38 +585,15 @@ function mentionAttachRefPayload(kind: 'image' | 'video' | 'audio', ordinal: num
   return `[Ref: Attached image ${ordinal}]`;
 }
 
-function modelButtonTitle(
-  modelId: string,
-  models: LlmModel[],
-  fallbackLabel: string,
-  t: (key: string) => string
-): string {
-  if (modelId === 'auto') return modelDescription(AUTO_MODEL, t);
-  const m = models.find((x) => x.id === modelId);
-  if (!m) return fallbackLabel;
-  return `${m.label || m.id} — ${modelDescription(m, t)}`;
-}
-
 function modelButtonLabel(
   modelId: string,
   selected: LlmModel | undefined,
   fallbackLabel: string,
   t: (key: string) => string
 ): string {
-  if (modelId === 'auto') return t('agent.autoToggle');
-  return selected?.label || fallbackLabel;
+  return modelId === 'auto' ? t('agent.autoToggle') : selected?.label || fallbackLabel;
 }
 
-function interactionModeLabel(
-  mode: ComposerInteractionMode,
-  t: (key: string) => string
-): string {
-  if (mode === 'image') return t('agent.interactionImage');
-  if (mode === 'video') return t('agent.interactionVideo');
-  return t('agent.interactionAgent');
-}
-
-/** Hover tip when Send is blocked or models are unhealthy. */
 function composerSendDisabledReason(opts: {
   t: (key: string) => string;
   attachmentsUploading: boolean;
@@ -732,6 +707,16 @@ function AgentDock({
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [available, setAvailable] = useState<boolean | null>(null);
   const [model, setModel] = useState('auto');
+  const [designIntensity, setDesignIntensity] = useState(() => loadDesignIntensity());
+  useEffect(() => {
+    const sync = () => setDesignIntensity(loadDesignIntensity());
+    window.addEventListener('storage', sync);
+    window.addEventListener('recombyn-design-intensity', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('recombyn-design-intensity', sync);
+    };
+  }, []);
   const [imageAspectRatio, setImageAspectRatio] = useState<string>('auto');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -831,6 +816,10 @@ function AgentDock({
   const abortRef = useRef<AbortController | null>(null);
   const liveDesignTaskRef = useRef<string | null>(null);
   const pauseRequestedRef = useRef(false);
+  /** True when the in-flight turn actually started design / canvas work. */
+  const liveTurnWorkRef = useRef<{ designStarted: boolean; canvasMutated: boolean } | null>(
+    null
+  );
   /** Avoid re-entrant auto-resume for the same session+task. */
   const autoResumeKeyRef = useRef<string | null>(null);
   /** Home → editor auto-send; flushed when modelsStatus leaves idle/loading. */
@@ -1220,7 +1209,14 @@ function AgentDock({
       setComposerMode(composerModeForModelId(boot.modelId));
     }
     applyBootInteractionMode(boot.interactionMode, setInteractionMode, setComposerMode);
-    if (boot.imageAspectRatio) setImageAspectRatio(boot.imageAspectRatio);
+    // Design agent is always Smart (auto) — never import home category stock WxH
+    // (e.g. website 1440×900) as CLIENT_SIZE_LOCK; LLM must pick create_frame size.
+    const bootMode = String(boot.interactionMode || '').trim().toLowerCase();
+    if (bootMode === 'image' || bootMode === 'video') {
+      if (boot.imageAspectRatio) setImageAspectRatio(boot.imageAspectRatio);
+    } else {
+      setImageAspectRatio('auto');
+    }
     if (boot.scene) {
       setDesignScene(boot.scene);
       designSceneRef.current = boot.scene;
@@ -1748,31 +1744,10 @@ function AgentDock({
   const attachFull = attachmentCount >= attachmentLimit;
 
   const imageAspectProps = {
-    showDesignSizePicker: !isImageModelSelected && !isVideoInteraction,
+    // Agent canvas size defaults to Smart (auto) — no manual size popover.
+    showDesignSizePicker: false,
     imageAspectRatio,
     onImageAspectRatioChange: setImageAspectRatio,
-    designSceneCategory: (designScene === 'drawing' ? 'image' : designScene) as
-      | 'website'
-      | 'mobile'
-      | 'image'
-      | 'poster'
-      | null,
-    onDesignSceneChange: (scene: DesignScene | null) => {
-      setDesignScene(scene);
-      designSceneRef.current = scene;
-      if (scene !== 'image') {
-        setComposerMode('agent');
-        setInteractionMode('agent');
-        setModel('auto');
-        return;
-      }
-      setComposerMode('image');
-      if (!canPickModel) {
-        setModel(cloudImageFallbackId() || 'auto');
-        return;
-      }
-      setModel(pickPreferredImageModelId(models));
-    },
     aspectMenuPlacement: 'top-start' as const,
   };
   const attachProps = {
@@ -1988,7 +1963,7 @@ function AgentDock({
       canvasMutated: false,
       nodesPainted: false,
     };
-    const chipNorm = normalizeCanvasSizeChip(imageAspectRatio);
+    const chipNorm = 'auto';
     const onDesignEvent = createDesignAgentEventRouter({
       t,
       assistantId: target.id,
@@ -2011,17 +1986,19 @@ function AgentDock({
         userMessage: userMsg.content || '',
         runMode: 'agent',
         interactionMode: 'agent',
-        paintMode: loadAgentPaintMode(),
+        paintMode: 'ops',
         resumeTaskId: taskId,
         resumeToken: target.designResumeToken || undefined,
         scene: null,
         styleGroupId: styleGroupId ?? designCatalog?.style_groups?.[0]?.id ?? null,
         model: resolveAgentSendModel(canPickModel, model),
         routeOverrides: resolveAgentRouteOverrides(canPickModel, model),
-        canvasSize: canvasSizeFromChip(chipNorm),
+        canvasSize: 'auto',
         canvasId: chatScopeId || undefined,
         sessionId,
         projectId: chatScopeId || '__none__',
+        locale: i18n.language || 'zh-CN',
+        designIntensity,
         dispatch,
         getDocument: () => store.getState().editor.document,
         signal: ac.signal,
@@ -2665,7 +2642,8 @@ function AgentDock({
     try {
       const chipNorm = normalizeCanvasSizeChip(imageAspectRatio);
       const sendScene = null;
-      const sendCanvasSize = canvasSizeFromChip(chipNorm);
+      // Design agent: always Smart — LLM create_frame picks WxH (no CLIENT_SIZE_LOCK).
+      const sendCanvasSize = 'auto';
       console.info('[AgentDock] design send (react p0)', {
         scene: sendScene,
         canvasSize: sendCanvasSize,
@@ -2677,7 +2655,7 @@ function AgentDock({
         t,
         assistantId,
         userMsg,
-        chipNorm,
+        chipNorm: 'auto',
         setMessages,
         setImageAspectRatio,
         setDesignScene,
@@ -2694,12 +2672,8 @@ function AgentDock({
       await runDesignAgent({
         userMessage: userMessageForApi,
         runMode: 'agent',
-        interactionMode: isImageInteraction
-          ? 'agent'
-          : interactionMode === 'ask'
-            ? 'ask'
-            : 'agent',
-        paintMode: loadAgentPaintMode(),
+        interactionMode: 'agent',
+        paintMode: 'ops',
         applyOps: options.applyOps?.length ? options.applyOps : undefined,
         proposalId: options.proposalId || pendingProposal.proposalId || undefined,
         proposalTaskId:
@@ -2719,6 +2693,8 @@ function AgentDock({
         images: sendImages.length ? sendImages : undefined,
         sessionId,
         projectId: chatScopeId || '__none__',
+        locale: i18n.language || 'zh-CN',
+        designIntensity,
         canvasUi,
         processLabels: {
           preparing: t('agent.canvasProcessPreparing'),
@@ -3149,6 +3125,16 @@ function AgentDock({
   };
 
   const applyInteractionMode = useCallback((mode: ComposerInteractionMode) => {
+    // Product: one ChatGPT-style chat. Ask is retired; image/video only via home category boot.
+    if (mode === 'ask') {
+      setInteractionMode('agent');
+      setComposerMode('agent');
+      setModel('auto');
+      setImageModelPanelOpen(false);
+      setVideoModelPanelOpen(false);
+      setModelPanelOpen(false);
+      return;
+    }
     setInteractionMode(mode);
     setImageModelPanelOpen(false);
     setVideoModelPanelOpen(false);
@@ -3329,8 +3315,9 @@ function AgentDock({
   });
 
   const modelButtonProps = {
-    title: modelButtonTitle(model, models, selectedModelLabel, t),
     label: modelButtonLabel(model, selectedModel, selectedModelLabel, t),
+    labelSuffix: t(`agent.designIntensity.${designIntensity}.short`),
+    variant: 'chip' as const,
     open: modelPanelOpen,
     onOpenChange: (next: boolean) => {
       if (next) {
@@ -3343,7 +3330,6 @@ function AgentDock({
     panel: modelPanelOpen ? (
       <AgentRoutePrefsEditor
         compact
-        modeLabel={interactionModeLabel(interactionMode, t)}
         selectedModelId={model}
         autoOnly={!canPickModel}
         onPickModel={(id) => {
@@ -3353,7 +3339,6 @@ function AgentDock({
     ) : (
       <span className="hidden" aria-hidden />
     ),
-    icon: <HiOutlineBookOpen className="h-4 w-4 shrink-0" strokeWidth={1.75} />,
   };
 
   const escapeComposer = (opts?: { cancelEdit?: boolean }) => {
@@ -3392,6 +3377,12 @@ function AgentDock({
         sendVariant="circle"
         sendTone="ink"
         {...attachProps}
+        interactionMode={interactionMode}
+        onInteractionModeChange={applyInteractionMode}
+        allowedInteractionModes={enabledInteractionModes}
+        showInteractionModePicker
+        imageModeControls={imageModeControls}
+        videoModeControls={videoModeControls}
         modelButtonProps={modelButtonProps}
         {...imageAspectProps}
       />
@@ -3504,6 +3495,7 @@ function AgentDock({
               interactionMode={interactionMode}
               onInteractionModeChange={applyInteractionMode}
               allowedInteractionModes={enabledInteractionModes}
+              showInteractionModePicker
               imageModeControls={imageModeControls}
               videoModeControls={videoModeControls}
               modelButtonProps={modelButtonProps}

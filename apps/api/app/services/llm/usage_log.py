@@ -28,7 +28,7 @@ _USD_CNY = 7.2
 
 
 def _credits_to_revenue_cny(credits: Any) -> float | None:
-    """Wallet 积分 face value → CNY (Plus ¥29 / 200 积分)."""
+    """Wallet 积分 face value → CNY (Plus ¥49 / 340 积分)."""
     try:
         n = float(credits)
     except Exception:

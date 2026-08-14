@@ -25,6 +25,8 @@ import {
   HiOutlinePlay,
   HiOutlinePlus,
   HiOutlineXMark,
+  HiChevronUp,
+  HiChevronDown,
 } from 'react-icons/hi2';
 import { LuInfinity, LuMessageSquare } from 'react-icons/lu';
 import { Dropdown, DropdownPanel, DropdownPanelItem } from '@/components/base';
@@ -41,7 +43,6 @@ import ImageAspectRatioPicker, {
   AspectRatioGlyph,
 } from '@/components/editor/panels/agent/ImageAspectRatioPicker';
 import {
-  formatCanvasSizeChipLabel,
   isCanvasSizeAutoHint,
 } from '@/components/editor/chrome/SizePresetPanel';
 import { useBillingEnabled } from '@/service/wallet';
@@ -53,12 +54,7 @@ export type ComposerRunMode = 'agent' | 'image' | 'video';
 /** Agent = edit canvas; Ask = propose / clarify first; Image / Video = direct gen in chat. */
 export type ComposerInteractionMode = 'agent' | 'ask' | 'image' | 'video';
 
-const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = [
-  'agent',
-  'ask',
-  'image',
-  'video',
-];
+const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'image', 'video'];
 
 /** Controls shown when `interactionMode === 'image'` (mirrors ImageGeneratorCard footer). */
 export type ImageModeComposerControls = {
@@ -266,9 +262,6 @@ type Props = {
   /** When set with onImageAspectRatioChange, show design canvas size button. */
   imageAspectRatio?: string | null;
   onImageAspectRatioChange?: (ratio: string) => void;
-  onDesignSceneChange?: (scene: 'website' | 'mobile' | 'image' | 'poster' | null) => void;
-  /** Sync size-panel top tab with home / dock scene (poster / mobile / …). */
-  designSceneCategory?: 'website' | 'mobile' | 'image' | 'poster' | null;
   /**
    * Where the size / aspect panel opens relative to the trigger.
    * Home hero: `bottom-start` (open downward). Agent dock footer: `top-start`.
@@ -283,8 +276,6 @@ type Props = {
   /** Video-mode settings / model / credit send (Video Generator鈥搒tyle chrome). */
   videoModeControls?: VideoModeComposerControls | null;
   modelButtonProps: {
-    /** @deprecated Unused — model chip no longer shows a hover tip. */
-    title?: string;
     open: boolean;
     /** Preferred: Dropdown-hosted primary panel (flip / shift, stable anchor). */
     panel?: ReactNode;
@@ -299,6 +290,8 @@ type Props = {
     icon?: ReactNode;
     /** Short label shown in the pill (e.g. Auto / DeepSeek). */
     label?: string;
+    /** Optional muted trailing chip text (e.g. design intensity short). */
+    labelSuffix?: string;
     /**
      * `icon` — cube only (editor default).
      * `chip` — bordered pill with icon + label (home “智能设计系统”).
@@ -326,12 +319,6 @@ type Props = {
   trailingActions?: ReactNode;
   /** Attach control glyph. @default 'plus' */
   attachIcon?: 'plus' | 'image';
-  /**
-   * Where the design size / ratio chip sits.
-   * Home: `end` (right cluster). Editor dock: `start` (left of send cluster).
-   * @default 'start'
-   */
-  aspectButtonPlacement?: 'start' | 'end';
 };
 
 
@@ -833,7 +820,7 @@ function interactionModeIcon(mode: ComposerInteractionMode): ReactNode {
 function buildInteractionModeOptions(
   allowedModes: ComposerInteractionMode[],
   t: (key: string) => string
-): Array<{ key: ComposerInteractionMode; label: string; icon: ReactNode; disabledItem?: boolean }> {
+): Array<{ key: ComposerInteractionMode; label: string; icon: ReactNode }> {
   const all: Array<{ key: ComposerInteractionMode; label: string; icon: ReactNode }> = [
     {
       key: 'agent',
@@ -856,7 +843,7 @@ function buildInteractionModeOptions(
       icon: <HiOutlineFilm className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />,
     },
   ];
-  return all.map((item) => ({ ...item, disabledItem: !allowedModes.includes(item.key) }));
+  return all.filter((item) => allowedModes.includes(item.key));
 }
 
 function ComposerInteractionModePicker({
@@ -877,6 +864,7 @@ function ComposerInteractionModePicker({
   t: (key: string) => string;
 }): ReactNode {
   const modes = buildInteractionModeOptions(allowedModes, t);
+  if (modes.length <= 1) return null;
   return (
     <Dropdown
       trigger="click"
@@ -892,14 +880,12 @@ function ComposerInteractionModePicker({
         <DropdownPanel className="min-w-[9.5rem] p-1">
           {modes.map((m) => {
             const active = interactionMode === m.key;
-            const itemDisabled = Boolean(m.disabledItem);
             return (
               <DropdownPanelItem
                 key={m.key}
                 selected={active}
-                className={cn('gap-2 pr-2', itemDisabled && 'cursor-not-allowed opacity-35')}
+                className="gap-2 pr-2"
                 onClick={() => {
-                  if (itemDisabled) return;
                   onInteractionModeChange(m.key);
                   onModeMenuOpenChange(false);
                 }}
@@ -931,10 +917,20 @@ function ComposerInteractionModePicker({
       <button
         type="button"
         aria-label={interactionModeLabel(interactionMode, t)}
+        aria-expanded={modeMenuOpen}
         disabled={disabled}
-        className={cn(TOOL_ICON_BTN, modeMenuOpen && TOOL_ICON_BTN_ACTIVE)}
+        className={cn(
+          'inline-flex h-7 max-w-[9.5rem] shrink-0 items-center gap-1 rounded-xl px-2 text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-40',
+          modeMenuOpen && TOOL_ICON_BTN_ACTIVE
+        )}
       >
         {interactionModeIcon(interactionMode)}
+        <span className="min-w-0 truncate">{interactionModeLabel(interactionMode, t)}</span>
+        {modeMenuOpen ? (
+          <HiChevronUp className="h-3 w-3 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
+        ) : (
+          <HiChevronDown className="h-3 w-3 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
+        )}
       </button>
     </Dropdown>
   );
@@ -1018,8 +1014,6 @@ function AgentComposerShell({
   showDesignSizePicker = true,
   imageAspectRatio,
   onImageAspectRatioChange,
-  onDesignSceneChange,
-  designSceneCategory,
   aspectMenuPlacement = 'bottom-start',
   interactionMode,
   onInteractionModeChange,
@@ -1035,7 +1029,6 @@ function AgentComposerShell({
   sendTone = 'ink',
   trailingActions,
   attachIcon = 'plus',
-  aspectButtonPlacement = 'start',
 }: Props): ReactNode {
   const { t } = useTranslation();
   const billingEnabled = useBillingEnabled();
@@ -1182,26 +1175,21 @@ function AgentComposerShell({
     <button
       type="button"
       ref={aspectFloating.refs.setReference}
-      aria-label={t('agent.designCanvasSizeAria', {
-        defaultValue: t('agent.imageSettingsAria'),
-      })}
+      aria-label={t('agent.designCanvasSizeAria')}
       aria-expanded={aspectOpen}
       aria-haspopup="dialog"
       disabled={disabled}
       className={cn(
-        'inline-flex h-7 max-w-[9.5rem] shrink-0 items-center rounded-xl px-2 text-[12px] font-medium tabular-nums text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-40',
+        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-40',
         aspectOpen && TOOL_ICON_BTN_ACTIVE
       )}
       {...aspectIx.getReferenceProps()}
     >
-      <span className="inline-flex min-w-0 items-center gap-1">
-        {isCanvasSizeAutoHint(imageAspectRatio) ? (
-          <AspectRatioGlyph ratio="smart" size={14} className="shrink-0" />
-        ) : null}
-        <span className="truncate">
-          {formatCanvasSizeChipLabel(imageAspectRatio, t)}
-        </span>
-      </span>
+      <AspectRatioGlyph
+        ratio={isCanvasSizeAutoHint(imageAspectRatio) ? 'smart' : String(imageAspectRatio || '1:1')}
+        size={14}
+        className="shrink-0"
+      />
     </button>
   ) : null;
 
@@ -1275,8 +1263,6 @@ function AgentComposerShell({
         />
       </div>
       <div className="mt-1 flex w-full items-center gap-1.5">
-        {leadingActions}
-
         {showInteractionModePicker && interactionMode && onInteractionModeChange ? (
           <ComposerInteractionModePicker
             interactionMode={interactionMode}
@@ -1288,6 +1274,8 @@ function AgentComposerShell({
             t={t}
           />
         ) : null}
+        {aspectButton}
+        {leadingActions}
 
         {isImageMode && imageModeControls ? (
           <Dropdown
@@ -1437,58 +1425,60 @@ function AgentComposerShell({
           </button>
         ) : null}
 
-        {aspectButtonPlacement === 'start' ? aspectButton : null}
+        {!isGenMediaMode &&
+        showModelButton &&
+        modelButtonProps.variant === 'chip' &&
+        modelButtonProps.panel != null &&
+        modelButtonProps.onOpenChange ? (
+          <Dropdown
+            trigger="click"
+            placement={modelButtonProps.panelPlacement ?? 'top-start'}
+            strategy="fixed"
+            offset={8}
+            open={modelButtonProps.open}
+            onOpenChange={modelButtonProps.onOpenChange}
+            items={[]}
+            nestedDismissGuard="[data-agent-route-submenu], .rcb-agent-route-submenu-popup"
+            floatingClassName="z-[80]"
+            referenceClassName="inline-flex"
+            popupRender={() => (
+              <div className="max-w-full" onPointerDown={(e) => e.stopPropagation()}>
+                {modelButtonProps.panel}
+              </div>
+            )}
+          >
+            <button
+              type="button"
+              aria-label={modelButtonProps.label || t('agent.selectModel')}
+              aria-expanded={modelButtonProps.open}
+              className={
+                modelButtonProps.label
+                  ? cn(
+                      'inline-flex h-7 max-w-[14rem] shrink-0 items-center rounded-xl px-2 text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
+                      modelButtonProps.open && TOOL_ICON_BTN_ACTIVE
+                    )
+                  : cn(TOOL_ICON_BTN, modelButtonProps.open && TOOL_ICON_BTN_ACTIVE)
+              }
+            >
+              {modelButtonProps.label ? (
+                <span className="inline-flex max-w-[14rem] items-center gap-1 truncate">
+                  <span className="truncate">{modelButtonProps.label}</span>
+                  {modelButtonProps.labelSuffix ? (
+                    <span className="shrink-0 text-[11px] font-normal opacity-70">
+                      {modelButtonProps.labelSuffix}
+                    </span>
+                  ) : null}
+                </span>
+              ) : (
+                modelButtonProps.icon ?? (
+                  <Icon name="editor-model-cube" width={16} height={16} />
+                )
+              )}
+            </button>
+          </Dropdown>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-1.5">
-          {!isGenMediaMode &&
-          showModelButton &&
-          modelButtonProps.variant === 'chip' &&
-          modelButtonProps.panel != null &&
-          modelButtonProps.onOpenChange ? (
-            <Dropdown
-              trigger="click"
-              placement={modelButtonProps.panelPlacement ?? 'top-end'}
-              strategy="fixed"
-              offset={8}
-              open={modelButtonProps.open}
-              onOpenChange={modelButtonProps.onOpenChange}
-              items={[]}
-              nestedDismissGuard="[data-agent-route-submenu], .rcb-agent-route-submenu-popup"
-              floatingClassName="z-[80]"
-              referenceClassName="inline-flex"
-              popupRender={() => (
-                <div className="max-w-full" onPointerDown={(e) => e.stopPropagation()}>
-                  {modelButtonProps.panel}
-                </div>
-              )}
-            >
-              <button
-                type="button"
-                aria-label={
-                  modelButtonProps.label ||
-                  modelButtonProps.title ||
-                  t('agent.selectModel')
-                }
-                aria-expanded={modelButtonProps.open}
-                className={
-                  modelButtonProps.label
-                    ? cn(
-                        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 text-[12px] font-medium text-[var(--ink)] transition-colors hover:bg-[var(--accent-soft)]',
-                        modelButtonProps.open && 'border-[var(--ink)]/20 bg-[var(--accent-soft)]'
-                      )
-                    : cn(TOOL_ICON_BTN, modelButtonProps.open && TOOL_ICON_BTN_ACTIVE)
-                }
-              >
-                {modelButtonProps.icon ?? (
-                  <Icon name="editor-model-cube" width={16} height={16} />
-                )}
-                {modelButtonProps.label ? (
-                  <span className="max-w-[9rem] truncate">{modelButtonProps.label}</span>
-                ) : null}
-              </button>
-            </Dropdown>
-          ) : null}
-          {aspectButtonPlacement === 'end' ? aspectButton : null}
           {trailingActions}
           {!isGenMediaMode ? (
             <>
@@ -1706,8 +1696,6 @@ function AgentComposerShell({
                   onImageAspectRatioChange?.(ratio);
                   if (!opts?.keepOpen) setAspectOpen(false);
                 }}
-                onDesignSceneChange={onDesignSceneChange}
-                designSceneCategory={designSceneCategory}
                 disabled={disabled}
               />
             </div>

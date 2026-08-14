@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
 
 from langgraph.types import Command
 
@@ -28,16 +27,6 @@ from app.services.design.runtime.models_route import (
     enabled_tiers,
     estimate_task_tier,
 )
-
-
-def _canvas_is_empty(rt: Any) -> bool:
-    nodes = [n for n in (rt.scene_nodes or []) if isinstance(n, dict) and n.get("id")]
-    if nodes:
-        return False
-    frames = [f for f in (rt.scene_frames or []) if isinstance(f, dict) and f.get("id")]
-    if not frames:
-        return True
-    return all(bool(f.get("is_empty")) for f in frames)
 
 
 async def _node_bootstrap(state: GraphState) -> Command:
