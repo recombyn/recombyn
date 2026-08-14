@@ -5,13 +5,13 @@
  * OpenRouter: flat 鍏?寮? or output_image_token 脳 Gemini fixed tokens
  *   (1K/2K 鈫?1120, 4K 鈫?2000). Never pixel梅256.
  *
- * Credits: ceil(楼/寮?脳 200/29 脳 1.2 脳 count)
+ * Credits: ceil(¥/张 × 340/49 × 1.2 × count)
  */
 
 import type { LlmModel } from '@/service/chat';
 
-const PLUS_LIST_CNY = 29;
-const PLUS_FACE_CREDITS = 200;
+const PLUS_LIST_CNY = 49;
+const PLUS_FACE_CREDITS = 340;
 const DEFAULT_MARKUP = 1.2;
 const DEFAULT_FX = 7.2;
 const FALLBACK_CREDITS = 2;

@@ -444,10 +444,14 @@ const en = {
       pro: 'For steady high-volume delivery',
       ultra: 'For teams and heavy production',
     },
+    planCreditsGift: '{{count}} credits / month (chat / Agent / images)',
+    planUsageEstimate: '~{{chats}} chats · ~{{images}} images',
+    planUsageEstimateLong:
+      'About {{chats}} chats · about {{images}} images (varies by model)',
     planPriceNote: {
       free: 'Free trial — 1 design run per day',
-      plus: '~100 chats · ~100 images',
-      pro: '~350 chats · ~400 images',
+      plus: '~170 chats · ~170 images',
+      pro: '~500 chats · ~500 images',
       ultra: '~800 chats · ~800 images',
     },
     planFeatures: {
@@ -460,23 +464,17 @@ const en = {
         'Upgrade for model pick & monthly gifts',
       ],
       plus: [
-        '200 credits / month (chat / Agent / images)',
-        'About 100 chats · about 100 images (varies by model)',
         'Choose platform models (advanced modes)',
         'Add third-party models (your key; not billed on our credits)',
         'Fast + Pro modes',
         'Higher export quality',
       ],
       pro: [
-        '750 credits / month (chat / Agent / images)',
-        'About 350 chats · about 400 images (varies by model)',
         'Custom third-party models',
         'Deeper research tools',
         'Higher concurrency & queue',
       ],
       ultra: [
-        '1600 credits / month (chat / Agent / images)',
-        'About 800 chats · about 800 images (varies by model)',
         'Highest quota & priority',
         'Early access to strong models',
         'Beta features first',
@@ -1820,9 +1818,9 @@ const en = {
     providerPresetModelPlaceholder: 'Choose a model',
     providerPresetComingSoon: 'coming soon',
     providerManualHint:
-      'Custom endpoint: fill API key, base URL, and the upstream model id (e.g. deepseek-chat). A key alone is not enough — requests need a model field.',
+      'Custom endpoint: fill API key, base URL, and provider name. Model ID is optional — requests fall back to the provider name.',
     providerPlatformHint:
-      'After picking a platform, fill the API key first. Name and base URL autofill. Optionally add an extra model below — once you start, name/icon/category are required.',
+      'After picking a platform, fill the API key first. Name and base URL autofill. Extra catalog models below require ID, name, icon, and category.',
     providerPlatformUnlock:
       'Unlocks every catalog model on this platform. Uses your own quota — no platform credits.',
     providerPlatformAutofillHint:

@@ -12,22 +12,19 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from langgraph.types import Command
-
 from app.services.design.runtime.graph.nodes.candidates import (
     apply_candidates_to_runtime,
 )
 from app.services.design.runtime.graph.state import (
     TOURNAMENT_DIMS,
     AgentRuntime,
-    GraphState,
     parse_design_candidate_set,
     parse_design_tournament,
     parse_tournament_dim_scores,
     tournament_dim_total,
     tournament_match_prefers,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
+from app.services.design.runtime.graph.support import _emit
 
 # Label → base multi-dim profile (0–100). Lane character, not canvas paint.
 _LABEL_BASE: dict[str, dict[str, float]] = {
@@ -451,10 +448,3 @@ async def run_design_tournament(rt: AgentRuntime) -> dict[str, Any] | None:
             }
         )
         return None
-
-
-async def _node_tournament(state: GraphState) -> Command:
-    """Optional graph hop — tournament then continue to design_agent."""
-    rt = state["rt"]
-    await run_design_tournament(rt)
-    return Command(update=_bump(rt), goto="design_agent")

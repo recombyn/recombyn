@@ -287,33 +287,41 @@ def _reconcile_stale_auto_covers(
     """If auto covers exist but the document has no cover tiles, clear them.
 
     Fixes rows written before PATCH rebuilt covers from the live document.
+    Never raise — list/get must not 500 because one row's cover reconcile failed.
     """
     thumb_key = getattr(row, "thumbnail_key", None)
     custom = _row_thumb_custom(row)
-    if custom or not (thumb_key or "").strip():
-        return thumb_key, custom
-    doc = _decode_document_row(row)
-    if not isinstance(doc, dict):
-        return thumb_key, custom
-    if _cov_pick_nodes(doc):
-        return thumb_key, custom
-    _delete_thumb_entries(thumb_key)
-    now = time.time()
-    from app import crud
+    try:
+        if custom or not (thumb_key or "").strip():
+            return thumb_key, custom
+        doc = _decode_document_row(row)
+        if not isinstance(doc, dict):
+            return thumb_key, custom
+        if _cov_pick_nodes(doc):
+            return thumb_key, custom
+        _delete_thumb_entries(thumb_key)
+        now = time.time()
+        from app import crud
 
-    crud.update_project_covers(
-        session=session,
-        user_id=user_id,
-        project_id=str(row.id),
-        thumbnail_key=None,
-        thumbnail_custom=False,
-        updated_at=now,
-    )
-    print(
-        f"[projects.thumb] reconcile cleared project={row.id} (doc has no cover tiles)",
-        flush=True,
-    )
-    return None, False
+        crud.update_project_covers(
+            session=session,
+            user_id=user_id,
+            project_id=str(row.id),
+            thumbnail_key=None,
+            thumbnail_custom=False,
+            updated_at=now,
+        )
+        print(
+            f"[projects.thumb] reconcile cleared project={row.id} (doc has no cover tiles)",
+            flush=True,
+        )
+        return None, False
+    except Exception as exc:
+        print(
+            f"[projects.thumb] reconcile skip project={getattr(row, 'id', '?')} err={exc!r}",
+            flush=True,
+        )
+        return thumb_key, custom
 
 
 def _normalize_incoming_urls(urls: list[str] | None) -> list[str]:
@@ -831,6 +839,56 @@ def _apply_canvas_meta(doc: dict[str, Any], patch: dict[str, Any]) -> None:
             doc[key] = canvas[key]
 
 
+def _reconcile_stack_order(doc: dict[str, Any], delta: dict[str, Any]) -> None:
+    """Drop deleted stack keys; append newly upserted nodes/frames."""
+    pages = doc.get("pages")
+    node_ids: list[str] = []
+    if isinstance(pages, list) and pages and isinstance(pages[0], dict):
+        kids = pages[0].get("children")
+        if isinstance(kids, list):
+            node_ids = [str(x) for x in kids if str(x or "").strip()]
+    if not node_ids:
+        root = delta.get("ROOT")
+        if isinstance(root, dict) and isinstance(root.get("children"), list):
+            node_ids = [str(x) for x in root["children"] if str(x or "").strip()]
+    node_set = set(node_ids)
+    frame_ids: list[str] = []
+    frames = doc.get("frames")
+    if isinstance(frames, list):
+        for frame in frames:
+            if not isinstance(frame, dict):
+                continue
+            fid = str(frame.get("id") or "").strip()
+            if fid:
+                frame_ids.append(fid)
+    frame_set = set(frame_ids)
+    kept: list[str] = []
+    seen: set[str] = set()
+    raw = doc.get("stackOrder")
+    if isinstance(raw, list):
+        for key in raw:
+            item = str(key or "")
+            if not item or item in seen:
+                continue
+            if item.startswith("node:") and item[5:] in node_set:
+                seen.add(item)
+                kept.append(item)
+            elif item.startswith("frame:") and item[6:] in frame_set:
+                seen.add(item)
+                kept.append(item)
+    for fid in frame_ids:
+        key = f"frame:{fid}"
+        if key not in seen:
+            kept.append(key)
+            seen.add(key)
+    for nid in node_ids:
+        key = f"node:{nid}"
+        if key not in seen:
+            kept.append(key)
+            seen.add(key)
+    doc["stackOrder"] = kept
+
+
 def apply_document_patch(base: dict[str, Any] | None, patch: dict[str, Any]) -> dict[str, Any]:
     """Merge node-level patch into a document dict (mutates a shallow copy tree)."""
     import copy
@@ -842,6 +900,7 @@ def apply_document_patch(base: dict[str, Any] | None, patch: dict[str, Any]) -> 
     _apply_page_children(doc, delta, patch)
     _apply_frames_patch(doc, patch)
     _apply_canvas_meta(doc, patch)
+    _reconcile_stack_order(doc, delta)
     return doc
 
 
@@ -904,17 +963,27 @@ def patch_project(
             else str(existing.name or "Untitled")
         )
         # Rebuild covers from merged document on every PATCH (same as full upsert).
-        thumb_key, thumb_custom = _next_thumbnail(
-            owner_id,
-            pid,
-            thumbnail_data_url,
-            existing.thumbnail_key,
-            existing_custom=_row_thumb_custom(existing),
-            mark_custom=thumbnail_custom,
-            thumbnail_data_urls=thumbnail_data_urls,
-            thumbnail_urls=thumbnail_urls,
-            document=merged,
-        )
+        # Cover rebuild must not block document save (COS / URL collage) — match upsert.
+        try:
+            thumb_key, thumb_custom = _next_thumbnail(
+                owner_id,
+                pid,
+                thumbnail_data_url,
+                existing.thumbnail_key,
+                existing_custom=_row_thumb_custom(existing),
+                mark_custom=thumbnail_custom,
+                thumbnail_data_urls=thumbnail_data_urls,
+                thumbnail_urls=thumbnail_urls,
+                document=merged,
+            )
+        except Exception as exc:
+            print(
+                f"[projects.thumb] patch keep existing project={pid} err={exc!r}",
+                flush=True,
+            )
+            thumb_key, thumb_custom = existing.thumbnail_key, _row_thumb_custom(
+                existing
+            )
         old_key = existing.document_key
         created_at = float(existing.created_at)
         org_id_out = getattr(existing, "org_id", None)

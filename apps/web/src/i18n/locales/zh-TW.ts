@@ -423,10 +423,13 @@ const zhTW = {
       pro: '適合大批量穩定產出與交付',
       ultra: '適合團隊與重度生產',
     },
+    planCreditsGift: '每月 {{count}} 積分（對話 / Agent / 出圖共用）',
+    planUsageEstimate: '約 {{chats}} 次對話 · 約 {{images}} 張圖',
+    planUsageEstimateLong: '約合 {{chats}} 次對話 · 約 {{images}} 張圖（視模型而定）',
     planPriceNote: {
       free: '免費體驗，每天 1 次設計執行',
-      plus: '約 100 次對話 · 約 100 張圖',
-      pro: '約 350 次對話 · 約 400 張圖',
+      plus: '約 170 次對話 · 約 170 張圖',
+      pro: '約 500 次對話 · 約 500 張圖',
       ultra: '約 800 次對話 · 約 800 張圖',
     },
     planFeatures: {
@@ -439,23 +442,17 @@ const zhTW = {
         '升級解鎖模型自選與月度贈送',
       ],
       plus: [
-        '每月 200 積分（對話 / Agent / 出圖共用）',
-        '約合 100 次對話 · 約 100 張圖（視模型而定）',
         '可自選平台模型（含進階模式）',
         '可新增第三方模型（自有 Key，不計平台積分）',
         'Fast + 專業模式',
         '更高匯出品質',
       ],
       pro: [
-        '每月 750 積分（對話 / Agent / 出圖共用）',
-        '約合 350 次對話 · 約 400 張圖（視模型而定）',
         '可自訂第三方模型',
         '深度能力與研究工具',
         '更高併發與優先佇列',
       ],
       ultra: [
-        '每月 1600 積分（對話 / Agent / 出圖共用）',
-        '約合 800 次對話 · 約 800 張圖（視模型而定）',
         '最高額度與優先體驗',
         '強力模型優先接入',
         '內測功能優先',
@@ -1647,6 +1644,8 @@ const zhTW = {
     providerPresetModel: '模型',
     providerPresetModelPlaceholder: '選擇模型',
     providerPresetComingSoon: '即將支援',
+    providerManualHint:
+      '自訂端點：需填寫 API Key、請求位址和供應商名稱。模型 ID 可不填，預設用供應商名稱作為上游 model。',
     providerPlatformHint:
       '選擇 OpenRouter 或火山引擎 — 一把 API Key 即可使用我們已接入的該平台全部模型。「自訂」用於單個自訂端點。',
     providerPlatformUnlock: '解鎖該平台目錄中的全部模型。使用你自己的額度，不消耗平台積分。',
@@ -1774,7 +1773,7 @@ const zhTW = {
     count: '數量',
     priceCny: '售價（元）',
     priceTip:
-      '按標準會員定價折算：¥29 ≈ 200 積分，即 ¥1 ≈ {{perCny}} 積分。填寫售價後自動換算面額。',
+      '按標準會員定價折算：¥49 ≈ 340 積分，即 ¥1 ≈ {{perCny}} 積分。填寫售價後自動換算面額。',
     priceTipAria: '查看定價說明',
     tokensPerKey: '面額積分',
     expiresDays: '有效天數',

@@ -7,8 +7,10 @@ import {
   HiOutlineCheckCircle,
   HiOutlineChevronRight,
   HiOutlineComputerDesktop,
+  HiOutlineExclamationTriangle,
   HiOutlinePlay,
   HiOutlineQuestionMarkCircle,
+  HiOutlineXCircle,
 } from 'react-icons/hi2';
 import ChatMarkdown from '@/components/editor/panels/ChatMarkdown';
 import { ContextChipPill } from '@/components/editor/panels/AgentComposerInput';
@@ -22,6 +24,9 @@ import { cn } from '@/utils/classnames';
 import { setChatImageDragData } from '@/utils/chatImageDrag';
 import { imageSrcToFile } from '@/utils/uploadImage';
 import VideoJsPlayer from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
+
+/** Leading icon tone for process / explore rows. */
+export type ExploreItemTone = 'ok' | 'warn' | 'error';
 
 export type ChatUiMessage = {
   id: string;
@@ -51,7 +56,13 @@ export type ChatUiMessage = {
     variant?: 'confirm' | 'success' | 'info';
     summary?: string;
     /** Nested lines under Explored. */
-    items?: Array<{ id: string; name: string; summary?: string }>;
+    items?: Array<{
+      id: string;
+      name: string;
+      summary?: string;
+      /** Row tone for the leading icon (ok / warn / error). */
+      tone?: 'ok' | 'warn' | 'error';
+    }>;
     /** Expandable markdown body (diagrams / long notes). */
     body?: string;
   }>;
@@ -185,6 +196,45 @@ export function formatDiffDeltaLine(
   return `${key} ${d >= 0 ? '+' : ''}${pctLabel(d, 0)}`;
 }
 
+function governanceHasLanes(
+  intel: ChatUiMessage['intelligence'] | undefined
+): boolean {
+  const lanes = intel?.governance?.lanes || [];
+  return lanes.length > 0;
+}
+
+export function formatGovernanceLaneItems(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  rows: Array<{
+    id?: string;
+    name?: string;
+    summary?: string;
+    lane?: string;
+    status?: string;
+  }>
+): ExploreItem[] {
+  return rows.map((row, i) => {
+    const lane = String(row.lane || row.name || '').trim();
+    const st = String(row.status || row.summary || '').toLowerCase();
+    const laneLabel = t(`agent.governanceLane.${lane}`, { defaultValue: lane });
+    const stLabel =
+      st === 'pass'
+        ? t('agent.governanceLanePass')
+        : st === 'fail'
+          ? t('agent.governanceLaneFail')
+          : st === 'warn'
+            ? t('agent.governanceLaneWarn')
+            : st;
+    const tone: ExploreItemTone =
+      st === 'fail' ? 'error' : st === 'warn' ? 'warn' : 'ok';
+    return {
+      id: String(row.id || `gov-lane-${lane || i}`),
+      name: stLabel ? `${laneLabel}：${stLabel}` : laneLabel,
+      tone,
+    };
+  });
+}
+
 export function hasDesignIntelligence(
   intel: ChatUiMessage['intelligence'] | undefined
 ): boolean {
@@ -194,8 +244,7 @@ export function hasDesignIntelligence(
       intel.reference?.thesis ||
       intel.review?.scores ||
       intel.review?.overall != null ||
-      intel.governance?.status ||
-      (intel.governance?.lanes && intel.governance.lanes.length > 0) ||
+      governanceHasLanes(intel) ||
       intel.diff?.deltas ||
       (intel.iterations && intel.iterations.length > 0) ||
       intel.summary?.thesis ||
@@ -289,8 +338,6 @@ function DesignIntelligencePanel({
   ].filter(Boolean) as string[];
   const timeline = (intel.iterations || []).filter((row) => row.overall > 0);
   const summary = intel.summary;
-  const govLanes = intel.governance?.lanes || [];
-  const govStatus = String(intel.governance?.status || '').toLowerCase();
   const explainThesis = String(summary?.thesis || '').trim();
   const explainWhy = String(summary?.why || '').trim();
   const explainStrengths = summary?.strengths || [];
@@ -373,23 +420,23 @@ function DesignIntelligencePanel({
         </section>
       ) : null}
 
-      {govStatus || govLanes.length ? (
+      {governanceHasLanes(intel) ? (
         <section className="flex flex-col gap-1.5" data-testid="design-governance-user">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
               {t('agent.governanceTitle')}
             </span>
             <span className="tabular-nums text-[13px] text-[var(--ink)]">
-              {govStatus === 'pass'
+              {String(intel.governance?.status || '').toLowerCase() === 'pass'
                 ? t('agent.governancePass')
-                : govStatus === 'fail'
+                : String(intel.governance?.status || '').toLowerCase() === 'fail'
                   ? t('agent.governanceFail')
-                  : govStatus}
+                  : intel.governance?.status}
             </span>
           </div>
-          {govLanes.length ? (
+          {(intel.governance?.lanes || []).length ? (
             <ul className="flex flex-col gap-1">
-              {govLanes.map((row) => {
+              {(intel.governance?.lanes || []).map((row) => {
                 const lane = String(row.lane || '').trim();
                 const st = String(row.status || '').toLowerCase();
                 const mark =
@@ -664,11 +711,6 @@ function formatExploredLabel(
   preferDetail: boolean
 ): string {
   const code = String(ev.code || '').trim().toLowerCase();
-  if (code === 'design_quality_check') {
-    if (ev.status === 'running') return t('agent.governanceRunning');
-    if (detail === 'fail' || ev.status === 'error') return t('agent.governanceFailShort');
-    return t('agent.governanceDone');
-  }
   if (code === 'design_brief') {
     return t('agent.designBriefDone');
   }
@@ -708,6 +750,12 @@ export function formatActivityLabel(
 ): string | null {
   const detail = (ev.detail || '').trim();
   const preferDetail = detail.length > 0;
+  const code = String(ev.code || '').trim().toLowerCase();
+  if (code === 'design_quality_check') {
+    if (ev.status === 'running') return t('agent.governanceRunning');
+    if (detail === 'fail' || ev.status === 'error') return t('agent.governanceFailShort');
+    return t('agent.governanceDone');
+  }
 
   if (ev.kind === 'thought') {
     return formatThoughtLabel(t, ev, detail, preferDetail);
@@ -812,8 +860,8 @@ function mergeExploreStepStatus(
 
 export function localizeExploreItem(
   t: ProcessTFn,
-  item: { id: string; name: string; summary?: string }
-): { id: string; name: string; summary?: string } {
+  item: { id: string; name: string; summary?: string; tone?: ExploreItemTone }
+): { id: string; name: string; summary?: string; tone?: ExploreItemTone } {
   const id = String(item.id || '');
   const kindKey = exploreItemKindKey(id);
   if (!kindKey) return item;
@@ -830,6 +878,20 @@ export function localizeExploreItem(
     ...item,
     name: host ? t('agent.lookupHostPrefix', { name: label }) : label,
   };
+}
+
+/** Thinking-only explore row labeled “设计材料确认” — hide on simple replies. */
+function isBareExplorePipelineStep(step: AssistantStep): boolean {
+  if (step.id === 'chat-process') return false;
+  const isExplore =
+    step.id === 'explore-pipeline' ||
+    (step.kind === 'explored' && step.id !== 'chat-process');
+  if (!isExplore) return false;
+  const items = step.items || [];
+  return items.every((it) => {
+    const id = String(it.id || '');
+    return !id || id === 'thought-brief';
+  });
 }
 
 function collapseExplorePipelineSteps(steps: AssistantStep[]): AssistantStep[] {
@@ -849,20 +911,23 @@ function collapseExplorePipelineSteps(steps: AssistantStep[]): AssistantStep[] {
     }
     const items = [...(explore.items || [])];
     for (const it of s.items || []) {
-      const ii = items.findIndex((x) => x.id === it.id);
-      if (ii >= 0) items[ii] = { ...items[ii], ...it };
-      else items.push(it);
+      upsertExploreItem(items, it);
     }
-    explore = {
+    explore = unstickExplorePinnedCopy({
       ...explore,
       name: s.name || explore.name,
       summary: s.summary || explore.summary,
       body: s.body || explore.body,
       items,
       status: mergeExploreStepStatus(s.status, explore.status),
-    };
+    });
   }
   if (!explore) return rest;
+  explore = unstickExplorePinnedCopy({
+    ...explore,
+    id: 'explore-pipeline',
+    kind: 'explored',
+  });
   const provisional = rest.findIndex(
     (s) => s.id === 'thought-0' || s.id === 'skill-0'
   );
@@ -874,33 +939,18 @@ function collapseExplorePipelineSteps(steps: AssistantStep[]): AssistantStep[] {
   return [explore, ...rest];
 }
 
-function workedSecsOf(m: ChatUiMessage): number | undefined {
-  if (m.startedAt) return Math.max(1, Math.round((Date.now() - m.startedAt) / 1000));
-  if (m.durationMs != null) return Math.max(1, Math.round(m.durationMs / 1000));
-  return undefined;
-}
-
-/** Foldable chat process under "Worked for Xs". */
-export function buildChatProcessSteps(t: ProcessTFn, m: ChatUiMessage): AssistantStep[] {
-  if (m.steps?.length) {
-    return m.steps.map((s) =>
-      s.status === 'running' ? { ...s, status: 'done' as const } : s
-    );
-  }
-  const secs = workedSecsOf(m);
-  return [
-    {
-      id: 'chat-process',
-      kind: 'explored',
-      name: t('agent.chatProcessTitle'),
-      status: 'done',
-      ...(secs != null ? { durationSec: secs } : {}),
-      items: [
-        { id: 'chat-wait', name: t('agent.chatProcessWait') },
-        { id: 'chat-reply', name: t('agent.chatProcessReply') },
-      ],
-    },
-  ];
+/** Chat divert: keep canvas tool rows; drop design-materials chrome. */
+export function buildChatProcessSteps(_t: ProcessTFn, m: ChatUiMessage): AssistantStep[] {
+  const kept = (m.steps || []).filter(
+    (s) =>
+      s.kind !== 'thought' &&
+      s.id !== 'thought-0' &&
+      !isBareExplorePipelineStep(s)
+  );
+  if (!kept.length) return [];
+  return kept.map((s) =>
+    s.status === 'running' ? { ...s, status: 'done' as const } : s
+  );
 }
 
 export function applyThinkingBodyToSteps(
@@ -1004,6 +1054,139 @@ export function applyAnalysisDeltaToSteps(
   return steps;
 }
 
+export type ExploreItem = {
+  id: string;
+  name: string;
+  summary?: string;
+  tone?: ExploreItemTone;
+};
+
+/** Infer warn/error from copy when emitters did not set tone (legacy rows). */
+function inferExploreItemTone(text: string): ExploreItemTone {
+  const s = String(text || '').toLowerCase();
+  if (!s) return 'ok';
+  if (/revision\s*conflict|冲突/.test(s)) return 'warn';
+  if (
+    /校验失败|ops_validate_failed|op\(s\)\s*not\s*applied|not applied|failed|失败|error|错误/.test(
+      s
+    )
+  ) {
+    return 'error';
+  }
+  return 'ok';
+}
+
+export function activityItemTone(opts: {
+  status?: string | null;
+  kind?: string | null;
+  code?: string | null;
+  detail?: string | null;
+  name?: string | null;
+}): ExploreItemTone {
+  const blob = `${opts.code || ''} ${opts.detail || ''} ${opts.name || ''}`.toLowerCase();
+  // Soft conflict — warn, even when the activity is marked error.
+  if (/revision\s*conflict|冲突/.test(blob)) return 'warn';
+  if (opts.status === 'error') return 'error';
+  if (opts.kind === 'skipped') {
+    if (/ops_validate_failed|not applied|fail|失败|error|错误/.test(blob)) return 'error';
+    return 'warn';
+  }
+  return inferExploreItemTone(blob);
+}
+
+function resolveExploreItemTone(item: ExploreItem): ExploreItemTone {
+  if (item.tone === 'ok' || item.tone === 'warn' || item.tone === 'error') {
+    return item.tone;
+  }
+  return inferExploreItemTone(`${item.name || ''} ${item.summary || ''}`);
+}
+
+function processStepTone(
+  step: NonNullable<ChatUiMessage['steps']>[number]
+): ExploreItemTone | 'running' {
+  if (step.status === 'running' || step.status === 'pending') return 'running';
+  if (step.status === 'error') return 'error';
+  return activityItemTone({
+    status: step.status,
+    kind: step.kind,
+    name: step.name,
+    detail: step.summary,
+  });
+}
+
+function ProcessToneIcon({
+  tone,
+  className,
+}: {
+  tone: ExploreItemTone | 'running';
+  className?: string;
+}): ReactNode {
+  if (tone === 'running') {
+    return (
+      <span
+        className={cn(
+          'inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--ink)]/35',
+          className
+        )}
+        aria-hidden
+      />
+    );
+  }
+  if (tone === 'error') {
+    return (
+      <HiOutlineXCircle
+        className={cn('shrink-0 text-[var(--danger,#c45)]', className)}
+        aria-hidden
+      />
+    );
+  }
+  if (tone === 'warn') {
+    return (
+      <HiOutlineExclamationTriangle
+        className={cn('shrink-0 text-[var(--warning,#c48a1a)]', className)}
+        aria-hidden
+      />
+    );
+  }
+  return (
+    <HiOutlineCheckCircle
+      className={cn('shrink-0 text-[var(--success,#22a06b)]', className)}
+      aria-hidden
+    />
+  );
+}
+
+function upsertExploreItem(
+  items: ExploreItem[],
+  item: ExploreItem
+): void {
+  const ii = items.findIndex((x) => x.id === item.id);
+  if (ii >= 0) items[ii] = { ...items[ii], ...item };
+  else items.push(item);
+}
+
+/** Long summary/body used to render after items (sticky footer). Put it in the list instead. */
+function adoptPinnedExploreText(
+  items: ExploreItem[],
+  text: string | undefined,
+  id: string
+): void {
+  const name = String(text || '').trim();
+  if (!name) return;
+  if (items.some((x) => x.id === id || x.name === name)) return;
+  items.unshift({ id, name, tone: inferExploreItemTone(name) });
+}
+
+function unstickExplorePinnedCopy(step: AssistantStep): AssistantStep {
+  const items = [...(step.items || [])];
+  adoptPinnedExploreText(items, step.body, 'explore-pinned-body');
+  const summary = String(step.summary || '').trim();
+  if (summary && summary !== String(step.name || '').trim()) {
+    adoptPinnedExploreText(items, summary, 'explore-pinned-summary');
+  }
+  return { ...step, items, summary: undefined, body: undefined };
+}
+
 export function applyActivityEventToSteps(
   stepsIn: AssistantStep[],
   opts: {
@@ -1013,7 +1196,8 @@ export function applyActivityEventToSteps(
     label: string;
     summary?: string;
     variant?: NonNullable<AssistantStep['variant']>;
-    nestItem?: { id: string; name: string; summary?: string } | null;
+    nestItem?: ExploreItem | null;
+    items?: ExploreItem[];
     bodyMd: string;
   }
 ): AssistantStep[] | null {
@@ -1044,11 +1228,32 @@ export function applyActivityEventToSteps(
     if (prevStep?.status === 'done' && status === 'running' && !nestItem && !bodyMd) {
       return null;
     }
-    let items = [...(prevStep?.items || [])];
+    const items = [...(prevStep?.items || [])];
+    const nestTone = activityItemTone({ status, kind });
     if (nestItem) {
-      const ii = items.findIndex((x) => x.id === nestItem.id);
-      if (ii >= 0) items[ii] = { ...items[ii], ...nestItem };
-      else items.push(nestItem);
+      upsertExploreItem(items, {
+        ...nestItem,
+        tone: nestItem.tone || nestTone,
+      });
+    } else if (bodyMd.trim()) {
+      upsertExploreItem(items, {
+        id: String(opts.eventId || 'explore-note'),
+        name: bodyMd.trim(),
+        tone: nestTone,
+      });
+    } else if (summary?.trim() && summary.trim() !== label) {
+      upsertExploreItem(items, {
+        id: String(opts.eventId || 'explore-note'),
+        name: summary.trim(),
+        tone: nestTone,
+      });
+    }
+    if (prevStep) {
+      adoptPinnedExploreText(items, prevStep.body, 'explore-pinned-body');
+      const prevSummary = String(prevStep.summary || '').trim();
+      if (prevSummary && prevSummary !== String(prevStep.name || '').trim()) {
+        adoptPinnedExploreText(items, prevSummary, 'explore-pinned-summary');
+      }
     }
     const nextStep: AssistantStep = {
       id: 'explore-pipeline',
@@ -1056,9 +1261,7 @@ export function applyActivityEventToSteps(
       name: label,
       status,
       variant: variant || 'confirm',
-      summary: summary || prevStep?.summary,
       items,
-      body: bodyMd.trim() ? bodyMd : prevStep?.body,
     };
     if (idx >= 0) steps[idx] = nextStep;
     else steps.push(nextStep);
@@ -1074,6 +1277,7 @@ export function applyActivityEventToSteps(
     summary,
     status,
     variant,
+    items: opts.items,
     body: bodyMd.trim() || undefined,
   };
   if (idx >= 0 && steps[idx]?.id !== 'explore-pipeline') {
@@ -1085,7 +1289,7 @@ export function applyActivityEventToSteps(
       ...next,
       id: prevStep.id || next.id,
       summary: next.summary || prevStep.summary,
-      items: prevStep.items,
+      items: opts.items || prevStep.items,
       body: next.body || prevStep.body,
     };
   } else {
@@ -1111,6 +1315,7 @@ type Props = {
   onRestore: (userId: string) => void;
   onChoice?: (choice: AskChoicePick) => void;
   onResume?: (assistantId: string) => void;
+  onDismissResume?: (assistantId: string) => void;
   className?: string;
 };
 
@@ -1121,10 +1326,18 @@ export type AskChoicePick = {
   selectedLabels?: string[];
 };
 
+const CHIP_ACTION_BTN =
+  'inline-flex h-7 items-center gap-1 rounded-full bg-[var(--canvas)] px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-40';
+const CHIP_ACTION_TEXT =
+  'inline-flex h-7 items-center rounded-full px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-40';
+
 function hasFoldableProcess(assistant: ChatUiMessage): boolean {
   return Boolean(
     assistant.steps?.some(
-      (s) => s.kind !== 'thought' && s.id !== 'thought-0'
+      (s) =>
+        s.kind !== 'thought' &&
+        s.id !== 'thought-0' &&
+        !isBareExplorePipelineStep(s)
     )
   );
 }
@@ -1243,20 +1456,6 @@ function UserMessageBody({
   );
 }
 
-function stepVariant(
-  step: NonNullable<ChatUiMessage['steps']>[number]
-): 'confirm' | 'success' | 'info' {
-  if (step.variant === 'success' || step.variant === 'confirm' || step.variant === 'info') {
-    return step.variant;
-  }
-  const kind = step.kind || '';
-  if (kind === 'added' || kind === 'updated' || kind === 'deleted') return 'success';
-  if (kind === 'thought' || kind === 'explored' || kind === 'tool' || kind === 'skipped') {
-    return 'confirm';
-  }
-  return 'info';
-}
-
 function AssistantProcessBody({
   assistant,
 }: {
@@ -1269,6 +1468,7 @@ function AssistantProcessBody({
     if (!id || seen.has(id)) return false;
     // Intent/understanding rows ("要望を理解中…" / "已确认对话意图") — not shown in chat.
     if (s.kind === 'thought' || id === 'thought-0') return false;
+    if (isBareExplorePipelineStep(s)) return false;
     seen.add(id);
     return true;
   });
@@ -1295,7 +1495,6 @@ function ProcessStepRow({
   turnActive: boolean;
 }): ReactNode {
   const { t } = useTranslation();
-  const variant = stepVariant(step);
   const summaryDistinct =
     Boolean(step.summary?.trim()) &&
     step.summary!.trim() !== step.name.trim() &&
@@ -1336,14 +1535,16 @@ function ProcessStepRow({
     />
   ) : null;
 
+  const rowTone = processStepTone(step);
+
   const detail =
     open && expandable ? (
       <div className="flex w-full flex-col gap-1 text-[12px] leading-relaxed text-[var(--muted)]">
         {(step.items || []).map((it) => (
           <div key={it.id} className="flex w-full min-w-0 items-start gap-1.5">
-            <HiOutlineCheckCircle
-              className="mt-0.5 h-3 w-3 shrink-0 text-[var(--success,#22a06b)] opacity-80"
-              aria-hidden
+            <ProcessToneIcon
+              tone={resolveExploreItemTone(it)}
+              className="mt-0.5 h-3 w-3 opacity-90"
             />
             <div className="min-w-0 flex-1">
               <span className="block whitespace-pre-wrap break-words leading-snug">
@@ -1359,9 +1560,9 @@ function ProcessStepRow({
         ))}
         {summaryDistinct ? (
           <div className="flex w-full min-w-0 items-start gap-1.5">
-            <HiOutlineCheckCircle
-              className="mt-0.5 h-3 w-3 shrink-0 text-[var(--success,#22a06b)] opacity-80"
-              aria-hidden
+            <ProcessToneIcon
+              tone={inferExploreItemTone(String(step.summary || ''))}
+              className="mt-0.5 h-3 w-3 opacity-90"
             />
             <span className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-snug">
               {step.summary}
@@ -1385,23 +1586,12 @@ function ProcessStepRow({
     step.status === 'error' && 'text-[var(--ink)]'
   );
 
-  const leadingIcon =
-    step.status === 'error' ? (
-      <HiOutlineQuestionMarkCircle
-        className="h-3.5 w-3.5 shrink-0 text-[var(--danger,#c45)]"
-        aria-hidden
-      />
-    ) : step.status === 'done' || variant === 'success' ? (
-      <HiOutlineCheckCircle
-        className="h-3.5 w-3.5 shrink-0 text-[var(--success,#22a06b)]"
-        aria-hidden
-      />
-    ) : (
-      <span
-        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--ink)]/35"
-        aria-hidden
-      />
-    );
+  const leadingIcon = (
+    <ProcessToneIcon
+      tone={rowTone}
+      className={rowTone === 'running' ? undefined : 'h-3.5 w-3.5'}
+    />
+  );
 
   if (!expandable) {
     return (
@@ -1439,12 +1629,14 @@ function AssistantTurn({
   assistant,
   onChoice,
   onResume,
+  onDismissResume,
   sending,
 }: {
   assistant: ChatUiMessage;
   worked?: string | null;
   onChoice?: (choice: AskChoicePick) => void;
   onResume?: (assistantId: string) => void;
+  onDismissResume?: (assistantId: string) => void;
   sending: boolean;
 }): ReactNode {
   const { t } = useTranslation();
@@ -1521,11 +1713,6 @@ function AssistantTurn({
             <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle opacity-50" />
           ) : null}
         </div>
-      ) : streaming && !foldable && !showMediaGallery ? (
-        <div className="w-full text-[12px] text-[var(--muted)]">
-          {t('agent.working')}
-          <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle opacity-50" />
-        </div>
       ) : null}
 
       {doneMilestone ? (
@@ -1545,20 +1732,26 @@ function AssistantTurn({
       ) : null}
 
       {!streaming && assistant.canResume && assistant.designTaskId && onResume ? (
-        <div className="flex justify-start px-0.5">
+        <div className="flex items-center gap-1 px-0.5">
           <button
             type="button"
             disabled={sending}
+            className={CHIP_ACTION_BTN}
             onClick={() => onResume(assistant.id)}
-            className={cn(
-              'inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-[var(--muted)]',
-              'hover:text-[var(--ink)] hover:underline',
-              'disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline'
-            )}
           >
             <HiOutlinePlay className="h-3.5 w-3.5" aria-hidden />
             {t('agent.resume')}
           </button>
+          {onDismissResume ? (
+            <button
+              type="button"
+              disabled={sending}
+              className={CHIP_ACTION_TEXT}
+              onClick={() => onDismissResume(assistant.id)}
+            >
+              {t('common.cancel')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1931,6 +2124,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
     onRestore,
     onChoice,
     onResume,
+    onDismissResume,
     className,
   }: Props,
   ref: Ref<VirtualListHandle>
@@ -1970,7 +2164,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                     {canRestore ? (
                       <button
                         type="button"
-                        className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)]"
+                        className={CHIP_ACTION_BTN}
                         onClick={() => onRestore(m.id)}
                       >
                         <HiOutlineArrowUturnLeft className="h-3.5 w-3.5" />
@@ -1979,7 +2173,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                     ) : null}
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)]"
+                      className={CHIP_ACTION_TEXT}
                       onClick={onCancelEdit}
                     >
                       {t('common.cancel')}
@@ -2036,6 +2230,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                 assistant={assistant}
                 onChoice={onChoice}
                 onResume={onResume}
+                onDismissResume={onDismissResume}
                 sending={sending}
               />
             ) : null}

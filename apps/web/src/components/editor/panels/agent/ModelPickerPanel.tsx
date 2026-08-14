@@ -11,6 +11,7 @@ import {
 } from '@/components/editor/panels/agent/llmModelMeta';
 import { isCustomModelId } from '@/components/editor/panels/agent/customLlmProviders';
 import { cn } from '@/utils/classnames';
+import { BrandWordmarkLoader } from '@/components/base/AppLogo';
 import { FREE_IMAGE_MODEL_ID } from '@/utils/wallet';
 // Lobe Icons — https://icons.lobehub.com (static SVG, no antd peers)
 import deepseek from '@lobehub/icons-static-svg/icons/deepseek-color.svg?url';
@@ -534,10 +535,10 @@ export type ModelPickerTab = 'design' | 'image' | 'video';
 const PANEL_SHELL =
   'box-border min-w-0 max-w-[calc(100vw-24px)] rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[0_12px_40px_rgba(0,0,0,0.18)]';
 
-/** Model / size popovers (editor + home). */
+/** Model popovers (editor + home) — icon + name rows; hug content. */
 export const AGENT_POPOVER_PANEL = cn(
   PANEL_SHELL,
-  'w-[min(420px,calc(100vw-24px))] overflow-hidden'
+  'w-[min(220px,calc(100vw-24px))] overflow-hidden'
 );
 
 /** Route-prefs primary panel — compact; fits 模型 + 设计强度 rows. */
@@ -674,8 +675,6 @@ type Props = {
   hideAuto?: boolean;
   /** Use `models` as-is (route field opts already filtered). */
   useModelsAsIs?: boolean;
-  /** Show Cheap/Fair/Costly dots 鈥?default on (same as route submenu). */
-  showPrice?: boolean;
   /**
    * popover 鈥?standalone card (image/video mode).
    * submenu 鈥?narrower card beside AgentRoutePrefsEditor rows.
@@ -686,12 +685,6 @@ type Props = {
   onRowPointerDown?: (e: { preventDefault: () => void }) => void;
   className?: string;
 };
-
-function loadingKindForTab(tab: ModelPickerTab): LlmModel['kind'] {
-  if (tab === 'image') return 'image';
-  if (tab === 'video') return 'video';
-  return 'text';
-}
 
 function filterPickerModels(opts: {
   pool: LlmModel[];
@@ -704,17 +697,16 @@ function filterPickerModels(opts: {
   if (useModelsAsIs) return dedupeModelsById(pool);
 
   if (tab === 'image') {
-    return dedupeModelsById(pool.filter((m) => isImageKind(m) || m.id === '_loading'));
+    return dedupeModelsById(pool.filter((m) => isImageKind(m)));
   }
   if (tab === 'video') {
-    return dedupeModelsById(pool.filter((m) => isVideoKind(m) || m.id === '_loading'));
+    return dedupeModelsById(pool.filter((m) => isVideoKind(m)));
   }
 
   const design = pool.filter(
-    (m) =>
-      (!isImageKind(m) && !isVideoKind(m) && m.id !== 'auto') || m.id === '_loading'
+    (m) => !isImageKind(m) && !isVideoKind(m) && m.id !== 'auto'
   );
-  if (hideAuto || design.some((m) => m.id === '_loading')) {
+  if (hideAuto) {
     return dedupeModelsById(design);
   }
   const autoRow = pool.find((m) => m.id === 'auto') || {
@@ -765,27 +757,17 @@ function ModelPickerPanel({
   title,
   hideAuto = false,
   useModelsAsIs = false,
-  showPrice = true,
   chrome = 'popover',
   onRowPointerDown,
   className,
 }: Props): ReactNode {
   const { t } = useTranslation();
 
-  const pool =
-    !models.length && status === 'loading'
-      ? [
-          {
-            id: '_loading',
-            label: 'Loading...',
-            provider: '',
-            kind: loadingKindForTab(tab),
-          } satisfies LlmModel,
-        ]
-      : models;
+  const catalogLoading =
+    models.length === 0 && (status === 'loading' || status === 'idle');
 
   const filtered = filterPickerModels({
-    pool,
+    pool: models,
     tab,
     useModelsAsIs,
     hideAuto,
@@ -801,61 +783,45 @@ function ModelPickerPanel({
           <p>{t('agent.apiDown')}</p>
           <p className="mt-1">{t('agent.apiDownHint')}</p>
         </div>
-      ) : null}
-
-      {!filtered.length && status !== 'loading' ? (
+      ) : catalogLoading ? (
+        <BrandWordmarkLoader
+          label={t('home.composerModelsLoading')}
+          className="px-2 py-8"
+        />
+      ) : !filtered.length ? (
         <div className="px-2 py-6 text-center text-[12px] text-[var(--muted)]">
-          {models.length === 0 && status === 'idle'
-            ? t('home.composerModelsLoading')
-            : t('agent.emptyModels')}
+          {t('agent.emptyModels')}
         </div>
       ) : (
         filtered.map((m) => {
           const selected = m.id === selectedId;
-          const loading = m.id === '_loading';
           const freePick = m.id === 'auto' || m.id === FREE_IMAGE_MODEL_ID;
-          const locked = autoOnly && !freePick && !loading;
-          const desc = loading ? '...' : modelDescription(m, t);
-          const descLine =
-            autoOnly && freePick && !loading
-              ? `${desc} · ${t('agent.freeModelItemHint')}`
-              : desc;
-          const custom = !loading && isUserCustomModel(m);
-          const priceTag =
-            showPrice && !loading && !custom ? modelPriceTagInfo(m, t) : null;
+          const locked = autoOnly && !freePick;
+          const tip = locked
+            ? t('agent.freeModelLocked')
+            : autoOnly && freePick
+              ? t('agent.freeModelItemHint')
+              : undefined;
           return (
             <button
               key={m.id}
               type="button"
-              disabled={loading || locked}
-              title={locked ? t('agent.freeModelLocked') : undefined}
+              disabled={locked}
+              title={tip}
               className={cn(
-                'flex w-full min-w-0 items-start gap-2.5 overflow-hidden rounded-lg px-2.5 py-2 text-left text-[var(--ink)] transition-colors',
+                'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 py-2 text-left text-[var(--ink)] transition-colors',
                 selected && !locked ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--accent-soft)]',
-                (loading || locked) && 'cursor-not-allowed',
-                locked && 'opacity-45 hover:bg-transparent'
+                locked && 'cursor-not-allowed opacity-45 hover:bg-transparent'
               )}
               onPointerDown={onRowPointerDown}
               onClick={() => {
-                if (loading || locked) return;
+                if (locked) return;
                 onPick(m.id);
               }}
             >
-              <ModelBrandIcon model={m} size={20} className="mt-0.5" />
-              <span className="min-w-0 flex-1 overflow-hidden">
-                <span className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
-                    {m.label || m.id}
-                  </span>
-                  {custom ? (
-                    <ModelMetaBadge label={t('agent.modelBadgeCustom')} />
-                  ) : priceTag ? (
-                    <ModelPriceTag level={priceTag.level} label={priceTag.label} />
-                  ) : null}
-                </span>
-                <span className="mt-0.5 block min-w-0 max-w-full truncate text-[11px] leading-[1.35] text-[var(--muted)]">
-                  {descLine}
-                </span>
+              <ModelBrandIcon model={m} size={18} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+                {m.label || m.id}
               </span>
             </button>
           );

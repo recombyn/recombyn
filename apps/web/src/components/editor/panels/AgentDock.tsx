@@ -189,7 +189,6 @@ import {
   buildStreamingAssistantSeed,
   buildVideoAssistantSeed,
   buildVideoModeControls,
-  canvasSizeFromChip,
   clampComposerImageCount,
   clearAskProposalFields,
   collectSendChipContext,
@@ -602,13 +601,9 @@ function modelButtonLabel(
   modelId: string,
   selected: LlmModel | undefined,
   fallbackLabel: string,
-  t: (key: string) => string,
-  intensityShort?: string
+  t: (key: string) => string
 ): string {
-  const base =
-    modelId === 'auto' ? t('agent.autoToggle') : selected?.label || fallbackLabel;
-  const intensity = String(intensityShort || '').trim();
-  return intensity ? `${base} ${intensity}` : base;
+  return modelId === 'auto' ? t('agent.autoToggle') : selected?.label || fallbackLabel;
 }
 
 function composerSendDisabledReason(opts: {
@@ -833,6 +828,10 @@ function AgentDock({
   const abortRef = useRef<AbortController | null>(null);
   const liveDesignTaskRef = useRef<string | null>(null);
   const pauseRequestedRef = useRef(false);
+  /** True when the in-flight turn actually started design / canvas work. */
+  const liveTurnWorkRef = useRef<{ designStarted: boolean; canvasMutated: boolean } | null>(
+    null
+  );
   /** Avoid re-entrant auto-resume for the same session+task. */
   const autoResumeKeyRef = useRef<string | null>(null);
   /** Home → editor auto-send; flushed when modelsStatus leaves idle/loading. */
@@ -1222,7 +1221,14 @@ function AgentDock({
       setComposerMode(composerModeForModelId(boot.modelId));
     }
     applyBootInteractionMode(boot.interactionMode, setInteractionMode, setComposerMode);
-    if (boot.imageAspectRatio) setImageAspectRatio(boot.imageAspectRatio);
+    // Design agent is always Smart (auto) — never import home category stock WxH
+    // (e.g. website 1440×900) as CLIENT_SIZE_LOCK; LLM must pick create_frame size.
+    const bootMode = String(boot.interactionMode || '').trim().toLowerCase();
+    if (bootMode === 'image' || bootMode === 'video') {
+      if (boot.imageAspectRatio) setImageAspectRatio(boot.imageAspectRatio);
+    } else {
+      setImageAspectRatio('auto');
+    }
     if (boot.scene) {
       setDesignScene(boot.scene);
       designSceneRef.current = boot.scene;
@@ -1969,7 +1975,7 @@ function AgentDock({
       canvasMutated: false,
       nodesPainted: false,
     };
-    const chipNorm = normalizeCanvasSizeChip(imageAspectRatio);
+    const chipNorm = 'auto';
     const onDesignEvent = createDesignAgentEventRouter({
       t,
       assistantId: target.id,
@@ -1999,7 +2005,7 @@ function AgentDock({
         styleGroupId: styleGroupId ?? designCatalog?.style_groups?.[0]?.id ?? null,
         model: resolveAgentSendModel(canPickModel, model),
         routeOverrides: resolveAgentRouteOverrides(canPickModel, model),
-        canvasSize: canvasSizeFromChip(chipNorm),
+        canvasSize: 'auto',
         canvasId: chatScopeId || undefined,
         sessionId,
         projectId: chatScopeId || '__none__',
@@ -2648,7 +2654,8 @@ function AgentDock({
     try {
       const chipNorm = normalizeCanvasSizeChip(imageAspectRatio);
       const sendScene = null;
-      const sendCanvasSize = canvasSizeFromChip(chipNorm);
+      // Design agent: always Smart — LLM create_frame picks WxH (no CLIENT_SIZE_LOCK).
+      const sendCanvasSize = 'auto';
       console.info('[AgentDock] design send (react p0)', {
         scene: sendScene,
         canvasSize: sendCanvasSize,
@@ -2660,7 +2667,7 @@ function AgentDock({
         t,
         assistantId,
         userMsg,
-        chipNorm,
+        chipNorm: 'auto',
         setMessages,
         setImageAspectRatio,
         setDesignScene,
@@ -3321,13 +3328,8 @@ function AgentDock({
 
   const modelButtonProps = {
     title: modelButtonTitle(model, models, selectedModelLabel, t),
-    label: modelButtonLabel(
-      model,
-      selectedModel,
-      selectedModelLabel,
-      t,
-      t(`agent.designIntensity.${designIntensity}.short`)
-    ),
+    label: modelButtonLabel(model, selectedModel, selectedModelLabel, t),
+    labelSuffix: t(`agent.designIntensity.${designIntensity}.short`),
     variant: 'chip' as const,
     open: modelPanelOpen,
     onOpenChange: (next: boolean) => {
@@ -3388,6 +3390,12 @@ function AgentDock({
         sendVariant="circle"
         sendTone="ink"
         {...attachProps}
+        interactionMode={interactionMode}
+        onInteractionModeChange={applyInteractionMode}
+        allowedInteractionModes={enabledInteractionModes}
+        showInteractionModePicker
+        imageModeControls={imageModeControls}
+        videoModeControls={videoModeControls}
         modelButtonProps={modelButtonProps}
         {...imageAspectProps}
       />

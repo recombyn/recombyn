@@ -29,10 +29,8 @@ import {
 import {
   AGENT_ROUTE_POPOVER_PANEL,
   AGENT_ROUTE_SUBMENU_PANEL,
+  AUTO_MODEL,
   ModelBrandIcon,
-  ModelMetaBadge,
-  isUserCustomModel,
-  modelDescription,
 } from './ModelPickerPanel';
 import {
   type AgentRoutePrefs,
@@ -109,8 +107,6 @@ function routeCatalogLoadState(opts: {
   return 'ready';
 }
 
-type RouteLaneT = (key: string, opts?: Record<string, unknown>) => string;
-
 function renderRouteLaneSelectLabel(opts: {
   model: LlmModel | null;
   label: string;
@@ -125,36 +121,39 @@ function renderRouteLaneSelectLabel(opts: {
   );
 }
 
-function renderRouteLaneOptionMeta(
-  full: LlmModel | null,
-  t: RouteLaneT
-): ReactNode {
-  if (!full || !isUserCustomModel(full)) return null;
-  return <ModelMetaBadge label={t('agent.modelBadgeCustom')} />;
+function compactModelOptionIcon(opt: {
+  id: string;
+  model?: LlmModel | null;
+}): LlmModel | null {
+  if (opt.model) return opt.model;
+  if (opt.id === 'auto') return AUTO_MODEL;
+  return null;
+}
+
+function renderCompactModelOptionLabel(opt: {
+  id: string;
+  label: string;
+  model?: LlmModel | null;
+}): ReactNode {
+  const iconModel = compactModelOptionIcon(opt);
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-2">
+      {iconModel ? <ModelBrandIcon model={iconModel} size={18} className="shrink-0" /> : null}
+      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ink)]">{opt.label}</span>
+    </span>
+  );
 }
 
 function renderRouteLaneSelectOption(
   opt: { value: string | number; label: ReactNode },
-  catalogPool: LlmModel[],
-  t: RouteLaneT
+  catalogPool: LlmModel[]
 ): ReactNode {
   const full = catalogPool.find((x) => x.id === opt.value) || null;
-  const desc = full ? modelDescription(full, t) : undefined;
   return (
-    <span className="flex w-full min-w-0 items-start gap-2.5">
-      {full ? <ModelBrandIcon model={full} size={18} className="mt-0.5 shrink-0" /> : null}
-      <span className="min-w-0 flex-1 overflow-hidden">
-        <span className="flex min-w-0 items-start justify-between gap-2">
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-[var(--ink)]">
-            {opt.label}
-          </span>
-          {renderRouteLaneOptionMeta(full, t)}
-        </span>
-        {desc ? (
-          <span className="mt-0.5 block min-w-0 max-w-full truncate text-[11px] leading-[1.35] text-[var(--muted)]">
-            {desc}
-          </span>
-        ) : null}
+    <span className="flex w-full min-w-0 items-center gap-2">
+      {full ? <ModelBrandIcon model={full} size={18} className="shrink-0" /> : null}
+      <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--ink)]">
+        {opt.label}
       </span>
     </span>
   );
@@ -394,30 +393,20 @@ function AgentRoutePrefsEditorImpl({
   };
 
   if (compact) {
-    let submenuOptions: Array<{ id: string; label: string; desc?: string; model?: LlmModel | null }> =
-      [];
+    let submenuOptions: Array<{ id: string; label: string; model?: LlmModel | null }> = [];
     if (submenu?.kind === 'model') {
       submenuOptions = [
         {
           id: 'auto',
           label: t('agent.routeMultimodalAuto'),
-          desc: t('agent.routeMultimodalTip'),
           model: null,
         },
         ...singleModelRows.map((m) => ({
           id: m.id,
           label: m.label || m.id,
-          desc: modelDescription(m, t),
           model: m,
         })),
       ];
-    } else if (submenu?.kind === 'intensity') {
-      submenuOptions = DESIGN_INTENSITY_VALUES.map((id) => ({
-        id,
-        label: t(`agent.designIntensity.${id}.label`),
-        desc: t(`agent.designIntensity.${id}.desc`),
-        model: null,
-      }));
     }
 
     const submenuSelectedId = submenuSelectedIdOf(submenu, {
@@ -480,11 +469,6 @@ function AgentRoutePrefsEditorImpl({
                         {t(`agent.designIntensity.${id}.desc`)}
                       </span>
                     </span>
-                    {active ? (
-                      <span className="shrink-0 text-[13px] text-[var(--ink)]" aria-hidden>
-                        ✓
-                      </span>
-                    ) : null}
                   </button>
                 );
               })}
@@ -522,7 +506,7 @@ function AgentRoutePrefsEditorImpl({
                         disabled={locked}
                         title={locked ? t('agent.freeModelLocked') : undefined}
                         className={cn(
-                          'flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left transition-colors',
+                          'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors',
                           selected && !locked
                             ? 'bg-[var(--accent-soft)]'
                             : 'hover:bg-[var(--accent-soft)]',
@@ -539,14 +523,7 @@ function AgentRoutePrefsEditorImpl({
                           setSubmenu(null);
                         }}
                       >
-                        <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ink)]">
-                          {opt.label}
-                        </span>
-                        {selected ? (
-                          <span className="shrink-0 text-[13px]" aria-hidden>
-                            ✓
-                          </span>
-                        ) : null}
+                        {renderCompactModelOptionLabel(opt)}
                       </button>
                     );
                   })}
@@ -565,7 +542,7 @@ function AgentRoutePrefsEditorImpl({
                         disabled={locked}
                         title={locked ? t('agent.freeModelLocked') : undefined}
                         className={cn(
-                          'flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left transition-colors',
+                          'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors',
                           selected && !locked
                             ? 'bg-[var(--accent-soft)]'
                             : 'hover:bg-[var(--accent-soft)]',
@@ -582,14 +559,7 @@ function AgentRoutePrefsEditorImpl({
                           setSubmenu(null);
                         }}
                       >
-                        <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ink)]">
-                          {opt.label}
-                        </span>
-                        {selected ? (
-                          <span className="shrink-0 text-[13px]" aria-hidden>
-                            ✓
-                          </span>
-                        ) : null}
+                        {renderCompactModelOptionLabel(opt)}
                       </button>
                     );
                   })}
@@ -790,7 +760,7 @@ function AgentRoutePrefsEditorImpl({
                     muted: emptyLane || !currentModel,
                   })
                 }
-                optionRender={(opt) => renderRouteLaneSelectOption(opt, catalogPool, t)}
+                optionRender={(opt) => renderRouteLaneSelectOption(opt, catalogPool)}
               />
             </label>
           );

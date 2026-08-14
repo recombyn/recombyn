@@ -186,19 +186,17 @@ const DEFAULT_VIDEO_DURATION = 5;
 
 function aspectRatioForCategory(category: HomeAgentCategory): string {
   switch (category) {
-    case 'mobile':
-      return '390x844';
-    case 'poster':
-      return '1080x1920';
-    case 'drawing':
-      return '1080x1080';
     case 'image':
       return DEFAULT_IMAGE_ASPECT_RATIO as string;
     case 'video':
       return DEFAULT_VIDEO_ASPECT_RATIO;
+    // Design agent categories: Smart only — LLM picks create_frame WxH.
+    case 'mobile':
+    case 'poster':
+    case 'drawing':
     case 'website':
     default:
-      return '1440x900';
+      return 'auto';
   }
 }
 
@@ -727,6 +725,10 @@ function HomeAgentComposer({
     let submitAspect = imageAspectRatio;
     if (isImage) submitAspect = String(imageGenAspectRatio);
     else if (isVideoInteraction) submitAspect = String(videoGenAspectRatio);
+    else {
+      // Design agent: Smart only — LLM picks create_frame WxH (never lock category stock).
+      submitAspect = 'auto';
+    }
 
     onSubmit({
       prompt,
@@ -1011,14 +1013,11 @@ function HomeAgentComposer({
         modelButtonProps={{
           title: t('home.designSystemCta'),
           variant: 'chip',
-          label: (() => {
-            const intensity = t(`agent.designIntensity.${designIntensity}.short`);
-            const base =
-              modelId === 'auto'
-                ? t('agent.autoToggle')
-                : models.find((m) => m.id === modelId)?.label || modelId;
-            return `${base} ${intensity}`;
-          })(),
+          label:
+            modelId === 'auto'
+              ? t('agent.autoToggle')
+              : models.find((m) => m.id === modelId)?.label || modelId,
+          labelSuffix: t(`agent.designIntensity.${designIntensity}.short`),
           open: modelOpen,
           panelPlacement: 'bottom-end',
           onOpenChange: (next) => {

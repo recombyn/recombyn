@@ -44,3 +44,21 @@ def test_protocol_catalog_shared():
     a = default_oss_task_pricing_catalog()["agent"].estimate_credits_high()
     b = default_task_pricing_catalog()["agent"].estimate_credits_high()
     assert a == b == 30
+
+
+def test_oss_plan_catalog_plus_sku():
+    from app.services.wallet.billing import (
+        _sanitize_plan_row,
+        oss_plan_catalog,
+        public_plan_catalog,
+    )
+
+    plus = next(p for p in oss_plan_catalog() if p["planId"] == "plus")
+    assert plus["priceCny"] == 49
+    assert plus["creditsIncluded"] == 340
+    studio = _sanitize_plan_row(
+        {"plan_id": "studio", "list_price_cny": 499, "credits_grant": 4000}
+    )
+    assert studio and studio["planId"] == "ultra"
+    live = {p["planId"]: p for p in public_plan_catalog(force=True)}
+    assert live["plus"]["priceCny"] == 49

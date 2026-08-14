@@ -2123,6 +2123,18 @@ async def _retry_paint_from_review(
     return Command(update=_bump(rt), goto="paint_ops")
 
 
+async def _run_design_quality_gate(rt: AgentRuntime) -> None:
+    """P41 lanes belong on this Review hop — not a separate graph node."""
+    from app.services.design.intelligence_runtime import get_design_intelligence_client
+    from app.services.design.runtime.graph.nodes.governance import (
+        should_route_to_governance,
+    )
+
+    if not should_route_to_governance(rt):
+        return
+    await get_design_intelligence_client().govern(rt)
+
+
 async def _node_review_agent(state: GraphState) -> Command:
     """Review Agent: optional craft gate after observe; may force paint retry."""
     rt = state["rt"]
@@ -2445,4 +2457,5 @@ async def _node_review_agent(state: GraphState) -> Command:
     rt.flags["ok"] = not bool(must_fix)
     rt.flags["retry"] = False
     rt.terminal = True
+    await _run_design_quality_gate(rt)
     return Command(update=_bump(rt), goto="__settle__")

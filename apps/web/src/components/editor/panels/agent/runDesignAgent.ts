@@ -2339,6 +2339,7 @@ export type DesignIntelligencePatch = {
   /** Design quality check (governance) — user view. */
   governance?: {
     status?: string;
+    skipped?: boolean;
     lanes?: Array<{
       lane?: string;
       status?: string;
@@ -2421,6 +2422,8 @@ export type AgentStepEvent =
       /** Stable kernel code for FE i18n (e.g. ops_validate_failed). */
       code?: string;
       item?: { id?: string; name?: string; summary?: string };
+      /** Nested rows (e.g. quality-check lanes) — rendered in stream order. */
+      items?: Array<{ id?: string; name?: string; summary?: string }>;
       body?: string;
       visibility?: 'user' | 'developer' | 'internal';
     }
@@ -2698,6 +2701,21 @@ function activityItemPayload(item: {
     name: item.name ? String(item.name) : undefined,
     summary: item.summary ? String(item.summary) : undefined,
   };
+}
+
+function activityItemsPayload(
+  items: unknown
+): Array<{ id?: string; name?: string; summary?: string }> | undefined {
+  if (!Array.isArray(items) || !items.length) return undefined;
+  const out: Array<{ id?: string; name?: string; summary?: string }> = [];
+  for (const row of items) {
+    if (!row || typeof row !== 'object') continue;
+    const mapped = activityItemPayload(
+      row as { id?: unknown; name?: unknown; summary?: unknown }
+    );
+    if (mapped) out.push(mapped);
+  }
+  return out.length ? out : undefined;
 }
 
 function normalizeActivityStatusLocal(
@@ -3332,6 +3350,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       stage: stage || undefined,
       code: ev.code ? String(ev.code) : undefined,
       item: activityItemPayload(ev.item),
+      items: activityItemsPayload(ev.items),
       body: activityBody || undefined,
     });
     refreshActivityProcessPill({
@@ -3537,7 +3556,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               type: 'activity',
               id: `opfail-${activitySeq}`,
               kind: 'skipped',
-              status: 'done',
+              status: 'error',
               detail: 'Revision conflict — canvas changed since this AI turn',
             });
             return;
@@ -3568,7 +3587,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               type: 'activity',
               id: `opfail-${activitySeq}`,
               kind: 'skipped',
-              status: 'done',
+              status: 'error',
               count: failures.length,
               detail: `${failures.length} op(s) not applied: ${failures[0].error || 'target missing'}`,
             });
@@ -3909,6 +3928,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           }
           const row = ev as {
             status?: string;
+            skipped?: boolean;
             lanes?: Array<{ lane?: string; status?: string; message?: string }>;
             explain?: string[];
           };
@@ -3917,6 +3937,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             patch: {
               governance: {
                 status: String(row.status || '').trim() || undefined,
+                skipped: Boolean(row.skipped) || undefined,
                 lanes: Array.isArray(row.lanes) ? row.lanes : undefined,
                 explain: Array.isArray(row.explain) ? row.explain : undefined,
               },

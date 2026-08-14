@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineCheck, HiOutlineMegaphone } from 'react-icons/hi2';
 import { SegmentedControl } from '@/components/base';
+import { BrandWordmarkLoader } from '@/components/base/AppLogo';
 import { apiQuery } from '@/service/client';
 import { cn } from '@/utils/classnames';
 
@@ -147,9 +148,10 @@ function AccountNotificationsPanel(): ReactNode {
 
       <div className="mt-5 min-h-0 flex-1">
         {showLoading ? (
-          <div className="flex h-[280px] items-center justify-center text-[13px] text-[var(--muted)]">
-            {t('common.loading')}
-          </div>
+          <BrandWordmarkLoader
+            label={t('common.loading')}
+            className="h-[280px]"
+          />
         ) : items.length === 0 ? (
           <div className="flex h-[280px] flex-col items-center justify-center gap-2 text-[var(--muted)]">
             <HiOutlineMegaphone className="h-8 w-8 opacity-40" strokeWidth={1.25} />

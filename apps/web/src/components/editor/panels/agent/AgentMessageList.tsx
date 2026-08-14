@@ -35,6 +35,7 @@ type AgentMessageListProps = {
   onRestore: (userId: string) => void;
   onChoice?: (choice: AskChoicePick) => void;
   onResume?: (assistantId: string) => void;
+  onDismissResume?: (assistantId: string) => void;
   onOpenSession: (session: AgentChatSessionRow) => void;
   onDeleteSession: (id: string) => void;
   formatChatTime: (ts: number) => string;

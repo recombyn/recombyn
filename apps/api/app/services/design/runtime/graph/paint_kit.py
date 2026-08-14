@@ -20,7 +20,6 @@ from app.services.design.runtime.models_route import normalize_user_intent
 from app.services.design.runtime.graph.state import (
     _DEFAULT_PAINT_CREATE_TOOLS,
     _DEFAULT_PAINT_EDIT_TOOLS,
-    _LEAN_PAINT_PROMPT_CHARS,
 )
 
 _log = logging.getLogger(__name__)
@@ -269,22 +268,16 @@ def _prompt_compact_len(prompt: str | None) -> int:
     return len(re.sub(r"\s+", "", str(prompt or "")))
 
 def _is_lean_paint_turn(rt: Any) -> bool:
-    """canvas_op (or short no-vision) turns — slim paint prompt."""
+    """Slim paint path for LLM-classified canvas_op only (no length/keyword guess)."""
     if bool(getattr(rt, "images", None)):
         return False
-    if normalize_user_intent(getattr(rt, "classified_intent", None)) == "canvas_op":
-        return True
-    prompt = getattr(rt, "prompt", None)
-    # Missing/empty prompt is not lean — avoid skipping Review on bare mocks/hosts.
-    if not str(prompt or "").strip():
-        return False
-    return _prompt_compact_len(prompt) <= _LEAN_PAINT_PROMPT_CHARS
+    return normalize_user_intent(getattr(rt, "classified_intent", None)) == "canvas_op"
 
 def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
     """Structural paint tool kit — not hard-coded to one shape type.
 
     - Always: create_shape + create_text.
-    - create_frame: design-grade create on empty / no artboard — not canvas_op adds.
+    - create_frame: design/create only — canvas_op uses infinite-canvas tools.
     - create_icon / create_svg: UI glyphs & marks (else models fake icons with emoji text).
     - create_image: attachments **or** create/design turns (genPrompt hero / lettering).
     - create_lottie: create/design turns (motion / looping UI icons) — must be in TOOL_DETAILS
@@ -305,8 +298,7 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
     ]
 
     keys: list[str] = ["create_shape", "create_text"]
-    # design/create: expose create_frame; paint_system decides when to use it (user intent).
-    # Ambient FOCUS / existing frames must not hide the tool.
+    # Intent LLM owns the split: only design/create may open a plate.
     allow_frame = classified == "design" and want == "create"
     if allow_frame:
         keys.insert(0, "create_frame")
@@ -444,20 +436,18 @@ def _paint_ops_user(rt: Any) -> str:
         if edit_ctx:
             parts.append(edit_ctx[:2500])
     else:
-        prompt_l = str(getattr(rt, "prompt", "") or "").lower()
-        need_color_ctx = any(
-            k in prompt_l
-            for k in ("色", "绿", "红", "蓝", "color", "delete", "删", "去掉", "移除")
-        )
-        reflecting = bool(str(getattr(rt.run, "reflect_note", "") or "").strip())
-        if need_color_ctx or reflecting:
-            mem = str(vars_.get("memory_block") or "").strip()
-            if mem:
-                parts.append(mem[:1500])
-            dial = str(vars_.get("recent_dialogue") or "").strip()
-            if dial:
-                parts.append(dial[:1200])
+        # Always keep a slim memory/dialogue strip on lean — no keyword gate.
+        mem = str(vars_.get("memory_block") or "").strip()
+        if mem:
+            parts.append(mem[:1500])
+        dial = str(vars_.get("recent_dialogue") or "").strip()
+        if dial:
+            parts.append(dial[:1200])
         parts.append(
+            "LEAN_CANVAS_OP: do NOT emit create_frame / open a new artboard. "
+            "Infinite canvas — place create_* with free-canvas world x/y "
+            "(near existing boards is fine). Only set frameId when FOCUS_FRAME_ID "
+            "or a user @ board is already set. "
             "DELETE SAFETY: never delete_nodes an artboard/frame id "
             "(use delete_frame). COLOR: match user color intent via SCENE fill/stroke."
         )

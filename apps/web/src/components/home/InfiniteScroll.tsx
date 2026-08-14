@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BrandWordmarkLoader } from '@/components/base/AppLogo';
 import { cn } from '@/utils/classnames';
 
 /** Walk up to the nearest overflow scroll container (Home / Me nested panels). */
@@ -64,7 +65,7 @@ type ScrollLoadFooterProps = {
   className?: string;
 };
 
-/** Bottom sentinel — shows「加载中…」while the next page is fetching. */
+/** Bottom sentinel — brand wordmark while the next page is fetching. */
 function ScrollLoadFooter({
   sentinelRef,
   hasMore,
@@ -76,12 +77,12 @@ function ScrollLoadFooter({
   return (
     <div
       ref={sentinelRef}
-      className={cn('flex h-12 w-full items-center justify-center', className)}
+      className={cn('flex h-14 w-full items-center justify-center', className)}
       aria-busy={loadingMore || undefined}
       aria-hidden={!loadingMore}
     >
       {loadingMore ? (
-        <span className="text-[12px] text-[var(--muted)]">{t('common.loading')}</span>
+        <BrandWordmarkLoader label={t('common.loading')} />
       ) : null}
     </div>
   );

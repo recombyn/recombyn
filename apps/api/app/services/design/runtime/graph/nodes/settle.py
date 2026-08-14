@@ -208,11 +208,15 @@ async def _sync_intelligence_knowledge(rt: AgentRuntime) -> None:
 async def _node_settle(state: GraphState) -> Command:
     rt = state["rt"]
     st = rt.run
-    # P41 — settle hard gate BEFORE charge / success claim.
-    from app.services.design.intelligence_runtime import get_design_intelligence_client
-
-    gov = await get_design_intelligence_client().govern(rt)
-    governance_failed = str(gov.get("status") or "") == "fail"
+    # P41 — quality gate already ran at the end of Review (design intent).
+    # Chat / canvas_op never enter Review, so they never show the checklist.
+    gov = getattr(rt, "design_governance", None)
+    if not isinstance(gov, dict):
+        gov = {}
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    governance_failed = bool(flags.get("governance_fail")) or str(
+        gov.get("status") or ""
+    ) == "fail"
     # Outcome-aware Taste KG write (Private via Client; BasicLocal no-op).
     await _sync_intelligence_knowledge(rt)
     if governance_failed:

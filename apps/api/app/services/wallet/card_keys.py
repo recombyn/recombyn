@@ -48,11 +48,11 @@ _WEAK_SALTS = frozenset(
 _MIN_SALT_LEN = 24
 
 # Keep in sync with FE PLAN_CATALOG (apps/web/src/utils/wallet.ts)
-# and billing.PLUS_IMAGE_FACE_CREDITS (¥29 → 200 积分).
+# and billing.PLUS_IMAGE_FACE_CREDITS (¥49 → 340 积分).
 PLAN_CREDITS: dict[str, int] = {
-    "plus": 200,
-    "pro": 750,
-    "ultra": 1600,
+    "plus": 340,
+    "pro": 1030,
+    "ultra": 4000,
 }
 # Deprecated alias (always 0) — redeem no longer splits image gifts.
 PLAN_IMAGE_CREDITS: dict[str, int] = {
@@ -185,11 +185,10 @@ def resolve_generate_spec(
         if pid not in VALID_PLAN_IDS:
             raise ValueError("planId must be plus, pro, or ultra")
         amt = int(tokens or 0)
-        if amt <= 0:
-            amt = int(PLAN_CREDITS[pid])
-        # Legacy plan face still in millions → convert
-        if amt >= TOKENS_PER_CREDIT:
-            amt = int(PLAN_CREDITS[pid])
+        if amt <= 0 or amt >= TOKENS_PER_CREDIT:
+            from app.services.wallet.billing import plan_credit_grant
+
+            amt = int(plan_credit_grant(pid) or PLAN_CREDITS[pid])
         return "plan", amt, pid
     amt = _normalize_topup_amount(k, int(tokens or 0))
     if amt <= 0:

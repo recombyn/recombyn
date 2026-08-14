@@ -3,7 +3,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  applyActivityEventToSteps,
   formatDiffDeltaLine,
+  formatGovernanceLaneItems,
   hasDesignIntelligence,
   pctLabel,
 } from '../ChatTurnList';
@@ -30,6 +32,21 @@ describe('design intelligence panel', () => {
         governance: { status: 'pass', lanes: [{ lane: 'brand', status: 'pass' }] },
       })
     ).toBe(true);
+    expect(
+      hasDesignIntelligence({
+        governance: { status: 'skipped', lanes: [] },
+      })
+    ).toBe(false);
+    expect(
+      hasDesignIntelligence({
+        governance: { status: 'pass', skipped: true, lanes: [] },
+      })
+    ).toBe(false);
+    expect(
+      hasDesignIntelligence({
+        governance: { status: 'pass', lanes: [] },
+      })
+    ).toBe(false);
     expect(
       hasDesignIntelligence({
         summary: {
@@ -71,5 +88,35 @@ describe('design intelligence panel', () => {
     expect(b.summary?.thesis).toBe('museum relic');
     expect(b.summary?.nextSteps).toEqual(['widen whitespace']);
     expect(b.governance?.status).toBe('pass');
+  });
+
+  it('renders quality-check items on the activity step the backend sent', () => {
+    const t = (key: string) =>
+      ({
+        'agent.governanceLane.brand': '品牌一致性',
+        'agent.governanceLanePass': '通过',
+      }[key] || key);
+    const items = formatGovernanceLaneItems(t, [
+      { name: 'brand', summary: 'pass' },
+    ]);
+    expect(items[0]?.name).toBe('品牌一致性：通过');
+    const running = applyActivityEventToSteps([], {
+      kind: 'tool',
+      eventId: 'design-governance',
+      status: 'running',
+      label: '正在做设计质量检查…',
+      bodyMd: '',
+    });
+    const done = applyActivityEventToSteps(running || [], {
+      kind: 'tool',
+      eventId: 'design-governance',
+      status: 'done',
+      label: '设计质量检查完成',
+      items,
+      bodyMd: '',
+    });
+    const row = done?.find((s) => s.id === 'design-governance');
+    expect(row?.kind).toBe('tool');
+    expect(row?.items?.map((it) => it.name)).toEqual(['品牌一致性：通过']);
   });
 });

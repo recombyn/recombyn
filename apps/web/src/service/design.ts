@@ -141,6 +141,7 @@ export type DesignJobEvent =
       code?: string;
       /** Nested Explored line. */
       item?: { id?: string; name?: string; summary?: string };
+      items?: Array<{ id?: string; name?: string; summary?: string }>;
       /** Markdown body for expandable Explored (diagrams / notes). */
       body?: string;
       visibility?: 'user' | 'developer' | 'internal';
@@ -149,6 +150,7 @@ export type DesignJobEvent =
       /** Structured design quality gate (Brand / A11y / Copyright / …). */
       type: 'design_governance';
       status?: string;
+      skipped?: boolean;
       lanes?: Array<{
         lane?: string;
         status?: string;

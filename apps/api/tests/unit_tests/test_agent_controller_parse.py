@@ -260,6 +260,14 @@ def test_heuristic_user_intent_gate():
     # Fallback is structural only — normal path uses intent LLM + tools catalog.
     assert heuristic_user_intent("hi", has_images=False).intent == "chat"
 
+    from app.services.design.runtime.models_route import is_chitchat_prompt
+
+    assert is_chitchat_prompt("你好")
+    assert is_chitchat_prompt("User request:\n你好呀😊")
+    assert is_chitchat_prompt("hello")
+    assert not is_chitchat_prompt("你好，帮我做一张海报")
+    assert not is_chitchat_prompt("添加一个矩形到画布，红色的")
+
     assert (
         heuristic_user_intent("User request:\nhi", has_images=False).intent == "chat"
     )
@@ -269,8 +277,9 @@ def test_heuristic_user_intent_gate():
     )
     assert img.intent == "design"
     assert img.paint_lane == "create"
+    # LLM-down fail-open: non-greeting text → design (never length→canvas_op).
     op = heuristic_user_intent("short canvas task text", has_images=False)
-    assert op.intent == "canvas_op"
+    assert op.intent == "design"
     assert op.paint_lane == "create"
     target = heuristic_user_intent(
         "[Target element — full node]\n{\"id\":\"x\"}\n\nUser request:\nx",
@@ -342,6 +351,31 @@ def test_paint_tool_keys_structural_not_shape_specific():
     assert "update_node" not in keys
 
 
+def test_design_intent_not_lean_even_if_short_prompt():
+    """Short Chinese design briefs stay design — lean is canvas_op-only (LLM-owned)."""
+    from types import SimpleNamespace
+
+    from app.services.design.runtime.agent_controller import (
+        AgentRunState,
+        _is_lean_paint_turn,
+        _paint_tool_keys_for_turn,
+    )
+
+    st = AgentRunState(trace_id="t", task_id="task", goal="login")
+    rt = SimpleNamespace(
+        prompt="设计移动端登录页",
+        images=[],
+        classified_intent="design",
+        classified_paint_lane="create",
+        scene_nodes=[],
+        scene_frames=[],
+        focus_id="",
+        run=st,
+    )
+    assert _is_lean_paint_turn(rt) is False
+    assert _paint_tool_keys_for_turn(rt)[0] == "create_frame"
+
+
 def test_lean_paint_user_uses_digest_not_full_scene_dump():
     from types import SimpleNamespace
 
@@ -380,6 +414,7 @@ def test_lean_paint_user_uses_digest_not_full_scene_dump():
     )
     user = _paint_ops_user(rt)
     assert "DELETE SAFETY" in user
+    assert "LEAN_CANVAS_OP" in user
     assert "fill=#22c55e" in user or "SCENE_NODES" in user
     assert "RECENT_DIALOGUE" in user or "MEMORY" in user
     # Lean must not dump the old multi-k SCENE_NODES JSON block.

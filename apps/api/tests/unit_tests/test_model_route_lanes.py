@@ -33,18 +33,18 @@ def test_parse_legacy_threshold_map():
     assert lanes["reasoning"] == "c"
 
 
-def test_heuristic_short_edit_is_fast():
+def test_heuristic_default_is_standard():
     d = heuristic_route_lane("改标题颜色", canvas_node_count=12)
-    assert d.lane == "fast"
+    assert d.lane == "standard"
 
 
-def test_heuristic_empty_create_is_reasoning():
-    # Structural: empty canvas + long prompt (no content keyword lists).
+def test_heuristic_no_length_tiers():
+    # Length must not pick reasoning vs fast — LLM router owns that.
     d = heuristic_route_lane(
         "x" * 60,
         canvas_node_count=0,
     )
-    assert d.lane == "reasoning"
+    assert d.lane == "standard"
 
 
 def test_heuristic_images_vision():

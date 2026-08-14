@@ -610,9 +610,10 @@ async def _cleanup_design_thread(graph: Any, thread_id: str) -> None:
 
 
 def _build_lc_design_graph():
-    """canvas_ops_v1 — … → paint → action → observe → [review auto] → settle.
+    """canvas_ops_v1 — … → paint → action → observe → [review] → settle.
 
     Review is optional (Profile ``review_mode`` / settings); may loop paint on must_fix.
+    Design quality check (P41 lanes) runs at the end of Review, not a separate hop.
     """
     from app.core.config import settings
 

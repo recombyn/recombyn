@@ -11,14 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.types import Command
-
 from app.services.design.runtime.graph.state import (
     AgentRuntime,
-    GraphState,
     parse_design_swarm,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
+from app.services.design.runtime.graph.support import _emit
 
 # Catalog ids exposed via need_subagents (align with Profile spawn names when present).
 _SWARM_SUBAGENT_IDS: tuple[str, ...] = (
@@ -401,10 +398,3 @@ async def run_design_swarm(rt: AgentRuntime) -> dict[str, Any] | None:
             }
         )
         return None
-
-
-async def _node_swarm(state: GraphState) -> Command:
-    """Optional graph hop — swarm then continue to design_agent."""
-    rt = state["rt"]
-    await run_design_swarm(rt)
-    return Command(update=_bump(rt), goto="design_agent")

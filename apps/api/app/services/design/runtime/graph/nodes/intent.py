@@ -36,9 +36,8 @@ def _pending_proposal_flag(rt: AgentRuntime) -> dict[str, Any] | None:
 def _release_ambient_focus_for_new_design(rt: AgentRuntime) -> None:
     """Drop ambient/memory FOCUS so Host can open a shimmer sibling and bind it.
 
-    Flow (no user @): clear old focus → early-open reserves ``ab_*`` → that id
-    becomes FOCUS_FRAME_ID / HOST_ARTBOARD for the model. Do not leave the
-    previous Design board as focus or paint rewrites it.
+    Only for LLM intent=design create (no user @). canvas_op never opens a
+    sibling plate — infinite-canvas catalog tools place freely.
     """
     from app.services.design.runtime.decision_log import probe_has_target_chip
 
@@ -120,6 +119,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         paint_ops_intent(intent, paint_lane) if intent != "chat" else "chat"
     )
     rt.flags["intent"] = intent
+    rt.flags["gate_intent"] = intent
     rt.flags["paint_lane"] = paint_lane
     st.push_log(
         phase="intent_classify",
@@ -193,6 +193,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
     _release_ambient_focus_for_new_design(rt)
 
     _emit_design_loading_artboard(rt)
+    # Intent LLM owns routing: canvas_op → paint; design → full design_agent.
     if intent == "canvas_op":
         return _goto_cmd(rt, frm="intent_classify", to="paint_ops")
     return _goto_cmd(rt, frm="intent_classify", to="design_agent")
