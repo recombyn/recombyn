@@ -21,6 +21,8 @@ def test_byok_capture_is_agent_fee_only():
 
 
 def test_oss_floor_when_no_usage():
+    from app.services.wallet.billing import resolve_task_pricing
+
     credits, source = resolve_capture_credits(
         mode="agent",
         actual_tokens=0,
@@ -28,7 +30,10 @@ def test_oss_floor_when_no_usage():
         byok=False,
     )
     assert source == "task_pricing_floor"
-    assert credits == estimate_design_hold_credits("agent")
+    # Floor is TaskPricing.base_credit; authorize high is estimate_design_hold_credits.
+    assert credits == int(resolve_task_pricing("agent").base_credit or 0)
+    assert credits == 20
+    assert estimate_design_hold_credits("agent") == 30
 
 
 def test_authorize_bands_match_task_pricing():
