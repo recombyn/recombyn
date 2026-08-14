@@ -1013,11 +1013,14 @@ function HomeAgentComposer({
         modelButtonProps={{
           title: t('home.designSystemCta'),
           variant: 'chip',
-          label:
+          label: [
             modelId === 'auto'
               ? t('agent.autoToggle')
               : models.find((m) => m.id === modelId)?.label || modelId,
-          labelSuffix: t(`agent.designIntensity.${designIntensity}.short`),
+            t(`agent.designIntensity.${designIntensity}.short`),
+          ]
+            .filter(Boolean)
+            .join(' · '),
           open: modelOpen,
           panelPlacement: 'bottom-end',
           onOpenChange: (next) => {
