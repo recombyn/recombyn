@@ -15,7 +15,8 @@ Stable **open** contracts for Design Runtime and `intelligence-client`.
 - **Billing Protocol** (`recombyn_protocol.billing`): Model registry identity,
   versioned `PricingRate` sheets, Usage / TaskCost / TaskPricing,
   CreditPolicy / Quota / Entitlement / Meter, Budget Guard,
-  BillingEvent / Credit ledger, micros money helpers
+  BillingEvent / Credit ledger, micros money helpers,
+  `default_oss_task_pricing_catalog()` (shared authorize floors)
   — see [ADR 0025](../../docs/adr/0025-billing-protocol.md),
   [ADR 0026](../../docs/adr/0026-task-centric-billing.md)
 
