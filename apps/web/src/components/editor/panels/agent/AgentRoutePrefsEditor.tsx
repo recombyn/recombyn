@@ -2,7 +2,7 @@
  * Auto routing prefs editor — compact popover (home / dock) + account form.
  */
 
-import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
+import { useEffect, useState, type ReactNode, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiChevronLeft, HiChevronRight } from 'react-icons/hi2';
@@ -18,7 +18,7 @@ import {
 } from '@/components/editor/panels/agent/llmModelMeta';
 import { type DesignCatalog } from '@/service/design';
 import { apiQuery } from '@/service/client';
-import { Dropdown, SegmentedControl, Select, Tooltip } from '@/components/base';
+import { Dropdown, SegmentedControl, Select } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
@@ -26,7 +26,7 @@ import {
   customProvidersAsModels,
   hydrateCustomLlmProviders,
 } from './customLlmProviders';
-import ModelPickerPanel, {
+import {
   AGENT_ROUTE_POPOVER_PANEL,
   AGENT_ROUTE_SUBMENU_PANEL,
   ModelBrandIcon,
@@ -35,26 +35,21 @@ import ModelPickerPanel, {
   modelDescription,
 } from './ModelPickerPanel';
 import {
-  type AgentRoutePreset,
   type AgentRoutePrefs,
+  type DesignIntensity,
+  DESIGN_INTENSITY_VALUES,
   cachePresetRules,
   emptyCustomRoutePrefs,
   getCachedOpenrouterAvailability,
   getCachedPresetRules,
   loadAgentRoutePrefs,
-  resolvePresetForRegion,
+  loadDesignIntensity,
+  normalizeDesignIntensity,
   saveAgentRoutePrefs,
+  saveDesignIntensity,
   seedCustomLaneFromPrefs,
   warmOpenrouterAvailability,
 } from './agentRoutePrefs';
-import {
-  loadAgentPaintMode,
-  saveAgentPaintMode,
-} from './boardModes/prefs';
-import {
-  type AgentPaintMode,
-  normalizeAgentPaintMode,
-} from './boardModes/types';
 
 const selectFieldClass =
   'mt-1.5 w-full !h-10 rounded-lg border-0 bg-[var(--account-main)] px-3 pr-8 text-[14px] text-[var(--ink)] ring-1 ring-[var(--line)]';
@@ -165,25 +160,6 @@ function renderRouteLaneSelectOption(
   );
 }
 
-/** Select `value` — only named presets; everything else maps to platform. */
-function selectValueForRoutePreset(preset: AgentRoutePreset): AgentRoutePreset {
-  if (preset === 'balanced' || preset === 'quality' || preset === 'custom') return preset;
-  return 'platform';
-}
-
-function routePresetNoteText(preset: AgentRoutePreset, t: RouteLaneT): string {
-  switch (preset) {
-    case 'balanced':
-      return t('account.agentRouteBalancedNote');
-    case 'quality':
-      return t('account.agentRouteQualityNote');
-    case 'custom':
-      return t('account.agentRouteCard.custom.desc');
-    default:
-      return t('account.agentRoutePlatformNote');
-  }
-}
-
 function modelOptions(
   models: LlmModel[],
   slot: 'fast' | 'standard' | 'reasoning' | 'vision' | 'image'
@@ -212,65 +188,19 @@ function mergeModelCatalogPool(textModels: LlmModel[], imageModels: LlmModel[]):
   return [...byId.values()];
 }
 
-function routePresetShortLabel(
-  preset: string | undefined,
-  t: (key: string) => string
-): string {
-  switch (preset) {
-    case 'balanced':
-      return t('account.agentRouteCard.balanced.title');
-    case 'quality':
-      return t('account.agentRouteCard.quality.title');
-    case 'custom':
-      return t('account.agentRouteCard.custom.title');
-    default:
-      return t('account.agentRouteCard.platform.title');
-  }
-}
-
-function headerStatusLabelOf(opts: {
-  activeRouteTab: 'auto' | 'custom' | 'single';
-  selectedSingleId: string;
-  singleModelRows: Array<{ id: string; label?: string }>;
-  presetShortLabel: string;
-}): string {
-  if (opts.activeRouteTab !== 'single' || opts.selectedSingleId === 'auto') {
-    return opts.presetShortLabel;
-  }
-  const hit = opts.singleModelRows.find((m) => m.id === opts.selectedSingleId);
-  return hit?.label || opts.selectedSingleId;
-}
-
-/** Keep current / remembered single id when still in catalog; else first row. */
-function resolveSingleModelPickId(
-  selectedId: string,
-  rows: Array<{ id: string }>,
-  rememberedId?: string
-): string {
-  if (selectedId !== 'auto' && rows.some((m) => m.id === selectedId)) {
-    return selectedId;
-  }
-  const remembered = String(rememberedId || '').trim();
-  if (remembered && remembered !== 'auto' && rows.some((m) => m.id === remembered)) {
-    return remembered;
-  }
-  return rows[0]?.id || '';
-}
-
-type CompactSubmenu =
-  | { kind: 'preset' }
-  | { kind: 'field'; key: 'fast' | 'standard' | 'reasoning' | 'vision' | 'image' }
-  | null;
+type CompactSubmenu = { kind: 'model' } | { kind: 'intensity' } | null;
 
 function submenuSelectedIdOf(
   submenu: CompactSubmenu,
-  routePrefs: AgentRoutePrefs
+  opts?: { selectedModelId?: string; intensity?: DesignIntensity }
 ): string {
-  if (submenu?.kind === 'field') return String(routePrefs[submenu.key] || '');
-  if (submenu?.kind !== 'preset') return '';
-  if (routePrefs.preset === 'economy') return 'platform';
-  if (routePrefs.preset === 'custom') return '';
-  return routePrefs.preset;
+  if (submenu?.kind === 'model') {
+    return String(opts?.selectedModelId || 'auto').trim() || 'auto';
+  }
+  if (submenu?.kind === 'intensity') {
+    return normalizeDesignIntensity(opts?.intensity);
+  }
+  return '';
 }
 
 export type SharedRouteCatalog = {
@@ -282,8 +212,6 @@ export type SharedRouteCatalog = {
 type AgentRoutePrefsEditorProps = {
   /** Popover in agent dock / home — Lovart-style card (not account form). */
   compact?: boolean;
-  /** Shown on the compact header left (Agent / Ask). */
-  modeLabel?: string;
   className?: string;
   /** Fired after prefs are written to localStorage. */
   onChanged?: (prefs: AgentRoutePrefs) => void;
@@ -304,12 +232,11 @@ type AgentRoutePrefsEditorProps = {
 };
 
 /**
- * Auto routing prefs editor — shared by Account settings and Agent/Ask model popover.
- * Same storage + presets as account.agentRoute* (platform / economy / balanced / quality / custom).
+ * Auto routing prefs editor — shared by Account settings and Agent model popover.
+ * Account: editable Auto lanes only (no Standard / Pro / Max tiers).
  */
 function AgentRoutePrefsEditorImpl({
   compact = false,
-  modeLabel,
   className,
   onChanged,
   sharedCatalog,
@@ -323,23 +250,28 @@ function AgentRoutePrefsEditorImpl({
   const [routePrefs, setRoutePrefs] = useState<AgentRoutePrefs>(() =>
     desktopLocal ? emptyCustomRoutePrefs() : { preset: 'platform' }
   );
-  const [paintMode, setPaintMode] = useState<AgentPaintMode>(() => loadAgentPaintMode());
-  const [routeSaved, setRouteSaved] = useState(false);
+  const [designIntensity, setDesignIntensity] = useState<DesignIntensity>(() =>
+    loadDesignIntensity()
+  );
   const [textModels, setTextModels] = useState<LlmModel[]>([]);
   const [imageModels, setImageModels] = useState<LlmModel[]>([]);
   const [submenu, setSubmenu] = useState<CompactSubmenu>(null);
-  /** Compact popover body: Auto | Multi-route | Single — UI only, not persisted. */
-  const [routePanelTab, setRoutePanelTab] = useState<'auto' | 'custom' | 'single' | null>(
-    null
-  );
-  /** Remember last concrete single-model pick across Auto / Multi-route tab switches. */
-  const lastSingleModelIdRef = useRef('');
   const [openrouterAvailable, setOpenrouterAvailable] = useState<boolean | null>(() => getCachedOpenrouterAvailability());
   const narrow = useNarrowViewport();
 
   useEffect(() => {
     setRoutePrefs(loadAgentRoutePrefs());
-    setPaintMode(loadAgentPaintMode());
+    setDesignIntensity(loadDesignIntensity());
+  }, []);
+
+  useEffect(() => {
+    const syncIntensity = () => setDesignIntensity(loadDesignIntensity());
+    window.addEventListener('storage', syncIntensity);
+    window.addEventListener('recombyn-design-intensity', syncIntensity);
+    return () => {
+      window.removeEventListener('storage', syncIntensity);
+      window.removeEventListener('recombyn-design-intensity', syncIntensity);
+    };
   }, []);
 
   // Account Agent tab loads catalog once on the parent — skip duplicate design fetch there.
@@ -413,68 +345,18 @@ function AgentRoutePrefsEditorImpl({
     };
   }, [desktopLocal, catalogFromParent, byokListQuery.isFetched, byokListQuery.dataUpdatedAt]);
 
-  const commit = (next: AgentRoutePrefs) => {
-    setRoutePrefs(next);
-    if (desktopLocal || next.preset === 'custom') {
-      saveAgentRoutePrefs({
-        preset: 'custom',
-        fast: next.fast,
-        standard: next.standard,
-        reasoning: next.reasoning,
-        vision: next.vision,
-        image: next.image,
-      });
-    } else if (next.preset === 'balanced' || next.preset === 'quality') {
-      saveAgentRoutePrefs({ preset: next.preset });
-    } else {
-      saveAgentRoutePrefs({ preset: 'platform' });
-    }
-    setRouteSaved(true);
-    onChanged?.(next);
-  };
-
-  const applyPreset = (preset: AgentRoutePreset) => {
-    if (desktopLocal) {
-      commit({ ...routePrefs, preset: 'custom' });
-      return;
-    }
-    if (preset === 'custom') {
-      const seed = seedCustomLaneFromPrefs(routePrefs);
-      commit({
-        preset: 'custom',
-        fast: routePrefs.fast || seed.fast,
-        standard: routePrefs.standard || seed.standard,
-        reasoning: routePrefs.reasoning || seed.reasoning,
-        vision: routePrefs.vision || seed.vision,
-        image: routePrefs.image || seed.image,
-      });
-      return;
-    }
-    if (preset === 'platform' || preset === 'economy') {
-      commit({ preset: 'platform' });
-      return;
-    }
-    if (preset === 'balanced' || preset === 'quality') {
-      commit(resolvePresetForRegion(preset));
-      return;
-    }
-    commit({ preset: 'platform' });
-  };
-
   const patchRouteField = (key: keyof AgentRoutePrefs, value: string) => {
     setRoutePrefs((prev) => {
-      const next: AgentRoutePrefs = { ...prev, preset: 'custom', [key]: value };
+      const seeded = seedCustomLaneFromPrefs(prev);
+      const next: AgentRoutePrefs = {
+        ...seeded,
+        preset: 'custom',
+        [key]: value,
+      };
       saveAgentRoutePrefs(next);
-      setRouteSaved(true);
       onChanged?.(next);
       return next;
     });
-  };
-
-  const saveRoutePrefs = () => {
-    saveAgentRoutePrefs(routePrefs);
-    setRouteSaved(true);
-    onChanged?.(routePrefs);
   };
 
   const catalogPool = mergeModelCatalogPool(textModels, imageModels);
@@ -483,17 +365,6 @@ function AgentRoutePrefsEditorImpl({
   const reasoningOpts = modelOptions(catalogPool, 'reasoning');
   const visionOpts = modelOptions(catalogPool, 'vision');
   const imageOpts = modelOptions(catalogPool, 'image');
-  const presetOptions = desktopLocal
-    ? [{ value: 'custom', label: t('account.agentRoutePresetCustom') }]
-    : [
-        { value: 'platform', label: t('account.agentRoutePresetPlatform') },
-        { value: 'balanced', label: t('account.agentRoutePresetBalanced') },
-        { value: 'quality', label: t('account.agentRoutePresetQuality') },
-        { value: 'custom', label: t('account.agentRoutePresetCustom') },
-      ];
-
-  const presetShortLabel = routePresetShortLabel(routePrefs.preset, t);
-
   const fieldRows = [
     { key: 'fast' as const, label: t('account.agentRouteFast'), opts: fastOpts },
     { key: 'standard' as const, label: t('account.agentRouteStandard'), opts: standardOpts },
@@ -506,15 +377,6 @@ function AgentRoutePrefsEditorImpl({
     (m) => m.id !== 'auto' && !isImageKind(m) && !isVideoKind(m)
   );
   const selectedSingleId = String(selectedModelId || 'auto').trim() || 'auto';
-  if (selectedSingleId !== 'auto') {
-    lastSingleModelIdRef.current = selectedSingleId;
-  }
-  const catalogLoad = routeCatalogLoadState({
-    fromParent: catalogFromParent,
-    shared: sharedCatalog,
-    query: modelsQuery,
-  });
-  const singleModelsLoading = catalogLoad === 'loading';
 
   const laneEmptyLabel = t('account.agentRouteLaneEmpty');
 
@@ -524,128 +386,56 @@ function AgentRoutePrefsEditorImpl({
     return opts.find((o) => o.id === v)?.label || v;
   };
 
-  /** Catalog hit only — missing id stays empty (fix data / prefs, do not invent). */
+  /** Catalog hit only — missing id stays empty (bad data / prefs, do not invent). */
   const modelRefOf = (id: string | undefined, opts: { id: string; label: string }[]) => {
     const v = String(id || '').trim() || opts[0]?.id || '';
     if (!v) return null;
     return catalogPool.find((m) => m.id === v) || null;
   };
 
-  const headerTitle = modeLabel || t('agent.interactionAgent');
-  /** Named presets → Auto; only `custom` → Multi-route lanes. */
-  const multimodalAuto = routePrefs.preset !== 'custom';
-
-  let activeRouteTab: 'auto' | 'custom' | 'single' = 'auto';
-  if (routePanelTab) activeRouteTab = routePanelTab;
-  else if (selectedSingleId !== 'auto') activeRouteTab = 'single';
-  else if (!multimodalAuto) activeRouteTab = 'custom';
-
-  const applyRoutePanelTab = (tab: string) => {
-    if (tab !== 'auto' && tab !== 'custom' && tab !== 'single') return;
-    setRoutePanelTab(tab);
-    setSubmenu(null);
-    if (tab === 'auto') {
-      if (routePrefs.preset === 'custom') applyPreset('platform');
-      if (onPickModel && selectedSingleId !== 'auto') onPickModel('auto');
-      return;
-    }
-    if (tab === 'custom') {
-      if (routePrefs.preset !== 'custom') applyPreset('custom');
-      if (onPickModel && selectedSingleId !== 'auto') onPickModel('auto');
-      return;
-    }
-    // Single: restore last pick when returning from Auto / Multi-route.
-    if (tab === 'single' && onPickModel && !autoOnly) {
-      if (selectedSingleId !== 'auto') return;
-      const fallback = resolveSingleModelPickId(
-        selectedSingleId,
-        singleModelRows,
-        lastSingleModelIdRef.current
-      );
-      if (fallback) onPickModel(fallback);
-    }
-  };
-
-  const routeTabOptions: Array<{ value: 'auto' | 'custom' | 'single'; label: string }> = [
-    { value: 'auto', label: t('agent.routeMultimodalAuto') },
-  ];
-  if (onPickModel) {
-    routeTabOptions.push({
-      value: 'single',
-      label: t('agent.routeMultimodalSingle'),
-    });
-  }
-  routeTabOptions.push({
-    value: 'custom',
-    label: t('agent.routeMultimodalCustom'),
-  });
-
-  const restoreSingleModelId = resolveSingleModelPickId(
-    selectedSingleId,
-    singleModelRows,
-    lastSingleModelIdRef.current
-  );
-  // Catalog may load after user taps Single — only fill when still `auto`.
-  // `onPickModel` via ref: parent inline handlers must not re-fire this effect.
-  const onPickModelRef = useRef(onPickModel);
-  onPickModelRef.current = onPickModel;
-  useEffect(() => {
-    if (!compact || !onPickModelRef.current || autoOnly) return;
-    if (activeRouteTab !== 'single') return;
-    if (selectedSingleId !== 'auto') return;
-    if (!restoreSingleModelId) return;
-    onPickModelRef.current(restoreSingleModelId);
-  }, [
-    compact,
-    autoOnly,
-    activeRouteTab,
-    selectedSingleId,
-    restoreSingleModelId,
-  ]);
-
   if (compact) {
-    const presetOrder = (
-      desktopLocal ? (['custom'] as const) : (['platform', 'balanced', 'quality'] as const)
-    );
-
-    let submenuTitle = '';
     let submenuOptions: Array<{ id: string; label: string; desc?: string; model?: LlmModel | null }> =
       [];
-    if (submenu?.kind === 'preset') {
-      submenuTitle = t('account.agentRoutePreset');
-      submenuOptions = presetOrder.map((id) => ({
+    if (submenu?.kind === 'model') {
+      submenuOptions = [
+        {
+          id: 'auto',
+          label: t('agent.routeMultimodalAuto'),
+          desc: t('agent.routeMultimodalTip'),
+          model: null,
+        },
+        ...singleModelRows.map((m) => ({
+          id: m.id,
+          label: m.label || m.id,
+          desc: modelDescription(m, t),
+          model: m,
+        })),
+      ];
+    } else if (submenu?.kind === 'intensity') {
+      submenuOptions = DESIGN_INTENSITY_VALUES.map((id) => ({
         id,
-        label: t(`account.agentRouteCard.${id}.title`),
+        label: t(`agent.designIntensity.${id}.label`),
+        desc: t(`agent.designIntensity.${id}.desc`),
         model: null,
       }));
-    } else if (submenu?.kind === 'field') {
-      const row = fieldRows.find((r) => r.key === submenu.key);
-      if (row) {
-        submenuTitle = row.label;
-        submenuOptions = row.opts.map((m) => {
-          const full = catalogPool.find((x) => x.id === m.id) || null;
-          return {
-            id: m.id,
-            label: m.label,
-            desc: full ? modelDescription(full, t) : undefined,
-            model: full,
-          };
-        });
-      }
     }
 
-    const submenuSelectedId = submenuSelectedIdOf(submenu, routePrefs);
-    const submenuTab =
-      submenu?.kind === 'field' && submenu.key === 'image' ? 'image' : 'design';
-    const submenuModels = submenuOptions.map(
-      (o) =>
-        o.model ||
-        ({ id: o.id, label: o.label, provider: '' } satisfies LlmModel)
-    );
+    const submenuSelectedId = submenuSelectedIdOf(submenu, {
+      selectedModelId: selectedSingleId,
+      intensity: designIntensity,
+    });
+
+    const commitIntensity = (next: DesignIntensity) => {
+      const value = normalizeDesignIntensity(next);
+      setDesignIntensity(value);
+      saveDesignIntensity(value);
+      setSubmenu(null);
+    };
 
     const renderSubmenuPanel = (opts?: { embedded?: boolean }) => {
       const embedded = Boolean(opts?.embedded);
-      if (submenu?.kind === 'preset') {
+
+      if (submenu?.kind === 'intensity') {
         return (
           <div
             data-agent-route-submenu=""
@@ -665,60 +455,36 @@ function AgentRoutePrefsEditorImpl({
                 <HiChevronLeft className="h-5 w-5 shrink-0" aria-hidden />
                 {t('agent.routeBack')}
               </button>
-            ) : (
-              <div className="px-3 pt-2.5 pb-1">
-                <p className="truncate text-[12px] font-medium text-[var(--muted)]">
-                  {t('account.agentRoutePreset')}
-                </p>
-              </div>
-            )}
-            <div className={cn('flex flex-col gap-1.5', embedded ? 'pt-0.5' : 'p-2 pt-1')}>
-              {presetOrder.map((id) => {
-                const active = routePrefs.preset === id;
-                const title = t(`account.agentRouteCard.${id}.title`);
-                const mult = t(`account.agentRouteCard.${id}.mult`);
-                const badge = t(`account.agentRouteCard.${id}.badge`);
-                const desc =
-                  openrouterAvailable === false && (id === 'balanced' || id === 'quality')
-                    ? t('account.agentRouteOpenrouterBlocked')
-                    : t(`account.agentRouteCard.${id}.desc`);
+            ) : null}
+            <div className={cn('flex flex-col gap-0.5', embedded ? 'pt-0.5' : 'p-2')}>
+              {DESIGN_INTENSITY_VALUES.map((id) => {
+                const active = designIntensity === id;
                 return (
                   <button
                     key={id}
                     type="button"
                     onPointerDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      applyPreset(id);
-                      setSubmenu(null);
-                    }}
+                    onClick={() => commitIntensity(id)}
                     className={cn(
-                      'w-full min-w-0 rounded-xl px-3 py-2.5 text-left transition-colors',
+                      'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
                       active
                         ? 'bg-[var(--accent-soft)] text-[var(--ink)]'
                         : 'text-[var(--ink)] hover:bg-[var(--accent-soft)]'
                     )}
                   >
-                    <div className="flex min-w-0 items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-                        <span className="truncate text-[13px] font-bold leading-none">{title}</span>
-                        <span
-                          className={cn(
-                            'inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none',
-                            active
-                              ? 'bg-[var(--surface)] text-[var(--muted)]'
-                              : 'bg-[var(--line)]/55 text-[var(--muted)]'
-                          )}
-                        >
-                          {mult}
-                        </span>
-                      </div>
-                      <span className="min-w-0 shrink truncate text-[11px] leading-none text-[var(--muted)]">
-                        {badge}
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-medium">
+                        {t(`agent.designIntensity.${id}.label`)}
                       </span>
-                    </div>
-                    <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-[var(--ink)]/75">
-                      {desc}
-                    </p>
+                      <span className="mt-0.5 block text-[11px] leading-snug text-[var(--muted)]">
+                        {t(`agent.designIntensity.${id}.desc`)}
+                      </span>
+                    </span>
+                    {active ? (
+                      <span className="shrink-0 text-[13px] text-[var(--ink)]" aria-hidden>
+                        ✓
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -727,57 +493,114 @@ function AgentRoutePrefsEditorImpl({
         );
       }
 
-      return (
-        <div
-          data-agent-route-submenu=""
-          className={cn(embedded ? 'w-full' : 'rcb-agent-route-submenu-popup')}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {embedded ? (
-            <div className="w-full">
-              <button
-                type="button"
-                onPointerDown={(e) => e.preventDefault()}
-                onClick={() => setSubmenu(null)}
-                className="mb-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-              >
-                <HiChevronLeft className="h-5 w-5 shrink-0" aria-hidden />
-                {t('agent.routeBack')}
-              </button>
-              <ModelPickerPanel
-                chrome="plain"
-                hideAuto
-                useModelsAsIs
-                showPrice={false}
-                tab={submenuTab}
-                models={submenuModels}
-                selectedId={submenuSelectedId}
-                onPick={(id) => {
-                  if (submenu?.kind === 'field') patchRouteField(submenu.key, id);
-                  setSubmenu(null);
-                }}
-                onRowPointerDown={(e) => e.preventDefault()}
-              />
-            </div>
-          ) : (
-            <ModelPickerPanel
-              chrome="submenu"
-              hideAuto
-              useModelsAsIs
-              showPrice={false}
-              title={submenuTitle}
-              tab={submenuTab}
-              models={submenuModels}
-              selectedId={submenuSelectedId}
-              onPick={(id) => {
-                if (submenu?.kind === 'field') patchRouteField(submenu.key, id);
-                setSubmenu(null);
-              }}
-              onRowPointerDown={(e) => e.preventDefault()}
-            />
-          )}
-        </div>
-      );
+      if (submenu?.kind === 'model') {
+        return (
+          <div
+            data-agent-route-submenu=""
+            className={cn(embedded ? 'w-full' : 'rcb-agent-route-submenu-popup')}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {embedded ? (
+              <div className="w-full">
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => setSubmenu(null)}
+                  className="mb-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+                >
+                  <HiChevronLeft className="h-5 w-5 shrink-0" aria-hidden />
+                  {t('agent.routeBack')}
+                </button>
+                <div className="max-h-[min(320px,calc(100vh-220px))] overflow-y-auto px-0.5">
+                  {submenuOptions.map((opt) => {
+                    const selected = opt.id === submenuSelectedId;
+                    const locked = autoOnly && opt.id !== 'auto';
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        disabled={locked}
+                        title={locked ? t('agent.freeModelLocked') : undefined}
+                        className={cn(
+                          'flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left transition-colors',
+                          selected && !locked
+                            ? 'bg-[var(--accent-soft)]'
+                            : 'hover:bg-[var(--accent-soft)]',
+                          locked && 'cursor-not-allowed opacity-45 hover:bg-transparent'
+                        )}
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          if (locked) return;
+                          if (opt.id === 'auto') {
+                            onPickModel?.('auto');
+                          } else {
+                            onPickModel?.(opt.id);
+                          }
+                          setSubmenu(null);
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ink)]">
+                          {opt.label}
+                        </span>
+                        {selected ? (
+                          <span className="shrink-0 text-[13px]" aria-hidden>
+                            ✓
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className={cn(AGENT_ROUTE_SUBMENU_PANEL, 'p-2')}>
+                <div className="max-h-[min(320px,calc(100vh-220px))] overflow-y-auto">
+                  {submenuOptions.map((opt) => {
+                    const selected = opt.id === submenuSelectedId;
+                    const locked = autoOnly && opt.id !== 'auto';
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        disabled={locked}
+                        title={locked ? t('agent.freeModelLocked') : undefined}
+                        className={cn(
+                          'flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left transition-colors',
+                          selected && !locked
+                            ? 'bg-[var(--accent-soft)]'
+                            : 'hover:bg-[var(--accent-soft)]',
+                          locked && 'cursor-not-allowed opacity-45 hover:bg-transparent'
+                        )}
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          if (locked) return;
+                          if (opt.id === 'auto') {
+                            onPickModel?.('auto');
+                          } else {
+                            onPickModel?.(opt.id);
+                          }
+                          setSubmenu(null);
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ink)]">
+                          {opt.label}
+                        </span>
+                        {selected ? (
+                          <span className="shrink-0 text-[13px]" aria-hidden>
+                            ✓
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      return null;
     };
 
     /** Keep focus inside the parent floating menu — remounting rows would blur to body and flicker-close. */
@@ -793,11 +616,6 @@ function AgentRoutePrefsEditorImpl({
       );
     }
 
-    /**
-     * Side flyout via Dropdown (flip/shift), not absolute RouteSideFlyout.
-     * `items[].children` is hover 二级 for flat menus; here the body is custom
-     * ModelPickerPanel / preset cards → popupRender.
-     */
     const routeSideDropdown = (opts: {
       open: boolean;
       onOpenChange: (open: boolean) => void;
@@ -824,37 +642,44 @@ function AgentRoutePrefsEditorImpl({
       </Dropdown>
     );
 
-    const showRouteBody = activeRouteTab === 'custom' || activeRouteTab === 'single';
-    const headerStatusLabel = headerStatusLabelOf({
-      activeRouteTab,
-      selectedSingleId,
-      singleModelRows,
-      presetShortLabel,
-    });
-    const headerPresetClickable = activeRouteTab === 'auto';
+    const modelValueLabel =
+      selectedSingleId === 'auto'
+        ? t('agent.routeMultimodalAuto')
+        : singleModelRows.find((m) => m.id === selectedSingleId)?.label ||
+          selectedSingleId;
+    const intensityShort = t(`agent.designIntensity.${designIntensity}.short`);
 
-    const headerBar = (
-      <div
-        className={cn(
-          'mb-2.5 flex w-full min-w-0 items-center justify-between gap-2 rounded-xl bg-[var(--canvas)] px-3 py-2.5 text-left',
-          headerPresetClickable &&
-            'transition-colors hover:bg-[var(--canvas)]/80',
-          headerPresetClickable &&
-            submenu?.kind === 'preset' &&
-            'ring-1 ring-[var(--line)]'
-        )}
-      >
-        <span className="shrink-0 text-[13px] font-semibold text-[var(--ink)]">
-          {headerTitle}
-        </span>
-        <span className="inline-flex min-w-0 max-w-[58%] items-center gap-0.5 text-[12px] text-[var(--muted)]">
-          <span className="truncate">{headerStatusLabel}</span>
-          {headerPresetClickable ? (
-            <HiChevronRight className="h-3.5 w-3.5 shrink-0" />
-          ) : null}
-        </span>
-      </div>
-    );
+    const menuRow = (opts: {
+      label: string;
+      value: string;
+      active: boolean;
+      onOpenChange: (open: boolean) => void;
+      open: boolean;
+    }) =>
+      routeSideDropdown({
+        open: opts.open,
+        onOpenChange: opts.onOpenChange,
+        trigger: (
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left transition-colors',
+              opts.active
+                ? 'bg-[var(--accent-soft)]'
+                : 'hover:bg-[var(--accent-soft)]'
+            )}
+            onPointerDown={keepParentMenuFocus}
+          >
+            <span className="shrink-0 text-[13px] font-medium text-[var(--ink)]">
+              {opts.label}
+            </span>
+            <span className="inline-flex min-w-0 max-w-[58%] items-center gap-0.5 text-[12px] text-[var(--muted)]">
+              <span className="truncate">{opts.value}</span>
+              <HiChevronRight className="h-3.5 w-3.5 shrink-0" />
+            </span>
+          </button>
+        ),
+      });
 
     return (
       <div
@@ -865,187 +690,66 @@ function AgentRoutePrefsEditorImpl({
           className
         )}
       >
-        <div className="shrink-0 px-3 pb-2 pt-4">
-          {headerPresetClickable ? (
-            routeSideDropdown({
-              open: !narrow && submenu?.kind === 'preset',
-              onOpenChange: (open) => {
-                if (open) setSubmenu({ kind: 'preset' });
-                else setSubmenu((v) => (v?.kind === 'preset' ? null : v));
-              },
-              trigger: (
-                <button
-                  type="button"
-                  className="block w-full"
-                  onPointerDown={keepParentMenuFocus}
-                >
-                  {headerBar}
-                </button>
-              ),
-            })
-          ) : (
-            headerBar
-          )}
-
-          <div className="mx-1 border-t border-[var(--line)]" />
-
-          <div className="mt-2.5 flex items-center justify-between gap-2 px-1">
-            <Tooltip tip={t('agent.routeMultimodalTip')} placement="top">
-              <span className="shrink-0 cursor-default whitespace-nowrap text-[13px] font-medium text-[var(--ink)]">
-                {t('agent.routeMultimodal')}
-              </span>
-            </Tooltip>
-            <SegmentedControl
-              size="xs"
-              radius="full"
-              aria-label={t('agent.routeMultimodal')}
-              value={activeRouteTab}
-              onChange={applyRoutePanelTab}
-              options={routeTabOptions}
-            />
-          </div>
+        <div className="flex shrink-0 flex-col gap-1 px-3 py-3">
+          {menuRow({
+            label: t('agent.designModelRow'),
+            value: modelValueLabel,
+            active: submenu?.kind === 'model',
+            open: !narrow && submenu?.kind === 'model',
+            onOpenChange: (open) => {
+              if (open) setSubmenu({ kind: 'model' });
+              else setSubmenu((v) => (v?.kind === 'model' ? null : v));
+            },
+          })}
+          {menuRow({
+            label: t('agent.designIntensityRow'),
+            value: intensityShort,
+            active: submenu?.kind === 'intensity',
+            open: !narrow && submenu?.kind === 'intensity',
+            onOpenChange: (open) => {
+              if (open) setSubmenu({ kind: 'intensity' });
+              else setSubmenu((v) => (v?.kind === 'intensity' ? null : v));
+            },
+          })}
         </div>
-
-        {showRouteBody ? (
-          <div className="min-h-0 max-h-[min(280px,calc(100vh-220px))] flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 pt-1">
-            {activeRouteTab === 'custom' ? (
-              <div className="px-0.5">
-                {fieldRows.map((row) => {
-                  const active = submenu?.kind === 'field' && submenu.key === row.key;
-                  const laneModel = modelRefOf(routePrefs[row.key], row.opts);
-                  return (
-                    <div key={row.key}>
-                      {routeSideDropdown({
-                        open: !narrow && active,
-                        onOpenChange: (open) => {
-                          if (open) setSubmenu({ kind: 'field', key: row.key });
-                          else
-                            setSubmenu((v) =>
-                              v?.kind === 'field' && v.key === row.key ? null : v
-                            );
-                        },
-                        trigger: (
-                          <button
-                            type="button"
-                            className={cn(
-                              'grid w-full grid-cols-[minmax(0,1fr)_8.25rem] items-center gap-2 rounded-lg px-1 py-2 text-left transition-colors',
-                              active
-                                ? 'bg-[var(--accent-soft)]'
-                                : 'hover:bg-[var(--accent-soft)]'
-                            )}
-                            onPointerDown={keepParentMenuFocus}
-                          >
-                            <span className="min-w-0 truncate text-[13px] text-[var(--ink)]">
-                              {row.label}
-                            </span>
-                            <span className="grid w-[8.25rem] grid-cols-[0.875rem_minmax(0,1fr)_0.875rem] items-center gap-1 text-[12px] text-[var(--muted)]">
-                              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-hidden">
-                                {laneModel ? (
-                                  <ModelBrandIcon model={laneModel} size={14} />
-                                ) : (
-                                  <span className="block h-3.5 w-3.5" aria-hidden />
-                                )}
-                              </span>
-                              <span className="min-w-0 truncate">
-                                {modelLabelOf(routePrefs[row.key], row.opts)}
-                              </span>
-                              <HiChevronRight className="h-3.5 w-3.5 shrink-0" />
-                            </span>
-                          </button>
-                        ),
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-            {activeRouteTab === 'single' && onPickModel ? (
-              <div className="px-0.5">
-                {singleModelsLoading ? (
-                  <p className="px-1 py-2 text-[12px] text-[var(--muted)]">
-                    {t('home.composerModelsLoading')}
-                  </p>
-                ) : null}
-                {!singleModelsLoading && singleModelRows.length === 0 ? (
-                  <p className="px-1 py-2 text-[12px] text-[var(--muted)]">
-                    {t('agent.emptyModels')}
-                  </p>
-                ) : null}
-                {singleModelRows.map((m) => {
-                  const selected = m.id === selectedSingleId;
-                  const locked = autoOnly;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      disabled={locked}
-                      title={locked ? t('agent.freeModelLocked') : undefined}
-                      className={cn(
-                        'flex w-full items-center justify-between gap-2 rounded-lg px-1 py-2 text-left transition-colors',
-                        selected && !locked
-                          ? 'bg-[var(--accent-soft)]'
-                          : 'hover:bg-[var(--accent-soft)]',
-                        locked && 'cursor-not-allowed opacity-45 hover:bg-transparent'
-                      )}
-                      onPointerDown={keepParentMenuFocus}
-                      onClick={() => {
-                        if (locked) return;
-                        onPickModel(m.id);
-                      }}
-                    >
-                      <span className="inline-flex min-w-0 flex-1 items-center gap-2">
-                        <ModelBrandIcon model={m} size={14} className="shrink-0" />
-                        <span className="min-w-0 truncate text-[13px] text-[var(--ink)]">
-                          {m.label || m.id}
-                        </span>
-                      </span>
-                      {isUserCustomModel(m) ? (
-                        <ModelMetaBadge label={t('agent.modelBadgeCustom')} />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="pb-3" />
-        )}
       </div>
     );
   }
 
   const selectCls = selectFieldClass;
   const labelCls = 'text-[13px] font-medium text-[var(--ink)]';
+  const lanePrefs = seedCustomLaneFromPrefs(routePrefs);
 
   return (
     <div className={cn('space-y-4', className)}>
       <div>
         <h2 className="mb-1 text-[15px] font-semibold text-[var(--ink)]">
-          {t('agent.paintMode')}
+          {t('agent.designIntensityRow')}
         </h2>
         <p className="mb-3 text-[13px] leading-relaxed text-[var(--muted)]">
-          {t('agent.paintModeTip')}
+          {t('agent.designIntensityTip')}
         </p>
         <SegmentedControl
-          size="sm"
+          size="md"
           radius="full"
-          aria-label={t('agent.paintMode')}
-          value={paintMode}
+          aria-label={t('agent.designIntensityRow')}
+          value={designIntensity}
           onChange={(v) => {
-            const next = normalizeAgentPaintMode(v);
-            setPaintMode(next);
-            saveAgentPaintMode(next);
+            const next = normalizeDesignIntensity(v);
+            setDesignIntensity(next);
+            saveDesignIntensity(next);
           }}
-          options={[
-            { value: 'ops', label: t('agent.paintModeOps') },
-            { value: 'img_layers', label: t('agent.paintModeImgLayers') },
-          ]}
+          options={DESIGN_INTENSITY_VALUES.map((id) => ({
+            value: id,
+            label: t(`agent.designIntensity.${id}.short`),
+          }))}
         />
-        {paintMode === 'img_layers' && (
-          <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-[12px] leading-relaxed text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:ring-amber-800/60">
-            <span aria-hidden className="mt-px shrink-0 text-[13px]">⚠</span>
-            {t('agent.paintModeImgLayersTokenWarn')}
+        <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
+          {t(`agent.designIntensity.${designIntensity}.desc`)}
+        </p>
+        {(designIntensity === 'high' || designIntensity === 'extreme') && (
+          <p className="mt-1 text-[12px] text-[var(--muted)]">
+            {t('agent.designIntensityCostHint')}
           </p>
         )}
       </div>
@@ -1057,61 +761,44 @@ function AgentRoutePrefsEditorImpl({
         {t('account.agentRouteHint')}
       </p>
 
-      <div>
-        <span className={labelCls}>{t('account.agentRoutePreset')}</span>
-        <Select
-          size="large"
-          className={selectCls}
-          value={selectValueForRoutePreset(routePrefs.preset)}
-          options={presetOptions}
-          onChange={(v) => applyPreset(String(v) as AgentRoutePreset)}
-        />
-      </div>
-
       {openrouterAvailable === false ? (
-        <p className="text-[12px] leading-relaxed text-[var(--muted)]">
+        <p className="mb-2 text-[12px] leading-relaxed text-[var(--muted)]">
           {t('account.agentRouteOpenrouterBlocked')}
         </p>
-      ) : (
-        <p className="text-[12px] leading-relaxed text-[var(--muted)]">
-          {routePresetNoteText(routePrefs.preset, t)}
-        </p>
-      )}
-
-      {routePrefs.preset === 'custom' ? (
-        <div className="space-y-3 rounded-lg bg-[var(--account-main)] p-3 ring-1 ring-[var(--line)]">
-          {fieldRows.map((row) => {
-            const currentId =
-              String(routePrefs[row.key] || '').trim() || row.opts[0]?.id || '';
-            const currentModel = modelRefOf(routePrefs[row.key], row.opts);
-            const emptyLane = !currentId;
-            return (
-              <label key={row.key} className="block">
-                <span className={labelCls}>{row.label}</span>
-                <Select
-                  size="large"
-                  className={selectCls}
-                  value={currentId || undefined}
-                  placeholder={laneEmptyLabel}
-                  options={row.opts.map((m) => ({ value: m.id, label: m.label }))}
-                  onChange={(v) => patchRouteField(row.key, String(v))}
-                  labelRender={() =>
-                    renderRouteLaneSelectLabel({
-                      model: currentModel,
-                      label: modelLabelOf(routePrefs[row.key], row.opts),
-                      muted: emptyLane || !currentModel,
-                    })
-                  }
-                  optionRender={(opt) => renderRouteLaneSelectOption(opt, catalogPool, t)}
-                />
-              </label>
-            );
-          })}
-          <p className="text-[12px] leading-relaxed text-[var(--muted)]">
-            {t('account.agentRouteCostNote')}
-          </p>
-        </div>
       ) : null}
+
+      <div className="space-y-3 rounded-lg bg-[var(--account-main)] p-3 ring-1 ring-[var(--line)]">
+        {fieldRows.map((row) => {
+          const laneId = String(lanePrefs[row.key] || '').trim();
+          const currentId = laneId || row.opts[0]?.id || '';
+          const currentModel = modelRefOf(lanePrefs[row.key], row.opts);
+          const emptyLane = !currentId;
+          return (
+            <label key={row.key} className="block">
+              <span className={labelCls}>{row.label}</span>
+              <Select
+                size="large"
+                className={selectCls}
+                value={currentId || undefined}
+                placeholder={laneEmptyLabel}
+                options={row.opts.map((m) => ({ value: m.id, label: m.label }))}
+                onChange={(v) => patchRouteField(row.key, String(v))}
+                labelRender={() =>
+                  renderRouteLaneSelectLabel({
+                    model: currentModel,
+                    label: modelLabelOf(lanePrefs[row.key], row.opts),
+                    muted: emptyLane || !currentModel,
+                  })
+                }
+                optionRender={(opt) => renderRouteLaneSelectOption(opt, catalogPool, t)}
+              />
+            </label>
+          );
+        })}
+        <p className="text-[12px] leading-relaxed text-[var(--muted)]">
+          {t('account.agentRouteCostNote')}
+        </p>
+      </div>
     </div>
   );
 }

@@ -177,13 +177,14 @@ export function emptyCustomRoutePrefs(): AgentRoutePrefs {
   };
 }
 
-/** Seed values when switching into the custom lane from another preset. */
+/** Resolve editable lane ids for Auto (named presets → concrete models). */
 export function seedCustomLaneFromPrefs(prefs: AgentRoutePrefs): AgentRoutePrefs {
-  if (prefs.preset === 'balanced' || prefs.preset === 'quality') {
-    return resolveNamedPreset(prefs.preset);
-  }
   if (prefs.preset === 'custom') return prefs;
-  return resolveNamedPreset('balanced');
+  if (prefs.preset === 'balanced' || prefs.preset === 'quality' || prefs.preset === 'economy') {
+    return resolvePresetForRegion(prefs.preset);
+  }
+  // platform → domestic Auto defaults
+  return resolvePresetForRegion('economy');
 }
 
 export function loadAgentRoutePrefs(rules?: Record<string, string> | null): AgentRoutePrefs {
@@ -296,6 +297,53 @@ export function cachePresetRules(rules: Record<string, string> | null) {
 
 export function getCachedPresetRules(): Record<string, string> | null {
   return cachedPresetRules;
+}
+
+/** Design pipeline depth — not model thinking effort. */
+export type DesignIntensity = 'light' | 'medium' | 'high' | 'extreme';
+
+const DESIGN_INTENSITY_KEY = 'recombyn.designIntensity.v1';
+export const DESIGN_INTENSITY_VALUES: DesignIntensity[] = [
+  'light',
+  'medium',
+  'high',
+  'extreme',
+];
+
+export function normalizeDesignIntensity(raw: unknown): DesignIntensity {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-');
+  if (s === 'light' || s === 'low' || s === '轻度' || s === '极速') return 'light';
+  if (s === 'high' || s === '高') return 'high';
+  if (s === 'extreme' || s === 'max' || s === '极高') return 'extreme';
+  if (s === 'medium' || s === 'mid' || s === '中' || s === '标准') return 'medium';
+  return 'medium';
+}
+
+export function loadDesignIntensity(): DesignIntensity {
+  try {
+    return normalizeDesignIntensity(localStorage.getItem(DESIGN_INTENSITY_KEY));
+  } catch {
+    return 'medium';
+  }
+}
+
+export function saveDesignIntensity(value: DesignIntensity) {
+  const next = normalizeDesignIntensity(value);
+  try {
+    localStorage.setItem(DESIGN_INTENSITY_KEY, next);
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent('recombyn-design-intensity', { detail: next })
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Warm Admin preset cache (call before send if panel not opened). */

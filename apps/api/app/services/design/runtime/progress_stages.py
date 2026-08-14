@@ -149,8 +149,10 @@ def explored_stage_event(
         "kind": "explored",
         "status": ui_status,
         "count": count,
-        "detail": "design pipeline",
+        # Machine stage key only — FE i18n builds the parent label.
+        "code": "design_pipeline",
         "stage": key,
+        "visibility": "user",
         "item": {
             "id": item_id or f"stage-{key}",
             "name": label,

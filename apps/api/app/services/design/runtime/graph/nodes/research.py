@@ -438,7 +438,7 @@ async def run_design_research(rt: AgentRuntime) -> dict[str, Any] | None:
         )
         block = format_research_for_decide(report)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit({"type": "analysis_delta", "text": block[:1200], "visibility": "developer"})
         return report
     except Exception as err:  # noqa: BLE001
         st.note_error(f"design_research_failed: {err}"[:240])

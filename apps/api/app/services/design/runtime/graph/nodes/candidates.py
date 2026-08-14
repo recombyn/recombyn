@@ -325,7 +325,7 @@ async def run_multi_candidate(rt: AgentRuntime) -> dict[str, Any] | None:
         )
         block = format_candidates_for_decide(bundle)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit({"type": "analysis_delta", "text": block[:1200], "visibility": "developer"})
         return bundle
     except Exception as err:  # noqa: BLE001
         st.note_error(f"design_candidates_failed: {err}"[:240])

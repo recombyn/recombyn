@@ -117,6 +117,30 @@ def test_pass_clean_brief():
     assert len(result["lanes"]) == 7
 
 
+def test_format_governance_fail_reply_zh():
+    from app.services.design.runtime.graph.nodes.governance import (
+        format_governance_fail_reply,
+    )
+
+    text = format_governance_fail_reply(
+        {"explain": ["brand: unauthorized color"]},
+        locale="zh-CN",
+    )
+    assert "设计质量检查未通过" in text
+    assert "brand: unauthorized color" in text
+
+
+def test_language_directive_zh():
+    from app.services.design.runtime.host.prompts import (
+        language_directive,
+        resolve_output_locale,
+    )
+
+    assert resolve_output_locale(prompt="添加一个矩形") == "zh-CN"
+    assert "output_language: zh-CN" in language_directive("zh-CN")
+    assert "Always answer the user in output_language" in language_directive("zh-CN")
+
+
 def test_fail_explain_repair_draft_not_ops():
     rt = _rt()
     result = run_design_governance_pipeline(

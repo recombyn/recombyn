@@ -39,7 +39,7 @@ from app.services.design.runtime.graph.support import (
     _op_errors_for_log,
     _paint_ops_system,
     _paint_ops_user,
-    _paint_user_reply,
+    _design_assistant_reply,
     _persist_progress,
     _prompt_compact_len,
     _require_prompt_pack,
@@ -64,7 +64,13 @@ def _finish_paint_ops_success(
     """Shared ask vs apply exit after validated paint ops."""
     ask_mode = str(rt.flags.get("mode") or "") == "ask"
     _emit_canvas_size_from_ops(rt, step_ops)
-    st.reply = _paint_user_reply(reply)
+    from app.services.design.runtime.host.prompts import locale_for_runtime
+
+    st.reply = _design_assistant_reply(
+        raw_reply=reply,
+        ops=step_ops,
+        locale=locale_for_runtime(rt),
+    )
     st.intent = intent
     turn: dict[str, Any] = {
         "intent": intent,
@@ -350,6 +356,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
             content = json.dumps(raw_obj, ensure_ascii=False)[:8000]
             used_hint = max(1, len(content) // 3)
             st.total_tokens += used_hint
+            st.note_tokens(used_hint, model_id=str(getattr(st, "family", "") or ""), source="paint")
             _log.debug(
                 "paint_ops LLM ok task=%s attempt=%s model=%s elapsed=%.2fs "
                 "ops_raw=%s reply_chars=%s",

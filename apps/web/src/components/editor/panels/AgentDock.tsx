@@ -13,7 +13,6 @@ import {
   useFloating,
   useInteractions,
 } from '@floating-ui/react';
-import { HiOutlineBookOpen } from 'react-icons/hi2';
 import {
   generateImage,
   generateVideo,
@@ -162,9 +161,9 @@ import {
   warmAgentRoutePresetRules,
   warmOpenrouterAvailability,
   loadAgentRoutePrefs,
+  loadDesignIntensity,
 } from '@/components/editor/panels/agent/agentRoutePrefs';
 import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/AgentRoutePrefsEditor';
-import { loadAgentPaintMode } from '@/components/editor/panels/agent/boardModes/prefs';
 import { setAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
 import {
@@ -284,7 +283,7 @@ function applyDraftInteractionMode(opts: {
     return;
   }
   if (mode === 'ask') {
-    setInteractionMode('ask');
+    setInteractionMode('agent');
     setComposerMode('agent');
     return;
   }
@@ -305,7 +304,7 @@ function applyBootInteractionMode(
     return;
   }
   if (mode === 'ask') {
-    setInteractionMode('ask');
+    setInteractionMode('agent');
     setComposerMode('agent');
     return;
   }
@@ -453,7 +452,7 @@ const DETAIL_SUMMARY_KINDS = new Set([
 ]);
 const SUCCESS_VARIANT_KINDS = new Set(['added', 'updated', 'deleted']);
 const CONFIRM_VARIANT_KINDS = new Set(['thought', 'explored', 'tool']);
-const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'ask', 'image', 'video'];
+const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'image', 'video'];
 
 type FinishAssistant = (
   m: ChatUiMessage,
@@ -603,22 +602,15 @@ function modelButtonLabel(
   modelId: string,
   selected: LlmModel | undefined,
   fallbackLabel: string,
-  t: (key: string) => string
+  t: (key: string) => string,
+  intensityShort?: string
 ): string {
-  if (modelId === 'auto') return t('agent.autoToggle');
-  return selected?.label || fallbackLabel;
+  const base =
+    modelId === 'auto' ? t('agent.autoToggle') : selected?.label || fallbackLabel;
+  const intensity = String(intensityShort || '').trim();
+  return intensity ? `${base} ${intensity}` : base;
 }
 
-function interactionModeLabel(
-  mode: ComposerInteractionMode,
-  t: (key: string) => string
-): string {
-  if (mode === 'image') return t('agent.interactionImage');
-  if (mode === 'video') return t('agent.interactionVideo');
-  return t('agent.interactionAgent');
-}
-
-/** Hover tip when Send is blocked or models are unhealthy. */
 function composerSendDisabledReason(opts: {
   t: (key: string) => string;
   attachmentsUploading: boolean;
@@ -732,6 +724,16 @@ function AgentDock({
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [available, setAvailable] = useState<boolean | null>(null);
   const [model, setModel] = useState('auto');
+  const [designIntensity, setDesignIntensity] = useState(() => loadDesignIntensity());
+  useEffect(() => {
+    const sync = () => setDesignIntensity(loadDesignIntensity());
+    window.addEventListener('storage', sync);
+    window.addEventListener('recombyn-design-intensity', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('recombyn-design-intensity', sync);
+    };
+  }, []);
   const [imageAspectRatio, setImageAspectRatio] = useState<string>('auto');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -1748,31 +1750,10 @@ function AgentDock({
   const attachFull = attachmentCount >= attachmentLimit;
 
   const imageAspectProps = {
-    showDesignSizePicker: !isImageModelSelected && !isVideoInteraction,
+    // Agent canvas size defaults to Smart (auto) — no manual size popover.
+    showDesignSizePicker: false,
     imageAspectRatio,
     onImageAspectRatioChange: setImageAspectRatio,
-    designSceneCategory: (designScene === 'drawing' ? 'image' : designScene) as
-      | 'website'
-      | 'mobile'
-      | 'image'
-      | 'poster'
-      | null,
-    onDesignSceneChange: (scene: DesignScene | null) => {
-      setDesignScene(scene);
-      designSceneRef.current = scene;
-      if (scene !== 'image') {
-        setComposerMode('agent');
-        setInteractionMode('agent');
-        setModel('auto');
-        return;
-      }
-      setComposerMode('image');
-      if (!canPickModel) {
-        setModel(cloudImageFallbackId() || 'auto');
-        return;
-      }
-      setModel(pickPreferredImageModelId(models));
-    },
     aspectMenuPlacement: 'top-start' as const,
   };
   const attachProps = {
@@ -2011,7 +1992,7 @@ function AgentDock({
         userMessage: userMsg.content || '',
         runMode: 'agent',
         interactionMode: 'agent',
-        paintMode: loadAgentPaintMode(),
+        paintMode: 'ops',
         resumeTaskId: taskId,
         resumeToken: target.designResumeToken || undefined,
         scene: null,
@@ -2022,6 +2003,8 @@ function AgentDock({
         canvasId: chatScopeId || undefined,
         sessionId,
         projectId: chatScopeId || '__none__',
+        locale: i18n.language || 'zh-CN',
+        designIntensity,
         dispatch,
         getDocument: () => store.getState().editor.document,
         signal: ac.signal,
@@ -2694,12 +2677,8 @@ function AgentDock({
       await runDesignAgent({
         userMessage: userMessageForApi,
         runMode: 'agent',
-        interactionMode: isImageInteraction
-          ? 'agent'
-          : interactionMode === 'ask'
-            ? 'ask'
-            : 'agent',
-        paintMode: loadAgentPaintMode(),
+        interactionMode: 'agent',
+        paintMode: 'ops',
         applyOps: options.applyOps?.length ? options.applyOps : undefined,
         proposalId: options.proposalId || pendingProposal.proposalId || undefined,
         proposalTaskId:
@@ -2719,6 +2698,8 @@ function AgentDock({
         images: sendImages.length ? sendImages : undefined,
         sessionId,
         projectId: chatScopeId || '__none__',
+        locale: i18n.language || 'zh-CN',
+        designIntensity,
         canvasUi,
         processLabels: {
           preparing: t('agent.canvasProcessPreparing'),
@@ -3149,6 +3130,16 @@ function AgentDock({
   };
 
   const applyInteractionMode = useCallback((mode: ComposerInteractionMode) => {
+    // Product: one ChatGPT-style chat. Ask is retired; image/video only via home category boot.
+    if (mode === 'ask') {
+      setInteractionMode('agent');
+      setComposerMode('agent');
+      setModel('auto');
+      setImageModelPanelOpen(false);
+      setVideoModelPanelOpen(false);
+      setModelPanelOpen(false);
+      return;
+    }
     setInteractionMode(mode);
     setImageModelPanelOpen(false);
     setVideoModelPanelOpen(false);
@@ -3330,7 +3321,14 @@ function AgentDock({
 
   const modelButtonProps = {
     title: modelButtonTitle(model, models, selectedModelLabel, t),
-    label: modelButtonLabel(model, selectedModel, selectedModelLabel, t),
+    label: modelButtonLabel(
+      model,
+      selectedModel,
+      selectedModelLabel,
+      t,
+      t(`agent.designIntensity.${designIntensity}.short`)
+    ),
+    variant: 'chip' as const,
     open: modelPanelOpen,
     onOpenChange: (next: boolean) => {
       if (next) {
@@ -3343,7 +3341,6 @@ function AgentDock({
     panel: modelPanelOpen ? (
       <AgentRoutePrefsEditor
         compact
-        modeLabel={interactionModeLabel(interactionMode, t)}
         selectedModelId={model}
         autoOnly={!canPickModel}
         onPickModel={(id) => {
@@ -3353,7 +3350,6 @@ function AgentDock({
     ) : (
       <span className="hidden" aria-hidden />
     ),
-    icon: <HiOutlineBookOpen className="h-4 w-4 shrink-0" strokeWidth={1.75} />,
   };
 
   const escapeComposer = (opts?: { cancelEdit?: boolean }) => {
@@ -3504,6 +3500,7 @@ function AgentDock({
               interactionMode={interactionMode}
               onInteractionModeChange={applyInteractionMode}
               allowedInteractionModes={enabledInteractionModes}
+              showInteractionModePicker
               imageModeControls={imageModeControls}
               videoModeControls={videoModeControls}
               modelButtonProps={modelButtonProps}

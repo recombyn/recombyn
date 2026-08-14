@@ -2336,6 +2336,16 @@ export type DesignIntelligencePatch = {
       lane?: string;
     }>;
   };
+  /** Design quality check (governance) — user view. */
+  governance?: {
+    status?: string;
+    lanes?: Array<{
+      lane?: string;
+      status?: string;
+      message?: string;
+    }>;
+    explain?: string[];
+  };
   diff?: {
     deltas?: Record<string, number>;
     visualChange?: Record<string, number | null | undefined>;
@@ -2354,6 +2364,16 @@ export type DesignIntelligencePatch = {
     heroDominance?: number | null;
     scoreFrom?: number | null;
     scoreTo?: number | null;
+    /** User-facing design explanation (why / weak / next). */
+    thesis?: string;
+    why?: string;
+    purpose?: string;
+    audience?: string;
+    emotion?: string;
+    strengths?: string[];
+    weaknesses?: string[];
+    nextSteps?: string[];
+    marketGap?: string;
   };
 };
 
@@ -2370,10 +2390,19 @@ export type AgentStepEvent =
   | { type: 'chat' }
   | { type: 'phase'; progress: PipelineProgress }
   | { type: 'analysis'; text: string }
-  | { type: 'analysis_delta'; text: string }
+  | {
+      type: 'analysis_delta';
+      text: string;
+      visibility?: 'user' | 'developer' | 'internal';
+    }
   | {
       type: 'intelligence';
       patch: DesignIntelligencePatch;
+    }
+  | {
+      type: 'developer';
+      kind: string;
+      text?: string;
     }
   | { type: 'drawing'; active: boolean; done?: number; total?: number }
   | {
@@ -2393,6 +2422,7 @@ export type AgentStepEvent =
       code?: string;
       item?: { id?: string; name?: string; summary?: string };
       body?: string;
+      visibility?: 'user' | 'developer' | 'internal';
     }
   | { type: 'svg_delta'; svg: string }
   | { type: 'canvas'; size: string; scene?: string }
@@ -2487,6 +2517,10 @@ export type RunDesignAgentParams = {
   paintMode?: 'ops' | 'img_layers' | null;
   /** User-pinned skill keys/ids from `/` chips. */
   skillRefs?: string[] | null;
+  /** UI locale for agent output language. */
+  locale?: string | null;
+  /** Design pipeline depth: light | medium | high | extreme. */
+  designIntensity?: string | null;
   /** Resume a paused LangGraph run instead of starting a new /design/run. */
   resumeTaskId?: string | null;
   resumeToken?: string | null;
@@ -2541,6 +2575,10 @@ function buildRunDesignJobBody(
   if (params.skillRefs?.length) {
     body.skill_refs = params.skillRefs.map((x) => String(x).trim()).filter(Boolean);
   }
+  if (params.locale) body.locale = String(params.locale).trim();
+  if (params.designIntensity) {
+    body.design_intensity = String(params.designIntensity).trim();
+  }
   return body;
 }
 
@@ -2573,6 +2611,44 @@ function parseActivityKind(raw: unknown): ActivityKind {
     return k;
   }
   return 'tool';
+}
+
+function isDeveloperVisibility(raw: unknown): boolean {
+  const v = String(raw || '')
+    .trim()
+    .toLowerCase();
+  return v === 'developer' || v === 'internal' || v === 'debug';
+}
+
+function isInternalDesignDump(text: string): boolean {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  return /^(DESIGN_[A-Z_]+|governance\s+(pass|fail)|EXPLAIN:|REPAIR:)/i.test(s);
+}
+
+function developerEventFromSse(
+  kind: string,
+  ev: Record<string, unknown>
+): Extract<AgentStepEvent, { type: 'developer' }> {
+  const text =
+    String(ev.text || ev.summary || ev.detail || '').trim() ||
+    (kind === 'design_governance'
+      ? JSON.stringify(
+          {
+            status: ev.status,
+            lanes: ev.lanes,
+            explain: ev.explain,
+            summary: ev.summary,
+          },
+          null,
+          2
+        ).slice(0, 2000)
+      : '');
+  return {
+    type: 'developer',
+    kind,
+    text: text || undefined,
+  };
 }
 
 function activityDetailParts(ev: {
@@ -3213,8 +3289,18 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     if (chatDiverted && (ev.kind === 'explored' || ev.kind === 'thought')) {
       return;
     }
+    if (isDeveloperVisibility((ev as { visibility?: string }).visibility)) {
+      params.onEvent(
+        developerEventFromSse('activity', ev as unknown as Record<string, unknown>)
+      );
+      return;
+    }
     const stage = ev.stage ? String(ev.stage) : '';
-    const { detail, summaryRaw, body: activityBody } = activityDetailParts(ev);
+    let { detail, summaryRaw, body: activityBody } = activityDetailParts(ev);
+    // Drop legacy English DESIGN_* dumps that used to become row labels.
+    if (isInternalDesignDump(detail)) detail = '';
+    if (isInternalDesignDump(summaryRaw)) summaryRaw = '';
+    if (isInternalDesignDump(activityBody)) activityBody = '';
     // Bind an existing @ / focus board for shimmer — never spawn an empty artboard.
     bindExploredSceneActivity({
       chatDiverted,
@@ -3777,7 +3863,18 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           return;
         }
         case 'analysis_delta':
-          if (ev.text) params.onEvent({ type: 'analysis_delta', text: ev.text });
+          if (isDeveloperVisibility((ev as { visibility?: string }).visibility)) {
+            params.onEvent(
+              developerEventFromSse(
+                'analysis_delta',
+                ev as unknown as Record<string, unknown>
+              )
+            );
+            return;
+          }
+          if (ev.text && !isInternalDesignDump(ev.text)) {
+            params.onEvent({ type: 'analysis_delta', text: ev.text });
+          }
           return;
         case 'analysis':
           if (ev.text) params.onEvent({ type: 'analysis', text: ev.text });
@@ -3789,8 +3886,44 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           handleStreamSkillProgress(ev);
           return;
         case 'activity':
+          if (isDeveloperVisibility((ev as { visibility?: string }).visibility)) {
+            params.onEvent(
+              developerEventFromSse(
+                'activity',
+                ev as unknown as Record<string, unknown>
+              )
+            );
+            return;
+          }
           handleStreamActivity(ev);
           return;
+        case 'design_governance': {
+          if (isDeveloperVisibility((ev as { visibility?: string }).visibility)) {
+            params.onEvent(
+              developerEventFromSse(
+                'design_governance',
+                ev as unknown as Record<string, unknown>
+              )
+            );
+            return;
+          }
+          const row = ev as {
+            status?: string;
+            lanes?: Array<{ lane?: string; status?: string; message?: string }>;
+            explain?: string[];
+          };
+          params.onEvent({
+            type: 'intelligence',
+            patch: {
+              governance: {
+                status: String(row.status || '').trim() || undefined,
+                lanes: Array.isArray(row.lanes) ? row.lanes : undefined,
+                explain: Array.isArray(row.explain) ? row.explain : undefined,
+              },
+            },
+          });
+          return;
+        }
         case 'tool_ops':
           handleStreamToolOps(ev);
           return;
@@ -3876,7 +4009,28 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               : typeof ev.total === 'number'
                 ? ev.total
                 : null;
-          if (scores || overall != null || Array.isArray(ev.top_issues)) {
+          const strengths = Array.isArray(ev.strengths)
+            ? ev.strengths.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 4)
+            : [];
+          const nextFromIssues = Array.isArray(ev.top_issues)
+            ? ev.top_issues
+                .map((row) => {
+                  if (!row || typeof row !== 'object') return '';
+                  const fix = String((row as { fix?: unknown }).fix || '').trim();
+                  const issue = String((row as { issue?: unknown }).issue || '').trim();
+                  return fix || issue;
+                })
+                .filter(Boolean)
+                .slice(0, 5)
+            : [];
+          if (
+            scores ||
+            overall != null ||
+            Array.isArray(ev.top_issues) ||
+            strengths.length ||
+            weaknesses.length ||
+            marketGap
+          ) {
             params.onEvent({
               type: 'intelligence',
               patch: {
@@ -3886,6 +4040,12 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
                   scores,
                   lanes: Array.isArray(ev.lanes) ? ev.lanes : undefined,
                   topIssues: Array.isArray(ev.top_issues) ? ev.top_issues : undefined,
+                },
+                summary: {
+                  strengths: strengths.length ? strengths : undefined,
+                  weaknesses: weaknesses.length ? weaknesses.slice(0, 4) : undefined,
+                  marketGap: marketGap || undefined,
+                  nextSteps: nextFromIssues.length ? nextFromIssues : undefined,
                 },
                 diff: visualDiff
                   ? {
@@ -3974,6 +4134,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           return;
         }
         case 'design_summary': {
+          const asList = (raw: unknown): string[] | undefined => {
+            if (!Array.isArray(raw)) return undefined;
+            const out = raw.map((x) => String(x || '').trim()).filter(Boolean);
+            return out.length ? out.slice(0, 6) : undefined;
+          };
           params.onEvent({
             type: 'intelligence',
             patch: {
@@ -3984,6 +4149,15 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
                 heroDominance: ev.hero_dominance ?? null,
                 scoreFrom: ev.score_from ?? null,
                 scoreTo: ev.score_to ?? null,
+                thesis: String(ev.thesis || '').trim() || undefined,
+                why: String(ev.why || '').trim() || undefined,
+                purpose: String(ev.purpose || '').trim() || undefined,
+                audience: String(ev.audience || '').trim() || undefined,
+                emotion: String(ev.emotion || '').trim() || undefined,
+                strengths: asList(ev.strengths),
+                weaknesses: asList(ev.weaknesses),
+                nextSteps: asList(ev.next_steps),
+                marketGap: String(ev.market_gap || '').trim() || undefined,
               },
               iterations: Array.isArray(ev.timeline)
                 ? ev.timeline.map((row, i) => ({

@@ -276,12 +276,11 @@ def _emit(ev: dict[str, Any]) -> None:
     except Exception:
         pass
 
-def _paint_user_reply(raw: str | None, *, limit: int = 40) -> str:
-    """Short post-paint chat line — never re-emit the decide/thought essay.
+def _paint_user_reply(raw: str | None, *, limit: int = 280) -> str:
+    """User-facing post-paint line — strip tool/schema dumps, keep designer voice.
 
     Progress belongs in activity / analysis_delta / phase SSE only.
-    This helper only strips internal tool/schema dumps and overlong essays
-    from the finish ``reply`` field — it does not guess WIP by language.
+    Truncates overlong essays instead of discarding them entirely.
     """
     text = " ".join(str(raw or "").split()).strip()
     if not text:
@@ -296,20 +295,59 @@ def _paint_user_reply(raw: str | None, *, limit: int = 40) -> str:
         "schema",
     )
     low = text.lower()
-    if any(b.lower() in low for b in banned) or len(text) > limit:
+    if any(b.lower() in low for b in banned):
         return ""
     return text[:limit]
+
+
+def _design_assistant_reply(
+    *,
+    raw_reply: str | None,
+    ops: list[dict[str, Any]] | None = None,
+    locale: str = "zh-CN",
+) -> str:
+    """Warm designer close: cleaned model reply, or locale fallback + next steps."""
+    cleaned = _paint_user_reply(raw_reply, limit=280)
+    loc = str(locale or "zh-CN")
+    zh = loc.startswith("zh")
+    ja = loc.startswith("ja")
+
+    if cleaned and len(cleaned) >= 6:
+        # Model already wrote a user line — keep it (language layer should match locale).
+        return cleaned
+
+    detail = ""
+    try:
+        from app.services.design.ops.tool_ops_contract import tool_ops_batch_detail
+
+        detail = (tool_ops_batch_detail(list(ops or []), limit=4) or "").strip()
+    except Exception:
+        detail = ""
+
+    if zh:
+        head = f"好的，已完成：{detail}。" if detail else "好的，我已经在画布完成这次操作。"
+        tips = "下一步可以：调整颜色、添加文字，或微调布局。"
+        return f"{head}\n{tips}"[:280]
+    if ja:
+        head = f"完了しました：{detail}。" if detail else "キャンバスへの反映が完了しました。"
+        tips = "次は色調整・文字追加・レイアウト調整ができます。"
+        return f"{head}\n{tips}"[:280]
+    head = f"Done: {detail}." if detail else "Done — it's on the canvas."
+    tips = "Next: tweak color, add text, or refine layout."
+    return f"{head}\n{tips}"[:280]
+
 
 def _emit_deferred_paint_reply(st: AgentRunState, *, ops_sent: bool) -> None:
     """Stream paint reply only after real tool_ops were pushed to the client."""
     if not ops_sent:
         st.reply = ""
         return
-    text = _paint_user_reply(st.reply)
+    text = _paint_user_reply(st.reply, limit=280)
     st.reply = text
     if not text:
         return
     _emit({"type": "token", "text": text})
+
 
 __all__ = [
     '_reserve_artboard_frame_id',
@@ -323,5 +361,6 @@ __all__ = [
     '_flush_host_events',
     '_emit',
     '_paint_user_reply',
+    '_design_assistant_reply',
     '_emit_deferred_paint_reply',
 ]

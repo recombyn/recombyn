@@ -540,10 +540,10 @@ export const AGENT_POPOVER_PANEL = cn(
   'w-[min(420px,calc(100vw-24px))] overflow-hidden'
 );
 
-/** Route-prefs primary panel — compact; fits Auto 路由 + 3 tabs without wrapping. */
+/** Route-prefs primary panel — compact; fits 模型 + 设计强度 rows. */
 export const AGENT_ROUTE_POPOVER_PANEL = cn(
   PANEL_SHELL,
-  'w-[min(290px,calc(100vw-24px))] max-h-[min(480px,calc(100vh-24px))] overflow-x-hidden overflow-y-auto'
+  'w-[min(220px,calc(100vw-24px))] max-h-[min(480px,calc(100vh-24px))] overflow-x-hidden overflow-y-auto'
 );
 
 /** Route field / preset side flyout 鈥?300px. */

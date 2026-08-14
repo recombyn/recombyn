@@ -169,6 +169,8 @@ def _settle_hold(
     images_hydrated: int = 0,
     byok: bool = False,
     mode: str = "agent",
+    meters: dict[str, Any] | None = None,
+    task_id: str = "",
 ) -> int:
     if free_daily or hold <= 0:
         return 0
@@ -182,6 +184,8 @@ def _settle_hold(
         byok=byok,
         mode=mode,
         images_hydrated=images_hydrated,
+        meters=meters,
+        task_id=task_id,
     )
 
 
@@ -236,6 +240,8 @@ async def run_design_job(
     client_country: str | None = None,
     skill_refs: list[str] | None = None,
     paint_mode: str | None = None,
+    locale: str | None = None,
+    design_intensity: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """LangGraph agent loop. Chat vs design from model intent / ops."""
     del is_premium  # reserved
@@ -428,6 +434,8 @@ async def run_design_job(
                     proposal_task_id=proposal_task_id,
                     interaction_mode=ui_mode,
                     skill_refs=skill_refs,
+                    locale=locale,
+                    design_intensity=design_intensity,
                 ):
                     yield ev
         finally:

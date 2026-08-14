@@ -234,6 +234,7 @@ async def run_reference_intelligence(rt: AgentRuntime) -> dict[str, Any] | None:
                 dna=compiled.get("dna"),
                 lock=compiled.get("lock"),
             )[:1200],
+            "visibility": "developer",
         }
     )
     return compiled
@@ -274,6 +275,29 @@ def _requires_design_brief(rt: AgentRuntime, intent: str) -> bool:
     if str(getattr(rt, "pending_skill_details", "") or "").strip():
         return True
     return bool(getattr(rt, "images", None))
+
+
+def _brief_avoid_step(text: str, locale: str) -> str:
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    if locale.startswith("zh"):
+        return s if s.startswith("避免") else f"避免：{s}"
+    if locale == "ja":
+        return s if s.startswith("避ける") else f"避ける：{s}"
+    low = s.lower()
+    return s if low.startswith("avoid") else f"Avoid: {s}"
+
+
+def _brief_hero_step(hero: str, locale: str) -> str:
+    h = str(hero or "").strip()
+    if not h:
+        return ""
+    if locale.startswith("zh"):
+        return f"突出主体：{h}"
+    if locale == "ja":
+        return f"主役を強調：{h}"
+    return f"Hero focus: {h}"
 
 
 def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int) -> str:
@@ -331,11 +355,56 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
             "id": f"design-brief-{round_i}",
             "kind": "explored",
             "status": "done",
-            "summary": ("DESIGN_BRIEF: " + (thesis or paint_text)[:120])[:200],
+            "code": "design_brief",
+            "visibility": "user",
+            "item": {
+                "id": "design-brief",
+                "name": "design_brief",
+                "summary": (thesis or "")[:120] or None,
+            },
             "index": round_i,
         }
     )
-    _emit({"type": "analysis_delta", "text": ("DESIGN_BRIEF\n" + review_text)[:1200]})
+    _emit(
+        {
+            "type": "analysis_delta",
+            "text": ("DESIGN_BRIEF\n" + review_text)[:1200],
+            "visibility": "developer",
+        }
+    )
+    # User-facing design explanation (why this direction) — not the raw brief dump.
+    from app.services.design.runtime.host.prompts import locale_for_runtime
+
+    loc = locale_for_runtime(rt)
+    why_bits = [
+        str(parsed.get(k) or "").strip()
+        for k in ("purpose", "audience", "emotion")
+        if str(parsed.get(k) or "").strip()
+    ]
+    next_steps: list[str] = []
+    avoid = parsed.get("avoid")
+    if isinstance(avoid, list):
+        for item in avoid[:3]:
+            s = str(item or "").strip()
+            if not s:
+                continue
+            next_steps.append(_brief_avoid_step(s, loc))
+    hero = str(parsed.get("visual_hero") or "").strip()
+    if hero:
+        next_steps.insert(0, _brief_hero_step(hero, loc))
+    _emit(
+        {
+            "type": "design_summary",
+            "visibility": "user",
+            "thesis": thesis[:240] or None,
+            "purpose": str(parsed.get("purpose") or "").strip()[:160] or None,
+            "audience": str(parsed.get("audience") or "").strip()[:120] or None,
+            "emotion": str(parsed.get("emotion") or "").strip()[:120] or None,
+            "why": " · ".join(why_bits)[:280] or None,
+            "next_steps": next_steps[:4] or None,
+            "source": "decide_brief",
+        }
+    )
     return paint_text
 
 
@@ -379,17 +448,21 @@ async def _node_design_agent(state: GraphState) -> Command:
     await intel.analyze_reference(rt)
     await intel.retrieve_memory(rt)
     await intel.autonomous_plan(rt)
-    await intel.research(rt)
-    await intel.strategy(rt)
-    await intel.propose_candidates(rt)
-    await intel.tournament(rt)
-    await intel.swarm_direction(rt)
-    await intel.simulate(rt)
-    await intel.counterfactual(rt)
+    # light = brief Decide only; medium+ keep research→strategy stack.
+    deep = str((rt.flags or {}).get("design_intensity") or "medium").strip().lower() != "light"
+    if deep:
+        await intel.research(rt)
+        await intel.strategy(rt)
+        await intel.propose_candidates(rt)
+        await intel.tournament(rt)
+        await intel.swarm_direction(rt)
+        await intel.simulate(rt)
+        await intel.counterfactual(rt)
     await intel.review(rt)
     await intel.optimize(rt)
     await intel.autonomous_sync(rt)
-    await intel.write_principle(rt)
+    if deep:
+        await intel.write_principle(rt)
 
     for _round in range(max_rounds):
         round_i = st.round
@@ -491,6 +564,7 @@ async def _node_design_agent(state: GraphState) -> Command:
                 stage="decide",
                 ask_mode=ask_mode,
                 persona=str(rt.persona or ""),
+                locale=str((rt.flags or {}).get("locale") or "") or None,
             )
         else:
             lc_system = _append_prompt_pack(
@@ -522,6 +596,7 @@ async def _node_design_agent(state: GraphState) -> Command:
             )
             _flush_host_events(st, llm_ev)
             st.total_tokens += used_hint
+            st.note_tokens(used_hint, model_id=str(getattr(st, "family", "") or ""), source="decide")
             turn = _parse_agent_turn(content)
             # Ignore any accidental tool_ops from decision text — paint stage owns ops.
             turn["tool_ops_raw"] = None
@@ -701,7 +776,7 @@ async def _node_design_agent(state: GraphState) -> Command:
         ):
             st.intent = _resolve_paint_want(rt, intent)
             # Stash only — stream after paint sends ops (or Ask propose rewrite).
-            if reply and len(reply) <= 80:
+            if reply and len(reply) <= 280:
                 st.reply = reply
             return Command(update=_bump(rt), goto="paint_ops")
 

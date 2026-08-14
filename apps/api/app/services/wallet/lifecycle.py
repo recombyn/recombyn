@@ -142,15 +142,20 @@ def settle_task_credits(
     detail: str = "",
     pricing_version_ids: list[str] | None = None,
     usage_event_ids: list[str] | None = None,
+    mutate_wallet: bool = True,
 ) -> dict[str, Any]:
-    """Charge ``actual`` credits; release unused reserved amount."""
+    """Charge ``actual`` credits; release unused reserved amount.
+
+    When ``mutate_wallet`` is False, only emit BillingEvent / TaskCost envelopes
+    (caller already adjusted the ledger — e.g. ``settle_token_hold``).
+    """
     from app.services.wallet.db import credit_tokens, spend_tokens
 
     hold = max(0, int(reserved or 0))
     used = max(0, int(actual or 0))
     note = (detail or f"design_settle:{task_id or 'task'}").strip()[:400]
     uid = (user_id or "").strip()
-    if uid:
+    if mutate_wallet and uid:
         if used < hold:
             try:
                 credit_tokens(uid, hold - used, detail=f"{note}:release")
@@ -207,22 +212,28 @@ def settle_task_credits(
 def capture_task_credits(
     *,
     user_id: str,
-    reserved: int,
-    actual: int,
+    reserved: int | None = None,
+    actual: int | None = None,
+    hold: int | None = None,
+    capture: int | None = None,
     task_id: str = "",
     detail: str = "",
     pricing_version_ids: list[str] | None = None,
     usage_event_ids: list[str] | None = None,
+    mutate_wallet: bool = True,
 ) -> dict[str, Any]:
     """Stripe-shaped alias for ``settle_task_credits`` (capture + release)."""
+    reserved_n = int(reserved if reserved is not None else (hold or 0))
+    actual_n = int(actual if actual is not None else (capture or 0))
     out = settle_task_credits(
         user_id=user_id,
-        reserved=reserved,
-        actual=actual,
+        reserved=reserved_n,
+        actual=actual_n,
         task_id=task_id,
         detail=detail,
         pricing_version_ids=pricing_version_ids,
         usage_event_ids=usage_event_ids,
+        mutate_wallet=mutate_wallet,
     )
     out["lifecycleStage"] = "capture"
     return out
