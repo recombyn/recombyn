@@ -31,7 +31,7 @@ class ModelCapabilitySchema(ModelIdentitySchema):
     """Model Registry row — identity + capabilities + pricing family link.
 
     Do **not** add ``user_price`` / ``credits_per_token`` here.
-    User sell price is private commercial policy.
+    User sell price is host commercial policy (out of protocol).
     """
 
     capabilities: list[str] = Field(default_factory=list)

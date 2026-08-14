@@ -1771,6 +1771,7 @@ async def run_review_lanes(
         ask_mode=ask_mode,
         persona=str(rt.persona or ""),
         catalog_blocks=None,
+        locale=str((rt.flags or {}).get("locale") or "") or None,
     )
 
     async def _one(lid: str) -> dict[str, Any]:
@@ -2122,6 +2123,18 @@ async def _retry_paint_from_review(
     return Command(update=_bump(rt), goto="paint_ops")
 
 
+async def _run_design_quality_gate(rt: AgentRuntime) -> None:
+    """P41 lanes belong on this Review hop — not a separate graph node."""
+    from app.services.design.intelligence_runtime import get_design_intelligence_client
+    from app.services.design.runtime.graph.nodes.governance import (
+        should_route_to_governance,
+    )
+
+    if not should_route_to_governance(rt):
+        return
+    await get_design_intelligence_client().govern(rt)
+
+
 async def _node_review_agent(state: GraphState) -> Command:
     """Review Agent: optional craft gate after observe; may force paint retry."""
     rt = state["rt"]
@@ -2295,6 +2308,20 @@ async def _node_review_agent(state: GraphState) -> Command:
         else None,
     }
     judge = rt.judge_verdict if isinstance(rt.judge_verdict, dict) else {}
+    if isinstance(rt.flags, dict):
+        if strengths:
+            rt.flags["review_strengths"] = strengths
+        if weaknesses:
+            rt.flags["review_weaknesses"] = weaknesses
+        if market_gap:
+            rt.flags["market_gap"] = market_gap
+    if isinstance(rt.judge_verdict, dict):
+        if strengths:
+            rt.judge_verdict["strengths"] = strengths
+        if weaknesses:
+            rt.judge_verdict["weaknesses"] = weaknesses
+        if market_gap:
+            rt.judge_verdict["market_gap"] = market_gap
     _emit(
         {
             "type": "critique_done",
@@ -2322,6 +2349,28 @@ async def _node_review_agent(state: GraphState) -> Command:
             **({"has_preview": True} if preview_image else {}),
         }
     )
+    review_next: list[str] = []
+    for row in list(judge.get("top_issues") or [])[:5]:
+        if not isinstance(row, dict):
+            continue
+        fix = str(row.get("fix") or "").strip()
+        issue = str(row.get("issue") or "").strip()
+        if fix:
+            review_next.append(fix)
+        elif issue:
+            review_next.append(issue)
+    if strengths or weaknesses or market_gap or review_next:
+        _emit(
+            {
+                "type": "design_summary",
+                "visibility": "user",
+                "strengths": strengths[:4] or None,
+                "weaknesses": weaknesses[:4] or None,
+                "market_gap": market_gap[:280] or None,
+                "next_steps": review_next[:5] or None,
+                "source": "review",
+            }
+        )
     taste_bits: list[str] = []
     if strengths:
         taste_bits.append("Strengths: " + "; ".join(strengths[:3]))
@@ -2330,7 +2379,13 @@ async def _node_review_agent(state: GraphState) -> Command:
     if market_gap:
         taste_bits.append(f"Market gap: {market_gap[:280]}")
     if taste_bits:
-        _emit({"type": "analysis_delta", "text": "\n".join(taste_bits)[:900]})
+        _emit(
+            {
+                "type": "analysis_delta",
+                "text": "\n".join(taste_bits)[:900],
+                "visibility": "developer",
+            }
+        )
 
     opt_kind = str(opt.get("decision") or "")
     opt_reason = str(opt.get("reason") or "")
@@ -2402,4 +2457,5 @@ async def _node_review_agent(state: GraphState) -> Command:
     rt.flags["ok"] = not bool(must_fix)
     rt.flags["retry"] = False
     rt.terminal = True
+    await _run_design_quality_gate(rt)
     return Command(update=_bump(rt), goto="__settle__")

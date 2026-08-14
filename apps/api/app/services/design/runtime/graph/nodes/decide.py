@@ -48,6 +48,28 @@ from app.services.design.runtime.graph.support import (
 from app.services.design.runtime.host import assemble_stage_system
 from app.services.design.runtime.host.resources import load_deferred_resources
 from app.services.design.runtime.agent_profile import resolve_contract_schema
+from app.services.design.runtime.graph.nodes.autonomous import (
+    format_autonomous_for_decide,
+)
+from app.services.design.runtime.graph.nodes.candidates import (
+    format_candidates_for_decide,
+)
+from app.services.design.runtime.graph.nodes.counterfactual import (
+    format_counterfactual_for_decide,
+)
+from app.services.design.runtime.graph.nodes.research import (
+    format_research_for_decide,
+)
+from app.services.design.runtime.graph.nodes.simulation import (
+    format_simulation_for_decide,
+)
+from app.services.design.runtime.graph.nodes.strategy import (
+    format_strategy_for_decide,
+)
+from app.services.design.runtime.graph.nodes.swarm import format_swarm_for_decide
+from app.services.design.runtime.graph.nodes.tournament import (
+    format_tournament_for_decide,
+)
 
 
 _REFERENCE_INTEL_SYSTEM = (
@@ -71,6 +93,74 @@ _BRIEF_P1_KEYS = (
     "reference_dna",
     "design_strategy",
 )
+
+
+def _intel_prompt_suffix(rt: AgentRuntime) -> str:
+    """Format Intelligence slots once per Decide hop (not every LLM round)."""
+    chunks: list[str] = []
+    ref_block = format_reference_intel_for_decide(
+        analyze=getattr(rt, "reference_analyze", None),
+        dna=getattr(rt, "reference_dna", None),
+        lock=getattr(rt, "reference_lock", None),
+    )
+    if ref_block:
+        chunks.append(ref_block)
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    mem_notes = list(flags.get("memory_notes") or [])
+    if mem_notes:
+        mem_lines = ["TASTE_MEMORY (host-owned). Prefer these principles."]
+        mem_lines.extend(f"- {str(x)[:120]}" for x in mem_notes[:10] if str(x).strip())
+        chunks.append("\n".join(mem_lines)[:1200])
+    for formatter, attr in (
+        (format_research_for_decide, "design_research"),
+        (format_strategy_for_decide, "design_strategy"),
+        (format_candidates_for_decide, "design_candidates"),
+        (format_tournament_for_decide, "design_tournament"),
+        (format_swarm_for_decide, "design_swarm"),
+        (format_simulation_for_decide, "design_simulation"),
+        (format_counterfactual_for_decide, "design_counterfactual"),
+        (format_autonomous_for_decide, "autonomous_art_director"),
+    ):
+        block = formatter(getattr(rt, attr, None))
+        if block:
+            chunks.append(block)
+    return "\n\n".join(chunks)
+
+
+async def _load_turn_resources(rt: AgentRuntime) -> None:
+    await load_deferred_resources(rt, rt.turn)
+
+
+def intel_hops_for_intensity(intensity: str | None) -> tuple[list[str], bool]:
+    """Map design_intensity → optional Intelligence hops + principle write.
+
+    Always-run (caller): analyze_reference, retrieve_memory, autonomous_plan,
+    then these hops, then review / optimize / autonomous_sync, then write_principle
+    when the second return is True.
+    """
+    level = str(intensity or "medium").strip().lower().replace("_", "-")
+    if level in ("light", "low"):
+        return [], False
+    if level in ("medium", "mid", ""):
+        return ["research", "strategy"], False
+    if level == "high":
+        return [
+            "research",
+            "strategy",
+            "propose_candidates",
+            "tournament",
+            "swarm_direction",
+        ], False
+    # extreme / max
+    return [
+        "research",
+        "strategy",
+        "propose_candidates",
+        "tournament",
+        "swarm_direction",
+        "simulate",
+        "counterfactual",
+    ], True
 
 
 def ingest_reference_images(rt: AgentRuntime) -> list[str]:
@@ -234,6 +324,7 @@ async def run_reference_intelligence(rt: AgentRuntime) -> dict[str, Any] | None:
                 dna=compiled.get("dna"),
                 lock=compiled.get("lock"),
             )[:1200],
+            "visibility": "developer",
         }
     )
     return compiled
@@ -274,6 +365,29 @@ def _requires_design_brief(rt: AgentRuntime, intent: str) -> bool:
     if str(getattr(rt, "pending_skill_details", "") or "").strip():
         return True
     return bool(getattr(rt, "images", None))
+
+
+def _brief_avoid_step(text: str, locale: str) -> str:
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    if locale.startswith("zh"):
+        return s if s.startswith("避免") else f"避免：{s}"
+    if locale == "ja":
+        return s if s.startswith("避ける") else f"避ける：{s}"
+    low = s.lower()
+    return s if low.startswith("avoid") else f"Avoid: {s}"
+
+
+def _brief_hero_step(hero: str, locale: str) -> str:
+    h = str(hero or "").strip()
+    if not h:
+        return ""
+    if locale.startswith("zh"):
+        return f"突出主体：{h}"
+    if locale == "ja":
+        return f"主役を強調：{h}"
+    return f"Hero focus: {h}"
 
 
 def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int) -> str:
@@ -331,19 +445,57 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
             "id": f"design-brief-{round_i}",
             "kind": "explored",
             "status": "done",
-            "summary": ("DESIGN_BRIEF: " + (thesis or paint_text)[:120])[:200],
+            "code": "design_brief",
+            "visibility": "user",
+            "item": {
+                "id": "design-brief",
+                "name": "design_brief",
+                "summary": (thesis or "")[:120] or None,
+            },
             "index": round_i,
         }
     )
-    _emit({"type": "analysis_delta", "text": ("DESIGN_BRIEF\n" + review_text)[:1200]})
+    _emit(
+        {
+            "type": "analysis_delta",
+            "text": ("DESIGN_BRIEF\n" + review_text)[:1200],
+            "visibility": "developer",
+        }
+    )
+    # User-facing design explanation (why this direction) — not the raw brief dump.
+    from app.services.design.runtime.host.prompts import locale_for_runtime
+
+    loc = locale_for_runtime(rt)
+    why_bits = [
+        str(parsed.get(k) or "").strip()
+        for k in ("purpose", "audience", "emotion")
+        if str(parsed.get(k) or "").strip()
+    ]
+    next_steps: list[str] = []
+    avoid = parsed.get("avoid")
+    if isinstance(avoid, list):
+        for item in avoid[:3]:
+            s = str(item or "").strip()
+            if not s:
+                continue
+            next_steps.append(_brief_avoid_step(s, loc))
+    hero = str(parsed.get("visual_hero") or "").strip()
+    if hero:
+        next_steps.insert(0, _brief_hero_step(hero, loc))
+    _emit(
+        {
+            "type": "design_summary",
+            "visibility": "user",
+            "thesis": thesis[:240] or None,
+            "purpose": str(parsed.get("purpose") or "").strip()[:160] or None,
+            "audience": str(parsed.get("audience") or "").strip()[:120] or None,
+            "emotion": str(parsed.get("emotion") or "").strip()[:120] or None,
+            "why": " · ".join(why_bits)[:280] or None,
+            "next_steps": next_steps[:4] or None,
+            "source": "decide_brief",
+        }
+    )
     return paint_text
-
-
-async def _node_resource(state: GraphState) -> Command:
-    rt = state["rt"]
-    await load_deferred_resources(rt, rt.turn)
-    return Command(update=_bump(rt))
-
 
 
 async def _node_design_agent(state: GraphState) -> Command:
@@ -371,25 +523,39 @@ async def _node_design_agent(state: GraphState) -> Command:
     )
     rt.last_reason = reason
     from app.services.design.intelligence_runtime import get_design_intelligence_client
-    from app.services.design.runtime.graph.nodes.autonomous import (
-        format_autonomous_for_decide,
-    )
 
     intel = get_design_intelligence_client()
     await intel.analyze_reference(rt)
     await intel.retrieve_memory(rt)
     await intel.autonomous_plan(rt)
-    await intel.research(rt)
-    await intel.strategy(rt)
-    await intel.propose_candidates(rt)
-    await intel.tournament(rt)
-    await intel.swarm_direction(rt)
-    await intel.simulate(rt)
-    await intel.counterfactual(rt)
+
+    # Design intensity → Intelligence depth (not model thinking effort).
+    # light: ref+memory+plan only
+    # medium: + research/strategy
+    # high: + candidates/tournament/swarm
+    # extreme: + simulate/counterfactual + principle write
+    intensity = str((rt.flags or {}).get("design_intensity") or "medium").strip().lower()
+    hops, write_principle = intel_hops_for_intensity(intensity)
+    hop_runners = {
+        "research": intel.research,
+        "strategy": intel.strategy,
+        "propose_candidates": intel.propose_candidates,
+        "tournament": intel.tournament,
+        "swarm_direction": intel.swarm_direction,
+        "simulate": intel.simulate,
+        "counterfactual": intel.counterfactual,
+    }
+    for hop in hops:
+        runner = hop_runners.get(hop)
+        if runner is not None:
+            await runner(rt)
+
     await intel.review(rt)
     await intel.optimize(rt)
     await intel.autonomous_sync(rt)
-    await intel.write_principle(rt)
+    if write_principle:
+        await intel.write_principle(rt)
+    intel_suffix = _intel_prompt_suffix(rt)
 
     for _round in range(max_rounds):
         round_i = st.round
@@ -407,83 +573,8 @@ async def _node_design_agent(state: GraphState) -> Command:
             }
         )
         lc_system, user_msg = _format_thought_messages(rt)
-        ref_block = format_reference_intel_for_decide(
-            analyze=getattr(rt, "reference_analyze", None),
-            dna=getattr(rt, "reference_dna", None),
-            lock=getattr(rt, "reference_lock", None),
-        )
-        if ref_block:
-            user_msg = (user_msg + "\n\n" + ref_block).strip()
-        mem = getattr(rt, "flags", None) if isinstance(getattr(rt, "flags", None), dict) else {}
-        mem_notes = list(mem.get("memory_notes") or []) if isinstance(mem, dict) else []
-        if mem_notes:
-            mem_lines = ["TASTE_MEMORY (host-owned). Prefer these principles."]
-            mem_lines.extend(f"- {str(x)[:120]}" for x in mem_notes[:10] if str(x).strip())
-            user_msg = (user_msg + "\n\n" + "\n".join(mem_lines)[:1200]).strip()
-        from app.services.design.runtime.graph.nodes.research import (
-            format_research_for_decide,
-        )
-
-        research_block = format_research_for_decide(
-            getattr(rt, "design_research", None)
-        )
-        if research_block:
-            user_msg = (user_msg + "\n\n" + research_block).strip()
-        from app.services.design.runtime.graph.nodes.strategy import (
-            format_strategy_for_decide,
-        )
-
-        strategy_block = format_strategy_for_decide(
-            getattr(rt, "design_strategy", None)
-        )
-        if strategy_block:
-            user_msg = (user_msg + "\n\n" + strategy_block).strip()
-        from app.services.design.runtime.graph.nodes.candidates import (
-            format_candidates_for_decide,
-        )
-
-        candidates_block = format_candidates_for_decide(
-            getattr(rt, "design_candidates", None)
-        )
-        if candidates_block:
-            user_msg = (user_msg + "\n\n" + candidates_block).strip()
-        from app.services.design.runtime.graph.nodes.tournament import (
-            format_tournament_for_decide,
-        )
-
-        tournament_block = format_tournament_for_decide(
-            getattr(rt, "design_tournament", None)
-        )
-        if tournament_block:
-            user_msg = (user_msg + "\n\n" + tournament_block).strip()
-        from app.services.design.runtime.graph.nodes.swarm import format_swarm_for_decide
-
-        swarm_block = format_swarm_for_decide(getattr(rt, "design_swarm", None))
-        if swarm_block:
-            user_msg = (user_msg + "\n\n" + swarm_block).strip()
-        from app.services.design.runtime.graph.nodes.simulation import (
-            format_simulation_for_decide,
-        )
-
-        simulation_block = format_simulation_for_decide(
-            getattr(rt, "design_simulation", None)
-        )
-        if simulation_block:
-            user_msg = (user_msg + "\n\n" + simulation_block).strip()
-        from app.services.design.runtime.graph.nodes.counterfactual import (
-            format_counterfactual_for_decide,
-        )
-
-        counterfactual_block = format_counterfactual_for_decide(
-            getattr(rt, "design_counterfactual", None)
-        )
-        if counterfactual_block:
-            user_msg = (user_msg + "\n\n" + counterfactual_block).strip()
-        autonomous_block = format_autonomous_for_decide(
-            getattr(rt, "autonomous_art_director", None)
-        )
-        if autonomous_block:
-            user_msg = (user_msg + "\n\n" + autonomous_block).strip()
+        if intel_suffix:
+            user_msg = (user_msg + "\n\n" + intel_suffix).strip()
         if not str(lc_system or "").strip():
             # Decide stage prompt assembly — single entry (no A/B/C fallback chain).
             lc_system = assemble_stage_system(
@@ -491,6 +582,7 @@ async def _node_design_agent(state: GraphState) -> Command:
                 stage="decide",
                 ask_mode=ask_mode,
                 persona=str(rt.persona or ""),
+                locale=str((rt.flags or {}).get("locale") or "") or None,
             )
         else:
             lc_system = _append_prompt_pack(
@@ -522,6 +614,7 @@ async def _node_design_agent(state: GraphState) -> Command:
             )
             _flush_host_events(st, llm_ev)
             st.total_tokens += used_hint
+            st.note_tokens(used_hint, model_id=str(getattr(st, "family", "") or ""), source="decide")
             turn = _parse_agent_turn(content)
             # Ignore any accidental tool_ops from decision text — paint stage owns ops.
             turn["tool_ops_raw"] = None
@@ -635,7 +728,7 @@ async def _node_design_agent(state: GraphState) -> Command:
             had_skill_details = bool(
                 str(getattr(rt, "pending_skill_details", "") or "").strip()
             )
-            await _node_resource(state)
+            await _load_turn_resources(rt)
             gained = bool(
                 set(st.skills_loaded or []) - skills_before
                 or set(st.tools_loaded or []) - tools_before
@@ -701,7 +794,7 @@ async def _node_design_agent(state: GraphState) -> Command:
         ):
             st.intent = _resolve_paint_want(rt, intent)
             # Stash only — stream after paint sends ops (or Ask propose rewrite).
-            if reply and len(reply) <= 80:
+            if reply and len(reply) <= 280:
                 st.reply = reply
             return Command(update=_bump(rt), goto="paint_ops")
 

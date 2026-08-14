@@ -1353,7 +1353,6 @@ _DEFAULT_PAINT_EDIT_TOOLS = (
     "update_node",
     "delete_nodes",
 )
-_LEAN_PAINT_PROMPT_CHARS = 96
 
 
 def _agent_turn_parser():
@@ -1424,6 +1423,9 @@ class AgentRunState:
     images_hydrated: int = 0
     # Host-side image gen (Seedream etc.) ? not ReAct chat tokens.
     images_used: dict[str, int] = field(default_factory=dict)
+    # Billing meters / UsageEvent atoms for settle quote (protocol UsageEventSchema).
+    billing_meters: dict[str, float] = field(default_factory=dict)
+    usage_events: list[dict[str, Any]] = field(default_factory=list)
     # simple | medium | complex ? from precheck.task_tiers matrix
     task_tier: str = ""
     # True when look-at-image (vision model) was selected or switched to
@@ -1468,6 +1470,36 @@ class AgentRunState:
             return
         self.images_hydrated += n
         self.images_used[mid] = self.images_used.get(mid, 0) + n
+        self.billing_meters["image.gen"] = float(
+            self.billing_meters.get("image.gen", 0) + n
+        )
+
+    def note_tokens(self, tokens: int, *, model_id: str = "", source: str = "llm") -> None:
+        """Record a usage atom. Caller still owns ``total_tokens`` aggregation."""
+        n = max(0, int(tokens or 0))
+        if n <= 0:
+            return
+        self.billing_meters["llm.tokens_out"] = float(
+            self.billing_meters.get("llm.tokens_out", 0) + n
+        )
+        self.usage_events.append(
+            {
+                "event_id": f"ue_{len(self.usage_events)+1}",
+                "source": source or "design_agent",
+                "model_id": (model_id or "").strip(),
+                "status": "ok",
+                "usage": {"output_tokens": n, "total_tokens": n},
+            }
+        )
+        if len(self.usage_events) > 64:
+            self.usage_events = self.usage_events[-64:]
+
+    def note_agent_step(self, step: str = "agent.steps") -> None:
+        key = (step or "agent.steps").strip() or "agent.steps"
+        self.billing_meters[key] = float(self.billing_meters.get(key, 0) + 1)
+        self.billing_meters["agent.steps"] = float(
+            self.billing_meters.get("agent.steps", 0) + 1
+        )
 
     def note_error(self, err: str) -> None:
         e = (err or "").strip()
@@ -1573,6 +1605,8 @@ class AgentGraphRunInput:
     proposal_task_id: str | None = None
     interaction_mode: str | None = None
     skill_refs: list[str] | None = None
+    locale: str | None = None
+    design_intensity: str | None = None
 
 
 @dataclass

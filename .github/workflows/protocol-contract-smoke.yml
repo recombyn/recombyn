@@ -42,7 +42,7 @@ jobs:
           from recombyn_runtime import remote_result_usable as runtime_usable
           assert version("recombyn-protocol")
           parts = [int(x) for x in version("recombyn-protocol").split(".")[:3]]
-          assert parts >= [0, 1, 2], version("recombyn-protocol")
+          assert parts >= [0, 1, 3], version("recombyn-protocol")
           assert len(INTELLIGENCE_METHODS) >= 15
           assert intelligence_wire_methods() >= set(INTELLIGENCE_METHODS)
           assert not remote_result_usable("research", {})
@@ -53,15 +53,19 @@ jobs:
               BILLING_LIFECYCLE_STAGES,
               BudgetPolicySchema,
               CostBreakdownSchema,
+              CreditPolicySchema,
               PricingRateSchema,
               PricingSchema,
               PricingVersionSchema,
               TaskCostSchema,
+              TaskPricingSchema,
+              TaskStepPricingSchema,
               UsageEventSchema,
+              credits_from_sell_cost_micros,
               money_to_micros,
               resolve_pricing,
           )
-          assert "reserve" in BILLING_LIFECYCLE_STAGES
+          assert "authorize" in BILLING_LIFECYCLE_STAGES
           assert money_to_micros(1) == 1_000_000
           rate = PricingRateSchema(metric="input_tokens", unit="per_1m_tokens", amount_micros=2_500_000)
           fam = PricingSchema(
@@ -73,9 +77,26 @@ jobs:
               )],
           )
           assert resolve_pricing(catalog=[fam], pricing_id="p1", timestamp=1).pricing_version_id == "pv1"
-          br = CostBreakdownSchema(provider_cost_micros=100, infrastructure_cost_micros=20)
-          assert br.internal_cost_micros == 120
+          br = CostBreakdownSchema(
+              provider_cost_micros=100,
+              infrastructure_cost_micros=20,
+              agent_orchestration_cost_micros=30,
+          )
+          assert br.internal_cost_micros == 150
           assert TaskCostSchema(task_id="t1").credits_reserved == 0
+          tp = TaskPricingSchema(
+              task_type="design_agent",
+              pipeline="poster_v2",
+              base_credit=20,
+              steps=[
+                  TaskStepPricingSchema(name="research", credits=5),
+                  TaskStepPricingSchema(name="image", credits=15),
+                  TaskStepPricingSchema(name="review", credits=5),
+              ],
+          )
+          assert tp.estimate_credits_high() == 45
+          pol = CreditPolicySchema(credit_value_micros=100_000, byok_agent_fee_credits=2)
+          assert credits_from_sell_cost_micros(500_000, credit_value_micros=pol.credit_value_micros) == 5
           assert BudgetPolicySchema(max_credits_per_task=100).max_credits_per_task == 100
           assert UsageEventSchema(pricing_version_id="pv1").pricing_version_id == "pv1"
           print("protocol contract smoke ok", version("recombyn-protocol"), len(INTELLIGENCE_METHODS), "methods")

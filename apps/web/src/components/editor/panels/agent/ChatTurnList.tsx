@@ -7,8 +7,10 @@ import {
   HiOutlineCheckCircle,
   HiOutlineChevronRight,
   HiOutlineComputerDesktop,
+  HiOutlineExclamationTriangle,
   HiOutlinePlay,
   HiOutlineQuestionMarkCircle,
+  HiOutlineXCircle,
 } from 'react-icons/hi2';
 import ChatMarkdown from '@/components/editor/panels/ChatMarkdown';
 import { ContextChipPill } from '@/components/editor/panels/AgentComposerInput';
@@ -22,6 +24,9 @@ import { cn } from '@/utils/classnames';
 import { setChatImageDragData } from '@/utils/chatImageDrag';
 import { imageSrcToFile } from '@/utils/uploadImage';
 import VideoJsPlayer from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
+
+/** Leading icon tone for process / explore rows. */
+export type ExploreItemTone = 'ok' | 'warn' | 'error';
 
 export type ChatUiMessage = {
   id: string;
@@ -51,7 +56,13 @@ export type ChatUiMessage = {
     variant?: 'confirm' | 'success' | 'info';
     summary?: string;
     /** Nested lines under Explored. */
-    items?: Array<{ id: string; name: string; summary?: string }>;
+    items?: Array<{
+      id: string;
+      name: string;
+      summary?: string;
+      /** Row tone for the leading icon (ok / warn / error). */
+      tone?: 'ok' | 'warn' | 'error';
+    }>;
     /** Expandable markdown body (diagrams / long notes). */
     body?: string;
   }>;
@@ -106,9 +117,43 @@ export type ChatUiMessage = {
   canResume?: boolean;
   /** Phase-2 Design Intelligence panel (DNA / scores / diff / iterations). */
   intelligence?: import('@/components/editor/panels/agent/runDesignAgent').DesignIntelligencePatch;
+  /** Developer-only SSE dumps (visibility=developer|internal). */
+  debugEvents?: Array<{
+    id: string;
+    kind: string;
+    text?: string;
+    at: number;
+  }>;
 };
 
 export type AssistantStep = NonNullable<ChatUiMessage['steps']>[number];
+
+const AGENT_DEV_DEBUG_KEY = 'recombyn.agentDevDebug.v1';
+
+/**
+ * Product UI does not expose a toggle. Enable dumps by flipping this flag in code,
+ * or set localStorage `recombyn.agentDevDebug.v1` = `1` in DevTools.
+ */
+const AGENT_DEV_DEBUG_IN_CODE = false;
+
+export function loadAgentDevDebug(): boolean {
+  if (AGENT_DEV_DEBUG_IN_CODE) return true;
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(AGENT_DEV_DEBUG_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveAgentDevDebug(on: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(AGENT_DEV_DEBUG_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
 
 export type ActivityStepEvent = {
   kind: 'thought' | 'added' | 'updated' | 'explored' | 'skipped' | 'deleted' | 'tool';
@@ -151,6 +196,45 @@ export function formatDiffDeltaLine(
   return `${key} ${d >= 0 ? '+' : ''}${pctLabel(d, 0)}`;
 }
 
+function governanceHasLanes(
+  intel: ChatUiMessage['intelligence'] | undefined
+): boolean {
+  const lanes = intel?.governance?.lanes || [];
+  return lanes.length > 0;
+}
+
+export function formatGovernanceLaneItems(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  rows: Array<{
+    id?: string;
+    name?: string;
+    summary?: string;
+    lane?: string;
+    status?: string;
+  }>
+): ExploreItem[] {
+  return rows.map((row, i) => {
+    const lane = String(row.lane || row.name || '').trim();
+    const st = String(row.status || row.summary || '').toLowerCase();
+    const laneLabel = t(`agent.governanceLane.${lane}`, { defaultValue: lane });
+    const stLabel =
+      st === 'pass'
+        ? t('agent.governanceLanePass')
+        : st === 'fail'
+          ? t('agent.governanceLaneFail')
+          : st === 'warn'
+            ? t('agent.governanceLaneWarn')
+            : st;
+    const tone: ExploreItemTone =
+      st === 'fail' ? 'error' : st === 'warn' ? 'warn' : 'ok';
+    return {
+      id: String(row.id || `gov-lane-${lane || i}`),
+      name: stLabel ? `${laneLabel}：${stLabel}` : laneLabel,
+      tone,
+    };
+  });
+}
+
 export function hasDesignIntelligence(
   intel: ChatUiMessage['intelligence'] | undefined
 ): boolean {
@@ -160,9 +244,75 @@ export function hasDesignIntelligence(
       intel.reference?.thesis ||
       intel.review?.scores ||
       intel.review?.overall != null ||
+      governanceHasLanes(intel) ||
       intel.diff?.deltas ||
       (intel.iterations && intel.iterations.length > 0) ||
-      intel.summary
+      intel.summary?.thesis ||
+      intel.summary?.why ||
+      intel.summary?.marketGap ||
+      intel.summary?.nextSteps?.length ||
+      intel.summary?.weaknesses?.length ||
+      intel.summary?.strengths?.length ||
+      intel.summary?.iterations != null ||
+      (intel.summary?.scoreFrom != null && intel.summary?.scoreTo != null)
+  );
+}
+
+function DeveloperDebugPanel({
+  events,
+}: {
+  events: ChatUiMessage['debugEvents'];
+}): ReactNode {
+  const { t } = useTranslation();
+  const [enabled, setEnabled] = useState(() => loadAgentDevDebug());
+  const [open, setOpen] = useState(false);
+  const rows = events || [];
+
+  useEffect(() => {
+    const sync = () => setEnabled(loadAgentDevDebug());
+    window.addEventListener('storage', sync);
+    window.addEventListener('recombyn-agent-dev-debug', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('recombyn-agent-dev-debug', sync);
+    };
+  }, []);
+
+  if (!enabled || rows.length === 0) return null;
+
+  return (
+    <div
+      className="flex w-full flex-col gap-1.5 border-l border-amber-500/25 pl-3 text-[11px] leading-snug text-[var(--muted)]"
+      data-testid="agent-developer-debug"
+    >
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-left text-[11px] uppercase tracking-[0.08em] text-amber-700/80 dark:text-amber-400/90"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <HiOutlineChevronRight
+          className={cn('h-3 w-3 transition-transform', open ? 'rotate-90' : '')}
+          aria-hidden
+        />
+        {t('agent.devDebugTitle', { defaultValue: '开发调试' })}
+        <span className="normal-case tracking-normal text-[var(--muted)]">
+          ({rows.length})
+        </span>
+      </button>
+      {open ? (
+        <div className="max-h-56 overflow-auto rounded-md bg-[var(--canvas)]/80 px-2 py-1.5 font-mono text-[10px] text-[var(--ink)]/75">
+          {rows.map((row) => (
+            <div key={row.id} className="border-b border-[var(--line)]/40 py-1 last:border-0">
+              <div className="text-[var(--muted)]">{row.kind}</div>
+              {row.text ? (
+                <pre className="whitespace-pre-wrap break-words">{row.text}</pre>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -188,16 +338,136 @@ function DesignIntelligencePanel({
   ].filter(Boolean) as string[];
   const timeline = (intel.iterations || []).filter((row) => row.overall > 0);
   const summary = intel.summary;
+  const explainThesis = String(summary?.thesis || '').trim();
+  const explainWhy = String(summary?.why || '').trim();
+  const explainStrengths = summary?.strengths || [];
+  const explainWeaknesses = summary?.weaknesses || [];
+  const explainNext = summary?.nextSteps || [];
+  const explainGap = String(summary?.marketGap || '').trim();
+  const hasExplain =
+    Boolean(explainThesis || explainWhy || explainGap) ||
+    explainStrengths.length > 0 ||
+    explainWeaknesses.length > 0 ||
+    explainNext.length > 0;
+
+  const scoreLabel = (key: string) =>
+    t(`agent.reviewScore.${key}`, { defaultValue: key });
 
   return (
     <div
       className="flex w-full flex-col gap-3 border-l border-[var(--ink)]/10 pl-3 text-[12px] leading-snug text-[var(--ink)]/80"
       data-testid="design-intelligence"
     >
+      {hasExplain ? (
+        <section className="flex flex-col gap-1.5" data-testid="design-explain">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+            {t('agent.designExplainTitle')}
+          </div>
+          {explainThesis ? (
+            <p className="whitespace-pre-wrap break-words text-[13px] text-[var(--ink)]">
+              <span className="text-[var(--muted)]">{t('agent.designExplainThesis')}：</span>
+              {explainThesis}
+            </p>
+          ) : null}
+          {explainWhy ? (
+            <p className="whitespace-pre-wrap break-words text-[12px] text-[var(--ink)]/85">
+              <span className="text-[var(--muted)]">{t('agent.designExplainWhy')}：</span>
+              {explainWhy}
+            </p>
+          ) : null}
+          {explainStrengths.length ? (
+            <div>
+              <div className="text-[11px] text-[var(--muted)]">
+                {t('agent.designExplainStrengths')}
+              </div>
+              <ul className="mt-0.5 list-disc pl-4">
+                {explainStrengths.slice(0, 4).map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {explainWeaknesses.length ? (
+            <div>
+              <div className="text-[11px] text-[var(--muted)]">
+                {t('agent.designExplainWeaknesses')}
+              </div>
+              <ul className="mt-0.5 list-disc pl-4">
+                {explainWeaknesses.slice(0, 4).map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {explainGap ? (
+            <p className="text-[12px] text-[var(--ink)]/85">
+              <span className="text-[var(--muted)]">{t('agent.designExplainGap')}：</span>
+              {explainGap}
+            </p>
+          ) : null}
+          {explainNext.length ? (
+            <div>
+              <div className="text-[11px] text-[var(--muted)]">
+                {t('agent.designExplainNext')}
+              </div>
+              <ol className="mt-0.5 list-decimal pl-4">
+                {explainNext.slice(0, 4).map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {governanceHasLanes(intel) ? (
+        <section className="flex flex-col gap-1.5" data-testid="design-governance-user">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+              {t('agent.governanceTitle')}
+            </span>
+            <span className="tabular-nums text-[13px] text-[var(--ink)]">
+              {String(intel.governance?.status || '').toLowerCase() === 'pass'
+                ? t('agent.governancePass')
+                : String(intel.governance?.status || '').toLowerCase() === 'fail'
+                  ? t('agent.governanceFail')
+                  : intel.governance?.status}
+            </span>
+          </div>
+          {(intel.governance?.lanes || []).length ? (
+            <ul className="flex flex-col gap-1">
+              {(intel.governance?.lanes || []).map((row) => {
+                const lane = String(row.lane || '').trim();
+                const st = String(row.status || '').toLowerCase();
+                const mark =
+                  st === 'pass' ? '✓' : st === 'fail' ? '✗' : st === 'warn' ? '⚠' : '·';
+                return (
+                  <li key={lane || `gov-${mark}`} className="flex items-start gap-2">
+                    <span aria-hidden>{mark}</span>
+                    <span>
+                      {t(`agent.governanceLane.${lane}`, {
+                        defaultValue: lane,
+                      })}
+                      {st === 'pass'
+                        ? `：${t('agent.governanceLanePass')}`
+                        : st === 'fail'
+                          ? `：${t('agent.governanceLaneFail')}`
+                          : st === 'warn'
+                            ? `：${t('agent.governanceLaneWarn')}`
+                            : ''}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
       {intel.reference?.thesis || dnaAxes.length || intel.reference?.stages?.length ? (
         <section className="flex flex-col gap-1.5">
           <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-            {t('agent.intelReference', { defaultValue: 'Reference' })}
+            {t('agent.intelReference')}
           </div>
           {intel.reference?.stages?.length ? (
             <div className="flex flex-wrap gap-1.5 text-[11px] text-[var(--muted)]">
@@ -233,7 +503,7 @@ function DesignIntelligencePanel({
         <section className="flex flex-col gap-1.5">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-              {t('agent.intelReview', { defaultValue: 'Review' })}
+              {t('agent.intelReview')}
             </span>
             {intel.review?.overall != null ? (
               <span className="tabular-nums text-[13px] text-[var(--ink)]">
@@ -246,7 +516,7 @@ function DesignIntelligencePanel({
             <div className="grid grid-cols-2 gap-x-3 gap-y-1">
               {scoreRows.map((row) => (
                 <div key={row.key} className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[var(--muted)]">{row.key}</span>
+                  <span className="truncate text-[var(--muted)]">{scoreLabel(row.key)}</span>
                   <span className="tabular-nums">{row.value}</span>
                 </div>
               ))}
@@ -274,7 +544,7 @@ function DesignIntelligencePanel({
       {diffLines.length ? (
         <section className="flex flex-col gap-1">
           <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-            {t('agent.intelDiff', { defaultValue: 'Diff' })}
+            {t('agent.intelDiff')}
           </div>
           {diffLines.map((line) => (
             <div key={line} className="tabular-nums">
@@ -287,7 +557,7 @@ function DesignIntelligencePanel({
       {timeline.length > 1 ? (
         <section className="flex flex-col gap-1">
           <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-            {t('agent.intelIterations', { defaultValue: 'Iterations' })}
+            {t('agent.intelIterations')}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 tabular-nums">
             {timeline.map((row, i) => (
@@ -300,17 +570,21 @@ function DesignIntelligencePanel({
         </section>
       ) : null}
 
-      {summary ? (
+      {summary &&
+      (summary.iterations != null ||
+        (summary.removed != null && summary.removed > 0) ||
+        summary.whitespace != null ||
+        summary.heroDominance != null ||
+        (summary.scoreFrom != null && summary.scoreTo != null)) ? (
         <section className="flex flex-col gap-1 text-[var(--muted)]">
           <div className="text-[11px] uppercase tracking-[0.08em]">
-            {t('agent.intelSummary', { defaultValue: 'Summary' })}
+            {t('agent.intelSummary')}
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1 tabular-nums text-[var(--ink)]/80">
             {summary.iterations != null ? (
               <span>
                 {t('agent.intelIterCount', {
                   count: summary.iterations,
-                  defaultValue: '{{count}} iters',
                 })}
               </span>
             ) : null}
@@ -318,15 +592,18 @@ function DesignIntelligencePanel({
               <span>
                 {t('agent.intelRemoved', {
                   count: summary.removed,
-                  defaultValue: '−{{count}} nodes',
                 })}
               </span>
             ) : null}
             {summary.whitespace != null ? (
-              <span>whitespace {pctLabel(summary.whitespace, 0)}</span>
+              <span>
+                {t('agent.intelWhitespace')} {pctLabel(summary.whitespace, 0)}
+              </span>
             ) : null}
             {summary.heroDominance != null ? (
-              <span>hero {pctLabel(summary.heroDominance, 0)}</span>
+              <span>
+                {t('agent.intelHero')} {pctLabel(summary.heroDominance, 0)}
+              </span>
             ) : null}
             {summary.scoreFrom != null && summary.scoreTo != null ? (
               <span>
@@ -433,8 +710,21 @@ function formatExploredLabel(
   detail: string,
   preferDetail: boolean
 ): string {
+  const code = String(ev.code || '').trim().toLowerCase();
+  if (code === 'design_brief') {
+    return t('agent.designBriefDone');
+  }
+  if (code === 'design_pipeline') {
+    if (ev.status === 'running') return t('agent.activityExploredRunning');
+    return t('agent.activityExplored');
+  }
   const preload = formatPreloadExploredLabel(t, detail, ev.stage);
   if (preload) return preload;
+  // Never surface raw DESIGN_* / English kernel dumps as the row label.
+  if (/^DESIGN_/i.test(detail) || detail === 'design pipeline') {
+    if (ev.status === 'running') return t('agent.activityExploredRunning');
+    return t('agent.activityExplored');
+  }
   if (preferDetail && !detail.startsWith('canvas_size:')) return detail;
   const canvas = formatCanvasSizeExploredLabel(t, ev, detail);
   if (canvas) return canvas;
@@ -460,6 +750,12 @@ export function formatActivityLabel(
 ): string | null {
   const detail = (ev.detail || '').trim();
   const preferDetail = detail.length > 0;
+  const code = String(ev.code || '').trim().toLowerCase();
+  if (code === 'design_quality_check') {
+    if (ev.status === 'running') return t('agent.governanceRunning');
+    if (detail === 'fail' || ev.status === 'error') return t('agent.governanceFailShort');
+    return t('agent.governanceDone');
+  }
 
   if (ev.kind === 'thought') {
     return formatThoughtLabel(t, ev, detail, preferDetail);
@@ -525,6 +821,31 @@ function exploreItemKindKey(id: string): string {
     return 'agent.stageScene';
   }
   if (id === 'canvas-size') return 'agent.canvasSizeLabel';
+  if (id === 'design-quality-check' || id === 'design-governance') {
+    return 'agent.governanceTitle';
+  }
+  if (id === 'design-brief') {
+    return 'agent.designBriefDone';
+  }
+  if (id.startsWith('stage-')) {
+    const stage = id.slice('stage-'.length);
+    const map: Record<string, string> = {
+      prepare: 'agent.stagePrepare',
+      scene: 'agent.stageScene',
+      prompt: 'agent.stagePrompt',
+      model_wait: 'agent.stageModelWait',
+      model_stream: 'agent.stageModelStream',
+      lookup: 'agent.stageLookup',
+      validate: 'agent.stageValidate',
+      ops: 'agent.stageOps',
+      scene_check: 'agent.stageSceneCheck',
+      critic: 'agent.stageCritic',
+      refine: 'agent.stageRefine',
+      done: 'agent.stageDone',
+      failed: 'agent.stageFailed',
+    };
+    return map[stage] || '';
+  }
   return '';
 }
 
@@ -539,8 +860,8 @@ function mergeExploreStepStatus(
 
 export function localizeExploreItem(
   t: ProcessTFn,
-  item: { id: string; name: string; summary?: string }
-): { id: string; name: string; summary?: string } {
+  item: { id: string; name: string; summary?: string; tone?: ExploreItemTone }
+): { id: string; name: string; summary?: string; tone?: ExploreItemTone } {
   const id = String(item.id || '');
   const kindKey = exploreItemKindKey(id);
   if (!kindKey) return item;
@@ -557,6 +878,20 @@ export function localizeExploreItem(
     ...item,
     name: host ? t('agent.lookupHostPrefix', { name: label }) : label,
   };
+}
+
+/** Thinking-only explore row labeled “设计材料确认” — hide on simple replies. */
+function isBareExplorePipelineStep(step: AssistantStep): boolean {
+  if (step.id === 'chat-process') return false;
+  const isExplore =
+    step.id === 'explore-pipeline' ||
+    (step.kind === 'explored' && step.id !== 'chat-process');
+  if (!isExplore) return false;
+  const items = step.items || [];
+  return items.every((it) => {
+    const id = String(it.id || '');
+    return !id || id === 'thought-brief';
+  });
 }
 
 function collapseExplorePipelineSteps(steps: AssistantStep[]): AssistantStep[] {
@@ -576,20 +911,23 @@ function collapseExplorePipelineSteps(steps: AssistantStep[]): AssistantStep[] {
     }
     const items = [...(explore.items || [])];
     for (const it of s.items || []) {
-      const ii = items.findIndex((x) => x.id === it.id);
-      if (ii >= 0) items[ii] = { ...items[ii], ...it };
-      else items.push(it);
+      upsertExploreItem(items, it);
     }
-    explore = {
+    explore = unstickExplorePinnedCopy({
       ...explore,
       name: s.name || explore.name,
       summary: s.summary || explore.summary,
       body: s.body || explore.body,
       items,
       status: mergeExploreStepStatus(s.status, explore.status),
-    };
+    });
   }
   if (!explore) return rest;
+  explore = unstickExplorePinnedCopy({
+    ...explore,
+    id: 'explore-pipeline',
+    kind: 'explored',
+  });
   const provisional = rest.findIndex(
     (s) => s.id === 'thought-0' || s.id === 'skill-0'
   );
@@ -601,33 +939,18 @@ function collapseExplorePipelineSteps(steps: AssistantStep[]): AssistantStep[] {
   return [explore, ...rest];
 }
 
-function workedSecsOf(m: ChatUiMessage): number | undefined {
-  if (m.startedAt) return Math.max(1, Math.round((Date.now() - m.startedAt) / 1000));
-  if (m.durationMs != null) return Math.max(1, Math.round(m.durationMs / 1000));
-  return undefined;
-}
-
-/** Foldable chat process under "Worked for Xs". */
-export function buildChatProcessSteps(t: ProcessTFn, m: ChatUiMessage): AssistantStep[] {
-  if (m.steps?.length) {
-    return m.steps.map((s) =>
-      s.status === 'running' ? { ...s, status: 'done' as const } : s
-    );
-  }
-  const secs = workedSecsOf(m);
-  return [
-    {
-      id: 'chat-process',
-      kind: 'explored',
-      name: t('agent.chatProcessTitle'),
-      status: 'done',
-      ...(secs != null ? { durationSec: secs } : {}),
-      items: [
-        { id: 'chat-wait', name: t('agent.chatProcessWait') },
-        { id: 'chat-reply', name: t('agent.chatProcessReply') },
-      ],
-    },
-  ];
+/** Chat divert: keep canvas tool rows; drop design-materials chrome. */
+export function buildChatProcessSteps(_t: ProcessTFn, m: ChatUiMessage): AssistantStep[] {
+  const kept = (m.steps || []).filter(
+    (s) =>
+      s.kind !== 'thought' &&
+      s.id !== 'thought-0' &&
+      !isBareExplorePipelineStep(s)
+  );
+  if (!kept.length) return [];
+  return kept.map((s) =>
+    s.status === 'running' ? { ...s, status: 'done' as const } : s
+  );
 }
 
 export function applyThinkingBodyToSteps(
@@ -731,6 +1054,139 @@ export function applyAnalysisDeltaToSteps(
   return steps;
 }
 
+export type ExploreItem = {
+  id: string;
+  name: string;
+  summary?: string;
+  tone?: ExploreItemTone;
+};
+
+/** Infer warn/error from copy when emitters did not set tone (legacy rows). */
+function inferExploreItemTone(text: string): ExploreItemTone {
+  const s = String(text || '').toLowerCase();
+  if (!s) return 'ok';
+  if (/revision\s*conflict|冲突/.test(s)) return 'warn';
+  if (
+    /校验失败|ops_validate_failed|op\(s\)\s*not\s*applied|not applied|failed|失败|error|错误/.test(
+      s
+    )
+  ) {
+    return 'error';
+  }
+  return 'ok';
+}
+
+export function activityItemTone(opts: {
+  status?: string | null;
+  kind?: string | null;
+  code?: string | null;
+  detail?: string | null;
+  name?: string | null;
+}): ExploreItemTone {
+  const blob = `${opts.code || ''} ${opts.detail || ''} ${opts.name || ''}`.toLowerCase();
+  // Soft conflict — warn, even when the activity is marked error.
+  if (/revision\s*conflict|冲突/.test(blob)) return 'warn';
+  if (opts.status === 'error') return 'error';
+  if (opts.kind === 'skipped') {
+    if (/ops_validate_failed|not applied|fail|失败|error|错误/.test(blob)) return 'error';
+    return 'warn';
+  }
+  return inferExploreItemTone(blob);
+}
+
+function resolveExploreItemTone(item: ExploreItem): ExploreItemTone {
+  if (item.tone === 'ok' || item.tone === 'warn' || item.tone === 'error') {
+    return item.tone;
+  }
+  return inferExploreItemTone(`${item.name || ''} ${item.summary || ''}`);
+}
+
+function processStepTone(
+  step: NonNullable<ChatUiMessage['steps']>[number]
+): ExploreItemTone | 'running' {
+  if (step.status === 'running' || step.status === 'pending') return 'running';
+  if (step.status === 'error') return 'error';
+  return activityItemTone({
+    status: step.status,
+    kind: step.kind,
+    name: step.name,
+    detail: step.summary,
+  });
+}
+
+function ProcessToneIcon({
+  tone,
+  className,
+}: {
+  tone: ExploreItemTone | 'running';
+  className?: string;
+}): ReactNode {
+  if (tone === 'running') {
+    return (
+      <span
+        className={cn(
+          'inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--ink)]/35',
+          className
+        )}
+        aria-hidden
+      />
+    );
+  }
+  if (tone === 'error') {
+    return (
+      <HiOutlineXCircle
+        className={cn('shrink-0 text-[var(--danger,#c45)]', className)}
+        aria-hidden
+      />
+    );
+  }
+  if (tone === 'warn') {
+    return (
+      <HiOutlineExclamationTriangle
+        className={cn('shrink-0 text-[var(--warning,#c48a1a)]', className)}
+        aria-hidden
+      />
+    );
+  }
+  return (
+    <HiOutlineCheckCircle
+      className={cn('shrink-0 text-[var(--success,#22a06b)]', className)}
+      aria-hidden
+    />
+  );
+}
+
+function upsertExploreItem(
+  items: ExploreItem[],
+  item: ExploreItem
+): void {
+  const ii = items.findIndex((x) => x.id === item.id);
+  if (ii >= 0) items[ii] = { ...items[ii], ...item };
+  else items.push(item);
+}
+
+/** Long summary/body used to render after items (sticky footer). Put it in the list instead. */
+function adoptPinnedExploreText(
+  items: ExploreItem[],
+  text: string | undefined,
+  id: string
+): void {
+  const name = String(text || '').trim();
+  if (!name) return;
+  if (items.some((x) => x.id === id || x.name === name)) return;
+  items.unshift({ id, name, tone: inferExploreItemTone(name) });
+}
+
+function unstickExplorePinnedCopy(step: AssistantStep): AssistantStep {
+  const items = [...(step.items || [])];
+  adoptPinnedExploreText(items, step.body, 'explore-pinned-body');
+  const summary = String(step.summary || '').trim();
+  if (summary && summary !== String(step.name || '').trim()) {
+    adoptPinnedExploreText(items, summary, 'explore-pinned-summary');
+  }
+  return { ...step, items, summary: undefined, body: undefined };
+}
+
 export function applyActivityEventToSteps(
   stepsIn: AssistantStep[],
   opts: {
@@ -740,7 +1196,8 @@ export function applyActivityEventToSteps(
     label: string;
     summary?: string;
     variant?: NonNullable<AssistantStep['variant']>;
-    nestItem?: { id: string; name: string; summary?: string } | null;
+    nestItem?: ExploreItem | null;
+    items?: ExploreItem[];
     bodyMd: string;
   }
 ): AssistantStep[] | null {
@@ -771,11 +1228,32 @@ export function applyActivityEventToSteps(
     if (prevStep?.status === 'done' && status === 'running' && !nestItem && !bodyMd) {
       return null;
     }
-    let items = [...(prevStep?.items || [])];
+    const items = [...(prevStep?.items || [])];
+    const nestTone = activityItemTone({ status, kind });
     if (nestItem) {
-      const ii = items.findIndex((x) => x.id === nestItem.id);
-      if (ii >= 0) items[ii] = { ...items[ii], ...nestItem };
-      else items.push(nestItem);
+      upsertExploreItem(items, {
+        ...nestItem,
+        tone: nestItem.tone || nestTone,
+      });
+    } else if (bodyMd.trim()) {
+      upsertExploreItem(items, {
+        id: String(opts.eventId || 'explore-note'),
+        name: bodyMd.trim(),
+        tone: nestTone,
+      });
+    } else if (summary?.trim() && summary.trim() !== label) {
+      upsertExploreItem(items, {
+        id: String(opts.eventId || 'explore-note'),
+        name: summary.trim(),
+        tone: nestTone,
+      });
+    }
+    if (prevStep) {
+      adoptPinnedExploreText(items, prevStep.body, 'explore-pinned-body');
+      const prevSummary = String(prevStep.summary || '').trim();
+      if (prevSummary && prevSummary !== String(prevStep.name || '').trim()) {
+        adoptPinnedExploreText(items, prevSummary, 'explore-pinned-summary');
+      }
     }
     const nextStep: AssistantStep = {
       id: 'explore-pipeline',
@@ -783,9 +1261,7 @@ export function applyActivityEventToSteps(
       name: label,
       status,
       variant: variant || 'confirm',
-      summary: summary || prevStep?.summary,
       items,
-      body: bodyMd.trim() ? bodyMd : prevStep?.body,
     };
     if (idx >= 0) steps[idx] = nextStep;
     else steps.push(nextStep);
@@ -801,6 +1277,7 @@ export function applyActivityEventToSteps(
     summary,
     status,
     variant,
+    items: opts.items,
     body: bodyMd.trim() || undefined,
   };
   if (idx >= 0 && steps[idx]?.id !== 'explore-pipeline') {
@@ -812,7 +1289,7 @@ export function applyActivityEventToSteps(
       ...next,
       id: prevStep.id || next.id,
       summary: next.summary || prevStep.summary,
-      items: prevStep.items,
+      items: opts.items || prevStep.items,
       body: next.body || prevStep.body,
     };
   } else {
@@ -838,6 +1315,7 @@ type Props = {
   onRestore: (userId: string) => void;
   onChoice?: (choice: AskChoicePick) => void;
   onResume?: (assistantId: string) => void;
+  onDismissResume?: (assistantId: string) => void;
   className?: string;
 };
 
@@ -848,10 +1326,18 @@ export type AskChoicePick = {
   selectedLabels?: string[];
 };
 
+const CHIP_ACTION_BTN =
+  'inline-flex h-7 items-center gap-1 rounded-full bg-[var(--canvas)] px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-40';
+const CHIP_ACTION_TEXT =
+  'inline-flex h-7 items-center rounded-full px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-40';
+
 function hasFoldableProcess(assistant: ChatUiMessage): boolean {
   return Boolean(
     assistant.steps?.some(
-      (s) => s.kind !== 'thought' && s.id !== 'thought-0'
+      (s) =>
+        s.kind !== 'thought' &&
+        s.id !== 'thought-0' &&
+        !isBareExplorePipelineStep(s)
     )
   );
 }
@@ -970,20 +1456,6 @@ function UserMessageBody({
   );
 }
 
-function stepVariant(
-  step: NonNullable<ChatUiMessage['steps']>[number]
-): 'confirm' | 'success' | 'info' {
-  if (step.variant === 'success' || step.variant === 'confirm' || step.variant === 'info') {
-    return step.variant;
-  }
-  const kind = step.kind || '';
-  if (kind === 'added' || kind === 'updated' || kind === 'deleted') return 'success';
-  if (kind === 'thought' || kind === 'explored' || kind === 'tool' || kind === 'skipped') {
-    return 'confirm';
-  }
-  return 'info';
-}
-
 function AssistantProcessBody({
   assistant,
 }: {
@@ -996,6 +1468,7 @@ function AssistantProcessBody({
     if (!id || seen.has(id)) return false;
     // Intent/understanding rows ("要望を理解中…" / "已确认对话意图") — not shown in chat.
     if (s.kind === 'thought' || id === 'thought-0') return false;
+    if (isBareExplorePipelineStep(s)) return false;
     seen.add(id);
     return true;
   });
@@ -1022,7 +1495,6 @@ function ProcessStepRow({
   turnActive: boolean;
 }): ReactNode {
   const { t } = useTranslation();
-  const variant = stepVariant(step);
   const summaryDistinct =
     Boolean(step.summary?.trim()) &&
     step.summary!.trim() !== step.name.trim() &&
@@ -1063,14 +1535,16 @@ function ProcessStepRow({
     />
   ) : null;
 
+  const rowTone = processStepTone(step);
+
   const detail =
     open && expandable ? (
       <div className="flex w-full flex-col gap-1 text-[12px] leading-relaxed text-[var(--muted)]">
         {(step.items || []).map((it) => (
           <div key={it.id} className="flex w-full min-w-0 items-start gap-1.5">
-            <HiOutlineCheckCircle
-              className="mt-0.5 h-3 w-3 shrink-0 text-[var(--success,#22a06b)] opacity-80"
-              aria-hidden
+            <ProcessToneIcon
+              tone={resolveExploreItemTone(it)}
+              className="mt-0.5 h-3 w-3 opacity-90"
             />
             <div className="min-w-0 flex-1">
               <span className="block whitespace-pre-wrap break-words leading-snug">
@@ -1086,9 +1560,9 @@ function ProcessStepRow({
         ))}
         {summaryDistinct ? (
           <div className="flex w-full min-w-0 items-start gap-1.5">
-            <HiOutlineCheckCircle
-              className="mt-0.5 h-3 w-3 shrink-0 text-[var(--success,#22a06b)] opacity-80"
-              aria-hidden
+            <ProcessToneIcon
+              tone={inferExploreItemTone(String(step.summary || ''))}
+              className="mt-0.5 h-3 w-3 opacity-90"
             />
             <span className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-snug">
               {step.summary}
@@ -1112,23 +1586,12 @@ function ProcessStepRow({
     step.status === 'error' && 'text-[var(--ink)]'
   );
 
-  const leadingIcon =
-    step.status === 'error' ? (
-      <HiOutlineQuestionMarkCircle
-        className="h-3.5 w-3.5 shrink-0 text-[var(--danger,#c45)]"
-        aria-hidden
-      />
-    ) : step.status === 'done' || variant === 'success' ? (
-      <HiOutlineCheckCircle
-        className="h-3.5 w-3.5 shrink-0 text-[var(--success,#22a06b)]"
-        aria-hidden
-      />
-    ) : (
-      <span
-        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--ink)]/35"
-        aria-hidden
-      />
-    );
+  const leadingIcon = (
+    <ProcessToneIcon
+      tone={rowTone}
+      className={rowTone === 'running' ? undefined : 'h-3.5 w-3.5'}
+    />
+  );
 
   if (!expandable) {
     return (
@@ -1166,12 +1629,14 @@ function AssistantTurn({
   assistant,
   onChoice,
   onResume,
+  onDismissResume,
   sending,
 }: {
   assistant: ChatUiMessage;
   worked?: string | null;
   onChoice?: (choice: AskChoicePick) => void;
   onResume?: (assistantId: string) => void;
+  onDismissResume?: (assistantId: string) => void;
   sending: boolean;
 }): ReactNode {
   const { t } = useTranslation();
@@ -1231,6 +1696,7 @@ function AssistantTurn({
       {hasDesignIntelligence(assistant.intelligence) ? (
         <DesignIntelligencePanel intel={assistant.intelligence!} />
       ) : null}
+      <DeveloperDebugPanel events={assistant.debugEvents} />
 
       {showImageGallery ? (
         <ImageGenGallery assistant={assistant} sending={sending} />
@@ -1246,11 +1712,6 @@ function AssistantTurn({
           {streaming ? (
             <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle opacity-50" />
           ) : null}
-        </div>
-      ) : streaming && !foldable && !showMediaGallery ? (
-        <div className="w-full text-[12px] text-[var(--muted)]">
-          {t('agent.working')}
-          <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle opacity-50" />
         </div>
       ) : null}
 
@@ -1271,20 +1732,26 @@ function AssistantTurn({
       ) : null}
 
       {!streaming && assistant.canResume && assistant.designTaskId && onResume ? (
-        <div className="flex justify-start px-0.5">
+        <div className="flex items-center gap-1 px-0.5">
           <button
             type="button"
             disabled={sending}
+            className={CHIP_ACTION_BTN}
             onClick={() => onResume(assistant.id)}
-            className={cn(
-              'inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-[var(--muted)]',
-              'hover:text-[var(--ink)] hover:underline',
-              'disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline'
-            )}
           >
             <HiOutlinePlay className="h-3.5 w-3.5" aria-hidden />
             {t('agent.resume')}
           </button>
+          {onDismissResume ? (
+            <button
+              type="button"
+              disabled={sending}
+              className={CHIP_ACTION_TEXT}
+              onClick={() => onDismissResume(assistant.id)}
+            >
+              {t('common.cancel')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1324,12 +1791,11 @@ function ChatResultImageCard({
       className="group relative shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--canvas)]"
       style={{ width: box.width, height: box.height }}
     >
-      <img
-        src={src}
-        alt=""
+      <button
+        type="button"
         draggable
-        loading="lazy"
-        className="block h-full w-full cursor-grab object-cover active:cursor-grabbing"
+        aria-label={t('agent.previewImage', { defaultValue: '预览图片' })}
+        className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
         onDragStart={(e) => {
           draggedRef.current = true;
           setChatImageDragData(e.dataTransfer, src);
@@ -1347,7 +1813,15 @@ function ChatResultImageCard({
           }
           setPreviewOpen(true);
         }}
-      />
+      >
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          loading="lazy"
+          className="pointer-events-none block h-full w-full object-cover"
+        />
+      </button>
       <button
         type="button"
         aria-label={t('agent.downloadImage', { defaultValue: '下载图片' })}
@@ -1650,6 +2124,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
     onRestore,
     onChoice,
     onResume,
+    onDismissResume,
     className,
   }: Props,
   ref: Ref<VirtualListHandle>
@@ -1689,7 +2164,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                     {canRestore ? (
                       <button
                         type="button"
-                        className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)]"
+                        className={CHIP_ACTION_BTN}
                         onClick={() => onRestore(m.id)}
                       >
                         <HiOutlineArrowUturnLeft className="h-3.5 w-3.5" />
@@ -1698,7 +2173,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                     ) : null}
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] text-[var(--muted)] hover:bg-[var(--accent-soft)]"
+                      className={CHIP_ACTION_TEXT}
                       onClick={onCancelEdit}
                     >
                       {t('common.cancel')}
@@ -1707,11 +2182,13 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                 </div>
               ) : (
                 <div className="group relative w-full min-w-0">
-                  <div
-                    onClick={!sending ? () => onBeginEdit(m) : undefined}
+                  <button
+                    type="button"
+                    disabled={sending}
+                    onClick={() => onBeginEdit(m)}
                     className={cn(
-                      'w-full rounded-[22px] bg-[var(--canvas)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--ink)] whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
-                      !sending ? 'cursor-pointer' : '',
+                      'w-full rounded-[22px] border-0 bg-[var(--canvas)] px-3.5 py-2.5 text-left text-[13px] leading-relaxed text-[var(--ink)] whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+                      !sending ? 'cursor-pointer' : 'cursor-not-allowed opacity-80',
                       canRestore && !sending ? 'pr-10' : ''
                     )}
                     title={t('agent.clickToEdit')}
@@ -1721,7 +2198,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                       contentMarked={m.contentMarked}
                       contexts={m.contexts}
                     />
-                  </div>
+                  </button>
                   {canRestore ? (
                     <button
                       type="button"
@@ -1753,6 +2230,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                 assistant={assistant}
                 onChoice={onChoice}
                 onResume={onResume}
+                onDismissResume={onDismissResume}
                 sending={sending}
               />
             ) : null}

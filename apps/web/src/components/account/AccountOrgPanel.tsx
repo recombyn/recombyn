@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, apiQuery, getHttpStatus } from '@/service/client';
 import { Button, message } from '@/components/base';
+import { BrandWordmarkLoader } from '@/components/base/AppLogo';
 import { cn } from '@/utils/classnames';
 
 const PREFERRED_ORG_KEY = 'recombyn.preferredOrgId';
@@ -400,7 +401,10 @@ function AccountOrgPanel() {
           {t('account.orgListTitle')}
         </h2>
         {orgsQuery.isPending ? (
-          <p className="text-[13px] text-[var(--muted)]">{t('common.loading')}</p>
+          <BrandWordmarkLoader
+            label={t('common.loading')}
+            className="py-10"
+          />
         ) : orgs.length === 0 ? (
           <p className="text-[13px] text-[var(--muted)]">{t('account.orgEmpty')}</p>
         ) : (
@@ -505,7 +509,10 @@ function AccountOrgPanel() {
           ) : null}
 
           {membersQuery.isPending ? (
-            <p className="mb-4 text-[13px] text-[var(--muted)]">{t('common.loading')}</p>
+            <BrandWordmarkLoader
+              label={t('common.loading')}
+              className="mb-4 py-8"
+            />
           ) : (
             <ul className="mb-5 space-y-1.5">
               {members.map((m) => (

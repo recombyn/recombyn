@@ -13,14 +13,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from langgraph.types import Command
-
 from app.services.design.runtime.graph.state import (
     AgentRuntime,
-    GraphState,
     parse_design_simulation,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
+from app.services.design.runtime.graph.support import _emit
 
 _ATTENTION_KEYS = ("hero", "headline", "cta", "nav", "other")
 _CTA_MIN = 0.10
@@ -64,20 +61,15 @@ def predict_attention(request: dict[str, Any]) -> dict[str, float]:
     )
     scene = str(request.get("scene_key") or "")
     prompt = str(request.get("prompt") or "").lower()
+    del prompt  # attention priors use scene/strategy — never prompt keywords
     comp = str(strat.get("composition_strategy") or "").lower()
     thesis = str(strat.get("visual_thesis") or "").lower()
     interaction = str(strat.get("interaction_strategy") or "").lower()
 
     # Spec landing example baseline: Hero 68 / Headline 19 / CTA 8 / Nav 5.
     base = {"hero": 0.68, "headline": 0.19, "cta": 0.08, "nav": 0.05, "other": 0.0}
-    is_landing = (
-        "landing" in scene
-        or "website" in scene
-        or "landing" in prompt
-        or "官网" in prompt
-        or "saas" in prompt
-    )
-    is_poster = "poster" in scene or "海报" in prompt
+    is_landing = "landing" in scene or "website" in scene or "mobile" in scene
+    is_poster = "poster" in scene
     if is_poster:
         base = {"hero": 0.72, "headline": 0.18, "cta": 0.02, "nav": 0.0, "other": 0.08}
     elif not is_landing and "dashboard" in scene:
@@ -375,7 +367,7 @@ async def run_design_simulation(rt: AgentRuntime) -> dict[str, Any] | None:
         )
         block = format_simulation_for_decide(result)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit({"type": "analysis_delta", "text": block[:1200], "visibility": "developer"})
         return result
     except Exception as err:  # noqa: BLE001
         st.note_error(f"design_simulation_failed: {err}"[:240])
@@ -394,10 +386,3 @@ async def run_design_simulation(rt: AgentRuntime) -> dict[str, Any] | None:
             }
         )
         return None
-
-
-async def _node_simulation(state: GraphState) -> Command:
-    """Optional graph hop — simulation then continue to design_agent."""
-    rt = state["rt"]
-    await run_design_simulation(rt)
-    return Command(update=_bump(rt), goto="design_agent")

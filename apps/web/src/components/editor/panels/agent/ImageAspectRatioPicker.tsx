@@ -3,10 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { HiOutlineLink, HiOutlineLinkSlash, HiOutlineQuestionMarkCircle } from 'react-icons/hi2';
 import { Icon } from '@/components/base/icon';
 import Tooltip from '@/components/base/tooltip';
-import SizePresetPanel, {
+import {
   SizeAspectGlyph,
   isCanvasSizeAutoHint,
-  normalizeCanvasSizeChip,
 } from '@/components/editor/chrome/SizePresetPanel';
 import type { ImageLimits } from '@/service/chat';
 import { cn } from '@/utils/classnames';
@@ -511,11 +510,11 @@ function isRatioActive(current: string, preset: string, resolution: string) {
 }
 
 type Props = {
-  /** design = device presets; image = ratio / resolution / count / px. */
+  /** design = agent canvas WxH; image = ratio / resolution / count / px. */
   variant?: 'design' | 'image';
   /** Kept for API callers; image UI no longer exposes quality. */
   quality?: string;
-  /** Required for `variant="image"` pixel labels; unused for design presets. */
+  /** Required for `variant="image"` pixel labels; unused for design size. */
   resolution?: string;
   aspectRatio: string;
   imageCount?: number;
@@ -524,10 +523,6 @@ type Props = {
   onQualityChange?: (quality: string) => void;
   onResolutionChange?: (resolution: string) => void;
   onAspectRatioChange: (ratio: string, opts?: { keepOpen?: boolean }) => void;
-  /** Design size tab category — keep in sync with Agent scene (mobile/website/…). */
-  onDesignSceneChange?: (scene: 'website' | 'mobile' | 'image' | 'poster' | null) => void;
-  /** Home / dock scene — drives SizePresetPanel top tab when sizes collide across categories. */
-  designSceneCategory?: 'website' | 'mobile' | 'image' | 'poster' | null;
   onImageCountChange?: (count: number) => void;
   disabled?: boolean;
   className?: string;
@@ -623,7 +618,7 @@ function DimField({
   );
 }
 
-/** Image gen (ratio chips) / design canvas size (SizePresetPanel). */
+/** Image gen (ratio chips) / agent design canvas size (manual WxH). */
 function ImageAspectRatioPicker({
   variant = 'image',
   resolution = DEFAULT_IMAGE_RESOLUTION,
@@ -632,8 +627,6 @@ function ImageAspectRatioPicker({
   imageLimits = null,
   onResolutionChange,
   onAspectRatioChange,
-  onDesignSceneChange,
-  designSceneCategory,
   onImageCountChange,
   disabled,
   className,
@@ -697,54 +690,8 @@ function ImageAspectRatioPicker({
     setDraftH(String(pixels.h));
   }, [pixels.w, pixels.h]);
 
-  if (variant === 'design') {
-    const chip = normalizeCanvasSizeChip(aspectRatio);
-    const autoActive = isCanvasSizeAutoHint(chip) || chip === 'auto';
-    const fixed = /^\d+x\d+$/.test(chip);
-    const [cw, ch] = fixed ? chip.split('x').map(Number) : [0, 0];
-    const partialW = /^(\d+)xauto$/.test(chip) ? Number(chip.split('x')[0]) : 0;
-    const partialH = /^autox(\d+)$/.test(chip) ? Number(chip.split('x')[1]) : 0;
-    return (
-      <SizePresetPanel
-        className={className}
-        disabled={disabled}
-        showAuto
-        autoActive={autoActive && !partialW && !partialH}
-        initialCategory={designSceneCategory || undefined}
-        activeWidth={fixed ? cw : partialW || undefined}
-        activeHeight={fixed ? ch : partialH || undefined}
-        onPick={(preset, opts) => {
-          if (preset.key === 'auto') {
-            onAspectRatioChange('auto', opts);
-            // Clear scene lock so Smart isn't pinned to a prior Mobile/Website tab.
-            onDesignSceneChange?.(null);
-            return;
-          }
-          // Notify scene first (may enter/leave image mode). Apply WxH last so a
-          // parent that still sets category defaults cannot overwrite the pick.
-          if (
-            preset.category === 'website' ||
-            preset.category === 'mobile' ||
-            preset.category === 'image' ||
-            preset.category === 'poster'
-          ) {
-            onDesignSceneChange?.(preset.category);
-          }
-          const hasW = typeof preset.width === 'number' && preset.width >= 40;
-          const hasH = typeof preset.height === 'number' && preset.height >= 40;
-          if (hasW && hasH) {
-            onAspectRatioChange(`${preset.width}x${preset.height}`, opts);
-          } else if (hasW) {
-            onAspectRatioChange(`${preset.width}xauto`, opts);
-          } else if (hasH) {
-            onAspectRatioChange(`autox${preset.height}`, opts);
-          } else {
-            onAspectRatioChange('auto', opts);
-          }
-        }}
-      />
-    );
-  }
+  // Agent canvas size is Smart-by-default — no design size popover.
+  if (variant === 'design') return null;
 
   const aspectParts = parseAspectParts(
     String(aspectRatio).trim() === 'smart' ? '1:1' : aspectRatio
@@ -797,7 +744,7 @@ function ImageAspectRatioPicker({
     commitDraftSize(w, h);
   };
 
-  // Image generation settings — ratio chips (not the design SizePresetPanel layout).
+  // Image generation settings — ratio chips.
   return (
     <div className={cn('space-y-4', className)}>
       <div>

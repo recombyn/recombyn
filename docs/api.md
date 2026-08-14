@@ -14,7 +14,17 @@ Architecture / Agent: [self-hosting.md](./self-hosting.md#architecture) · Profi
 | `/image-tools` | Vision tools |
 | `/shares` · `/notices` · `/users` | Shares, notices, directory |
 | `/design/*` | Design Agent SSE, catalog, scene |
+| `/wallet` | Credits, membership catalog, redeem |
 | `/import/*` | Image → Scene |
 | `/admin/*` | Admin only |
+
+`GET /wallet/plans` — public list prices + monthly credit grants (Intelligence commercial, OSS fallback). No margin fields.
+
+`POST /design/run` extras (see [agent-profile.md](./agent-profile.md#run-request-locale--design-intensity)):
+
+| Field | Values | Role |
+|-------|--------|------|
+| `locale` | `zh-CN` \| `zh-TW` \| `en` \| `ja` | Agent output language |
+| `design_intensity` | `light` \| `medium` \| `high` \| `extreme` | Pipeline depth (review + strategy stack), not model thinking |
 
 `GET /api/v1/health` → `{ "status": "ok"|"degraded", "checks": { … } }`

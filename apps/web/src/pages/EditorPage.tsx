@@ -528,7 +528,7 @@ async function hydrateCloudProject(
 }
 
 /** Stable identity — inline `['image','video']` would churn AgentDock mode-coerce effects. */
-const MOBILE_AGENT_INTERACTION_MODES: ComposerInteractionMode[] = ['image', 'video'];
+const MOBILE_AGENT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent'];
 
 function EditorPage() {
   const { t } = useTranslation();

@@ -1,4 +1,4 @@
-"""Admin routes — Pricing Versions + Margin Monitor (Billing Protocol Wave B/C)."""
+"""Admin routes — provider Pricing Versions + open TaskPricing / quote surfaces."""
 
 from __future__ import annotations
 
@@ -133,3 +133,28 @@ def admin_margin_summary(
     from app.services.llm.pricing_registry import margin_summary
 
     return margin_summary(from_ts=fromTs, to_ts=toTs)
+
+
+@router.post("/billing/quote")
+def admin_billing_quote(
+    _admin: AdminUser,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Optional remote credit quote (credits only); else OSS TaskPricing authorize."""
+    from app.services.design.intelligence_runtime import quote_remote_task_credits
+    from app.services.wallet.lifecycle import estimate_from_task_pricing
+
+    remote = quote_remote_task_credits(body or {})
+    if remote:
+        return remote
+    mode = str((body or {}).get("mode") or "agent")
+    byok = bool((body or {}).get("byok"))
+    return estimate_from_task_pricing(mode=mode, byok=byok)
+
+
+@router.get("/task-pricing")
+def admin_list_task_pricing(_admin: AdminUser) -> dict[str, Any]:
+    from app.services.wallet.billing import default_task_pricing_catalog
+
+    items = [v.model_dump() for v in default_task_pricing_catalog().values()]
+    return {"items": items}

@@ -51,6 +51,8 @@ async def design_stream(
     proposal_task_id: str | None = None,
     interaction_mode: str | None = None,
     skill_refs: list[str] | None = None,
+    locale: str | None = None,
+    design_intensity: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     del reserve_hold_fn
     from app.services.design.runtime.graph.build import run_agent_graph
@@ -83,6 +85,8 @@ async def design_stream(
             proposal_task_id=proposal_task_id,
             interaction_mode=interaction_mode,
             skill_refs=skill_refs,
+            locale=locale,
+            design_intensity=design_intensity,
         )
     ):
         yield ev

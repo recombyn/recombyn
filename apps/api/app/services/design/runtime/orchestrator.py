@@ -54,7 +54,11 @@ from app.services.design.ops.tool_ops_contract import (
     tool_ops_for_sse,
     validation_failure_reason,
 )
-from app.services.wallet.billing import settle_token_hold
+from app.services.wallet.billing import (
+    byok_agent_fee_credits,
+    estimate_design_hold_credits,
+    settle_token_hold,
+)
 from app.services.wallet.db import (
     consume_free_daily_quota,
     credit_tokens,
@@ -66,8 +70,7 @@ from app.services.wallet.db import (
 
 _log = logging.getLogger(__name__)
 
-# Upfront 积分 reservation (settled to LLM usage + image 按张 after the run).
-# Unified 积分 holds (10× display scale vs prior 3/1/2).
+# Fallback authorize ceilings if TaskPricing import fails (legacy band).
 AGENT_HOLD = 30
 PARTIAL_HOLD = 10
 SINGLE_HOLD = 20
@@ -78,6 +81,37 @@ def _platform_rules_with_profile() -> dict[str, str]:
     return apply_profile_rules(get_global_rules())
 
 
+def _authorize_need(
+    mode: str,
+    *,
+    model: str | None = None,
+    rules: dict[str, str] | None = None,
+) -> int:
+    """TaskPricing authorize ceiling; BYOK → agent fee; cloud may quote."""
+    from app.services.llm import is_byok_model_ref
+
+    if is_byok_model_ref(model):
+        return max(0, byok_agent_fee_credits(rules))
+    try:
+        from app.services.design.intelligence_runtime import quote_remote_task_credits
+
+        quoted = quote_remote_task_credits({"mode": mode, "byok": False})
+        if isinstance(quoted, dict):
+            hi = int(quoted.get("authorize_high") or 0)
+            if hi > 0:
+                return hi
+    except Exception:
+        pass
+    try:
+        return estimate_design_hold_credits(mode, rules=rules)
+    except Exception:
+        if mode == "agent":
+            return AGENT_HOLD
+        if mode == "partial":
+            return PARTIAL_HOLD
+        return SINGLE_HOLD
+
+
 def _reserve_design_hold(
     user_id: str,
     hold: int,
@@ -86,15 +120,12 @@ def _reserve_design_hold(
     model: str | None = None,
 ) -> tuple[int, bool]:
     """
-    Spend ``hold`` credits, or reserve the free daily run when balance is short.
+    Authorize ``hold`` credits, or free daily when balance is short.
     Returns (hold_to_settle, free_daily). free_daily ⇒ hold 0 and force Auto.
-    Local desktop / wallet-off / BYOK model → no platform hold.
+    Local desktop / wallet-off → no platform hold.
+    BYOK still authorizes Agent fee (provider $ waived at settle).
     """
-    from app.services.llm import is_byok_model_ref
-
     if not is_wallet_billing_enabled():
-        return 0, False
-    if is_byok_model_ref(model):
         return 0, False
 
     need = max(0, int(hold or 0))
@@ -107,7 +138,6 @@ def _reserve_design_hold(
     if consume_free_daily_quota(user_id):
         return 0, True
     raise ValueError("insufficient_credits")
-
 
 
 def _refund_hold(user_id: str, hold: int, *, task_id: str) -> None:
@@ -137,6 +167,10 @@ def _settle_hold(
     rules: dict[str, str] | None,
     free_daily: bool = False,
     images_hydrated: int = 0,
+    byok: bool = False,
+    mode: str = "agent",
+    meters: dict[str, Any] | None = None,
+    task_id: str = "",
 ) -> int:
     if free_daily or hold <= 0:
         return 0
@@ -147,6 +181,11 @@ def _settle_hold(
         detail=detail,
         rules=rules,
         extra_credits=_image_extra_credits(rules, images_hydrated),
+        byok=byok,
+        mode=mode,
+        images_hydrated=images_hydrated,
+        meters=meters,
+        task_id=task_id,
     )
 
 
@@ -201,6 +240,8 @@ async def run_design_job(
     client_country: str | None = None,
     skill_refs: list[str] | None = None,
     paint_mode: str | None = None,
+    locale: str | None = None,
+    design_intensity: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """LangGraph agent loop. Chat vs design from model intent / ops."""
     del is_premium  # reserved
@@ -247,17 +288,18 @@ async def run_design_job(
         from app.services.llm import is_byok_model_ref
 
         byok_run = is_byok_model_ref(user_selected_model)
-        skip_wallet = (not is_wallet_billing_enabled()) or byok_run
-        hold_need = AGENT_HOLD if mode == "agent" else SINGLE_HOLD
+        skip_wallet = not is_wallet_billing_enabled()
+        hold_need = _authorize_need(mode, model=user_selected_model)
         bal = int(get_user_tokens(user_id) or 0)
         free_left = int(free_daily_remaining(user_id) or 0)
-        can = skip_wallet or bal >= hold_need or free_left > 0
+        can = skip_wallet or bal >= hold_need or free_left > 0 or hold_need <= 0
         yield {
             "type": "permission",
             "can_call_llm": bool(can),
             "balance": bal,
             "need": 0 if skip_wallet else hold_need,
             "free_daily": free_left > 0,
+            "byok": bool(byok_run),
         }
 
         if not can:
@@ -292,6 +334,9 @@ async def run_design_job(
                 country=client_country,
             ),
             user_selected_model,
+        )
+        hold_need = _authorize_need(
+            mode, model=user_selected_model, rules=rules
         )
         free_daily = False
         try:
@@ -389,6 +434,8 @@ async def run_design_job(
                     proposal_task_id=proposal_task_id,
                     interaction_mode=ui_mode,
                     skill_refs=skill_refs,
+                    locale=locale,
+                    design_intensity=design_intensity,
                 ):
                     yield ev
         finally:
@@ -510,7 +557,7 @@ async def _run_partial(
     decision: DesignRunDecision,
     t0: float,
 ) -> AsyncIterator[dict[str, Any]]:
-    hold_need = PARTIAL_HOLD
+    hold_need = _authorize_need("partial", model=user_selected_model, rules=rules)
     bal = get_user_tokens(user_id)
     free_daily = False
     try:
@@ -677,6 +724,8 @@ async def _run_partial(
             "skill_name": "partial",
             "tokens": used,
         }
+        from app.services.llm import is_byok_model_ref
+
         spend_confirm = _settle_hold(
             user_id,
             hold=hold,
@@ -684,6 +733,8 @@ async def _run_partial(
             detail=f"design_settle:partial:{task_id}",
             rules=rules,
             free_daily=free_daily,
+            byok=is_byok_model_ref(user_selected_model),
+            mode="partial",
         )
         _update_task(
             task_id,

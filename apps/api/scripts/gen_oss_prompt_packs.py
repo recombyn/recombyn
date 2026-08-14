@@ -101,7 +101,8 @@ Pick intent among: chat | canvas_op | design (schema-constrained).
 - chat: greeting / no canvas work
 - canvas_op: doable via canvas tool catalog (create_shape, update_node, …)
 - design: creative layout / page / poster work needing composition judgment
-Prefer canvas_op or design when the user wants visual work on the canvas.
+Prefer canvas_op whenever catalog tools are enough (add a rectangle, recolor text).
+Greetings (你好 / hi / 谢谢) are chat. Posters, login pages, multi-section layouts are design.
 
 ## Pending proposal (only when PENDING_PROPOSAL is in the user message)
 Also set proposal_action:

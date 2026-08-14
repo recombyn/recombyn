@@ -5,8 +5,10 @@ import {
   applyActivityEventToSteps,
   applyAnalysisDeltaToSteps,
   applyThinkingBodyToSteps,
+  activityItemTone,
   buildChatProcessSteps,
   formatActivityLabel,
+  formatGovernanceLaneItems,
   localizeExploreItem,
   normalizeActivityStatus,
   type ChatUiMessage,
@@ -32,6 +34,15 @@ export function mergeDesignIntelligence(
   }
   if (patch.review) {
     next.review = { ...(prev?.review || {}), ...patch.review };
+  }
+  if (patch.governance) {
+    next.governance = { ...(prev?.governance || {}), ...patch.governance };
+    if (patch.governance.lanes) {
+      next.governance.lanes = patch.governance.lanes;
+    }
+    if (patch.governance.explain) {
+      next.governance.explain = patch.governance.explain;
+    }
   }
   if (patch.diff) {
     next.diff = { ...(prev?.diff || {}), ...patch.diff };
@@ -98,13 +109,15 @@ function activityRowVariant(
 
 function activityNestItem(
   t: TFn,
-  item: { id?: string; name?: string; summary?: string } | undefined
+  item: { id?: string; name?: string; summary?: string; tone?: 'ok' | 'warn' | 'error' } | undefined,
+  tone?: 'ok' | 'warn' | 'error'
 ) {
   if (!item || !(item.name || item.id)) return null;
   return localizeExploreItem(t, {
     id: String(item.id || `item-${Date.now()}`),
     name: String(item.name || '').trim() || '…',
     summary: item.summary ? String(item.summary) : undefined,
+    tone: item.tone || tone,
   });
 }
 
@@ -433,7 +446,32 @@ export function createDesignAgentEventRouter(opts: {
       bodyText,
     });
     const variant = activityRowVariant(actStatus, ev.kind);
-    const nestItem = activityNestItem(opts.t, ev.item);
+    const rowTone = activityItemTone({
+      status: actStatus,
+      kind: ev.kind,
+      code: ev.code,
+      detail: detailText,
+    });
+    const nestItem = activityNestItem(opts.t, ev.item, rowTone);
+    const stepItems =
+      Array.isArray(ev.items) && ev.items.length
+        ? String(ev.code || '').toLowerCase() === 'design_quality_check'
+          ? formatGovernanceLaneItems(opts.t, ev.items)
+          : ev.items.map((it) =>
+              localizeExploreItem(opts.t, {
+                id: String(it.id || ''),
+                name: String(it.name || '').trim() || '…',
+                summary: it.summary ? String(it.summary) : undefined,
+                tone: activityItemTone({
+                  status: actStatus,
+                  kind: ev.kind,
+                  code: ev.code,
+                  detail: it.summary || it.name,
+                  name: it.name,
+                }),
+              })
+            )
+        : undefined;
     opts.setMessages((prev) =>
       prev.map((m) => {
         if (m.id !== opts.assistantId) return m;
@@ -445,6 +483,7 @@ export function createDesignAgentEventRouter(opts: {
           summary,
           variant,
           nestItem,
+          items: stepItems,
           bodyMd: bodyText,
         });
         return next ? { ...m, steps: next } : m;
@@ -616,6 +655,26 @@ export function createDesignAgentEventRouter(opts: {
           )
         );
         return;
+      case 'developer': {
+        const piece = String(ev.text || '').trim();
+        const kind = String(ev.kind || 'debug').trim() || 'debug';
+        opts.setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== opts.assistantId) return m;
+            const nextRow = {
+              id: `dbg-${Date.now()}-${(m.debugEvents || []).length}`,
+              kind,
+              text: piece || undefined,
+              at: Date.now(),
+            };
+            return {
+              ...m,
+              debugEvents: [...(m.debugEvents || []), nextRow].slice(-40),
+            };
+          })
+        );
+        return;
+      }
       case 'canvas':
         if (ev.size) handleUiCanvas(ev);
         return;

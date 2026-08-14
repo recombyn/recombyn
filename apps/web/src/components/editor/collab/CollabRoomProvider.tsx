@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Yjs room lifecycle: mint token → IndexedDB (offline) + WebsocketProvider → bridge scene → Redux.
  * Presence (selection / cursors) via Awareness. Persist via debounced cloud PATCH (or PUT).
  * Offline: y-indexeddb keeps the room locally; reconnect merges with peers / server.
@@ -30,9 +30,9 @@ import {
   getProjectDraft,
   hashDocument,
   markProjectDraftSynced,
+  putProjectDraft,
 } from '@/components/editor/projectDraftStore';
 import {
-  applyProjectRevisionConflictChoice,
   asCloudRevision,
   pushProjectToCloud,
   syncOwnedDocumentToCloud,
@@ -103,8 +103,24 @@ const PERSIST_DEBOUNCE_MS = 2000;
 const PEER_COLORS = ['#E4572E', '#29335C', '#F3A712', '#A8C256', '#669BBC', '#6A4C93'];
 const CAMERA_AWARENESS_MS = 80;
 
+/** One cloud write at a time — overlapping PUTs share If-Match and 412. */
+let persistChain: Promise<void> = Promise.resolve();
+
 /** Debounced cloud persist of the collab Y scene (owner/editor only) — PATCH when possible. */
 async function persistCloudSnapshot(opts: {
+  id: string;
+  name: string;
+  scene: unknown;
+}): Promise<void> {
+  const next = persistChain.then(() => persistCloudSnapshotOnce(opts));
+  persistChain = next.then(
+    () => undefined,
+    () => undefined
+  );
+  await next;
+}
+
+async function persistCloudSnapshotOnce(opts: {
   id: string;
   name: string;
   scene: unknown;
@@ -112,6 +128,13 @@ async function persistCloudSnapshot(opts: {
   const { id, name, scene } = opts;
   const draft = await getProjectDraft(id);
   const contentHash = hashDocument(scene);
+  if (
+    draft?.syncedAt &&
+    draft.contentHash === contentHash &&
+    String(draft.name || '') === name
+  ) {
+    return;
+  }
   const written = await syncOwnedDocumentToCloud({
     id,
     name,
@@ -125,12 +148,16 @@ async function persistCloudSnapshot(opts: {
     return;
   }
   if (written.status === 'conflict') {
-    await applyProjectRevisionConflictChoice({
-      dispatch: store.dispatch,
+    const serverRev = asCloudRevision(written.conflict.revision);
+    if (serverRev == null) return;
+    await putProjectDraft({
       projectId: id,
       name,
-      localDocument: scene,
-      mode: 'collab',
+      document: scene,
+      updatedAt: Date.now(),
+      syncedAt: null,
+      cloudRevision: serverRev,
+      keepBaseDocument: true,
     });
     return;
   }
@@ -665,7 +692,7 @@ export function CollabRoomProvider({
 
     const seedFromLocal = (localDoc: unknown) => {
       seedYDocFromScene(ydoc, localDoc);
-      lastPushedHashRef.current = sceneHash(localDoc);
+      lastPushedHashRef.current = sceneHash(sceneFromYDoc(ydoc));
       clearCollabUndoStack();
     };
 
@@ -739,11 +766,15 @@ export function CollabRoomProvider({
         if (origin === Y_ORIGIN_LOCAL || origin === Y_ORIGIN_SEED) schedulePersist();
         return;
       }
+      const scene = sceneFromYDoc(ydoc);
+      const hash = sceneHash(scene);
+      // Websocket / y-indexeddb echo of our own boolean (or any local write).
+      // Applying it as remote remounts the scene; persisting it again 412s.
+      if (hash === lastPushedHashRef.current) return;
       applyingRemoteRef.current = true;
       try {
         const prev = store.getState().editor.document;
-        const scene = sceneFromYDoc(ydoc);
-        lastPushedHashRef.current = sceneHash(scene);
+        lastPushedHashRef.current = hash;
         dispatchRemoteScene(dispatch, prev, scene);
       } finally {
         queueMicrotask(() => {
@@ -944,8 +975,9 @@ export function CollabRoomProvider({
     if (applyingRemoteRef.current) return;
     const hash = sceneHash(document);
     if (hash === lastPushedHashRef.current) return;
-    lastPushedHashRef.current = hash;
     applyLocalSceneToY(ydoc, document);
+    // Hash the Y snapshot (not Redux JSON) so websocket echoes compare equal.
+    lastPushedHashRef.current = sceneHash(sceneFromYDoc(ydoc));
   }, [enabled, role, document]);
 
   // Awareness: local node + artboard selection (republish when room syncs).

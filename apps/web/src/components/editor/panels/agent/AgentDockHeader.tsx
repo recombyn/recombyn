@@ -98,7 +98,11 @@ function AgentDockHeader({
         ) : null}
       </div>
       <div className="relative flex shrink-0 items-center gap-0.5">
-        <Tooltip tip={t('agent.newChat')} placement="bottom">
+        <Tooltip
+          tip={showNewChatTip ? t('agent.alreadyNewChat') : t('agent.newChat')}
+          placement="bottom"
+          open={showNewChatTip ? true : undefined}
+        >
           <button
             type="button"
             aria-label={t('agent.newChat')}
@@ -108,17 +112,6 @@ function AgentDockHeader({
             <BiMessageSquareAdd className="h-4 w-4" />
           </button>
         </Tooltip>
-        {showNewChatTip ? (
-          <div className="pointer-events-none absolute left-0 top-[calc(100%+6px)] z-30 -translate-x-1/4">
-            <div className="relative rounded bg-[var(--ink)] px-2.5 py-1.5 text-[11px] text-[var(--on-brand)] shadow-md">
-              <span
-                className="absolute left-6 top-0 h-2 w-2 -translate-y-1/2 rotate-45 bg-[var(--ink)]"
-                aria-hidden
-              />
-              {t('agent.alreadyNewChat')}
-            </div>
-          </div>
-        ) : null}
         <Tooltip tip={t('agent.history')} placement="bottom">
           <button
             type="button"

@@ -15,7 +15,6 @@ import {
 import store from '@/store';
 import {
   clearEditorDirty,
-  importDocument,
   persistCurrent,
   setTemplateThumbnail,
 } from '@/store/modules/editor';
@@ -450,7 +449,9 @@ export async function syncOwnedDocumentToCloud(opts: {
   }
 
   if (!delta && baseDoc && baseRevision != null) {
-    return patchProjectToCloud({ id, name, baseRevision, patch: {} });
+    // Same document — do not empty-PATCH (that still bumps revision and 412s
+    // a overlapping boolean PUT that still holds the old If-Match).
+    return { status: 'ok', ack: { revision: baseRevision } };
   }
 
   if (import.meta.env.DEV) {
@@ -462,75 +463,25 @@ export async function syncOwnedDocumentToCloud(opts: {
   return pushProjectToCloud({ id, name, document, baseRevision });
 }
 
-function isLocalDraftNewerThanConflict(
-  local: Awaited<ReturnType<typeof getProjectDraft>>,
-  conflict: ProjectRevisionConflictError
-): boolean {
-  return Boolean(
-    local?.document &&
-      !local.syncedAt &&
-      Number(local.updatedAt || 0) > Number(conflict.updatedAt || 0)
-  );
-}
-
 async function handleFlushConflict(opts: {
-  dispatch: ReturnType<typeof useDispatch>;
   projectId: string;
   name: string;
   pushedDoc: unknown;
-  contentHash: string;
   conflict: ProjectRevisionConflictError;
 }): Promise<void> {
-  const local = await getProjectDraft(opts.projectId);
-  if (!isLocalDraftNewerThanConflict(local, opts.conflict)) {
-    await adoptCloudOnConflict(opts.dispatch, opts.projectId, opts.name);
-    return;
-  }
-  const forced = await pushProjectToCloud({
-    id: opts.projectId,
+  const serverRev = asCloudRevision(opts.conflict.revision);
+  if (serverRev == null) return;
+  // Keep the local canvas. Only refresh If-Match — GET+importDocument realigns
+  // frameless boolean results to (0,0) and looks like the page jumped.
+  await putProjectDraft({
+    projectId: opts.projectId,
     name: opts.name,
     document: opts.pushedDoc,
-    baseRevision: null,
+    updatedAt: Date.now(),
+    syncedAt: null,
+    cloudRevision: serverRev,
+    keepBaseDocument: true,
   });
-  if (forced.status !== 'ok') return;
-  await applyCloudAck({
-    dispatch: opts.dispatch,
-    projectId: opts.projectId,
-    contentHash: opts.contentHash,
-    pushedDoc: opts.pushedDoc,
-    ack: forced.ack,
-  });
-}
-
-/** On 412: adopt cloud document so this tab does not overwrite a newer revision. */
-async function adoptCloudOnConflict(
-  dispatch: ReturnType<typeof useDispatch>,
-  projectId: string,
-  fallbackName: string
-): Promise<boolean> {
-  const fetched = await tryCloudApi(() => fetchProject(projectId));
-  if (fetched.status !== 'ok') return false;
-  const proj = fetched.data.project;
-  if (!proj?.document) return false;
-  dispatch(
-    importDocument({
-      id: proj.id || projectId,
-      name: proj.name || fallbackName,
-      document: proj.document,
-      source: 'user',
-    })
-  );
-  await putProjectDraft({
-    projectId: proj.id || projectId,
-    name: proj.name || fallbackName,
-    document: proj.document,
-    updatedAt: Number(proj.updatedAt) || Date.now(),
-    syncedAt: Date.now(),
-    cloudRevision: asCloudRevision(proj.revision),
-    baseDocument: proj.document,
-  });
-  dispatch(clearEditorDirty());
-  return true;
 }
 
 /** Editor: debounce local draft + cloud upsert while editing. */
@@ -648,11 +599,9 @@ export function useProjectCloudSync() {
         cloudFailCountRef.current = 0;
         cloudFailHashRef.current = null;
         await handleFlushConflict({
-          dispatch,
           projectId: id,
           name,
           pushedDoc,
-          contentHash,
           conflict: written.conflict,
         });
         return;
@@ -754,17 +703,15 @@ export function useProjectCloudSync() {
   }, []);
 }
 
-/** On 412: adopt the newer cloud document (no conflict dialog yet). */
-export async function applyProjectRevisionConflictChoice(opts: {
+/** Placeholder until a real conflict dialog lands — keeps EditorPage mount valid. */
+export async function applyProjectRevisionConflictChoice(_opts: {
   dispatch: (action: unknown) => unknown;
   projectId: string;
   name: string;
-  /** Call-site compatibility; unused until a conflict dialog lands. */
   localDocument?: unknown;
   mode?: 'solo' | 'collab';
   thumb?: ThumbUpload;
 }): Promise<'adopted' | 'failed'> {
-  const ok = await adoptCloudOnConflict(opts.dispatch as never, opts.projectId, opts.name);
-  return ok ? 'adopted' : 'failed';
+  return 'failed';
 }
 

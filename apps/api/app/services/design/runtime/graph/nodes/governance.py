@@ -1,6 +1,10 @@
-"""Design Governance (P41) — BasicLocal settle hard gate.
+"""Design Governance (P41) — compliance lanes on the Review hop.
 
-Kernel path: Settle → IntelligenceClient.govern → BasicLocal → here.
+Not a separate LangGraph node. Review Agent calls ``govern`` after a
+design-intent craft pass. Chat / canvas_op never enter Review, so they
+never show the quality checklist.
+
+IntelligenceClient.govern → BasicLocal → gate_governance_before_settle.
 
 Community floor: Brand / A11y / Copyright / Reference / Design System /
 Content / Tool Permission. Brand/copyright private rules live behind Remote.
@@ -18,6 +22,7 @@ from app.services.design.runtime.graph.state import (
     parse_design_governance,
 )
 from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.models_route import normalize_user_intent
 
 _HEX = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b")
 _COPYRIGHT_RX = re.compile(
@@ -467,6 +472,7 @@ def apply_governance_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> Non
 
 
 def format_governance_for_settle(result: dict[str, Any] | None) -> str:
+    """Developer / log dump — never stream this as user chat prose."""
     src = result if isinstance(result, dict) else {}
     if not src:
         return ""
@@ -487,6 +493,78 @@ def format_governance_for_settle(result: dict[str, Any] | None) -> str:
     if src.get("repair_plan"):
         lines.append("REPAIR: draft ready (not applied)")
     return "\n".join(lines)[:1600]
+
+
+def format_governance_fail_reply(
+    result: dict[str, Any] | None, *, locale: str = "zh-CN"
+) -> str:
+    """User-facing settle reply when governance hard-gates."""
+    src = result if isinstance(result, dict) else {}
+    explain = [str(x) for x in list(src.get("explain") or [])[:6] if str(x).strip()]
+    loc = str(locale or "zh-CN")
+    if loc.startswith("zh"):
+        head = "设计质量检查未通过："
+        foot = "已生成修复草稿（尚未应用到画布）。"
+        bullets = "\n".join(f"- {x}" for x in explain) if explain else "- 请根据检查结果调整后重试"
+        return f"{head}\n{bullets}\n{foot}"[:2000]
+    head = "Design quality check failed:"
+    foot = "Repair draft ready (not applied)."
+    bullets = "\n".join(f"- {x}" for x in explain) if explain else "- Adjust and retry"
+    return f"{head}\n{bullets}\n{foot}"[:2000]
+
+
+def _gate_intent_of(rt: AgentRuntime) -> str:
+    """Frozen classify label. Empty / create|edit → chat / canvas_op."""
+    flags = getattr(rt, "flags", None)
+    if isinstance(flags, dict):
+        frozen = str(flags.get("gate_intent") or "").strip()
+        if frozen:
+            return normalize_user_intent(frozen)
+        flagged = str(flags.get("intent") or "").strip()
+    else:
+        flagged = ""
+    classified = str(getattr(rt, "classified_intent", None) or "").strip()
+    return normalize_user_intent(classified or flagged)
+
+
+def _has_design_craft_contract(rt: AgentRuntime) -> bool:
+    """True when a real design pass left Brief / Strategy / reference — not a tool-op."""
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    candidates: list[Any] = [
+        flags.get("design_brief"),
+        flags.get("design_strategy"),
+        getattr(rt, "design_strategy", None),
+        getattr(rt, "design_research", None),
+        getattr(rt, "reference_lock", None),
+        getattr(rt, "reference_dna", None),
+    ]
+    return any(isinstance(blob, dict) and blob for blob in candidates)
+
+
+def should_route_to_governance(rt: AgentRuntime) -> bool:
+    """User-facing 7-lane checklist: design intent, a painted craft pass, and a contract."""
+    if _gate_intent_of(rt) != "design":
+        return False
+    st = getattr(rt, "run", None)
+    if st is None or not bool(getattr(st, "painted", False)):
+        return False
+    return _has_design_craft_contract(rt)
+
+
+def should_skip_design_governance(rt: AgentRuntime) -> bool:
+    """Inverse of ``should_route_to_governance`` (Review belt / tests)."""
+    return not should_route_to_governance(rt)
+
+
+def skipped_governance_result() -> dict[str, Any]:
+    """Settle continues; do not emit a user-facing quality-check panel."""
+    return {
+        "status": "pass",
+        "skipped": True,
+        "lanes": [],
+        "explain": [],
+        "summary": "governance skipped · chat/canvas_op",
+    }
 
 
 def run_design_governance(rt: AgentRuntime) -> dict[str, Any]:
@@ -517,64 +595,113 @@ def run_design_governance(rt: AgentRuntime) -> dict[str, Any]:
     return result
 
 
+def _lane_activity_items(result: dict[str, Any]) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for i, row in enumerate(list(result.get("lanes") or [])):
+        if not isinstance(row, dict):
+            continue
+        lane = str(row.get("lane") or "").strip()
+        if not lane:
+            continue
+        items.append(
+            {
+                "id": f"gov-lane-{lane or i}",
+                "name": lane,
+                "summary": str(row.get("status") or "").strip() or "pass",
+            }
+        )
+    return items
+
+
+def _emit_user_quality_check(
+    *,
+    status: str,
+    running: bool,
+    result: dict[str, Any] | None = None,
+) -> None:
+    """One timeline row. Not ``explored`` (that merges into 设计材料 and jumps the panel)."""
+    payload: dict[str, Any] = {
+        "type": "activity",
+        "id": "design-governance",
+        "kind": "tool",
+        "status": "running" if running else ("done" if status == "pass" else "error"),
+        "code": "design_quality_check",
+        "visibility": "user",
+        "item": {
+            "id": "design-quality-check",
+            "name": "design_quality_check",
+            "summary": "" if running else status,
+        },
+    }
+    if not running:
+        payload["detail"] = status
+        items = _lane_activity_items(result or {})
+        if items:
+            payload["items"] = items
+            payload["item"]["summary"] = status
+    _emit(payload)
+
+
 async def gate_governance_before_settle(rt: AgentRuntime) -> dict[str, Any]:
-    """Settle hard gate. FAIL emits explain; caller must not claim success."""
+    """Design-branch hard gate. FAIL emits explain; caller must not claim success.
+
+    Chat / canvas_op / unpainted / no Brief never enter this emit path.
+    User stream is one sequential ``activity`` row (not a sibling panel).
+    Structured ``design_governance`` stays developer-only.
+    """
+    if should_skip_design_governance(rt):
+        return skipped_governance_result()
     st = rt.run
-    _emit(
-        {
-            "type": "activity",
-            "id": "design-governance",
-            "kind": "explored",
-            "status": "running",
-            "summary": "DESIGN_GOVERNANCE: Brand/A11y/Copyright/… hard gate",
-        }
-    )
+    _emit_user_quality_check(status="pass", running=True)
     try:
         result = run_design_governance(rt)
         status = str(result.get("status") or "pass")
+        fails = sum(
+            1
+            for l in list(result.get("lanes") or [])
+            if isinstance(l, dict) and l.get("status") == "fail"
+        )
         st.push_log(
             phase="design_governance",
             summary=str(result.get("summary") or "")[:160],
             status=status,
-            fails=sum(
-                1
-                for l in list(result.get("lanes") or [])
-                if isinstance(l, dict) and l.get("status") == "fail"
-            )
-            or None,
+            fails=fails or None,
         )
+        _emit_user_quality_check(status=status, running=False, result=result)
         _emit(
             {
-                "type": "activity",
-                "id": "design-governance",
-                "kind": "explored",
-                "status": "done",
-                "summary": f"DESIGN_GOVERNANCE: {status}"[:200],
+                "type": "design_governance",
+                "visibility": "developer",
+                "status": status,
+                "skipped": False,
+                "lanes": [
+                    {
+                        "lane": l.get("lane"),
+                        "status": l.get("status"),
+                        "message": l.get("message"),
+                    }
+                    for l in list(result.get("lanes") or [])
+                    if isinstance(l, dict)
+                ],
+                "explain": list(result.get("explain") or [])[:8],
+                "summary": str(result.get("summary") or "")[:240],
             }
         )
-        payload = {
-            "type": "design_governance",
-            "status": status,
-            "lanes": [
-                {
-                    "lane": l.get("lane"),
-                    "status": l.get("status"),
-                    "message": l.get("message"),
-                }
-                for l in list(result.get("lanes") or [])
-                if isinstance(l, dict)
-            ],
-            "explain": list(result.get("explain") or [])[:8],
-            "summary": str(result.get("summary") or "")[:240],
-        }
-        _emit(payload)
+        # Developer-only essay — never dump into user chat analysis_delta.
         block = format_governance_for_settle(result)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit(
+                {
+                    "type": "analysis_delta",
+                    "text": block[:1200],
+                    "visibility": "developer",
+                }
+            )
         if status == "fail":
             _emit(
                 {
                     "type": "governance_fail",
+                    "visibility": "user",
                     "explain": list(result.get("explain") or [])[:8],
                     "repair_plan": result.get("repair_plan"),
                 }
@@ -600,13 +727,5 @@ async def gate_governance_before_settle(rt: AgentRuntime) -> dict[str, Any]:
             }
         )
         apply_governance_to_runtime(rt, failed)
-        _emit(
-            {
-                "type": "activity",
-                "id": "design-governance",
-                "kind": "explored",
-                "status": "done",
-                "summary": "DESIGN_GOVERNANCE: fail (engine error)",
-            }
-        )
+        _emit_user_quality_check(status="fail", running=False, result=failed)
         return failed

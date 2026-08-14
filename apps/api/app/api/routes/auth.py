@@ -547,6 +547,14 @@ def auth_logout(session: SessionDep, token: TokenDep) -> Message:
     revoke_session(token, db=session)
     return Message(message="Logged out")
 
+@wallet_router.get("/plans")
+def wallet_plans() -> dict[str, Any]:
+    """Public membership list prices + monthly credit grants (no margin)."""
+    from app.services.wallet.billing import public_plan_catalog
+
+    return {"plans": public_plan_catalog()}
+
+
 @wallet_router.get("/purchase-info")
 def purchase_info() -> dict[str, Any]:
     return {
