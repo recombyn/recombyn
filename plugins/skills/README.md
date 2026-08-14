@@ -36,8 +36,11 @@ Skills are **playbooks** by default (LLM paint). With the ops runner enabled, `h
 
 ## Docker
 
+API images bake `skills/` + `plugins/skills/` (see `deploy/docker/Dockerfile.api`). Compose can still mount for hot-reload:
+
 ```yaml
 volumes:
+  - ./skills:/app/skills
   - ./plugins/skills:/app/plugins/skills
 ```
 

@@ -1,7 +1,7 @@
 /**
  * Shared user AI-asset card — Me profile Assets tab + editor Assets dock.
- * Natural aspect (plaza-style waterfall); title + time on the card; Tooltip
- * on the title line shows the full name when truncated (not above the whole card).
+ * Natural aspect (plaza-style waterfall); title + time on the card; native
+ * `title` on the name line shows the full name when truncated.
  *
  * Structure: top-of-file helpers + named subcomponents (no satellite modules).
  */
@@ -20,7 +20,6 @@ import { HiOutlinePhoto, HiOutlinePlay, HiOutlineTrash, HiOutlineXMark } from 'r
 import { LuAudioLines, LuFilm } from 'react-icons/lu';
 import lottie, { type AnimationItem } from 'lottie-web';
 import Image from '@/components/base/image';
-import Tooltip from '@/components/base/tooltip';
 import { SoftGlowSurface } from '@/components/base';
 import { VideoFullscreenPreview } from '@/components/editor/nodes/VideoNode/VideoFullscreenPreviewButton';
 import type { UserAsset } from '@/models/assets';
@@ -328,23 +327,16 @@ function AssetCardMetaOverlay({
         dense ? 'px-1.5 pb-1.5 pt-6' : 'px-2 pb-2 pt-8'
       )}
     >
-      {/* Tip anchors to the title line — not the whole card. */}
-      <Tooltip
-        tip={title}
-        placement="top"
-        asChild={false}
-        triggerClassName="pointer-events-auto block max-w-full"
-        popupClassName="!h-auto !max-w-[14rem] !whitespace-normal !break-words !rounded-md !py-1.5 !leading-snug !items-start !justify-start text-left"
+      {/* Native title — Floating Tooltip flip() parked the popup over the thumb. */}
+      <p
+        title={title}
+        className={cn(
+          'pointer-events-auto max-w-full truncate font-medium leading-snug text-white',
+          dense ? 'text-[11px]' : 'text-[12px]'
+        )}
       >
-        <p
-          className={cn(
-            'truncate font-medium leading-snug text-white',
-            dense ? 'text-[11px]' : 'text-[12px]'
-          )}
-        >
-          {title}
-        </p>
-      </Tooltip>
+        {title}
+      </p>
       {when ? (
         <p
           className={cn(

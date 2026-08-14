@@ -149,32 +149,68 @@ export function normalizePathDForEdit(d: string, sampleStep?: number): string {
   }
 }
 
+/** AABB from absolute M/L/C/Q number pairs when SVG getBBox is unavailable. */
+function pathDBoundsFromAbsolutePairs(
+  d: string
+): { minX: number; minY: number; width: number; height: number } | null {
+  // Relative cmds — pair scanning is unsafe (H/V singles, etc.).
+  if (/[mlhvcsqta]/.test(d)) return null;
+  const re = /(-?\d*\.?\d+(?:e[-+]?\d+)?)\s*,?\s*(-?\d*\.?\d+(?:e[-+]?\d+)?)/gi;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let m: RegExpExecArray | null;
+  let n = 0;
+  while ((m = re.exec(d))) {
+    const x = parseFloat(m[1]);
+    const y = parseFloat(m[2]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    n += 1;
+  }
+  if (n < 2 || !Number.isFinite(minX)) return null;
+  return {
+    minX,
+    minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
 /** AABB of an SVG path `d` in local coordinates. */
 export function pathDBounds(d: string): { minX: number; minY: number; width: number; height: number } | null {
   const raw = String(d || '').trim();
-  if (!raw || typeof document === 'undefined') return null;
-  try {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', '0');
-    svg.setAttribute('height', '0');
-    svg.style.position = 'absolute';
-    svg.style.visibility = 'hidden';
-    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    el.setAttribute('d', raw);
-    svg.appendChild(el);
-    document.body.appendChild(svg);
-    const bb = el.getBBox();
-    document.body.removeChild(svg);
-    if (!(bb.width > 0 || bb.height > 0)) return null;
-    return {
-      minX: bb.x,
-      minY: bb.y,
-      width: Math.max(1, bb.width),
-      height: Math.max(1, bb.height),
-    };
-  } catch {
-    return null;
+  if (!raw) return null;
+  if (typeof document !== 'undefined') {
+    try {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', '0');
+      svg.setAttribute('height', '0');
+      svg.style.position = 'absolute';
+      svg.style.visibility = 'hidden';
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('d', raw);
+      svg.appendChild(el);
+      document.body.appendChild(svg);
+      const bb = el.getBBox();
+      document.body.removeChild(svg);
+      if (bb.width > 0 || bb.height > 0) {
+        return {
+          minX: bb.x,
+          minY: bb.y,
+          width: Math.max(1, bb.width),
+          height: Math.max(1, bb.height),
+        };
+      }
+    } catch {
+      /* fall through — jsdom often returns empty getBBox */
+    }
   }
+  return pathDBoundsFromAbsolutePairs(raw);
 }
 
 /**
@@ -753,12 +789,12 @@ function outlineFromSvgStroke(opts: {
   if (!raw) return null;
   const linecap = opts.linecap || 'butt';
   const linejoin = opts.linejoin || 'miter';
-  const zoom = opts.zoom ?? 1;
 
   const finish = (d: string | null): OutlineResult | null => {
     if (!d) return null;
-    const cleaned = sparsifyOutlineForEdit(d, sw, zoom) || d;
-    return { pathD: cleaned, closed: true, fillColor: opts.fillColor };
+    // Keep the geometric ribbon intact — path-edit knobs are thinned at paint time
+    // (PenPathEditFeature), not by shredding silhouette verts here.
+    return { pathD: d, closed: true, fillColor: opts.fillColor };
   };
 
   // M/L corners as-is; curves → sparse polyline, then the same geometric offset.
@@ -781,136 +817,9 @@ function outlineFromSvgStroke(opts: {
 }
 
 export type OutlineBuildOpts = {
-  /** CSS zoom — denser edit verts when zoomed in, sparser when zoomed out. */
+  /** CSS zoom — reserved for callers; silhouette is not sparsified by zoom. */
   zoom?: number;
 };
-
-/** Scene-space RDP / merge tolerance so edit knobs stay ~constant on screen. */
-function outlineEditTolerance(strokeWidth: number, zoom = 1): number {
-  const z = Math.max(0.15, Math.min(8, Number(zoom) || 1));
-  const half = Math.max(0.5, strokeWidth / 2);
-  // ~6 CSS px between knobs along the silhouette.
-  const fromZoom = 6 / z;
-  const floor = Math.max(0.4, half * 0.08);
-  const ceil = Math.max(floor * 1.25, half * 0.38);
-  return Math.min(ceil, Math.max(floor, fromZoom));
-}
-
-/** Soft cap on editable verts per ring — grows with zoom, hard-capped for UI. */
-function outlineEditMaxPts(zoom = 1): number {
-  const z = Math.max(0.15, Math.min(8, Number(zoom) || 1));
-  return Math.round(Math.min(280, Math.max(28, 36 * Math.sqrt(z) * 2.2)));
-}
-
-/**
- * Drop near-duplicate / colinear verts so path-edit shows corner knobs only.
- * Tolerance + maxPts scale with zoom (zoomed out → fewer points).
- */
-function sparsifyOutlineForEdit(
-  d: string,
-  strokeWidth: number,
-  zoom = 1
-): string | null {
-  const eps = outlineEditTolerance(strokeWidth, zoom);
-  const maxPts = outlineEditMaxPts(zoom);
-  const mergeEps = Math.max(0.45, Math.min(eps * 0.85, eps));
-
-  const rings = String(d || '')
-    .split(/(?=[Mm])/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!rings.length) return null;
-  const out: string[] = [];
-  for (const ring of rings) {
-    let verts = polylineVertsFromLinearPath(ring.replace(/[Zz]\s*$/i, ''));
-    if (!verts || verts.length < 3) {
-      const sparse = sparsifyClosedPathD(ring, eps, maxPts);
-      if (sparse) out.push(sparse);
-      else out.push(ring);
-      continue;
-    }
-    const merged: Array<[number, number]> = [];
-    for (let i = 0; i < verts.length; i += 1) {
-      const p = verts[i];
-      const prev = merged[merged.length - 1];
-      if (!prev || Math.hypot(p[0] - prev[0], p[1] - prev[1]) >= mergeEps) merged.push(p);
-    }
-    if (merged.length > 2) {
-      const a = merged[0];
-      const b = merged[merged.length - 1];
-      if (Math.hypot(a[0] - b[0], a[1] - b[1]) < mergeEps) merged.pop();
-    }
-    const simplified = simplifyClosedPolylineCornerAware(
-      merged.length >= 3 ? merged : verts,
-      eps,
-      maxPts
-    );
-    if (simplified.length < 3) {
-      out.push(ring);
-      continue;
-    }
-    out.push(
-      `M ${simplified.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(' L ')} Z`
-    );
-  }
-  return out.length ? out.join(' ') : null;
-}
-
-/** RDP each closed subpath so boolean/raster results stay path-edit friendly. */
-function sparsifyClosedPathD(d: string, epsilon: number, maxPts: number): string | null {
-  const rings = String(d || '')
-    .split(/(?=[Mm])/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!rings.length) return null;
-  const out: string[] = [];
-  for (const ring of rings) {
-    const verts = polylineVertsFromLinearPath(ring.replace(/[Zz]\s*$/i, ''));
-    if (!verts || verts.length < 3) {
-      // Fall back: sample then simplify (curves / boolean soup).
-      if (typeof document === 'undefined') {
-        out.push(ring);
-        continue;
-      }
-      try {
-        const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        el.setAttribute('d', ring);
-        const len = el.getTotalLength?.() ?? 0;
-        if (!(len > 0)) {
-          out.push(ring);
-          continue;
-        }
-        // Dense sample so round joins survive; corner-aware drop later.
-        const n = Math.max(16, Math.ceil(len / Math.max(0.75, epsilon)));
-        const pts: Array<[number, number]> = [];
-        for (let i = 0; i <= n; i += 1) {
-          const p = el.getPointAtLength((len * i) / n);
-          pts.push([p.x, p.y]);
-        }
-        const simplified = simplifyClosedPolylineCornerAware(pts, epsilon, maxPts);
-        if (simplified.length < 3) {
-          out.push(ring);
-          continue;
-        }
-        out.push(
-          `M ${simplified.map(([a, b]) => `${a.toFixed(2)} ${b.toFixed(2)}`).join(' L ')} Z`
-        );
-      } catch {
-        out.push(ring);
-      }
-      continue;
-    }
-    const simplified = simplifyClosedPolylineCornerAware(verts, epsilon, maxPts);
-    if (simplified.length < 3) {
-      out.push(ring);
-      continue;
-    }
-    out.push(
-      `M ${simplified.map(([a, b]) => `${a.toFixed(2)} ${b.toFixed(2)}`).join(' L ')} Z`
-    );
-  }
-  return out.length ? out.join(' ') : null;
-}
 
 /** Map absolute path coordinates (M/L/C/Q/… numeric pairs). */
 function mapAbsolutePathPoints(
@@ -1088,49 +997,6 @@ function simplifyClosedPolyline(
   return out.length >= 3 ? out : ring.slice(0, Math.min(ring.length, maxPts));
 }
 
-/**
- * Like simplifyClosedPolyline, but when capping count drop the *least* turny
- * verts first — preserves corners / round-cap samples that sit on the silhouette
- * (uniform stride was what made anchors look floated off barb tips).
- */
-function simplifyClosedPolylineCornerAware(
-  pts: Array<[number, number]>,
-  epsilon: number,
-  maxPts: number
-): Array<[number, number]> {
-  let out = simplifyClosedPolyline(pts, epsilon, Math.max(maxPts * 2, 96));
-  if (out.length <= maxPts) return out;
-
-  const turnMag = (i: number) => {
-    const n = out.length;
-    const prev = out[(i - 1 + n) % n];
-    const curr = out[i];
-    const next = out[(i + 1) % n];
-    const ax = curr[0] - prev[0];
-    const ay = curr[1] - prev[1];
-    const bx = next[0] - curr[0];
-    const by = next[1] - curr[1];
-    const la = Math.hypot(ax, ay) || 1;
-    const lb = Math.hypot(bx, by) || 1;
-    const dot = Math.max(-1, Math.min(1, (ax / la) * (bx / lb) + (ay / la) * (by / lb)));
-    return Math.acos(dot);
-  };
-
-  while (out.length > maxPts && out.length > 3) {
-    let minI = 1;
-    let minTurn = Infinity;
-    for (let i = 0; i < out.length; i += 1) {
-      const t = turnMag(i);
-      if (t < minTurn) {
-        minTurn = t;
-        minI = i;
-      }
-    }
-    out = out.filter((_, i) => i !== minI);
-  }
-  return out;
-}
-
 function outlineResultToShapeBox(o: OutlineResult): ShapeBox | null {
   if (!o.pathD) return null;
   const bb = o.bounds ?? pathDBounds(o.pathD);
@@ -1157,17 +1023,18 @@ function unionOutlineResults(parts: OutlineResult[], fillColor: string): Outline
   if (boxes.length === 1) return parts[0];
   const { result } = computeShapeBoolean(boxes, 'union');
   if (!result?.path) return parts[0];
+  // Boolean path is local to the union AABB (origin at result.x/y). Push it back
+  // into the same node-local space as `parts` so fitOutlineResult / outlineNodePatch
+  // keep the silhouette where the stroke was (arrows used to jump to the box corner).
+  let pathD = result.path;
+  if (Math.abs(result.x) > 0.01 || Math.abs(result.y) > 0.01) {
+    pathD = translatePathD(result.path, -result.x, -result.y) || result.path;
+  }
   return {
-    pathD: result.path,
+    pathD,
     closed: true,
     fillColor,
     fillRule: result.fillRule,
-    bounds: {
-      minX: result.x,
-      minY: result.y,
-      width: result.width,
-      height: result.height,
-    },
   };
 }
 
@@ -1198,7 +1065,12 @@ function nodeBoxSize(node: SceneNodeInput): { w: number; h: number } {
 function nodeStrokeWidth(node: SceneNodeInput, fallback = 2): number {
   return Math.max(
     1,
-    Number(node.attrs?.['border-width'] ?? node.attrs?.borderWidth ?? fallback) || fallback
+    Number(
+      node.attrs?.['border-width'] ??
+        node.attrs?.borderWidth ??
+        node.attrs?.strokeWidth ??
+        fallback
+    ) || fallback
   );
 }
 
@@ -1217,7 +1089,7 @@ function withBakedNodeAngle(node: SceneNodeInput, outline: OutlineResult | null)
   return bakeNodeAngleIntoOutline(outline, w, h, Number(node.attrs?.angle) || 0);
 }
 
-function outlinePencilLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
+function outlinePencilLocal(node: SceneNodeInput, _zoom = 1): OutlineResult | null {
   const raw = String(node.attrs?.path || node.attrs?.d || '').trim();
   if (!raw) return null;
   const sw = nodeStrokeWidth(node, 10);
@@ -1227,20 +1099,22 @@ function outlinePencilLocal(node: SceneNodeInput, zoom = 1): OutlineResult | nul
   const pts = parseSimplePathPoints(raw);
   if (pts.length < 2) return null;
 
-  // Match scene paint ribbon, but RDP the centerline first — live capture is dense.
+  // Same silhouette as scene paint (keep Q; no linear flatten / RDP shred).
   const pressures = parsePathPressures(node.attrs?.pathPressure, pts.length);
+  const hardnessRaw = Number(node.attrs?.brushHardness);
+  const freehandHardness = Number.isFinite(hardnessRaw)
+    ? Math.max(0, Math.min(100, hardnessRaw))
+    : 80;
   const outlineD = pencilInkPathFromPoints(pts, sw, brushId, {
     linecap,
     pressures,
     pressureEnabled: true,
-    simplify: true,
-    pathStyle: 'linear',
+    hardness: freehandHardness,
+    simplify: false,
   });
   if (!outlineD.trim()) return null;
-  // Q midpoints → screen-space sparse M/L ring for path-edit knobs.
-  const sparse = sparsifyOutlineForEdit(outlineD, sw, zoom) || outlineD;
   return withBakedNodeAngle(node, {
-    pathD: normalizePathDForEdit(sparse) || sparse,
+    pathD: outlineD,
     closed: true,
     fillColor: ink,
   });
@@ -1756,8 +1630,10 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
     shapeType === 'arrow' ||
     node.key === 'text';
   if (strokeBakedIntoFill) {
+    // Disable SVG stroke so paint is fill-only — but keep border-width so the
+    // style panel still shows the original thickness (geometry holds the ink).
     prev['stroke-enabled'] = 'false';
-    prev['border-width'] = 0;
+    prev['stroke-visible'] = 'false';
   } else {
     // Keep original stroke state — don't invent a border after outlining.
     const prevStrokeOn = String(prev['stroke-enabled'] ?? 'true') !== 'false';
@@ -1820,6 +1696,10 @@ export function requestEnterPathEdit(nodeId: string, pathD?: string) {
   if (d) {
     const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
     if (rings >= 4) return;
+    // Dense stroke ribbons (pen/pencil outline): auto path-edit carpets knobs and
+    // reads as “thickness gone”. User can enter path-edit from the toolbar.
+    const vertApprox = (d.match(/[MLQCmlqc]/g) || []).length;
+    if (vertApprox > 64) return;
   }
   queueMicrotask(() => {
     window.dispatchEvent(

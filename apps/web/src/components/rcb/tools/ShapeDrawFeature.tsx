@@ -47,10 +47,9 @@ type ShapeDrawSession = {
 };
 
 /**
- * Shift+drag line/arrow: lock to the dominant axis (horizontal or vertical).
- * Prefer horizontal when |dx| >= |dy|.
+ * Shift+drag line/arrow: lock to nearest 45° octant (H / V / diagonal), length preserved.
  */
-function snapStrokeAxis(
+export function snapStrokeOctant(
   x0: number,
   y0: number,
   x1: number,
@@ -60,10 +59,14 @@ function snapStrokeAxis(
   if (!shiftKey) return { x1, y1 };
   const dx = x1 - x0;
   const dy = y1 - y0;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return { x1, y1: y0 };
-  }
-  return { x1: x0, y1 };
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return { x1: x0, y1: y0 };
+  const step = Math.PI / 4;
+  const snapped = Math.round(Math.atan2(dy, dx) / step) * step;
+  return {
+    x1: x0 + Math.cos(snapped) * len,
+    y1: y0 + Math.sin(snapped) * len,
+  };
 }
 
 /** Circle / regular polygon / star stay square while dragging. */
@@ -297,7 +300,7 @@ function ShapeDrawFeature({
       const isStroke = kind === 'line' || kind === 'arrow';
       if (isStroke) {
         const p = pointerScene(e.clientX, e.clientY);
-        const endRaw = snapStrokeAxis(s.x0, s.y0, p.x, p.y, e.shiftKey);
+        const endRaw = snapStrokeOctant(s.x0, s.y0, p.x, p.y, e.shiftKey);
         const end = snapPoint(endRaw.x1, endRaw.y1, skipGrid);
         s.currentClientX = e.clientX;
         s.currentClientY = e.clientY;
@@ -360,7 +363,7 @@ function ShapeDrawFeature({
       const kind = shapeKindRef.current || 'rect';
       if (kind !== 'line' && kind !== 'arrow') return;
       const shift = e.type === 'keydown';
-      const endRaw = snapStrokeAxis(x0, y0, rawX1, rawY1, shift);
+      const endRaw = snapStrokeOctant(x0, y0, rawX1, rawY1, shift);
       const end = snapPoint(endRaw.x1, endRaw.y1, skipGrid);
       session.current.shift = shift;
       session.current.x1 = end.x;

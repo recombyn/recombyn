@@ -13,6 +13,7 @@ import {
   STROKE_GAP_INTERP,
   type PencilBrushId,
 } from './pencilBrushes';
+import { snapStrokeOctant } from './ShapeDrawFeature';
 import {
   rcbCameraCssZoom,
   rcbCameraScreenOffset,
@@ -222,6 +223,12 @@ function PencilDrawFeature({
   cameraRef.current = camera;
   const pts = useRef<{ x: number; y: number; pressure?: number }[]>([]);
   const drawing = useRef(false);
+  /** Last pointer while drawing — Shift keyup/down can rebuild a straight stroke. */
+  const lastDrawPointerRef = useRef<{
+    x: number;
+    y: number;
+    pressure?: number;
+  } | null>(null);
   /** Locked overlay viewport for the active stroke — stops per-point shell resize jitter. */
   const strokeViewBoxRef = useRef<SceneBox | null>(null);
   const redrawRafRef = useRef(0);
@@ -431,6 +438,7 @@ function PencilDrawFeature({
       const pressure = pressureRef.current ? pointerPressure(e) : undefined;
       drawing.current = true;
       strokeViewBoxRef.current = null;
+      lastDrawPointerRef.current = pressure != null ? { ...p, pressure } : p;
       pts.current = [pressure != null ? { ...p, pressure } : p];
       if (eraseModeRef.current) {
         paintTipCursorRef.current(p);
@@ -471,6 +479,28 @@ function PencilDrawFeature({
       return true;
     };
 
+    /** Shift: keep brush ink, but centerline is one octant-snapped segment (H/V/45°). */
+    const applyShiftStraightTip = (tip: {
+      x: number;
+      y: number;
+      pressure?: number;
+    }) => {
+      const origin = pts.current[0];
+      if (!origin) {
+        pts.current = [tip];
+        return;
+      }
+      const snapped = snapStrokeOctant(origin.x, origin.y, tip.x, tip.y, true);
+      pts.current = [
+        origin,
+        {
+          x: snapped.x1,
+          y: snapped.y1,
+          ...(tip.pressure != null ? { pressure: tip.pressure } : {}),
+        },
+      ];
+    };
+
     const onMove = (e: PointerEvent) => {
       if (!drawing.current) {
         paintTipCursorRef.current(toSceneRef.current(e.clientX, e.clientY));
@@ -479,8 +509,25 @@ function PencilDrawFeature({
       const coalesced =
         typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
       const events = coalesced.length ? coalesced : [e];
-      let changed = false;
       let tip = pts.current[pts.current.length - 1] || toSceneRef.current(e.clientX, e.clientY);
+      for (const ev of events) {
+        const p = sampleScenePoint(ev);
+        tip = p;
+        const pressure = pressureRef.current ? pointerPressure(ev) : undefined;
+        lastDrawPointerRef.current = pressure != null ? { ...p, pressure } : p;
+      }
+
+      // Shift+pencil: straight octant segment — same H/V/45° as line tool.
+      if (!eraseModeRef.current && e.shiftKey) {
+        const pressure = pressureRef.current ? pointerPressure(e) : undefined;
+        const straightTip = pressure != null ? { ...tip, pressure } : tip;
+        applyShiftStraightTip(straightTip);
+        paintTipCursorRef.current(tip);
+        paintPreviewRef.current(pts.current);
+        return;
+      }
+
+      let changed = false;
       for (const ev of events) {
         const p = sampleScenePoint(ev);
         tip = p;
@@ -534,21 +581,22 @@ function PencilDrawFeature({
       if (!wasErase && pts.current.length >= 1) {
         const tip = toSceneRef.current(e.clientX, e.clientY);
         const pressure = pressureRef.current ? pointerPressure(e) : undefined;
-        const last = pts.current[pts.current.length - 1];
-        if (Math.hypot(tip.x - last.x, tip.y - last.y) > 0.05) {
-          pts.current.push(
-            pressure != null ? { ...tip, pressure } : tip
-          );
+        const tipPt = pressure != null ? { ...tip, pressure } : tip;
+        lastDrawPointerRef.current = tipPt;
+        if (e.shiftKey) {
+          applyShiftStraightTip(tipPt);
         } else {
-          pts.current[pts.current.length - 1] = {
-            x: tip.x,
-            y: tip.y,
-            ...(pressure != null ? { pressure } : {}),
-          };
+          const last = pts.current[pts.current.length - 1];
+          if (Math.hypot(tip.x - last.x, tip.y - last.y) > 0.05) {
+            pts.current.push(tipPt);
+          } else {
+            pts.current[pts.current.length - 1] = tipPt;
+          }
         }
       }
       const points = pts.current;
       pts.current = [];
+      lastDrawPointerRef.current = null;
       if (!wasErase) paintTipCursorRef.current(null);
       else paintTipCursorRef.current(toSceneRef.current(e.clientX, e.clientY));
       redrawOverlayRef.current();
@@ -609,6 +657,18 @@ function PencilDrawFeature({
       if (!drawing.current) paintTipCursorRef.current(null);
     };
 
+    const onShiftKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Shift' || !drawing.current || eraseModeRef.current) return;
+      const tip = lastDrawPointerRef.current;
+      if (!tip || pts.current.length < 1) return;
+      if (e.type === 'keydown') {
+        applyShiftStraightTip(tip);
+        paintTipCursorRef.current(tip);
+        paintPreviewRef.current(pts.current);
+      }
+      // keyup: keep the current two-point line; further moves resume freehand.
+    };
+
     hitEl.addEventListener('pointerdown', onDown, true);
     hitEl.addEventListener('pointermove', onMoveIdle);
     // Window move/up while drawing — stage-only move drops samples when the
@@ -616,6 +676,8 @@ function PencilDrawFeature({
     window.addEventListener('pointermove', onMoveWhileDrawing);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onShiftKey, true);
+    window.addEventListener('keyup', onShiftKey, true);
     hitEl.addEventListener('pointerleave', onLeave);
     return () => {
       hitEl.removeEventListener('pointerdown', onDown, true);
@@ -623,6 +685,8 @@ function PencilDrawFeature({
       window.removeEventListener('pointermove', onMoveWhileDrawing);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onShiftKey, true);
+      window.removeEventListener('keyup', onShiftKey, true);
       hitEl.removeEventListener('pointerleave', onLeave);
       paintTipCursorRef.current(null);
     };

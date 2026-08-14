@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   matchAspectPresetKey,
   pointInOrientedBox,
+  resizeFromHandle,
   resolveControlChrome,
   unionOfBoxes,
 } from '../resizeGeometry';
@@ -13,6 +14,19 @@ const PRESETS = [
   { id: '1:1', w: 1, h: 1 },
   { id: '16:9', w: 16, h: 9 },
 ];
+
+describe('resizeFromHandle', () => {
+  it('can shrink below the old 8px floor down to 1px', () => {
+    const union = { left: 0, top: 0, width: 40, height: 40 };
+    const next = resizeFromHandle(union, 'se', -39, -39, 0);
+    expect(next.width).toBe(1);
+    expect(next.height).toBe(1);
+    // Old floor would have clamped here at 8.
+    const mid = resizeFromHandle(union, 'se', -35, -35, 0);
+    expect(mid.width).toBe(5);
+    expect(mid.height).toBe(5);
+  });
+});
 
 describe('matchAspectPresetKey', () => {
   it('matches true 1:1', () => {

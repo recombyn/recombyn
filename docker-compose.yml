@@ -75,6 +75,8 @@ services:
     volumes:
       - ./apps/api/storage/uploads:/app/apps/api/storage/uploads
       - ./apps/api/storage/results:/app/apps/api/storage/results
+      # Hot-reload overrides baked image copies (ADR 0018).
+      - ./skills:/app/skills
       - ./plugins/skills:/app/plugins/skills
     environment:
       - REDIS_URL=redis://redis:6379/0

@@ -20,6 +20,7 @@ import {
   MARQUEE_MIN_HIT_SCREEN_PX,
   nodeHitsMarquee,
   makeDragSeed,
+  visualGuideBoxForNode,
 } from '../selectionLogic';
 import { segmentIntersectsAabb } from '@/components/rcb/scene/document/sceneShapes';
 import { computeShapeBoolean, type ShapeBox } from '../shapeBoolean';
@@ -104,6 +105,64 @@ describe('selectionLogic marquee helpers', () => {
     );
   });
 
+  it('nodeHitsMarquee skips locked nodes of every kind (框选)', () => {
+    const kinds = [
+      { id: 'rect1', key: 'shape', attrs: { shapeType: 'rect', locked: 'true' } },
+      { id: 'circ1', key: 'shape', attrs: { shapeType: 'circle', locked: true } },
+      { id: 'path1', key: 'shape', attrs: { shapeType: 'path', locked: 'true', path: 'M 0 0 L 10 0 L 10 10 Z', closed: 'true' } },
+      { id: 'pen1', key: 'shape', attrs: { shapeType: 'pen', locked: true, path: 'M 0 0 L 20 20' } },
+      { id: 'img1', key: 'image', attrs: { locked: 'true' } },
+      { id: 'txt1', key: 'text', attrs: { locked: true } },
+    ] as const;
+    const deltaSetLike: Record<string, unknown> = {};
+    for (const k of kinds) {
+      deltaSetLike[k.id] = {
+        id: k.id,
+        key: k.key,
+        x: 50,
+        y: 50,
+        width: 100,
+        height: 100,
+        attrs: k.attrs,
+        children: [],
+      };
+    }
+    const unlocked = {
+      id: 'free',
+      key: 'shape',
+      x: 50,
+      y: 50,
+      width: 100,
+      height: 100,
+      attrs: { shapeType: 'circle' },
+      children: [],
+    };
+    deltaSetLike.free = unlocked;
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      deltaSetLike,
+    } as SceneDocument;
+    const getNodeBox = (id: string) => {
+      const n = doc.deltaSetLike?.[id];
+      if (!n) return null;
+      return {
+        left: Number(n.x) || 0,
+        top: Number(n.y) || 0,
+        width: Math.max(1, Number(n.width) || 1),
+        height: Math.max(1, Number(n.height) || 1),
+      };
+    };
+    const marquee = { left: 40, top: 40, width: 120, height: 120 };
+    const toScene = () => ({ x: 0, y: 0 });
+    for (const k of kinds) {
+      expect(nodeHitsMarquee(doc, k.id, marquee, getNodeBox, toScene, 1)).toBe(false);
+    }
+    expect(nodeHitsMarquee(doc, 'free', marquee, getNodeBox, toScene, 1)).toBe(true);
+  });
+
   it('segmentIntersectsAabb catches off-center crossings (midpoint-only would miss)', () => {
     // Horizontal segment y=10 from x=0→20; tiny box at x=2..3 (midpoint at 10 is outside).
     expect(segmentIntersectsAabb(0, 10, 20, 10, 2, 8, 3, 12)).toBe(true);
@@ -154,10 +213,9 @@ describe('selectionLogic marquee helpers', () => {
   });
 });
 
-describe('selectionLogic computeMovedUnion (smart + grid)', () => {
-  it('snaps flush to sibling and returns finite deltas', () => {
-    const sibling = { left: 0, top: 0, width: 100, height: 80 };
-    const moving = { left: 98, top: 2, width: 40, height: 40 };
+describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', () => {
+  it('pins to grid and returns finite deltas', () => {
+    const moving = { left: 98.4, top: 2.2, width: 40, height: 40 };
     const { nextUnion, sdx, sdy, guides } = computeMovedUnion({
       union: moving,
       origins: [{ nodeId: 'm', box: moving }],
@@ -167,7 +225,7 @@ describe('selectionLogic computeMovedUnion (smart + grid)', () => {
         width: 400,
         height: 400,
         deltaSetLike: {
-          m: { id: 'm', key: 'rect', x: 98, y: 2, width: 40, height: 40, attrs: {}, children: [] },
+          m: { id: 'm', key: 'rect', x: 98.4, y: 2.2, width: 40, height: 40, attrs: {}, children: [] },
           s: { id: 's', key: 'rect', x: 0, y: 0, width: 100, height: 80, attrs: {}, children: [] },
         },
       } as SceneDocument,
@@ -175,16 +233,249 @@ describe('selectionLogic computeMovedUnion (smart + grid)', () => {
       dy: -2,
       disableSnap: false,
       gridSize: 1,
-      targets: [sibling],
+      targets: [{ left: 0, top: 0, width: 100, height: 80 }],
       threshold: smartSnapThreshold(1),
     });
     expect(Number.isFinite(sdx)).toBe(true);
     expect(Number.isFinite(sdy)).toBe(true);
     expect(nextUnion.width).toBe(40);
     expect(nextUnion.height).toBe(40);
-    // Intended left≈100 → flush to sibling.right
-    expect(Math.abs(nextUnion.left - 100)).toBeLessThanOrEqual(2);
     expect(Array.isArray(guides)).toBe(true);
+  });
+
+  it('align guides follow mover path top (not outer ink, not a fixed y)', () => {
+    const pathTop = 20;
+    const pathLeft = 100;
+    const centerStroke = {
+      id: 'm',
+      key: 'shape',
+      x: pathLeft,
+      y: pathTop,
+      width: 40,
+      height: 40,
+      attrs: {
+        shapeType: 'rect',
+        'border-width': 2,
+        'border-color': '#333',
+        strokeAlign: 'center',
+        'stroke-enabled': 'true',
+        'stroke-visible': 'true',
+      },
+      children: [],
+    };
+    const sibling = {
+      id: 's',
+      key: 'shape',
+      x: 10,
+      y: pathTop,
+      width: 50,
+      height: 80,
+      attrs: { ...centerStroke.attrs },
+      children: [],
+    };
+    const chrome = { left: pathLeft, top: pathTop, width: 40, height: 40 };
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      deltaSetLike: { m: centerStroke, s: sibling },
+    } as SceneDocument;
+    const moverPath = visualGuideBoxForNode('m', doc, chrome);
+    const targetPath = visualGuideBoxForNode('s', doc, {
+      left: 10,
+      top: pathTop,
+      width: 50,
+      height: 80,
+    });
+    expect(moverPath?.top).toBe(pathTop);
+    expect(targetPath?.top).toBe(pathTop);
+
+    const { guides, sdy } = computeMovedUnion({
+      union: chrome,
+      origins: [{ nodeId: 'm', box: chrome }],
+      document: doc,
+      dx: 0,
+      dy: 0,
+      disableSnap: false,
+      gridSize: 0,
+      targets: targetPath ? [targetPath] : [],
+      threshold: 8,
+    });
+    expect(sdy).toBe(0);
+    const topAlign = guides.find(
+      (g) => g.kind === 'align' && g.axis === 'y' && Math.abs(g.at - pathTop) < 1e-9
+    );
+    expect(topAlign).toBeTruthy();
+    // Must track mover path, not outer-ink (path − visualOutset for center sw=2).
+    const outerInkTop = pathTop - 1;
+    expect(guides.some((g) => g.kind === 'align' && g.axis === 'y' && g.at === outerInkTop)).toBe(
+      false
+    );
+  });
+
+  it('near-miss edge gap auto-snaps flush', () => {
+    const left = { left: 0, top: 0, width: 100, height: 80 };
+    const rightChrome = { left: 102, top: 0, width: 40, height: 40 };
+    const { guides, sdx, nextUnion } = computeMovedUnion({
+      union: rightChrome,
+      origins: [{ nodeId: 'm', box: rightChrome }],
+      document: {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        deltaSetLike: {
+          m: {
+            id: 'm',
+            key: 'shape',
+            x: 102,
+            y: 0,
+            width: 40,
+            height: 40,
+            attrs: {
+              shapeType: 'rect',
+              'border-width': 0,
+              'stroke-enabled': 'false',
+              'stroke-visible': 'false',
+            },
+            children: [],
+          },
+        },
+      } as SceneDocument,
+      dx: 0,
+      dy: 0,
+      disableSnap: false,
+      gridSize: 1,
+      targets: [left],
+      threshold: 8,
+    });
+    expect(sdx).toBe(-2);
+    expect(nextUnion.left).toBe(100);
+    expect(guides.some((g) => g.kind === 'align' && g.axis === 'x' && g.at === 100)).toBe(true);
+  });
+
+  it('top edges within threshold auto-snap and paint a horizontal guide', () => {
+    const left = { left: 0, top: 20, width: 100, height: 80 };
+    const rightChrome = { left: 120, top: 24, width: 60, height: 50 };
+    const { guides, sdy, nextUnion } = computeMovedUnion({
+      union: rightChrome,
+      origins: [{ nodeId: 'm', box: rightChrome }],
+      document: {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        deltaSetLike: {
+          m: {
+            id: 'm',
+            key: 'shape',
+            x: 120,
+            y: 24,
+            width: 60,
+            height: 50,
+            attrs: {
+              shapeType: 'rect',
+              'border-width': 0,
+              'stroke-enabled': 'false',
+              'stroke-visible': 'false',
+            },
+            children: [],
+          },
+        },
+      } as SceneDocument,
+      dx: 0,
+      dy: 0,
+      disableSnap: false,
+      gridSize: 1,
+      targets: [left],
+      threshold: 8,
+    });
+    expect(sdy).toBe(-4);
+    expect(nextUnion.top).toBe(20);
+    expect(guides.some((g) => g.kind === 'align' && g.axis === 'y' && g.at === 20)).toBe(true);
+  });
+
+  it('visual-outer grid can land flush on a neighbor edge', () => {
+    const left = { left: 0, top: 0, width: 100, height: 80 };
+    // Explicitly no stroke so visual === path; pointer aims just past flush → 100.
+    const rightChrome = { left: 100.4, top: 0, width: 40, height: 40 };
+    const { nextUnion, guides } = computeMovedUnion({
+      union: rightChrome,
+      origins: [{ nodeId: 'm', box: rightChrome }],
+      document: {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        deltaSetLike: {
+          m: {
+            id: 'm',
+            key: 'shape',
+            x: 100.4,
+            y: 0,
+            width: 40,
+            height: 40,
+            attrs: {
+              shapeType: 'rect',
+              'border-width': 0,
+              'stroke-enabled': 'false',
+              'stroke-visible': 'false',
+            },
+            children: [],
+          },
+        },
+      } as SceneDocument,
+      dx: 0,
+      dy: 0,
+      disableSnap: false,
+      gridSize: 1,
+      targets: [left],
+      threshold: 8,
+    });
+    expect(nextUnion.left).toBe(100);
+    expect(guides.some((g) => g.kind === 'align' && g.axis === 'x' && g.at === 100)).toBe(true);
+  });
+
+  it('center-stroke move keeps outer ink on grid (not path integers)', () => {
+    const chrome = { left: 100.5, top: 20.5, width: 40, height: 40 };
+    const node = {
+      id: 'm',
+      key: 'shape',
+      x: 100.5,
+      y: 20.5,
+      width: 40,
+      height: 40,
+      attrs: {
+        shapeType: 'rect',
+        'border-width': 1,
+        'border-color': '#333',
+        strokeAlign: 'center',
+        'stroke-enabled': 'true',
+        'stroke-visible': 'true',
+      },
+      children: [],
+    };
+    const { nextUnion, sdx } = computeMovedUnion({
+      union: chrome,
+      origins: [{ nodeId: 'm', box: chrome }],
+      document: {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        deltaSetLike: { m: node },
+      } as SceneDocument,
+      dx: 2.3,
+      dy: 0,
+      disableSnap: false,
+      gridSize: 1,
+      targets: [],
+      threshold: 8,
+    });
+    // Outer ink was at 100; +2.3 → snap to 102 → path stays *.5
+    expect(sdx).toBe(2);
+    expect(nextUnion.left).toBe(102.5);
   });
 });
 

@@ -170,7 +170,7 @@ export function waitForImageReady(
           }
           finish(true);
         }
-        void decodeAndFinish();
+        decodeAndFinish();
         return;
       }
       finish(true);
@@ -337,4 +337,35 @@ export async function uploadImageFromSrc(
   const file = await imageSrcToFile(s, filename, { uploadKey: opts?.uploadKey });
   if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   return uploadImageFile(file, { signal: opts?.signal });
+}
+
+/**
+ * COS / CDN display URLs often lack browser CORS — WaveSurfer `fetch` fails.
+ * Resolve via authenticated upload pipeline into a same-origin blob: URL.
+ * Caller must revoke when done (except passthrough blob:/data:).
+ */
+export async function resolvePlayableMediaBlobUrl(
+  src: string,
+  opts?: { uploadKey?: string | null; filename?: string; fallbackMime?: string }
+): Promise<{ url: string; revoke: () => void }> {
+  const s = String(src || '').trim();
+  if (!s) throw new Error('empty media src');
+  if (s.startsWith('blob:') || s.startsWith('data:')) {
+    return { url: s, revoke: () => undefined };
+  }
+  const file = await imageSrcToFile(s, opts?.filename || 'media.bin', {
+    uploadKey: opts?.uploadKey,
+    fallbackMime: opts?.fallbackMime || 'application/octet-stream',
+  });
+  const url = URL.createObjectURL(file);
+  return {
+    url,
+    revoke: () => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
+    },
+  };
 }

@@ -110,6 +110,25 @@ describe('boolean circle crescent arcs', () => {
     expect(verts).toBeGreaterThan(80);
   });
 
+  it('keeps donut holes on ring−ring subtract (not a solid crescent)', () => {
+    const donut = (left: number, top: number): ShapeBox =>
+      circleBox({
+        left,
+        top,
+        width: 200,
+        height: 200,
+        attrs: { shapeType: 'circle', ellipseInnerRatio: 0.45 },
+      });
+    const boxes: ShapeBox[] = [donut(0, 0), donut(70, 40)];
+    const { result, usedFallback } = computeShapeBoolean(boxes, 'subtract');
+    expect(usedFallback).toBe(false);
+    expect(result?.path).toBeTruthy();
+    // Solid disks → one crescent subpath; donuts keep holes → multiple M…Z + evenodd.
+    const subpaths = (result!.path.match(/M/gi) || []).length;
+    expect(subpaths).toBeGreaterThanOrEqual(2);
+    expect(result!.fillRule).toBe('evenodd');
+  });
+
   it('subtracts rounded rects without collapsing to a sharp AABB L', () => {
     const boxes: ShapeBox[] = [
       rectBox({

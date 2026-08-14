@@ -2,17 +2,17 @@ import { test, expect } from '@playwright/test';
 
 /**
  * Browser-runtime canvas foundations (no app login / API).
- * Validates snap magnets + boolean clipping in Chromium — same algorithms
+ * Validates grid settle + boolean clipping in Chromium — same algorithms
  * the editor uses, exercised outside the Redux mount so CI can run headless
  * without the Python API.
  */
 test.describe('canvas foundations (browser)', () => {
-  test('smart-guide flush snap + boolean modes in Chromium', async ({ page }) => {
+  test('grid settle + boolean modes in Chromium', async ({ page }) => {
     test.setTimeout(60_000);
     await page.setContent('<!doctype html><html><body></body></html>');
 
     const result = await page.evaluate(async () => {
-      // --- minimal grid + smart-move (mirrors alignGuides settle order) ---
+      // --- grid-only move settle (object magnets removed; guides paint-only) ---
       type Box = { left: number; top: number; width: number; height: number };
 
       function snapCoordToGrid(v: number, grid: number) {
@@ -26,74 +26,8 @@ test.describe('canvas foundations (browser)', () => {
           top: snapCoordToGrid(box.top, grid),
         };
       }
-      function edges(box: Box) {
-        return {
-          L: box.left,
-          R: box.left + box.width,
-          T: box.top,
-          B: box.top + box.height,
-          CX: box.left + box.width / 2,
-          CY: box.top + box.height / 2,
-        };
-      }
-      function snapMoveToSmartGuides(box: Box, targets: Box[], threshold: number) {
-        let next = { ...box };
-        let snappedX = false;
-        let snappedY = false;
-        const me = edges(next);
-        let bestX = { d: threshold + 1, delta: 0 };
-        let bestY = { d: threshold + 1, delta: 0 };
-        for (const t of targets) {
-          const te = edges(t);
-          for (const [a, b] of [
-            [me.L, te.L],
-            [me.L, te.R],
-            [me.R, te.L],
-            [me.R, te.R],
-            [me.CX, te.CX],
-          ] as const) {
-            const d = Math.abs(a - b);
-            if (d < bestX.d) bestX = { d, delta: b - a };
-          }
-          for (const [a, b] of [
-            [me.T, te.T],
-            [me.T, te.B],
-            [me.B, te.T],
-            [me.B, te.B],
-            [me.CY, te.CY],
-          ] as const) {
-            const d = Math.abs(a - b);
-            if (d < bestY.d) bestY = { d, delta: b - a };
-          }
-        }
-        if (bestX.d <= threshold) {
-          next.left += bestX.delta;
-          snappedX = true;
-        }
-        if (bestY.d <= threshold) {
-          next.top += bestY.delta;
-          snappedY = true;
-        }
-        return { box: next, snappedX, snappedY };
-      }
-      function productionMoveSettle(box: Box, targets: Box[], zoom: number, gridSize = 1) {
-        const threshold = Math.max(4, 8 / Math.max(0.05, zoom));
-        let next = { ...box };
-        let smartX = false;
-        let smartY = false;
-        if (threshold > 0 && targets.length) {
-          const smart = snapMoveToSmartGuides(next, targets, threshold);
-          next = smart.box;
-          smartX = smart.snappedX;
-          smartY = smart.snappedY;
-        }
-        const pinned = snapBoxToGrid(next, gridSize);
-        next = {
-          ...next,
-          left: smartX ? next.left : pinned.left,
-          top: smartY ? next.top : pinned.top,
-        };
-        return next;
+      function productionMoveSettle(box: Box, _targets: Box[], _zoom: number, gridSize = 1) {
+        return snapBoxToGrid(box, gridSize);
       }
 
       const sibling: Box = { left: 0, top: 0, width: 100, height: 80 };
@@ -209,7 +143,9 @@ test.describe('canvas foundations (browser)', () => {
       };
     });
 
-    expect(Math.abs(result.snapLeft - 100)).toBeLessThanOrEqual(1);
+    // Grid only: near a sibling edge does not yank to flush (98 stays on grid).
+    expect(result.snapLeft).toBe(98);
+    expect(result.snapTop).toBe(2);
     expect(result.unionHits.aOnly).toBe(true);
     expect(result.holeCenter).toBe(true);
     expect(result.rim).toBe(true);

@@ -218,17 +218,12 @@ function strokeVisualOutsetAssumingPainted(node: SceneNodeInput): number {
 }
 
 /**
- * Closed shapes drawn with center stroke store path geom inset by sw/2 so outer
- * ink sits on the integer grid. Hiding stroke without expanding leaves the fill
- * on half-pixels. Expand/inset AABB to keep the visible edge stable.
- *
- * Skips open strokes / freehand / custom path `d` (AABB alone would not offset the curve).
+ * Closed shapes drawn with center/outside stroke store path geom inset so outer
+ * ink sits on the integer grid. AABB-only adjust — skip open strokes / freehand /
+ * custom path `d` (those need curve offset, not box resize).
  */
-export function geometryPatchForStrokeVisibilityToggle(
-  node: SceneNodeInput,
-  nextVisible: boolean
-): { x: number; y: number; width: number; height: number } | null {
-  if (!node) return null;
+function canAdjustClosedStrokeGeomBox(node: SceneNodeInput): boolean {
+  if (!node) return false;
   const shapeType = String(node.attrs?.shapeType || '');
   if (
     shapeType === 'line' ||
@@ -237,7 +232,7 @@ export function geometryPatchForStrokeVisibilityToggle(
     shapeType === 'pen' ||
     shapeType === 'path'
   ) {
-    return null;
+    return false;
   }
   if (
     node.key === 'text' ||
@@ -247,13 +242,48 @@ export function geometryPatchForStrokeVisibilityToggle(
     node.key === 'lottie' ||
     node.key === 'audio'
   ) {
-    return null;
+    return false;
   }
   // Boolean / pasted outlines keep absolute local `path` — resizing the box alone
   // would not grow the fill to the old outer ink.
   if (typeof node.attrs?.path === 'string' && String(node.attrs.path).trim()) {
-    return null;
+    return false;
   }
+  return true;
+}
+
+/** Inset (+delta) or expand (−delta) path so outer ink stays put. */
+function patchNodeBoxByOutsetDelta(
+  node: SceneNodeInput,
+  delta: number,
+  opts?: { rejectIfNoShrink?: boolean }
+): { x: number; y: number; width: number; height: number } | null {
+  if (!(Math.abs(delta) > 1e-9)) return null;
+  const x = Number(node.x) || 0;
+  const y = Number(node.y) || 0;
+  const width = Math.max(1, Number(node.width) || 1);
+  const height = Math.max(1, Number(node.height) || 1);
+  const nextW = Math.max(1, width - delta * 2);
+  const nextH = Math.max(1, height - delta * 2);
+  if (opts?.rejectIfNoShrink && nextW >= width && nextH >= height) return null;
+  return {
+    x: quantizeHalfPx(x + delta),
+    y: quantizeHalfPx(y + delta),
+    width: quantizeHalfPx(nextW),
+    height: quantizeHalfPx(nextH),
+  };
+}
+
+/**
+ * Closed shapes drawn with center stroke store path geom inset by sw/2 so outer
+ * ink sits on the integer grid. Hiding stroke without expanding leaves the fill
+ * on half-pixels. Expand/inset AABB to keep the visible edge stable.
+ */
+export function geometryPatchForStrokeVisibilityToggle(
+  node: SceneNodeInput,
+  nextVisible: boolean
+): { x: number; y: number; width: number; height: number } | null {
+  if (!canAdjustClosedStrokeGeomBox(node)) return null;
 
   const attrs = node.attrs || {};
   const currentlyVisible =
@@ -265,31 +295,28 @@ export function geometryPatchForStrokeVisibilityToggle(
     : strokeVisualOutset(node);
   if (!(outset > 0)) return null;
 
-  const x = Number(node.x) || 0;
-  const y = Number(node.y) || 0;
-  const width = Math.max(1, Number(node.width) || 1);
-  const height = Math.max(1, Number(node.height) || 1);
+  // Show → inset (+outset); hide → expand (−outset).
+  return patchNodeBoxByOutsetDelta(node, nextVisible ? outset : -outset, {
+    rejectIfNoShrink: nextVisible,
+  });
+}
 
-  if (nextVisible) {
-    // Show stroke → inset path so outer ink matches current fill edge.
-    const nextW = Math.max(1, width - outset * 2);
-    const nextH = Math.max(1, height - outset * 2);
-    if (nextW >= width && nextH >= height) return null;
-    return {
-      x: quantizeHalfPx(x + outset),
-      y: quantizeHalfPx(y + outset),
-      width: quantizeHalfPx(nextW),
-      height: quantizeHalfPx(nextH),
-    };
-  }
+/**
+ * Keep **outer ink** fixed when border-width / strokeAlign change (panel edits).
+ * Path insets or expands by Δoutset so the painted edge stays on the same grid.
+ */
+export function geometryPatchForStrokeOutsetChange(
+  node: SceneNodeInput,
+  nextAttrs: Record<string, unknown>
+): { x: number; y: number; width: number; height: number } | null {
+  if (!canAdjustClosedStrokeGeomBox(node)) return null;
 
-  // Hide stroke → expand fill to previous outer ink.
-  return {
-    x: quantizeHalfPx(x - outset),
-    y: quantizeHalfPx(y - outset),
-    width: quantizeHalfPx(width + outset * 2),
-    height: quantizeHalfPx(height + outset * 2),
-  };
+  const prevOutset = strokeVisualOutset(node);
+  const nextOutset = strokeVisualOutset({
+    ...node,
+    attrs: { ...(node.attrs || {}), ...nextAttrs },
+  });
+  return patchNodeBoxByOutsetDelta(node, nextOutset - prevOutset);
 }
 
 /** Scene-space air between text glyphs and selection chrome (flush / ~0). */

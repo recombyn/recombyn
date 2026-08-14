@@ -1,4 +1,4 @@
-import { produce, type WritableDraft } from 'immer';
+import { current, isDraft, produce, type WritableDraft } from 'immer';
 import { nanoid } from '@reduxjs/toolkit';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type {
@@ -45,8 +45,14 @@ function createPage(id?: string): ScenePage {
 /** Isolate a node/frame/doc slice without JSON.parse(JSON.stringify). */
 export function cloneSceneValue<T>(value: T): T {
   if (value == null || typeof value !== 'object') return value;
-  if (typeof structuredClone === 'function') return structuredClone(value);
-  return { ...(value as object) } as T;
+  // Reducers run under Immer — drafts are Proxies and throw DataCloneError in structuredClone.
+  const plain = (isDraft(value) ? current(value) : value) as T;
+  try {
+    if (typeof structuredClone === 'function') return structuredClone(plain);
+  } catch {
+    /* non-cloneable fields — fall through */
+  }
+  return JSON.parse(JSON.stringify(plain)) as T;
 }
 
 /** Unified paint / layer order: `frame:id` | `node:id` (bottom → top). */

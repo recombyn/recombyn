@@ -105,6 +105,28 @@ export function snapPenAnchorPoint(
   return { x: bestX, y: bestY };
 }
 
+/**
+ * Shift+place pen segment: lock rubber-band / next anchor to nearest 45° from `from`.
+ */
+export function snapPenStrokeOctant(
+  from: { x: number; y: number } | null | undefined,
+  x1: number,
+  y1: number,
+  shiftKey: boolean
+): { x: number; y: number } {
+  if (!shiftKey || !from) return { x: x1, y: y1 };
+  const dx = x1 - from.x;
+  const dy = y1 - from.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return { x: from.x, y: from.y };
+  const step = Math.PI / 4;
+  const snapped = Math.round(Math.atan2(dy, dx) / step) * step;
+  return {
+    x: from.x + Math.cos(snapped) * len,
+    y: from.y + Math.sin(snapped) * len,
+  };
+}
+
 export { resolvePenPlaceAction, reversePenAnchors } from './penPath';
 
 /**
@@ -406,6 +428,10 @@ function PenDrawFeature({
   const prevCursorRef = useRef<string>('');
   /** Last click on an existing anchor ??second click within window ??corner. */
   const lastAnchorTapRef = useRef<{ index: number; t: number } | null>(null);
+  /** Last idle pointer scene pos — Shift keyup/down refreshes 45° rubber-band. */
+  const lastScenePointerRef = useRef<{ x: number; y: number; rawX: number; rawY: number } | null>(
+    null
+  );
   /** When set, finish() patches this open path instead of creating a new node. */
   const resumeNodeIdRef = useRef<string | null>(null);
   const onCommitRef = useRef(onCommit);
@@ -476,6 +502,8 @@ function PenDrawFeature({
     onCommitRef.current(d, origin, closed, replaceNodeId ? { replaceNodeId } : undefined);
     if (leave) onCancelRef.current?.();
   };
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
 
   // Switching away from pen (e.g. bottom Select): commit draft, then tear down.
   useEffect(() => {
@@ -562,7 +590,7 @@ function PenDrawFeature({
       // Do not clear hitEl.style.cursor ? RcbCanvas owns the tool cursor via React.
       // Clearing here races the next tool (e.g. pencil) and wipes its icon cursor.
       // Esc / Enter: commit open path and leave the pen tool.
-      finish(false, { leaveTool: true });
+      finishRef.current(false, { leaveTool: true });
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -585,6 +613,30 @@ function PenDrawFeature({
         });
         setSelectedHandle(null);
         setHoverHandle(null);
+        return;
+      }
+      // Mid-hover Shift: refresh rubber-band to/from 45° without moving the mouse.
+      if (
+        e.key === 'Shift' &&
+        !placingRef.current &&
+        !closingRef.current &&
+        !dragKindRef.current
+      ) {
+        const lastPt = lastScenePointerRef.current;
+        const list = anchorsRef.current;
+        if (!lastPt || list.length < 1) return;
+        const last = list[list.length - 1];
+        const shift = e.type === 'keydown';
+        const tip = shift
+          ? snapPenStrokeOctant(last, lastPt.rawX, lastPt.rawY, true)
+          : snapPenAnchorPoint(
+              lastPt.rawX,
+              lastPt.rawY,
+              gridSizeRef.current,
+              !gridSnapRef.current
+            );
+        setCursor(tip);
+        setCloseHot(nearClose(tip));
       }
     };
 
@@ -592,11 +644,13 @@ function PenDrawFeature({
 
     // Always listen while pen is active ??do not require hitEl (Esc / ??must work).
     window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keyup', onKey, true);
     window.addEventListener('resume:exit-pen', onExitEvent);
 
     if (!hitEl) {
       return () => {
         window.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('keyup', onKey, true);
         window.removeEventListener('resume:exit-pen', onExitEvent);
       };
     }
@@ -730,7 +784,12 @@ function PenDrawFeature({
       lastAnchorTapRef.current = null;
       setHoverAnchor(null);
 
-      const anchor: PenAnchor = { x: action.x, y: action.y };
+      const lastAnchor = list.length > 0 ? list[list.length - 1] : null;
+      const placePt =
+        e.shiftKey && lastAnchor
+          ? snapPenStrokeOctant(lastAnchor, raw.x, raw.y, true)
+          : { x: action.x, y: action.y };
+      const anchor: PenAnchor = { x: placePt.x, y: placePt.y };
       placingRef.current = anchor;
       draggingRef.current = false;
       dragKindRef.current = { kind: 'place' };
@@ -812,6 +871,7 @@ function PenDrawFeature({
 
       // Idle: prefer anchor hover, then handle diamonds (raw hit). Tip always
       // sticks to grid corners / edge mids so the CSS pen cursor tip ≠ place lattice.
+      lastScenePointerRef.current = { x: p.x, y: p.y, rawX: raw.x, rawY: raw.y };
       const aIdx = hitAnchor(anchorsRef.current, raw, anchorR);
       if (aIdx >= 0) {
         setHoverAnchor(aIdx);
@@ -833,9 +893,15 @@ function PenDrawFeature({
       }
 
       setPaperCursor(hitEl || paperEl, PEN_CURSOR);
-      // Rubber-band / snap tip sticks to grid corners + edge midpoints.
-      setCursor(p);
-      setCloseHot(nearClose(p));
+      // Rubber-band: Shift locks to 45° from the last placed anchor.
+      const lastAnchor =
+        anchorsRef.current.length > 0
+          ? anchorsRef.current[anchorsRef.current.length - 1]
+          : null;
+      const tip = snapPenStrokeOctant(lastAnchor, raw.x, raw.y, e.shiftKey);
+      const cursorTip = e.shiftKey && lastAnchor ? tip : p;
+      setCursor(cursorTip);
+      setCloseHot(nearClose(cursorTip));
     };
 
     const onUp = (e: PointerEvent) => {
@@ -875,7 +941,7 @@ function PenDrawFeature({
         draggingRef.current = false;
         dragKindRef.current = null;
         setClosing(false);
-        finish(true);
+        finishRef.current(true);
         return;
       }
 
@@ -925,6 +991,7 @@ function PenDrawFeature({
       hitEl.removeEventListener('pointerleave', onLeave);
       hitEl.removeEventListener('dblclick', onDbl, true);
       window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keyup', onKey, true);
       window.removeEventListener('resume:exit-pen', onExitEvent);
       prevCursorRef.current = '';
       // Leave style.cursor alone ? React (RcbCanvas) sets the next tool cursor after commit;

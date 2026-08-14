@@ -2,7 +2,9 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 export type SceneBox = { left: number; top: number; width: number; height: number };
 export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
-const DEFAULT_MIN = 8;
+/** Scene-space floor — match ShapeDraw (1px); stroke outset may raise it at snap. */
+export const RESIZE_MIN_SIZE = 1;
+const DEFAULT_MIN = RESIZE_MIN_SIZE;
 
 /** Keep the opposite edge/corner fixed when clamping to min size (prevents bounce). */
 function clampBoxAnchored(

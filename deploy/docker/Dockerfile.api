@@ -21,6 +21,10 @@ COPY packages/plugin-sdk ./packages/plugin-sdk
 COPY packages/agent-sdk ./packages/agent-sdk
 COPY packages/runtime ./packages/runtime
 COPY apps/api ./apps/api
+# Design Agent catalog (ADR 0018): scanned from repo root via _repo_root().
+# Without these, cloud images only see volume-mounted plugins (often one demo pack).
+COPY skills ./skills
+COPY plugins/skills ./plugins/skills
 
 ARG INSTALL_OCR=false
 ARG INSTALL_AV=false

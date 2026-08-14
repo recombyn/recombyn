@@ -6,6 +6,7 @@ import {
   strokeChromeOutset,
   strokeVisualOutset,
   geometryPatchForStrokeVisibilityToggle,
+  geometryPatchForStrokeOutsetChange,
 } from '../../scene/document/sceneEffects';
 
 /**
@@ -178,5 +179,72 @@ describe('geometryPatchForStrokeVisibilityToggle', () => {
       attrs: { ...rectCenter1.attrs, shapeType: 'path', path: 'M0 0 L10 0 L10 10 Z', closed: 'true' },
     };
     expect(geometryPatchForStrokeVisibilityToggle(node, false)).toBeNull();
+  });
+});
+
+describe('geometryPatchForStrokeOutsetChange', () => {
+  const rectCenter1 = {
+    key: 'shape',
+    x: 10.5,
+    y: 8.5,
+    width: 42,
+    height: 31,
+    attrs: {
+      shapeType: 'rect',
+      'border-width': 1,
+      'border-color': '#333',
+      strokeAlign: 'center',
+      'stroke-enabled': 'true',
+      'stroke-visible': 'true',
+      'fill-color': '#fff',
+    },
+  };
+
+  it('thicker center stroke insets path so outer ink stays on grid', () => {
+    const outer0 = inflateBoxByVisualOutset(
+      { left: rectCenter1.x, top: rectCenter1.y, width: rectCenter1.width, height: rectCenter1.height },
+      rectCenter1
+    );
+    expect(outer0.left).toBe(10);
+
+    const patch = geometryPatchForStrokeOutsetChange(rectCenter1, { 'border-width': 3 });
+    expect(patch).toEqual({ x: 11.5, y: 9.5, width: 40, height: 29 });
+    const next = {
+      ...rectCenter1,
+      ...patch,
+      attrs: { ...rectCenter1.attrs, 'border-width': 3 },
+    };
+    const outer1 = inflateBoxByVisualOutset(
+      { left: next.x, top: next.y, width: next.width, height: next.height },
+      next
+    );
+    expect(outer1).toEqual(outer0);
+  });
+
+  it('thinner center stroke expands path; outer ink unchanged', () => {
+    const thick = {
+      ...rectCenter1,
+      x: 11.5,
+      y: 9.5,
+      width: 40,
+      height: 29,
+      attrs: { ...rectCenter1.attrs, 'border-width': 3 },
+    };
+    const outer0 = inflateBoxByVisualOutset(
+      { left: thick.x, top: thick.y, width: thick.width, height: thick.height },
+      thick
+    );
+    const patch = geometryPatchForStrokeOutsetChange(thick, { 'border-width': 1 });
+    expect(patch).toEqual({ x: 10.5, y: 8.5, width: 42, height: 31 });
+    const next = { ...thick, ...patch, attrs: { ...thick.attrs, 'border-width': 1 } };
+    const outer1 = inflateBoxByVisualOutset(
+      { left: next.x, top: next.y, width: next.width, height: next.height },
+      next
+    );
+    expect(outer1).toEqual(outer0);
+  });
+
+  it('same width: no geom patch', () => {
+    expect(geometryPatchForStrokeOutsetChange(rectCenter1, { 'border-width': 1 })).toBeNull();
   });
 });

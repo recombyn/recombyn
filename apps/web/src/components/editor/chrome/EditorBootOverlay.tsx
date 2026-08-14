@@ -8,7 +8,7 @@ type Props = {
   exiting?: boolean;
 };
 
-/** Boot loader only — no skeleton chrome. */
+/** Boot loader only — no skeleton chrome. Fixed so flex dock resize cannot shift the mark. */
 function EditorBootOverlay({ progress, exiting = false }: Props) {
   const { t } = useTranslation();
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
@@ -16,7 +16,7 @@ function EditorBootOverlay({ progress, exiting = false }: Props) {
   return (
     <div
       className={cn(
-        'absolute inset-0 z-40 flex items-center justify-center bg-[var(--canvas)] transition-opacity duration-300',
+        'fixed inset-0 z-[100] flex items-center justify-center bg-[var(--canvas)] transition-opacity duration-300',
         exiting ? 'pointer-events-none opacity-0' : 'opacity-100'
       )}
       role="progressbar"

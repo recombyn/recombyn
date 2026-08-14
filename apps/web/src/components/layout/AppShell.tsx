@@ -1,5 +1,6 @@
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
+import { dismissHtmlBootSplash } from '@/components/base/AppLogo';
 import DesktopTitlebar, {
   DesktopTitlebarProvider,
   useIsDesktopShell,
@@ -8,6 +9,11 @@ import { LoginDialogHost } from '@/components/layout/LoginDialog';
 
 function AppShell() {
   const desktop = useIsDesktopShell();
+
+  useEffect(() => {
+    // Home is eager (no BrandWordmarkLoader) — clear the HTML splash once shell paints.
+    dismissHtmlBootSplash();
+  }, []);
 
   return (
     <DesktopTitlebarProvider>

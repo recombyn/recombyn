@@ -104,7 +104,15 @@ type BrandWordmarkLoaderProps = {
 /**
  * Gradient-shine wordmark used as the app loading indicator
  * (not skeletons, not inline button spinners).
+ * Also drops the static `index.html` splash when first mounted.
  */
+export function dismissHtmlBootSplash() {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('boot-splash');
+  if (!el) return;
+  el.remove();
+}
+
 function BrandWordmarkLoader({
   size = 'sm',
   label,
@@ -113,6 +121,10 @@ function BrandWordmarkLoader({
   const { t } = useTranslation();
   const wordmark = t('app.name').toLowerCase();
   const labelled = Boolean(label);
+
+  useEffect(() => {
+    dismissHtmlBootSplash();
+  }, []);
 
   return (
     <div

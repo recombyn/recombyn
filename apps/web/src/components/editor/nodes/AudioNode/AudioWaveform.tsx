@@ -189,7 +189,7 @@ function AudioWaveformInner(
         if (!cancelled) console.warn('[AudioWaveform] load failed', err);
       }
     }
-    void loadWaveform();
+    loadWaveform();
 
     return () => {
       cancelled = true;
