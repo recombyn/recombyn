@@ -1017,9 +1017,10 @@ function PenPathEditFeature({
           active,
         });
       };
+      // Paint handles only for knobs we show — otherwise Q→C outlines carpet the canvas.
+      if (!paintMask[i]) return;
       if (a.outX != null && a.outY != null) pushHandle('out', a.outX, a.outY);
       if (a.inX != null && a.inY != null) pushHandle('in', a.inX, a.inY);
-      if (!paintMask[i]) return;
       anchorsDraw.push({
         x: a.x,
         y: a.y,
