@@ -1,13 +1,14 @@
-# ADR 0025: Billing Protocol (open) + commercial strategy (private)
+# ADR 0025: Billing Protocol (open) + commercial strategy (host-private)
 
 - **Status:** Accepted
 - **Date:** 2026-08-14
 
 ## Context
 
-Three-repo freeze. Billing must be auditable while margin / packs / fraud stay
-private. This ADR freezes the **Billing Protocol** (contracts + open cost floor),
-not the full Billing System (wallet DB, Admin Pricing Control).
+Billing must be auditable for self-host and ecosystem adapters while **commercial
+policy** (markup, packs, fraud, promotions) stays with the host operator. This
+ADR freezes the **Billing Protocol** (contracts + open cost floor), not a full
+hosted billing product.
 
 Design Brief stays in `recombyn_protocol.brief` — **never** under `billing/`.
 
@@ -17,15 +18,20 @@ Design Brief stays in `recombyn_protocol.brief` — **never** under `billing/`.
 
 ```text
 billing/
-├── model.py      # ModelIdentitySchema, ModelCapabilitySchema (+ pricing_id)
-├── pricing.py    # PricingSchema / Version / Rate + resolve_pricing()
-├── usage.py      # ProviderUsageSchema, UsageEventSchema
-├── cost.py       # CostBreakdownSchema (micros), TaskCostSchema
-├── events.py     # BillingEvent + CreditTransaction + CreditLedger
-├── lifecycle.py  # estimate → reserve → execute → settle (charge/release)
-├── budget.py     # BudgetSchema, BudgetPolicySchema, BudgetCheckSchema
-├── money.py      # MoneySchema, CurrencySchema, micros helpers
-└── provider.py   # ProviderSchema, ProviderBillingAdapter
+├── model.py          # ModelIdentitySchema, ModelCapabilitySchema (+ pricing_id)
+├── pricing.py        # PricingSchema / Version / Rate + resolve_pricing()
+├── usage.py          # ProviderUsageSchema, UsageEventSchema
+├── cost.py           # CostBreakdownSchema (micros), TaskCostSchema
+├── events.py         # BillingEvent + CreditTransaction + CreditLedger
+├── lifecycle.py      # estimate → reserve → execute → settle (charge/release)
+├── budget.py         # BudgetSchema, BudgetPolicySchema, BudgetCheckSchema
+├── money.py          # MoneySchema, CurrencySchema, micros helpers
+├── provider.py       # ProviderSchema, ProviderBillingAdapter
+├── task_pricing.py   # TaskPricingSchema (0.1.3+)
+├── credit_policy.py  # CreditPolicySchema (0.1.3+)
+├── quota.py          # QuotaSchema (0.1.3+)
+├── entitlement.py    # EntitlementSchema (0.1.3+)
+└── meter.py          # BillingMeterSchema (0.1.3+)
 ```
 
 Helpers: `packages/billing-sdk` (builders + `estimate_provider_cost`).
@@ -37,7 +43,7 @@ Provider Price (PricingVersion / rates)
       ↓
 Internal Cost (CostBreakdown.internal_cost_micros)
       ↓
-Private Commercial Policy   ← NOT in Public protocol
+Host commercial policy   ← NOT in Public protocol
       ↓
 User Credits / Ledger
 ```
@@ -48,33 +54,27 @@ Public must **not** put `user_price` / `credits_per_token` on Model.
 
 1. Settled usage carries `pricing_version_id` (history never rewritten).
 2. Task sell unit is `TaskCostSchema` (many UsageEvents).
-3. Lifecycle: estimate → reserve → charge + release.
+3. Lifecycle: estimate → authorize/reserve → capture/charge + release.
 4. Money ledger truth = integer **micros**; Credits = `int`.
-5. Protocol pin: `recombyn-protocol` **0.1.2+**.
+5. Protocol pin: `recombyn-protocol` **0.1.3+** (see ADR 0026 for task-centric schemas).
 
-### Wave B / C landing (API + Admin)
+### Open Runtime landing (illustrative)
 
-- Alembic `0015_pricing_versions`: `pricing_versions` table, `llm_models.pricing_id`,
-  `model_usage.pricing_version_id`
-- `app/services/llm/pricing_registry.py` + Admin `/admin/pricing-versions*` +
-  `/admin/margin/summary`
-- `usage_log.record_model_usage` resolves and stores `pricing_version_id`
-- `wallet/lifecycle.py` estimate / reserve / settle credit helpers
-- Admin UI: Pipeline → Pricing Versions; Insights → Margin Monitor
-- `RemoteIntelligenceProvider` ships in `packages/intelligence-client` (BasicLocal
-  stays API-coupled to Kernel runners)
+- Versioned provider price sheets (`pricing_versions`) bound to usage rows
+- Wallet estimate / authorize / capture helpers
+- Admin-facing pricing version CRUD for **provider** sheets (not host markup)
+- Optional remote quote adapter for cloud hosts (credits only on the wire)
 
 ## Consequences
 
-- Ecosystem adapters can meter providers without knowing Recombyn margin.
-- Wave B: API migrates `LlmModel.price` → versioned registry + usage pin.
-- Private Intelligence / Admin own margin, packs, fraud, dynamic user pricing.
+- Ecosystem adapters can meter providers without knowing a host’s commercial policy.
+- Public docs never publish host markup, list-price strategy, or private service maps.
+- See ADR 0026 for task-centric credits.
 
 ## Alternatives considered
 
 - Mutable `model.price` — cannot audit history.
-- Billing only in Admin — blocks open adapters.
-- Fourth billing repo — violates three-repo freeze.
+- Billing only in a closed admin app — blocks open adapters.
 - Float currency as ledger truth — prefer micros.
 
 ## References
@@ -84,3 +84,4 @@ Public must **not** put `user_price` / `credits_per_token` on Model.
 - [ADR 0001](./0001-monorepo-boundaries.md)
 - [ADR 0017](./0017-intelligence-provider-boundary.md)
 - [ADR 0024](./0024-protocol-version-cross-repo-ci.md)
+- [ADR 0026](./0026-task-centric-billing.md)

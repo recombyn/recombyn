@@ -252,6 +252,7 @@ async def run_img_layers_job(
                 rules=rules,
                 free_daily=free_daily,
                 images_hydrated=1,
+                mode="agent",
             )
             or 0
         )

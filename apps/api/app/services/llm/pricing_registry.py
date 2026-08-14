@@ -1,6 +1,6 @@
 """Pricing Registry — versioned provider price sheets (Billing Protocol).
 
-User sell price / margin stay out of this module (private commercial policy).
+User sell price / host markup stay out of this module.
 """
 
 from __future__ import annotations
