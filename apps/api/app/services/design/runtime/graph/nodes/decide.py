@@ -131,6 +131,38 @@ async def _load_turn_resources(rt: AgentRuntime) -> None:
     await load_deferred_resources(rt, rt.turn)
 
 
+def intel_hops_for_intensity(intensity: str | None) -> tuple[list[str], bool]:
+    """Map design_intensity → optional Intelligence hops + principle write.
+
+    Always-run (caller): analyze_reference, retrieve_memory, autonomous_plan,
+    then these hops, then review / optimize / autonomous_sync, then write_principle
+    when the second return is True.
+    """
+    level = str(intensity or "medium").strip().lower().replace("_", "-")
+    if level in ("light", "low"):
+        return [], False
+    if level in ("medium", "mid", ""):
+        return ["research", "strategy"], False
+    if level == "high":
+        return [
+            "research",
+            "strategy",
+            "propose_candidates",
+            "tournament",
+            "swarm_direction",
+        ], False
+    # extreme / max
+    return [
+        "research",
+        "strategy",
+        "propose_candidates",
+        "tournament",
+        "swarm_direction",
+        "simulate",
+        "counterfactual",
+    ], True
+
+
 def ingest_reference_images(rt: AgentRuntime) -> list[str]:
     """reference_ingest — user attachments only; empty means skip the pipeline."""
     return [str(x).strip() for x in (getattr(rt, "images", None) or []) if str(x).strip()][:4]
@@ -496,20 +528,32 @@ async def _node_design_agent(state: GraphState) -> Command:
     await intel.analyze_reference(rt)
     await intel.retrieve_memory(rt)
     await intel.autonomous_plan(rt)
-    # light = brief Decide only; medium+ keep research→strategy stack.
-    deep = str((rt.flags or {}).get("design_intensity") or "medium").strip().lower() != "light"
-    if deep:
-        await intel.research(rt)
-        await intel.strategy(rt)
-        await intel.propose_candidates(rt)
-        await intel.tournament(rt)
-        await intel.swarm_direction(rt)
-        await intel.simulate(rt)
-        await intel.counterfactual(rt)
+
+    # Design intensity → Intelligence depth (not model thinking effort).
+    # light: ref+memory+plan only
+    # medium: + research/strategy
+    # high: + candidates/tournament/swarm
+    # extreme: + simulate/counterfactual + principle write
+    intensity = str((rt.flags or {}).get("design_intensity") or "medium").strip().lower()
+    hops, write_principle = intel_hops_for_intensity(intensity)
+    hop_runners = {
+        "research": intel.research,
+        "strategy": intel.strategy,
+        "propose_candidates": intel.propose_candidates,
+        "tournament": intel.tournament,
+        "swarm_direction": intel.swarm_direction,
+        "simulate": intel.simulate,
+        "counterfactual": intel.counterfactual,
+    }
+    for hop in hops:
+        runner = hop_runners.get(hop)
+        if runner is not None:
+            await runner(rt)
+
     await intel.review(rt)
     await intel.optimize(rt)
     await intel.autonomous_sync(rt)
-    if deep:
+    if write_principle:
         await intel.write_principle(rt)
     intel_suffix = _intel_prompt_suffix(rt)
 

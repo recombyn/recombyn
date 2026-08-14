@@ -227,6 +227,15 @@ function resolveHomeSubmitModelId(opts: {
   return opts.modelId;
 }
 
+function homeModelChipLabel(
+  modelId: string,
+  models: Array<{ id: string; label?: string }>,
+  autoLabel: string
+): string {
+  if (modelId === 'auto') return autoLabel;
+  return models.find((m) => m.id === modelId)?.label || modelId;
+}
+
 function resolveHomeIsImageSubmit(opts: {
   isImageInteraction: boolean;
   canPickModel: boolean;
@@ -1011,16 +1020,9 @@ function HomeAgentComposer({
         videoModeControls={videoModeControls}
         {...imageAspectProps}
         modelButtonProps={{
-          title: t('home.designSystemCta'),
           variant: 'chip',
-          label: [
-            modelId === 'auto'
-              ? t('agent.autoToggle')
-              : models.find((m) => m.id === modelId)?.label || modelId,
-            t(`agent.designIntensity.${designIntensity}.short`),
-          ]
-            .filter(Boolean)
-            .join(' · '),
+          label: homeModelChipLabel(modelId, models, t('agent.autoToggle')),
+          labelSuffix: t(`agent.designIntensity.${designIntensity}.short`),
           open: modelOpen,
           panelPlacement: 'bottom-end',
           onOpenChange: (next) => {

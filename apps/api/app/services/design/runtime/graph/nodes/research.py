@@ -127,7 +127,9 @@ _CATEGORY_PATTERNS: dict[str, dict[str, list[str]]] = {
 _CATEGORY_BY_SCENE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("poster", ("poster",)),
     ("dashboard", ("dashboard",)),
-    ("landing", ("landing", "website", "mobile")),
+    # Website / mobile / landing scenes use the richer ai_landing floor catalog
+    # (still scene-keyed — never prompt keyword guessing).
+    ("ai_landing", ("landing", "website", "mobile")),
 )
 
 
