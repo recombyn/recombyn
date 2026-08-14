@@ -19,6 +19,7 @@ import {
   spawnImportPlaceholderNode,
   spawnImageUploadPlaceholderNode,
   spawnVideoUploadPlaceholderNode,
+  spawnAudioUploadPlaceholderNode,
   promoteImageGeneratorToImage,
   promoteVideoGeneratorToVideo,
   promoteLottieGeneratorToLottie,
@@ -1771,6 +1772,32 @@ const editorSlice = createSlice({
       state.pendingImageSrc = null;
       state.activeTool = 'select';
     },
+    /** Spawn audio plate with local preview while remote upload runs (same sweep chrome). */
+    startAudioUploadPlaceholder(state, action) {
+      if (!state.document) return;
+      const src = String(action.payload?.src || '');
+      if (!src) return;
+      pushHistory(state);
+      const { document: next, id } = spawnAudioUploadPlaceholderNode(state.document, {
+        src,
+        width: Number(action.payload?.width) || 360,
+        height: Number(action.payload?.height) || 200,
+        label: action.payload?.label || '上传中',
+        x: action.payload?.x,
+        y: action.payload?.y,
+        name: action.payload?.name,
+        duration: action.payload?.duration,
+      });
+      if (!id) return;
+      state.document = next;
+      state.dirty = true;
+      state.sceneReloadToken += 1;
+      state.pendingImageProcessId = id;
+      state.selectedNodeId = id;
+      state.selectedNodeIds = [id];
+      state.pendingImageSrc = null;
+      state.activeTool = 'select';
+    },
     /** Spawn a right-side image processing node (original untouched). */
     startImageProcess(state, action) {
       if (!state.document) return;
@@ -2103,6 +2130,7 @@ export const {
   setCanvasMeta,
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
+  startAudioUploadPlaceholder,
   spawnImageGenerator,
   spawnVideoGenerator,
   spawnLottieGenerator,

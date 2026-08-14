@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, memo, type ReactNode } from 'react
 import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { NuqsAdapter } from 'nuqs/adapters/react-router/v6';
+import { BrandWordmarkLoader } from '@/components/base/AppLogo';
 import AppShell from '@/components/layout/AppShell';
 import HomePage from '@/pages/HomePage';
 import LoginRedirectPage from '@/pages/LoginRedirectPage';
@@ -18,9 +19,16 @@ const AccountSettingsPage = lazy(() => import('@/pages/AccountSettingsPage'));
 const EditorPage = lazy(() => import('@/pages/EditorPage'));
 const SharePage = lazy(() => import('@/pages/SharePage'));
 
-/** Minimal shell while a heavy route chunk loads. */
+/** Same wordmark as editor boot — never a blank canvas while the chunk loads. */
 function RouteFallback(): ReactNode {
-  return <div className="h-full min-h-0 w-full bg-[var(--canvas)]" aria-busy="true" />;
+  return (
+    <div
+      className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--canvas)]"
+      aria-busy="true"
+    >
+      <BrandWordmarkLoader size="lg" />
+    </div>
+  );
 }
 
 function LazyRoute({ children }: { children: ReactNode }) {

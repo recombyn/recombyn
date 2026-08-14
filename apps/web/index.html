@@ -61,6 +61,44 @@
     </script>
   </head>
   <body>
+    <!-- Instant boot mark — removed when React BrandWordmarkLoader mounts (no blank gap). -->
+    <div
+      id="boot-splash"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f5f5f5;
+        pointer-events: none;
+      "
+      aria-hidden="true"
+    >
+      <span
+        style="
+          font-family: Syne, system-ui, sans-serif;
+          font-weight: 700;
+          font-size: clamp(2.25rem, 5.6vw, 3.5rem);
+          letter-spacing: -0.05em;
+          line-height: 1;
+          color: #b0b0b0;
+        "
+      ><span style="color: #111">re</span>combyn</span>
+    </div>
+    <script>
+      (function () {
+        try {
+          if (document.documentElement.getAttribute('data-theme') === 'dark') {
+            var el = document.getElementById('boot-splash');
+            if (el) el.style.background = '#1e1e1e';
+            var mark = el && el.querySelector('span span');
+            if (mark) mark.style.color = '#f2f2f2';
+          }
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

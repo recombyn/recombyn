@@ -570,15 +570,16 @@ function AttachmentAudioPreview({ src }: { src: string }): ReactNode {
             : t('agent.previewPlay', { defaultValue: 'Play' })
         }
         onClick={toggleAudio}
-        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--canvas)] text-[var(--ink)] ring-1 ring-[var(--line)]"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--canvas)] p-0 leading-none text-[var(--ink)] ring-1 ring-[var(--line)]"
       >
         {playing ? (
-          <span className="h-2.5 w-2.5 rounded-[2px] bg-current" aria-hidden />
+          <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" aria-hidden />
         ) : (
-          <HiOutlinePlay className="h-4 w-4" />
+          // Play glyph is optically left-heavy in the viewBox — nudge for true center.
+          <HiOutlinePlay className="h-4 w-4 translate-x-px" aria-hidden />
         )}
       </button>
-      <span className="text-[12px] tabular-nums text-[var(--muted)]">
+      <span className="flex items-center text-[12px] leading-none tabular-nums text-[var(--muted)]">
         {formatAudioTime(audioTime.current)} / {formatAudioTime(audioTime.duration || 0)}
       </span>
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- attachment audio preview, not dialogue */}
@@ -692,17 +693,17 @@ function ComposerAttachmentChip({
         </span>
       </span>
     ) : previewKind === 'audio' ? (
-      <span className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-0.5 text-[var(--muted)]">
+      // Icon only — filename stays on tooltip / aria-label, not inside the chip.
+      <span className="flex h-full w-full items-center justify-center text-[var(--muted)]">
         <HiOutlineMusicalNote
-          className={cn('h-3.5 w-3.5', uploading && 'opacity-70')}
+          className={cn('h-4 w-4', uploading && 'opacity-70')}
           strokeWidth={1.75}
+          aria-hidden
         />
-        <span className="w-full truncate text-center text-[8px] leading-tight">{a.label}</span>
       </span>
     ) : (
-      <span className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-0.5 text-[var(--muted)]">
-        <HiOutlineDocument className="h-3.5 w-3.5" />
-        <span className="w-full truncate text-center text-[8px] leading-tight">{a.label}</span>
+      <span className="flex h-full w-full items-center justify-center text-[var(--muted)]">
+        <HiOutlineDocument className="h-4 w-4" aria-hidden />
       </span>
     );
 

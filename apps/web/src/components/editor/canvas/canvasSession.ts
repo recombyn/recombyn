@@ -557,7 +557,13 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
               height: Math.max(1, Number(node.height) || p.height),
             }
           : p;
-      if (node?.key === 'video' || node?.key === 'lottie' || node?.key === 'audio') {
+      if (
+        node?.key === 'video' ||
+        node?.key === 'lottie' ||
+        node?.key === 'audio' ||
+        // SoftGlow process plates sit in HTML — keep them glued like media hosts.
+        node?.key === 'image'
+      ) {
         hasVideo = true;
         const pending = coalescer.getPendingVideoGeom()?.[p.nodeId];
         videoOverrides[p.nodeId] = {
@@ -649,8 +655,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         board.root ? board : null
       );
     }
-    // HTML video / lottie plates read Redux doc — push live angle so rotate tracks chrome.
-    if (isVideoNode(node) || isLottieNode(node) || isAudioNode(node)) {
+    // HTML video / lottie / audio / image SoftGlow plates read Redux doc —
+    // push live angle so rotate tracks chrome.
+    if (
+      isVideoNode(node) ||
+      isLottieNode(node) ||
+      isAudioNode(node) ||
+      node.key === 'image'
+    ) {
       const live = deps.getDocument()?.deltaSetLike?.[nodeId] || node;
       const { left, top } = nodeLeftTop(deps.getDocument(), live);
       const coalescer = deps.getDragWriteCoalescer();

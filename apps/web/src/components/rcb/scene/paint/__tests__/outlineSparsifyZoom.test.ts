@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildOutlinePath,
-  type OutlineBuildOpts,
-} from '../outlineToPath';
+import { buildOutlinePath } from '../outlineToPath';
 import { polylinePathD } from '@/components/rcb/tools/pencilBrushes';
-
-function countLinearVerts(d: string): number {
-  return (String(d).match(/[ML]/gi) || []).length;
-}
 
 function thickPencilNode(pointCount: number) {
   const pts = Array.from({ length: pointCount }, (_, i) => ({
@@ -29,26 +22,22 @@ function thickPencilNode(pointCount: number) {
   };
 }
 
-describe('outline sparsify by zoom', () => {
-  it('keeps fewer edit verts when zoomed out than zoomed in', () => {
+describe('pencil outline keeps paint curves (no zoom sparsify shred)', () => {
+  it('keeps Q contours at far and near zoom', () => {
     const node = thickPencilNode(160);
-    const far = buildOutlinePath(node, { zoom: 0.3 } satisfies OutlineBuildOpts);
-    const near = buildOutlinePath(node, { zoom: 4 } satisfies OutlineBuildOpts);
+    const far = buildOutlinePath(node, { zoom: 0.3 });
+    const near = buildOutlinePath(node, { zoom: 4 });
     expect(far?.pathD).toBeTruthy();
     expect(near?.pathD).toBeTruthy();
-    expect(far!.pathD.toLowerCase()).not.toContain('q');
-    expect(near!.pathD.toLowerCase()).not.toContain('q');
-    const farN = countLinearVerts(far!.pathD);
-    const nearN = countLinearVerts(near!.pathD);
-    expect(farN).toBeLessThan(nearN);
-    expect(farN).toBeLessThan(90);
+    expect(far!.pathD.toLowerCase()).toMatch(/q/);
+    expect(near!.pathD.toLowerCase()).toMatch(/q/);
   });
 
-  it('does not keep one vertex per capture sample on thick pencil', () => {
+  it('does not flatten thick pencil to a sparse M/L digon', () => {
     const node = thickPencilNode(200);
     const out = buildOutlinePath(node, { zoom: 1 });
     expect(out?.pathD).toBeTruthy();
-    expect(countLinearVerts(out!.pathD)).toBeLessThan(120);
-    expect(out!.pathD.toLowerCase()).not.toContain('q');
+    expect(out!.pathD.toLowerCase()).toMatch(/q/);
+    expect(out!.pathD.length).toBeGreaterThan(80);
   });
 });

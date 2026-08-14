@@ -90,6 +90,8 @@ const PATH_HIT_PX = 14;
  * page size = screenPx / zoom under the camera CSS scale. No Math.min caps.
  */
 const ANCHOR_VIS_PX = 8;
+/** Min screen gap between painted knobs — dense outline verts stay in data / hit-test. */
+const ANCHOR_PAINT_GAP_PX = 12;
 const HANDLE_VIS_PX = 7;
 const STROKE_PX = 1.5;
 const HANDLE_STROKE_PX = 1.25;
@@ -98,6 +100,45 @@ const SEL_BASELINE = '#3388ff';
 
 function hitRadiusScene(zoom: number, screenPx: number) {
   return screenPx / Math.max(0.05, zoom || 1);
+}
+
+/**
+ * Which anchors get a painted knob. Geometry / hit-testing keep every vert;
+ * only the chrome is thinned so outline ribbons do not carpet the canvas.
+ */
+export function filterAnchorsForKnobPaint(
+  anchors: Array<{ x: number; y: number; force?: boolean }>,
+  zoom: number,
+  gapPx = ANCHOR_PAINT_GAP_PX
+): boolean[] {
+  const n = anchors.length;
+  if (n === 0) return [];
+  const minScene = gapPx / Math.max(0.05, zoom || 1);
+  const keep = new Array<boolean>(n).fill(false);
+  const painted: Array<{ x: number; y: number }> = [];
+
+  function accept(i: number) {
+    keep[i] = true;
+    painted.push({ x: anchors[i].x, y: anchors[i].y });
+  }
+
+  function farEnough(x: number, y: number): boolean {
+    for (const p of painted) {
+      if (Math.hypot(x - p.x, y - p.y) < minScene) return false;
+    }
+    return true;
+  }
+
+  for (let i = 0; i < n; i += 1) {
+    if (anchors[i].force) accept(i);
+  }
+  for (let i = 0; i < n; i += 1) {
+    if (keep[i]) continue;
+    const a = anchors[i];
+    if (!farEnough(a.x, a.y)) continue;
+    accept(i);
+  }
+  return keep;
 }
 
 /**
@@ -389,8 +430,16 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   if (!parsed.length) return null;
   const strokeOn =
     node.attrs?.['stroke-enabled'] !== false && node.attrs?.['stroke-enabled'] !== 'false';
-  const bw = Number(node.attrs?.['border-width'] ?? node.attrs?.borderWidth ?? 0);
-  const strokeWidth = strokeOn ? Math.max(0, Number.isFinite(bw) ? bw : 0) : 0;
+  const shapeType = String(node.attrs?.shapeType || node.key || '');
+  const rawBw = Number(
+    node.attrs?.['border-width'] ?? node.attrs?.borderWidth ?? node.attrs?.strokeWidth ?? 0
+  );
+  const strokeFallback =
+    shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'line' || shapeType === 'arrow'
+      ? 2
+      : 0;
+  const bw = Number.isFinite(rawBw) && rawBw > 0 ? rawBw : strokeFallback;
+  const strokeWidth = strokeOn ? Math.max(0, bw) : 0;
   const strokeColor = String(node.attrs?.['border-color'] || node.attrs?.stroke || '#333333');
   const fillColor = String(node.attrs?.['fill-color'] || node.attrs?.fill || '');
   const fillEnabled =
@@ -942,6 +991,16 @@ function PenPathEditFeature({
   const handlesDraw: HandleDraw[] = [];
 
   subpaths.forEach((sp, si) => {
+    const paintMask = filterAnchorsForKnobPaint(
+      sp.anchors.map((a, i) => ({
+        x: a.x,
+        y: a.y,
+        // Only force hover — Q→C outlines put handles on almost every vert;
+        // forcing those carpeted the canvas and looked like thickness vanished.
+        force: hoverAnchor?.sub === si && hoverAnchor?.index === i,
+      })),
+      z
+    );
     sp.anchors.forEach((a, i) => {
       const hovered = hoverAnchor?.sub === si && hoverAnchor?.index === i;
       const pushHandle = (side: HandleSide, hx: number, hy: number) => {
@@ -960,6 +1019,7 @@ function PenPathEditFeature({
       };
       if (a.outX != null && a.outY != null) pushHandle('out', a.outX, a.outY);
       if (a.inX != null && a.inY != null) pushHandle('in', a.inX, a.inY);
+      if (!paintMask[i]) return;
       anchorsDraw.push({
         x: a.x,
         y: a.y,

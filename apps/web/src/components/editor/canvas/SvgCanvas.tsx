@@ -92,10 +92,10 @@ import {
   setSelectedNodeIds,
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
+  startAudioUploadPlaceholder,
   finishImageProcess,
   failImageProcess,
   spawnLottie,
-  spawnAudio,
   undo,
   redo,
   clearCanvasAttachPick,
@@ -1751,43 +1751,35 @@ function SvgCanvas({
         center: at,
         fit: { minRatio: 0.22, maxRatio: 0.4 },
       });
-      // Place immediately with local preview; swap to remote URL after upload.
       dispatch(
-        spawnAudio({
+        startAudioUploadPlaceholder({
           src: preview,
           width: laid.width,
           height: laid.height,
           x: laid.x,
           y: laid.y,
-          name: file.name?.replace(/\.[^.]+$/, '') || t('editor.tools.audio', { defaultValue: 'Audio' }),
+          label: '上传中',
+          name:
+            file.name?.replace(/\.[^.]+$/, '') ||
+            t('editor.tools.audio', { defaultValue: 'Audio' }),
           duration,
         })
       );
       finishToSelect();
-      const spawnedId = String(store.getState().editor?.selectedNodeId || '');
-      const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
-      try {
-        const uploaded = await uploadImageFile(file, { signal });
-        if (signal?.aborted) return;
-        const url = String(uploaded.url || '').trim();
-        if (!url || !spawnedId) return;
-        dispatch(
-          patchDocumentNode({
-            nodeId: spawnedId,
-            patch: {
-              attrs: {
-                src: url,
-                ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-                ...(duration ? { duration: duration } : {}),
-              },
-            },
-          })
-        );
-      } finally {
-        finishNodeUpload(spawnedId);
-      }
+      const uploaded = await uploadImageFile(file);
+      dispatch(
+        finishImageProcess({
+          src: uploaded.url,
+          attrs: {
+            ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
+            ...(duration ? { duration } : {}),
+            assetKind: 'audio',
+          },
+        })
+      );
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
+      dispatch(failImageProcess({}));
       message.error(getHttpErrorMessage(err, '音频上传失败'));
     }
   };
@@ -1846,7 +1838,7 @@ function SvgCanvas({
       return;
     }
     if (mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(name)) {
-      void onAudioFile(file);
+      onAudioFile(file);
       return;
     }
     if (mime === 'application/json' || mime === 'text/json' || /\.json$/i.test(name)) {
@@ -2111,7 +2103,7 @@ function SvgCanvas({
             }
             onTransformingChange={onGeometryTransformingChange}
           />
-          <ImageProcessOverlay document={document} hidden={geometryTransforming} />
+          <ImageProcessOverlay document={document} geometryOverrides={videoLiveGeom} />
           {!omitNonExportable ? (
             <>
               <ImageGeneratorOverlay

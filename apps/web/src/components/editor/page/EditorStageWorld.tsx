@@ -36,9 +36,7 @@ import SmartGuidesOverlay from '@/components/rcb/selection/chrome/SmartGuidesOve
 import {
   collectMoveSnapIndicators,
   GUIDE_COINCIDE_EPS,
-  smartSnapThreshold,
   snapBoxToGrid,
-  snapMoveToSmartGuides,
   type SmartGuideLine,
 } from '@/components/rcb/selection/alignGuides';
 import {
@@ -335,7 +333,7 @@ function EditorStageWorld({
         height: Math.max(1, Number(frame.height) || 1),
       };
       let guides: SmartGuideLine[] = [];
-      // Same magnet path as SelectionFeature move (frames + nodes are AABB targets).
+      // Grid only — no object magnets. Align guides are display-only.
       if (!opts?.skipGrid) {
         const targets = frames
           .filter((f) => f.id !== id && !f.locked)
@@ -345,27 +343,10 @@ function EditorStageWorld({
             width: Math.max(1, Number(f.width) || 1),
             height: Math.max(1, Number(f.height) || 1),
           }));
-        const threshold = smartSnapThreshold(camera.zoom);
-        let smartX = false;
-        let smartY = false;
-        if (threshold > 0 && targets.length) {
-          const smart = snapMoveToSmartGuides({
-            box: moving,
-            targets,
-            threshold,
-          });
-          moving = smart.box;
-          guides = smart.guides;
-          smartX = smart.snappedX;
-          smartY = smart.snappedY;
-        }
         if (gridSize > 0) {
-          const pinned = snapBoxToGrid(moving, gridSize);
-          moving = {
-            ...moving,
-            left: smartX ? moving.left : pinned.left,
-            top: smartY ? moving.top : pinned.top,
-          };
+          moving = snapBoxToGrid(moving, gridSize);
+        }
+        if (targets.length) {
           guides = collectMoveSnapIndicators(moving, targets, GUIDE_COINCIDE_EPS);
         }
       }
@@ -381,7 +362,7 @@ function EditorStageWorld({
         })
       );
     },
-    [camera.zoom, dispatch, frames, gridSize]
+    [dispatch, frames, gridSize]
   );
 
   const onFrameMoveStart = useCallback(

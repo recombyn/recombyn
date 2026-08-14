@@ -86,8 +86,8 @@ import {
   toolbarBoxForSelection,
   patchesAsOrigins,
   multiMembersKey,
-  DRAG_SCREEN_PX,
   DRAG_DISTANCE_SQUARED,
+  isMotionlessClick,
   BRUSH_SCREEN_PX,
   TOUCH_BRUSH_SCREEN_PX,
   brushScreenPx,
@@ -102,7 +102,6 @@ import {
   filterMarqueeContentHits,
   commitMarqueeSelection,
   visualGuideBoxForNode,
-  visualBoxFromChromeOrigin,
   computeMovedUnion,
   computeResizedUnion,
   collectSmartGuideTargets,
@@ -1003,8 +1002,8 @@ function SelectionFeature({
       drag.currentShift = e.shiftKey;
       const screenDistSq = screenDragDistSq(drag, e.clientX, e.clientY);
       if (drag.mode === 'blank') {
-        // Abandon soft click once past drag threshold.
-        if (screenDistSq > DRAG_DISTANCE_SQUARED) {
+        // Abandon soft click once past drag threshold (≥1 CSS px).
+        if (screenDistSq >= DRAG_DISTANCE_SQUARED) {
           dragRef.current = null;
         }
         return;
@@ -1041,7 +1040,7 @@ function SelectionFeature({
 
       if (drag.mode === 'rotate' && drag.center && drag.pointerAngle0 != null) {
         // Soft-click on rotate knob ??ignore OS pointer jitter.
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) return;
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
         setSmartGuides([]);
         const { next, delta } = computeRotateDelta(drag, p, e.shiftKey);
         setLiveAngle(next);
@@ -1078,8 +1077,7 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'move') {
-        // Ignore pointer jitter until the pointer actually moves (protects dblclick).
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) return;
+        // Follow the pointer immediately — only grid may quantize (no travel gate).
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
         const threshold = smartSnapThreshold(zoom);
         const { nextUnion, sdx, sdy, guides } = computeMovedUnion({
@@ -1127,7 +1125,7 @@ function SelectionFeature({
       if (drag.mode === 'resize' && drag.handle) {
         // Soft-click on a handle must not resize: at 3% zoom, 2px jitter ??60+
         // scene units and snap threshold is huge (8/zoom), so the box jumps.
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) return;
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
         const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y);
         if (stroke) {
           setLiveUnion(stroke.next);
@@ -1330,7 +1328,7 @@ function SelectionFeature({
         if (
           !drag.skipSelectOnUp &&
           !attachPickActive &&
-          screenDistSq <= DRAG_DISTANCE_SQUARED
+          screenDistSq < DRAG_DISTANCE_SQUARED
         ) {
           const id = hitTest(p.x, p.y, { clientX, clientY });
           if (id && tryOpenTextEdit(id)) {
@@ -1345,7 +1343,7 @@ function SelectionFeature({
 
       if (drag.mode === 'rotate' && drag.center && drag.pointerAngle0 != null) {
         // Soft-click: restore start pose ??do not apply angle jitter.
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) {
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) {
           setLiveAngle(drag.angle0 || 0);
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
@@ -1388,10 +1386,8 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'move') {
-        // Soft-click: never leave liveUnion on a snap-only nudge while the
-        // document stays put ??that desyncs chrome from the shape (worst at
-        // 3%/800% where 8px snap ??huge / visible scene delta).
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) {
+        // Pure click (no pointer travel): restore + maybe text edit. Any travel commits.
+        if (isMotionlessClick(screenDistSq)) {
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
           if (drag.origins.length === 1 && tryOpenTextEdit(drag.origins[0].nodeId)) {
@@ -1446,7 +1442,7 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'resize' && drag.handle) {
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) {
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) {
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
           endTransform();

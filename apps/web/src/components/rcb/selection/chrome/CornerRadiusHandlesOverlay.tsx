@@ -91,7 +91,8 @@ function HostMirroredKnobSvg({
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
   const pad = 32;
-  void hostEpoch;
+  // Subscribe epoch — remount chrome when shape hosts reshuffle.
+  const chromeEpoch = hostEpoch;
 
   const mirror = hostRoot ? hostMirrorSvgProps(hostRoot) : null;
   const mirrored = Boolean(mirror);
@@ -100,6 +101,7 @@ function HostMirroredKnobSvg({
   if (mirror) {
     return (
       <svg
+        key={chromeEpoch}
         data-rcb-infinite="1"
         className="absolute z-[16] overflow-visible"
         preserveAspectRatio="none"
@@ -132,6 +134,7 @@ function HostMirroredKnobSvg({
 
   return (
     <svg
+      key={chromeEpoch}
       data-rcb-infinite="1"
       className="absolute z-[16] overflow-visible"
       preserveAspectRatio="none"
@@ -808,16 +811,28 @@ function CornerRadiusHandlesOverlay({
 
   const handles: HandleSpec[] =
     usePath && pathSites
-      ? pathSites.map((site) => {
-          const r = livePathVertices[site.sharpIndex] ?? 0;
-          const { lx, ly } = pathHandleLocalPos(site, r);
-          return {
-            key: String(site.sharpIndex),
-            lx,
-            ly,
-            onDown: (e: ReactPointerEvent<SVGElement>) => startPathDrag(e, site),
-          };
-        })
+      ? pathSites
+          .map((site) => {
+            const r = livePathVertices[site.sharpIndex] ?? 0;
+            const { lx, ly } = pathHandleLocalPos(site, r);
+            return {
+              key: String(site.sharpIndex),
+              lx,
+              ly,
+              onDown: (e: ReactPointerEvent<SVGElement>) => startPathDrag(e, site),
+            };
+          })
+          // Drop seats that park outside the geom box (concave densify leftovers).
+          // Keep a small park margin so tips near the AABB edge still show.
+          .filter((handle) => {
+            const margin = parkScene * 1.5;
+            return (
+              handle.lx >= -margin &&
+              handle.ly >= -margin &&
+              handle.lx <= w + margin &&
+              handle.ly <= h + margin
+            );
+          })
       : RADIUS_CORNERS.map((corner) => {
           const r = liveBoxRadii[corner.key];
           const { lx, ly } = boxHandleLocalPos(corner, r);
