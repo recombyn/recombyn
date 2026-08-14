@@ -263,6 +263,7 @@ def _assemble_subagent_system(
             persona=persona,
             catalog_blocks=list(catalog_blocks or []),
             profile=profile,
+            locale=str(getattr(profile, "locale", "") or "") or None,
         )
     # Catalog-only subagent (not a graph stage): pack body + optional catalogs.
     key = str(spec.system_key or "").strip()

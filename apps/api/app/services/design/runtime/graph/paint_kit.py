@@ -401,6 +401,7 @@ def _paint_ops_system(rt: Any) -> str:
         ask_mode=ask_mode,
         persona=str(getattr(rt, "persona", "") or ""),
         catalog_blocks=[fonts_block] if fonts_block else None,
+        locale=str((getattr(rt, "flags", None) or {}).get("locale") or "") or None,
     )
 
 

@@ -382,7 +382,7 @@ async def run_design_swarm(rt: AgentRuntime) -> dict[str, Any] | None:
         )
         block = format_swarm_for_decide(result)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit({"type": "analysis_delta", "text": block[:1200], "visibility": "developer"})
         return result
     except Exception as err:  # noqa: BLE001
         st.note_error(f"design_swarm_failed: {err}"[:240])

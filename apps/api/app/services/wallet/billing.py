@@ -19,7 +19,6 @@ from typing import Any
 from recombyn_protocol.billing import (
     CreditPolicySchema,
     TaskPricingSchema,
-    TaskStepPricingSchema,
 )
 
 from app.services.wallet.db import credit_tokens, spend_tokens
@@ -123,63 +122,10 @@ def byok_agent_fee_credits(rules: dict[str, Any] | None = None) -> int:
 
 
 def default_task_pricing_catalog() -> dict[str, TaskPricingSchema]:
-    """Product task sheets — authorize ceilings aligned with historical holds."""
-    return {
-        "agent": TaskPricingSchema(
-            task_pricing_id="tp_design_agent_default",
-            task_type="design_agent",
-            pipeline="agent",
-            base_credit=20,
-            steps=[
-                TaskStepPricingSchema(
-                    name="research",
-                    credits=3,
-                    meter_keys=["agent.research"],
-                ),
-                TaskStepPricingSchema(
-                    name="paint",
-                    credits=5,
-                    meter_keys=["agent.paint", "image.gen"],
-                ),
-                TaskStepPricingSchema(
-                    name="review",
-                    credits=2,
-                    meter_keys=["agent.review"],
-                ),
-            ],
-            notes="Default Design Agent authorize band (base+steps=30)",
-        ),
-        "single_model": TaskPricingSchema(
-            task_pricing_id="tp_design_single_default",
-            task_type="design_agent",
-            pipeline="single_model",
-            base_credit=20,
-            steps=[],
-            notes="Single-model design authorize floor",
-        ),
-        "partial": TaskPricingSchema(
-            task_pricing_id="tp_design_partial_default",
-            task_type="design_agent",
-            pipeline="partial",
-            base_credit=10,
-            steps=[],
-            notes="Partial / in-place edit authorize floor",
-        ),
-        "image": TaskPricingSchema(
-            task_pricing_id="tp_image_default",
-            task_type="image",
-            pipeline="image",
-            base_credit=DEFAULT_IMAGE_CREDITS,
-            steps=[],
-        ),
-        "chat": TaskPricingSchema(
-            task_pricing_id="tp_chat_default",
-            task_type="chat",
-            pipeline="chat",
-            base_credit=1,
-            steps=[],
-        ),
-    }
+    """Product task sheets — authorize ceilings from shared protocol catalog."""
+    from recombyn_protocol.billing import default_oss_task_pricing_catalog
+
+    return default_oss_task_pricing_catalog()
 
 
 def _catalog_from_rules(rules: dict[str, Any] | None) -> dict[str, TaskPricingSchema] | None:
@@ -333,6 +279,7 @@ def resolve_capture_credits(
     byok: bool = False,
     rules: dict[str, Any] | None = None,
     extra_credits: int = 0,
+    meters: dict[str, Any] | None = None,
 ) -> tuple[int, str]:
     """Decide capture credits for settle.
 
@@ -344,6 +291,13 @@ def resolve_capture_credits(
     extra_img = max(0, int(extra_credits or 0))
     tokens = max(0, int(actual_tokens or 0))
     run_mode = (mode or "agent").strip() or "agent"
+    meter_map = dict(meters) if isinstance(meters, dict) else {}
+    if tokens and "llm.tokens_out" not in meter_map:
+        meter_map["llm.tokens_out"] = tokens
+    if imgs and "image.gen" not in meter_map:
+        meter_map["image.gen"] = imgs
+    if "agent.steps" not in meter_map:
+        meter_map["agent.steps"] = _agent_steps_for_mode(run_mode)
 
     if byok:
         fee = byok_agent_fee_credits(rules)
@@ -360,7 +314,8 @@ def resolve_capture_credits(
                 "tokens_out": tokens,
                 "tokens_total": tokens,
                 "image_count": imgs,
-                "agent_steps": _agent_steps_for_mode(run_mode),
+                "agent_steps": int(meter_map.get("agent.steps") or _agent_steps_for_mode(run_mode)),
+                "meters": meter_map,
             }
         )
         if isinstance(quoted, dict) and quoted.get("credits_to_charge") is not None:
@@ -392,6 +347,8 @@ def settle_token_hold(
     byok: bool = False,
     mode: str = "agent",
     images_hydrated: int = 0,
+    meters: dict[str, Any] | None = None,
+    task_id: str = "",
 ) -> int:
     """
     After a run: adjust authorized hold to capture credits.
@@ -410,13 +367,14 @@ def settle_token_hold(
             mid = str(rules.get("assets.image_default_model") or "").strip()
         extra_img = image_model_credit_cost(mid or None, count=imgs, rules=rules) if imgs else 0
 
-    total, _source = resolve_capture_credits(
+    total, source = resolve_capture_credits(
         mode=mode,
         actual_tokens=actual_tokens,
         images_hydrated=imgs,
         byok=byok,
         rules=rules,
         extra_credits=extra_img,
+        meters=meters,
     )
     uid = (user_id or "").strip()
     if not uid or hold_n <= 0:
@@ -440,4 +398,22 @@ def settle_token_hold(
             spend_tokens(uid, extra, detail=f"{note}:extra:{extra}")
         except ValueError:
             total = hold_n
+
+    # Align with protocol lifecycle capture envelope (wallet already mutated).
+    try:
+        from app.services.wallet.lifecycle import capture_task_credits
+
+        capture_task_credits(
+            user_id=uid,
+            hold=hold_n,
+            capture=total,
+            task_id=task_id,
+            detail=f"{note}:{source}",
+            mutate_wallet=False,
+        )
+    except TypeError:
+        # Older capture_task_credits without mutate_wallet — skip envelope.
+        pass
+    except Exception:
+        pass
     return total

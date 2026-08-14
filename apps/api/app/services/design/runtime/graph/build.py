@@ -819,6 +819,27 @@ def _review_loop_max_from_profile() -> int | None:
     return None
 
 
+def _normalize_design_intensity(raw: Any) -> str:
+    s = str(raw or "").strip().lower().replace("_", "-")
+    if s in ("light", "low", "轻度"):
+        return "light"
+    if s in ("high", "高"):
+        return "high"
+    if s in ("extreme", "max", "极高"):
+        return "extreme"
+    if s in ("medium", "mid", "中", "标准", ""):
+        return "medium"
+    return "medium"
+
+
+def _review_mode_for_intensity(intensity: str) -> str:
+    if intensity == "light":
+        return "off"
+    if intensity in ("high", "extreme"):
+        return "always"
+    return "auto"
+
+
 async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, Any]]:
     """Internal graph runner (public entry: ``design_stream``)."""
     user_id = inp.user_id
@@ -847,6 +868,8 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     proposal_task_id = inp.proposal_task_id
     interaction_mode = inp.interaction_mode
     skill_refs = inp.skill_refs
+    locale_in = inp.locale
+    intensity_in = getattr(inp, "design_intensity", None)
 
     task_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
@@ -908,6 +931,7 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     tools_block = "" if defer_tools else tools_host.format_full(rules)
     scene_for_cat = scene_key or ""
     from app.services.design.runtime.agent_profile import get_active_agent_profile
+    from app.services.design.runtime.host.prompts import resolve_output_locale
     from app.services.design.runtime.subagent import format_subagents_catalog
 
     skill_namespaces = tuple(get_active_agent_profile().skills_namespaces or ())
@@ -929,12 +953,18 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     ]
     if str(subagents_catalog or "").strip():
         decide_catalogs.append(subagents_catalog)
+    out_locale = resolve_output_locale(
+        client_locale=locale_in,
+        profile_locale=get_active_agent_profile().locale,
+        prompt=prompt,
+    )
     system = assemble_stage_system(
         rules,
         stage="decide",
         ask_mode=(ui_mode == "ask"),
         persona=persona,
         catalog_blocks=decide_catalogs,
+        locale=out_locale,
     )
 
 
@@ -973,9 +1003,20 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
         spatial_summary=spatial_summary if isinstance(spatial_summary, dict) else None,
     )
     rt.flags["mode"] = ui_mode
-    rt.flags["review_left"] = int(
+    rt.flags["locale"] = out_locale
+    rt.flags["output_locale"] = out_locale
+    intensity = _normalize_design_intensity(intensity_in)
+    rt.flags["design_intensity"] = intensity
+    # User depth overrides profile/settings review sparsity.
+    rt.flags["review_mode"] = _review_mode_for_intensity(intensity)
+    base_review_left = int(
         review_loop_max if review_loop_max is not None else max_reflect or 1
     )
+    if intensity == "extreme":
+        base_review_left = max(base_review_left, 3)
+    elif intensity == "high":
+        base_review_left = max(base_review_left, 2)
+    rt.flags["review_left"] = base_review_left
     _bind_pending_ask_proposal(
         rt,
         proposal_id=proposal_id,

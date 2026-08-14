@@ -737,6 +737,11 @@ def _review_stage_enabled() -> bool:
 
 def _review_mode(rt: Any | None = None) -> str:
     """auto | off | always — default auto (sparse Review, not every design paint)."""
+    flags = getattr(rt, "flags", None) if rt is not None else None
+    if isinstance(flags, dict):
+        raw = str(flags.get("review_mode") or "").strip().lower()
+        if raw in ("auto", "off", "always"):
+            return raw
     rules = getattr(rt, "rules", None) if rt is not None else None
     if isinstance(rules, dict):
         for key in ("design.review.mode", "agent.review.mode"):

@@ -35,3 +35,12 @@ def test_authorize_bands_match_task_pricing():
     assert estimate_design_hold_credits("agent") == 30
     assert estimate_design_hold_credits("single_model") == 20
     assert estimate_design_hold_credits("partial") == 10
+
+
+def test_protocol_catalog_shared():
+    from recombyn_protocol.billing import default_oss_task_pricing_catalog
+    from app.services.wallet.billing import default_task_pricing_catalog
+
+    a = default_oss_task_pricing_catalog()["agent"].estimate_credits_high()
+    b = default_task_pricing_catalog()["agent"].estimate_credits_high()
+    assert a == b == 30

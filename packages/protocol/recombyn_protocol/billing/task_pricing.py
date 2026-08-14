@@ -62,3 +62,66 @@ class TaskPricingSchema(BaseModel):
         """Sum of base + all step credits (authorization ceiling helper)."""
         step_sum = sum(max(0, int(s.credits or 0)) for s in self.steps)
         return max(0, int(self.base_credit or 0)) + step_sum
+
+
+def default_oss_task_pricing_catalog() -> dict[str, TaskPricingSchema]:
+    """Shared OSS authorize floors — Runtime + host quote must stay aligned.
+
+    Hosts may override via rules / commercial config; this is the public floor.
+    """
+    return {
+        "agent": TaskPricingSchema(
+            task_pricing_id="tp_design_agent_default",
+            task_type="design_agent",
+            pipeline="agent",
+            base_credit=20,
+            steps=[
+                TaskStepPricingSchema(
+                    name="research",
+                    credits=3,
+                    meter_keys=["agent.research"],
+                ),
+                TaskStepPricingSchema(
+                    name="paint",
+                    credits=5,
+                    meter_keys=["agent.paint", "image.gen"],
+                ),
+                TaskStepPricingSchema(
+                    name="review",
+                    credits=2,
+                    meter_keys=["agent.review"],
+                ),
+            ],
+            notes="Default Design Agent authorize band (base+steps=30)",
+        ),
+        "single_model": TaskPricingSchema(
+            task_pricing_id="tp_design_single_default",
+            task_type="design_agent",
+            pipeline="single_model",
+            base_credit=20,
+            steps=[],
+            notes="Single-model design authorize floor",
+        ),
+        "partial": TaskPricingSchema(
+            task_pricing_id="tp_design_partial_default",
+            task_type="design_agent",
+            pipeline="partial",
+            base_credit=10,
+            steps=[],
+            notes="Partial / in-place edit authorize floor",
+        ),
+        "image": TaskPricingSchema(
+            task_pricing_id="tp_image_default",
+            task_type="image",
+            pipeline="image",
+            base_credit=2,
+            steps=[],
+        ),
+        "chat": TaskPricingSchema(
+            task_pricing_id="tp_chat_default",
+            task_type="chat",
+            pipeline="chat",
+            base_credit=1,
+            steps=[],
+        ),
+    }

@@ -467,6 +467,7 @@ def apply_governance_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> Non
 
 
 def format_governance_for_settle(result: dict[str, Any] | None) -> str:
+    """Developer / log dump — never stream this as user chat prose."""
     src = result if isinstance(result, dict) else {}
     if not src:
         return ""
@@ -487,6 +488,24 @@ def format_governance_for_settle(result: dict[str, Any] | None) -> str:
     if src.get("repair_plan"):
         lines.append("REPAIR: draft ready (not applied)")
     return "\n".join(lines)[:1600]
+
+
+def format_governance_fail_reply(
+    result: dict[str, Any] | None, *, locale: str = "zh-CN"
+) -> str:
+    """User-facing settle reply when governance hard-gates."""
+    src = result if isinstance(result, dict) else {}
+    explain = [str(x) for x in list(src.get("explain") or [])[:6] if str(x).strip()]
+    loc = str(locale or "zh-CN")
+    if loc.startswith("zh"):
+        head = "设计质量检查未通过："
+        foot = "已生成修复草稿（尚未应用到画布）。"
+        bullets = "\n".join(f"- {x}" for x in explain) if explain else "- 请根据检查结果调整后重试"
+        return f"{head}\n{bullets}\n{foot}"[:2000]
+    head = "Design quality check failed:"
+    foot = "Repair draft ready (not applied)."
+    bullets = "\n".join(f"- {x}" for x in explain) if explain else "- Adjust and retry"
+    return f"{head}\n{bullets}\n{foot}"[:2000]
 
 
 def run_design_governance(rt: AgentRuntime) -> dict[str, Any]:
@@ -518,7 +537,11 @@ def run_design_governance(rt: AgentRuntime) -> dict[str, Any]:
 
 
 async def gate_governance_before_settle(rt: AgentRuntime) -> dict[str, Any]:
-    """Settle hard gate. FAIL emits explain; caller must not claim success."""
+    """Settle hard gate. FAIL emits explain; caller must not claim success.
+
+    User stream: activity ``code=design_quality_check`` + structured
+    ``design_governance``. Developer dump stays in logs / visibility=developer.
+    """
     st = rt.run
     _emit(
         {
@@ -526,34 +549,47 @@ async def gate_governance_before_settle(rt: AgentRuntime) -> dict[str, Any]:
             "id": "design-governance",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_GOVERNANCE: Brand/A11y/Copyright/… hard gate",
+            "code": "design_quality_check",
+            "visibility": "user",
+            "item": {
+                "id": "design-quality-check",
+                "name": "design_quality_check",
+            },
         }
     )
     try:
         result = run_design_governance(rt)
         status = str(result.get("status") or "pass")
+        fails = sum(
+            1
+            for l in list(result.get("lanes") or [])
+            if isinstance(l, dict) and l.get("status") == "fail"
+        )
         st.push_log(
             phase="design_governance",
             summary=str(result.get("summary") or "")[:160],
             status=status,
-            fails=sum(
-                1
-                for l in list(result.get("lanes") or [])
-                if isinstance(l, dict) and l.get("status") == "fail"
-            )
-            or None,
+            fails=fails or None,
         )
         _emit(
             {
                 "type": "activity",
                 "id": "design-governance",
                 "kind": "explored",
-                "status": "done",
-                "summary": f"DESIGN_GOVERNANCE: {status}"[:200],
+                "status": "done" if status == "pass" else "error",
+                "code": "design_quality_check",
+                "detail": status,
+                "visibility": "user",
+                "item": {
+                    "id": "design-quality-check",
+                    "name": "design_quality_check",
+                    "summary": status,
+                },
             }
         )
         payload = {
             "type": "design_governance",
+            "visibility": "user",
             "status": status,
             "lanes": [
                 {
@@ -568,13 +604,21 @@ async def gate_governance_before_settle(rt: AgentRuntime) -> dict[str, Any]:
             "summary": str(result.get("summary") or "")[:240],
         }
         _emit(payload)
+        # Developer-only essay — never dump into user chat analysis_delta.
         block = format_governance_for_settle(result)
         if block:
-            _emit({"type": "analysis_delta", "text": block[:1200]})
+            _emit(
+                {
+                    "type": "analysis_delta",
+                    "text": block[:1200],
+                    "visibility": "developer",
+                }
+            )
         if status == "fail":
             _emit(
                 {
                     "type": "governance_fail",
+                    "visibility": "user",
                     "explain": list(result.get("explain") or [])[:8],
                     "repair_plan": result.get("repair_plan"),
                 }
@@ -605,8 +649,15 @@ async def gate_governance_before_settle(rt: AgentRuntime) -> dict[str, Any]:
                 "type": "activity",
                 "id": "design-governance",
                 "kind": "explored",
-                "status": "done",
-                "summary": "DESIGN_GOVERNANCE: fail (engine error)",
+                "status": "error",
+                "code": "design_quality_check",
+                "detail": "fail",
+                "visibility": "user",
+                "item": {
+                    "id": "design-quality-check",
+                    "name": "design_quality_check",
+                    "summary": "fail",
+                },
             }
         )
         return failed

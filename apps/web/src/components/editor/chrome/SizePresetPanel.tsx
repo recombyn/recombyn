@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Switch } from '@/components/base';
-import Tooltip from '@/components/base/tooltip';
 import {
   A4_PORTRAIT
 } from '@/components/rcb/scene/document/sceneDocument';
@@ -319,22 +317,12 @@ type SizePresetPanelProps = {
   initialCategory?: SizePresetCategory;
   disabled?: boolean;
   className?: string;
-  /** Show Auto (LLM picks size) — used by design agent canvas picker. */
-  showAuto?: boolean;
-  /** When Auto is selected in the composer chip. */
-  autoActive?: boolean;
-  /** Called when user picks a fixed-size preset (or Auto / partial custom). */
+  /** Called when user picks a fixed-size preset (or custom WxH). */
   onPick: (preset: FrameSizePreset, opts?: { keepOpen?: boolean }) => void;
 };
 
-function resolveTabForKey(key: string, autoActive?: boolean): SizePresetCategory {
-  // Smart is a switch, not a tab — keep browsing the matched/preset category.
-  if (autoActive || key === 'auto') {
-    const cat = findFramePreset(key)?.category;
-    if (cat && cat !== 'ratio' && cat !== 'custom' && cat !== 'image') return cat;
-    return 'poster';
-  }
-  if (!key || key === 'custom') return 'custom';
+function resolveTabForKey(key: string): SizePresetCategory {
+  if (!key || key === 'custom' || key === 'auto') return 'custom';
   const cat = findFramePreset(key)?.category;
   // Image presets have no tab — open Custom with the current WxH.
   if (cat === 'image') return 'custom';
@@ -344,33 +332,25 @@ function resolveTabForKey(key: string, autoActive?: boolean): SizePresetCategory
 
 /** Prefer the tab for the current WxH / preset; scene hint is only a fallback. */
 function resolveInitialSizeCategory(opts: {
-  autoActive?: boolean;
-  showAuto?: boolean;
   preferredMatchCategory?: SizePresetCategory;
   matchedKey: string;
   activeWidth?: number;
   activeHeight?: number;
   initialCategory?: SizePresetCategory;
 }): SizePresetCategory {
-  if (opts.autoActive && opts.showAuto) {
-    if (opts.preferredMatchCategory && opts.preferredMatchCategory !== 'image') {
-      return opts.preferredMatchCategory;
-    }
-    return 'poster';
-  }
   if (opts.matchedKey && opts.matchedKey !== 'custom' && opts.matchedKey !== 'auto') {
-    return resolveTabForKey(opts.matchedKey, false);
+    return resolveTabForKey(opts.matchedKey);
   }
   if (opts.activeWidth && opts.activeHeight) return 'custom';
   if (opts.initialCategory && opts.initialCategory !== 'auto' && opts.initialCategory !== 'image') {
     return opts.initialCategory;
   }
-  return resolveTabForKey(opts.matchedKey, false);
+  return resolveTabForKey(opts.matchedKey);
 }
 
 /**
- * Shared size preset UI — underline category tabs + Smart switch + device list.
- * Used by frame toolbar and chat design canvas size picker.
+ * Frame toolbar size presets — underline category tabs + device list + custom WxH.
+ * Agent composer uses DesignCanvasSizeManual instead (no preset list).
  */
 function SizePresetPanel({
   activeKey,
@@ -379,8 +359,6 @@ function SizePresetPanel({
   initialCategory,
   disabled,
   className,
-  showAuto = false,
-  autoActive = false,
   onPick,
 }: SizePresetPanelProps): ReactNode {
   const { t } = useTranslation();
@@ -394,11 +372,7 @@ function SizePresetPanel({
       ? matchFramePreset(activeWidth, activeHeight, preferredMatchCategory)
       : '');
 
-  // Prefer the tab for the current WxH / preset; scene hint is only a fallback
-  // (otherwise Home/editor scene can pin "Poster" while chip shows 1366×768).
   const resolvedInitial = resolveInitialSizeCategory({
-    autoActive,
-    showAuto,
     preferredMatchCategory,
     matchedKey,
     activeWidth,
@@ -442,45 +416,6 @@ function SizePresetPanel({
     return max || 1;
   }, [list]);
 
-  const pickAuto = () => {
-    onPick(
-      {
-        key: 'auto',
-        label: t('editor.frameToolbar.auto'),
-        category: 'custom',
-        icon: 'square',
-      },
-      { keepOpen: true }
-    );
-  };
-
-  const leaveSmart = () => {
-    if (browseTab === 'custom') {
-      const wRaw = String(customW).trim();
-      const hRaw = String(customH).trim();
-      const wNum = wRaw ? Math.round(Number(wRaw)) : NaN;
-      const hNum = hRaw ? Math.round(Number(hRaw)) : NaN;
-      const hasW = Number.isFinite(wNum) && wNum >= 40;
-      const hasH = Number.isFinite(hNum) && hNum >= 40;
-      if (hasW || hasH) {
-        onPick(
-          {
-            key: 'custom',
-            label: t('editor.frameToolbar.custom'),
-            category: 'custom',
-            ...(hasW ? { width: wNum } : {}),
-            ...(hasH ? { height: hNum } : {}),
-            icon: 'square',
-          },
-          { keepOpen: true }
-        );
-        return;
-      }
-    }
-    const first = list[0] || presetsByCategory('poster')[0];
-    if (first?.width && first?.height) onPick(first, { keepOpen: true });
-  };
-
   const applyCustom = () => {
     const wRaw = String(customW).trim();
     const hRaw = String(customH).trim();
@@ -488,12 +423,7 @@ function SizePresetPanel({
     const hNum = hRaw ? Math.round(Number(hRaw)) : NaN;
     const hasW = Number.isFinite(wNum) && wNum >= 40;
     const hasH = Number.isFinite(hNum) && hNum >= 40;
-    if (!hasW && !hasH) {
-      if (showAuto) {
-        pickAuto();
-      }
-      return;
-    }
+    if (!hasW && !hasH) return;
     onPick({
       key: 'custom',
       label: t('editor.frameToolbar.custom'),
@@ -503,8 +433,6 @@ function SizePresetPanel({
       icon: 'square',
     });
   };
-
-  const smartOn = Boolean(showAuto && autoActive);
 
   return (
     <div
@@ -521,8 +449,6 @@ function SizePresetPanel({
           className="flex min-w-0 flex-1 flex-nowrap gap-x-0.5 overflow-x-hidden"
         >
           {FRAME_PRESET_TABS.map((item) => {
-            // Underline follows the browsed category even when Smart is on,
-            // so the tab bar always shows the same hairline + indicator as home.
             const active = browseTab === item.id;
             return (
               <button
@@ -553,35 +479,10 @@ function SizePresetPanel({
             );
           })}
         </div>
-        {showAuto ? (
-          <Tooltip tip={t('editor.frameToolbar.auto')} placement="top">
-            <label
-              className={cn(
-                'mb-2 ml-0.5 inline-flex shrink-0 cursor-pointer items-center pl-1.5',
-                disabled && 'cursor-not-allowed opacity-40'
-              )}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <span className="sr-only">{t('editor.frameToolbar.auto')}</span>
-              <Switch
-                checked={smartOn}
-                disabled={disabled}
-                onChange={(on) => {
-                  if (on) pickAuto();
-                  else leaveSmart();
-                }}
-              />
-            </label>
-          </Tooltip>
-        ) : null}
       </div>
       <div
         role="listbox"
-        className={cn(
-          'min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5',
-          smartOn && 'opacity-70'
-        )}
+        className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5"
         style={{ maxHeight: 'min(320px, 50vh)' }}
       >
         {browseTab === 'custom' ? (
@@ -595,8 +496,7 @@ function SizePresetPanel({
                   type="number"
                   min={40}
                   inputMode="numeric"
-                  disabled={disabled || smartOn}
-                  placeholder={showAuto ? t('editor.frameToolbar.auto') : undefined}
+                  disabled={disabled}
                   value={customW}
                   onChange={(e) => setCustomW(e.target.value)}
                   onKeyDown={(e) => {
@@ -617,8 +517,7 @@ function SizePresetPanel({
                   type="number"
                   min={40}
                   inputMode="numeric"
-                  disabled={disabled || smartOn}
-                  placeholder={showAuto ? t('editor.frameToolbar.auto') : undefined}
+                  disabled={disabled}
                   value={customH}
                   onChange={(e) => setCustomH(e.target.value)}
                   onKeyDown={(e) => {
@@ -633,7 +532,7 @@ function SizePresetPanel({
             </div>
             <button
               type="button"
-              disabled={disabled || smartOn}
+              disabled={disabled}
               onClick={(e) => {
                 e.stopPropagation();
                 applyCustom();
@@ -645,7 +544,7 @@ function SizePresetPanel({
           </div>
         ) : (
           list.map((p) => {
-            const selected = !smartOn && matchedKey === p.key;
+            const selected = matchedKey === p.key;
             const sizeHint = p.width && p.height ? `${p.width} x ${p.height}` : '';
             return (
               <button

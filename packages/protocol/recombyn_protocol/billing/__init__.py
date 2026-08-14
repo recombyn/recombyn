@@ -59,6 +59,7 @@ from recombyn_protocol.billing.task_pricing import (
     TaskPricingSchema,
     TaskStepPricingSchema,
     TaskType,
+    default_oss_task_pricing_catalog,
 )
 from recombyn_protocol.billing.usage import ProviderUsageSchema, UsageEventSchema, UsageStatus
 
@@ -105,6 +106,7 @@ __all__ = [
     "UsageEventSchema",
     "UsageStatus",
     "credits_from_sell_cost_micros",
+    "default_oss_task_pricing_catalog",
     "micros_to_money",
     "money_to_micros",
     "resolve_pricing",

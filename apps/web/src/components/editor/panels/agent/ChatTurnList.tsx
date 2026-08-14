@@ -106,9 +106,43 @@ export type ChatUiMessage = {
   canResume?: boolean;
   /** Phase-2 Design Intelligence panel (DNA / scores / diff / iterations). */
   intelligence?: import('@/components/editor/panels/agent/runDesignAgent').DesignIntelligencePatch;
+  /** Developer-only SSE dumps (visibility=developer|internal). */
+  debugEvents?: Array<{
+    id: string;
+    kind: string;
+    text?: string;
+    at: number;
+  }>;
 };
 
 export type AssistantStep = NonNullable<ChatUiMessage['steps']>[number];
+
+const AGENT_DEV_DEBUG_KEY = 'recombyn.agentDevDebug.v1';
+
+/**
+ * Product UI does not expose a toggle. Enable dumps by flipping this flag in code,
+ * or set localStorage `recombyn.agentDevDebug.v1` = `1` in DevTools.
+ */
+const AGENT_DEV_DEBUG_IN_CODE = false;
+
+export function loadAgentDevDebug(): boolean {
+  if (AGENT_DEV_DEBUG_IN_CODE) return true;
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(AGENT_DEV_DEBUG_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveAgentDevDebug(on: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(AGENT_DEV_DEBUG_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
 
 export type ActivityStepEvent = {
   kind: 'thought' | 'added' | 'updated' | 'explored' | 'skipped' | 'deleted' | 'tool';
@@ -160,9 +194,76 @@ export function hasDesignIntelligence(
       intel.reference?.thesis ||
       intel.review?.scores ||
       intel.review?.overall != null ||
+      intel.governance?.status ||
+      (intel.governance?.lanes && intel.governance.lanes.length > 0) ||
       intel.diff?.deltas ||
       (intel.iterations && intel.iterations.length > 0) ||
-      intel.summary
+      intel.summary?.thesis ||
+      intel.summary?.why ||
+      intel.summary?.marketGap ||
+      intel.summary?.nextSteps?.length ||
+      intel.summary?.weaknesses?.length ||
+      intel.summary?.strengths?.length ||
+      intel.summary?.iterations != null ||
+      (intel.summary?.scoreFrom != null && intel.summary?.scoreTo != null)
+  );
+}
+
+function DeveloperDebugPanel({
+  events,
+}: {
+  events: ChatUiMessage['debugEvents'];
+}): ReactNode {
+  const { t } = useTranslation();
+  const [enabled, setEnabled] = useState(() => loadAgentDevDebug());
+  const [open, setOpen] = useState(false);
+  const rows = events || [];
+
+  useEffect(() => {
+    const sync = () => setEnabled(loadAgentDevDebug());
+    window.addEventListener('storage', sync);
+    window.addEventListener('recombyn-agent-dev-debug', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('recombyn-agent-dev-debug', sync);
+    };
+  }, []);
+
+  if (!enabled || rows.length === 0) return null;
+
+  return (
+    <div
+      className="flex w-full flex-col gap-1.5 border-l border-amber-500/25 pl-3 text-[11px] leading-snug text-[var(--muted)]"
+      data-testid="agent-developer-debug"
+    >
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-left text-[11px] uppercase tracking-[0.08em] text-amber-700/80 dark:text-amber-400/90"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <HiOutlineChevronRight
+          className={cn('h-3 w-3 transition-transform', open ? 'rotate-90' : '')}
+          aria-hidden
+        />
+        {t('agent.devDebugTitle', { defaultValue: '开发调试' })}
+        <span className="normal-case tracking-normal text-[var(--muted)]">
+          ({rows.length})
+        </span>
+      </button>
+      {open ? (
+        <div className="max-h-56 overflow-auto rounded-md bg-[var(--canvas)]/80 px-2 py-1.5 font-mono text-[10px] text-[var(--ink)]/75">
+          {rows.map((row) => (
+            <div key={row.id} className="border-b border-[var(--line)]/40 py-1 last:border-0">
+              <div className="text-[var(--muted)]">{row.kind}</div>
+              {row.text ? (
+                <pre className="whitespace-pre-wrap break-words">{row.text}</pre>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -188,16 +289,138 @@ function DesignIntelligencePanel({
   ].filter(Boolean) as string[];
   const timeline = (intel.iterations || []).filter((row) => row.overall > 0);
   const summary = intel.summary;
+  const govLanes = intel.governance?.lanes || [];
+  const govStatus = String(intel.governance?.status || '').toLowerCase();
+  const explainThesis = String(summary?.thesis || '').trim();
+  const explainWhy = String(summary?.why || '').trim();
+  const explainStrengths = summary?.strengths || [];
+  const explainWeaknesses = summary?.weaknesses || [];
+  const explainNext = summary?.nextSteps || [];
+  const explainGap = String(summary?.marketGap || '').trim();
+  const hasExplain =
+    Boolean(explainThesis || explainWhy || explainGap) ||
+    explainStrengths.length > 0 ||
+    explainWeaknesses.length > 0 ||
+    explainNext.length > 0;
+
+  const scoreLabel = (key: string) =>
+    t(`agent.reviewScore.${key}`, { defaultValue: key });
 
   return (
     <div
       className="flex w-full flex-col gap-3 border-l border-[var(--ink)]/10 pl-3 text-[12px] leading-snug text-[var(--ink)]/80"
       data-testid="design-intelligence"
     >
+      {hasExplain ? (
+        <section className="flex flex-col gap-1.5" data-testid="design-explain">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+            {t('agent.designExplainTitle')}
+          </div>
+          {explainThesis ? (
+            <p className="whitespace-pre-wrap break-words text-[13px] text-[var(--ink)]">
+              <span className="text-[var(--muted)]">{t('agent.designExplainThesis')}：</span>
+              {explainThesis}
+            </p>
+          ) : null}
+          {explainWhy ? (
+            <p className="whitespace-pre-wrap break-words text-[12px] text-[var(--ink)]/85">
+              <span className="text-[var(--muted)]">{t('agent.designExplainWhy')}：</span>
+              {explainWhy}
+            </p>
+          ) : null}
+          {explainStrengths.length ? (
+            <div>
+              <div className="text-[11px] text-[var(--muted)]">
+                {t('agent.designExplainStrengths')}
+              </div>
+              <ul className="mt-0.5 list-disc pl-4">
+                {explainStrengths.slice(0, 4).map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {explainWeaknesses.length ? (
+            <div>
+              <div className="text-[11px] text-[var(--muted)]">
+                {t('agent.designExplainWeaknesses')}
+              </div>
+              <ul className="mt-0.5 list-disc pl-4">
+                {explainWeaknesses.slice(0, 4).map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {explainGap ? (
+            <p className="text-[12px] text-[var(--ink)]/85">
+              <span className="text-[var(--muted)]">{t('agent.designExplainGap')}：</span>
+              {explainGap}
+            </p>
+          ) : null}
+          {explainNext.length ? (
+            <div>
+              <div className="text-[11px] text-[var(--muted)]">
+                {t('agent.designExplainNext')}
+              </div>
+              <ol className="mt-0.5 list-decimal pl-4">
+                {explainNext.slice(0, 4).map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {govStatus || govLanes.length ? (
+        <section className="flex flex-col gap-1.5" data-testid="design-governance-user">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+              {t('agent.governanceTitle')}
+            </span>
+            <span className="tabular-nums text-[13px] text-[var(--ink)]">
+              {govStatus === 'pass'
+                ? t('agent.governancePass')
+                : govStatus === 'fail'
+                  ? t('agent.governanceFail')
+                  : govStatus}
+            </span>
+          </div>
+          {govLanes.length ? (
+            <ul className="flex flex-col gap-1">
+              {govLanes.map((row) => {
+                const lane = String(row.lane || '').trim();
+                const st = String(row.status || '').toLowerCase();
+                const mark =
+                  st === 'pass' ? '✓' : st === 'fail' ? '✗' : st === 'warn' ? '⚠' : '·';
+                return (
+                  <li key={lane || `gov-${mark}`} className="flex items-start gap-2">
+                    <span aria-hidden>{mark}</span>
+                    <span>
+                      {t(`agent.governanceLane.${lane}`, {
+                        defaultValue: lane,
+                      })}
+                      {st === 'pass'
+                        ? `：${t('agent.governanceLanePass')}`
+                        : st === 'fail'
+                          ? `：${t('agent.governanceLaneFail')}`
+                          : st === 'warn'
+                            ? `：${t('agent.governanceLaneWarn')}`
+                            : ''}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
       {intel.reference?.thesis || dnaAxes.length || intel.reference?.stages?.length ? (
         <section className="flex flex-col gap-1.5">
           <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-            {t('agent.intelReference', { defaultValue: 'Reference' })}
+            {t('agent.intelReference')}
           </div>
           {intel.reference?.stages?.length ? (
             <div className="flex flex-wrap gap-1.5 text-[11px] text-[var(--muted)]">
@@ -233,7 +456,7 @@ function DesignIntelligencePanel({
         <section className="flex flex-col gap-1.5">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-              {t('agent.intelReview', { defaultValue: 'Review' })}
+              {t('agent.intelReview')}
             </span>
             {intel.review?.overall != null ? (
               <span className="tabular-nums text-[13px] text-[var(--ink)]">
@@ -246,7 +469,7 @@ function DesignIntelligencePanel({
             <div className="grid grid-cols-2 gap-x-3 gap-y-1">
               {scoreRows.map((row) => (
                 <div key={row.key} className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[var(--muted)]">{row.key}</span>
+                  <span className="truncate text-[var(--muted)]">{scoreLabel(row.key)}</span>
                   <span className="tabular-nums">{row.value}</span>
                 </div>
               ))}
@@ -274,7 +497,7 @@ function DesignIntelligencePanel({
       {diffLines.length ? (
         <section className="flex flex-col gap-1">
           <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-            {t('agent.intelDiff', { defaultValue: 'Diff' })}
+            {t('agent.intelDiff')}
           </div>
           {diffLines.map((line) => (
             <div key={line} className="tabular-nums">
@@ -287,7 +510,7 @@ function DesignIntelligencePanel({
       {timeline.length > 1 ? (
         <section className="flex flex-col gap-1">
           <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
-            {t('agent.intelIterations', { defaultValue: 'Iterations' })}
+            {t('agent.intelIterations')}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 tabular-nums">
             {timeline.map((row, i) => (
@@ -300,17 +523,21 @@ function DesignIntelligencePanel({
         </section>
       ) : null}
 
-      {summary ? (
+      {summary &&
+      (summary.iterations != null ||
+        (summary.removed != null && summary.removed > 0) ||
+        summary.whitespace != null ||
+        summary.heroDominance != null ||
+        (summary.scoreFrom != null && summary.scoreTo != null)) ? (
         <section className="flex flex-col gap-1 text-[var(--muted)]">
           <div className="text-[11px] uppercase tracking-[0.08em]">
-            {t('agent.intelSummary', { defaultValue: 'Summary' })}
+            {t('agent.intelSummary')}
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1 tabular-nums text-[var(--ink)]/80">
             {summary.iterations != null ? (
               <span>
                 {t('agent.intelIterCount', {
                   count: summary.iterations,
-                  defaultValue: '{{count}} iters',
                 })}
               </span>
             ) : null}
@@ -318,15 +545,18 @@ function DesignIntelligencePanel({
               <span>
                 {t('agent.intelRemoved', {
                   count: summary.removed,
-                  defaultValue: '−{{count}} nodes',
                 })}
               </span>
             ) : null}
             {summary.whitespace != null ? (
-              <span>whitespace {pctLabel(summary.whitespace, 0)}</span>
+              <span>
+                {t('agent.intelWhitespace')} {pctLabel(summary.whitespace, 0)}
+              </span>
             ) : null}
             {summary.heroDominance != null ? (
-              <span>hero {pctLabel(summary.heroDominance, 0)}</span>
+              <span>
+                {t('agent.intelHero')} {pctLabel(summary.heroDominance, 0)}
+              </span>
             ) : null}
             {summary.scoreFrom != null && summary.scoreTo != null ? (
               <span>
@@ -433,8 +663,26 @@ function formatExploredLabel(
   detail: string,
   preferDetail: boolean
 ): string {
+  const code = String(ev.code || '').trim().toLowerCase();
+  if (code === 'design_quality_check') {
+    if (ev.status === 'running') return t('agent.governanceRunning');
+    if (detail === 'fail' || ev.status === 'error') return t('agent.governanceFailShort');
+    return t('agent.governanceDone');
+  }
+  if (code === 'design_brief') {
+    return t('agent.designBriefDone');
+  }
+  if (code === 'design_pipeline') {
+    if (ev.status === 'running') return t('agent.activityExploredRunning');
+    return t('agent.activityExplored');
+  }
   const preload = formatPreloadExploredLabel(t, detail, ev.stage);
   if (preload) return preload;
+  // Never surface raw DESIGN_* / English kernel dumps as the row label.
+  if (/^DESIGN_/i.test(detail) || detail === 'design pipeline') {
+    if (ev.status === 'running') return t('agent.activityExploredRunning');
+    return t('agent.activityExplored');
+  }
   if (preferDetail && !detail.startsWith('canvas_size:')) return detail;
   const canvas = formatCanvasSizeExploredLabel(t, ev, detail);
   if (canvas) return canvas;
@@ -525,6 +773,31 @@ function exploreItemKindKey(id: string): string {
     return 'agent.stageScene';
   }
   if (id === 'canvas-size') return 'agent.canvasSizeLabel';
+  if (id === 'design-quality-check' || id === 'design-governance') {
+    return 'agent.governanceTitle';
+  }
+  if (id === 'design-brief') {
+    return 'agent.designBriefDone';
+  }
+  if (id.startsWith('stage-')) {
+    const stage = id.slice('stage-'.length);
+    const map: Record<string, string> = {
+      prepare: 'agent.stagePrepare',
+      scene: 'agent.stageScene',
+      prompt: 'agent.stagePrompt',
+      model_wait: 'agent.stageModelWait',
+      model_stream: 'agent.stageModelStream',
+      lookup: 'agent.stageLookup',
+      validate: 'agent.stageValidate',
+      ops: 'agent.stageOps',
+      scene_check: 'agent.stageSceneCheck',
+      critic: 'agent.stageCritic',
+      refine: 'agent.stageRefine',
+      done: 'agent.stageDone',
+      failed: 'agent.stageFailed',
+    };
+    return map[stage] || '';
+  }
   return '';
 }
 
@@ -1231,6 +1504,7 @@ function AssistantTurn({
       {hasDesignIntelligence(assistant.intelligence) ? (
         <DesignIntelligencePanel intel={assistant.intelligence!} />
       ) : null}
+      <DeveloperDebugPanel events={assistant.debugEvents} />
 
       {showImageGallery ? (
         <ImageGenGallery assistant={assistant} sending={sending} />
@@ -1324,12 +1598,11 @@ function ChatResultImageCard({
       className="group relative shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--canvas)]"
       style={{ width: box.width, height: box.height }}
     >
-      <img
-        src={src}
-        alt=""
+      <button
+        type="button"
         draggable
-        loading="lazy"
-        className="block h-full w-full cursor-grab object-cover active:cursor-grabbing"
+        aria-label={t('agent.previewImage', { defaultValue: '预览图片' })}
+        className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
         onDragStart={(e) => {
           draggedRef.current = true;
           setChatImageDragData(e.dataTransfer, src);
@@ -1347,7 +1620,15 @@ function ChatResultImageCard({
           }
           setPreviewOpen(true);
         }}
-      />
+      >
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          loading="lazy"
+          className="pointer-events-none block h-full w-full object-cover"
+        />
+      </button>
       <button
         type="button"
         aria-label={t('agent.downloadImage', { defaultValue: '下载图片' })}
@@ -1707,11 +1988,13 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                 </div>
               ) : (
                 <div className="group relative w-full min-w-0">
-                  <div
-                    onClick={!sending ? () => onBeginEdit(m) : undefined}
+                  <button
+                    type="button"
+                    disabled={sending}
+                    onClick={() => onBeginEdit(m)}
                     className={cn(
-                      'w-full rounded-[22px] bg-[var(--canvas)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--ink)] whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
-                      !sending ? 'cursor-pointer' : '',
+                      'w-full rounded-[22px] border-0 bg-[var(--canvas)] px-3.5 py-2.5 text-left text-[13px] leading-relaxed text-[var(--ink)] whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+                      !sending ? 'cursor-pointer' : 'cursor-not-allowed opacity-80',
                       canRestore && !sending ? 'pr-10' : ''
                     )}
                     title={t('agent.clickToEdit')}
@@ -1721,7 +2004,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                       contentMarked={m.contentMarked}
                       contexts={m.contexts}
                     />
-                  </div>
+                  </button>
                   {canRestore ? (
                     <button
                       type="button"

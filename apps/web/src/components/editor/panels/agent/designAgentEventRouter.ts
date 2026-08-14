@@ -33,6 +33,15 @@ export function mergeDesignIntelligence(
   if (patch.review) {
     next.review = { ...(prev?.review || {}), ...patch.review };
   }
+  if (patch.governance) {
+    next.governance = { ...(prev?.governance || {}), ...patch.governance };
+    if (patch.governance.lanes) {
+      next.governance.lanes = patch.governance.lanes;
+    }
+    if (patch.governance.explain) {
+      next.governance.explain = patch.governance.explain;
+    }
+  }
   if (patch.diff) {
     next.diff = { ...(prev?.diff || {}), ...patch.diff };
   }
@@ -616,6 +625,26 @@ export function createDesignAgentEventRouter(opts: {
           )
         );
         return;
+      case 'developer': {
+        const piece = String(ev.text || '').trim();
+        const kind = String(ev.kind || 'debug').trim() || 'debug';
+        opts.setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== opts.assistantId) return m;
+            const nextRow = {
+              id: `dbg-${Date.now()}-${(m.debugEvents || []).length}`,
+              kind,
+              text: piece || undefined,
+              at: Date.now(),
+            };
+            return {
+              ...m,
+              debugEvents: [...(m.debugEvents || []), nextRow].slice(-40),
+            };
+          })
+        );
+        return;
+      }
       case 'canvas':
         if (ev.size) handleUiCanvas(ev);
         return;

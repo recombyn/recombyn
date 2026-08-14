@@ -121,6 +121,8 @@ export type DesignJobEvent =
       text: string;
       skill_id?: number;
       skill_name?: string;
+      /** user | developer | internal — FE drops non-user by default. */
+      visibility?: 'user' | 'developer' | 'internal';
     }
   | {
       /** Backend-authored progress (element counts etc.). FE displays, does not invent. */
@@ -141,6 +143,20 @@ export type DesignJobEvent =
       item?: { id?: string; name?: string; summary?: string };
       /** Markdown body for expandable Explored (diagrams / notes). */
       body?: string;
+      visibility?: 'user' | 'developer' | 'internal';
+    }
+  | {
+      /** Structured design quality gate (Brand / A11y / Copyright / …). */
+      type: 'design_governance';
+      status?: string;
+      lanes?: Array<{
+        lane?: string;
+        status?: string;
+        message?: string;
+      }>;
+      explain?: string[];
+      summary?: string;
+      visibility?: 'user' | 'developer' | 'internal';
     }
   | {
       /** Dedicated incremental SVG push (optional; skill_done.preview_svg also works). */
@@ -328,6 +344,17 @@ export type DesignJobEvent =
       whitespace?: number | null;
       hero_dominance?: number | null;
       timeline?: Array<{ iteration?: number; overall?: number }>;
+      thesis?: string;
+      why?: string;
+      purpose?: string;
+      audience?: string;
+      emotion?: string;
+      strengths?: string[];
+      weaknesses?: string[];
+      next_steps?: string[];
+      market_gap?: string;
+      source?: string;
+      visibility?: 'user' | 'developer' | 'internal';
     }
   | {
       type: 'memory_patch';
@@ -373,6 +400,7 @@ const DESIGN_JOB_EVENT_TYPES = [
   'analysis',
   'analysis_delta',
   'activity',
+  'design_governance',
   'svg_delta',
   'decision',
   'result',
@@ -458,6 +486,10 @@ export type RunDesignJobBody = {
   proposal_task_id?: string;
   /** User-pinned skills from `/` chips (skill keys or ids). */
   skill_refs?: string[];
+  /** UI locale — drives agent output language. */
+  locale?: string;
+  /** Design pipeline depth: light | medium | high | extreme. */
+  design_intensity?: string;
 };
 
 export type DesignSkillCard = {
