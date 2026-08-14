@@ -229,11 +229,14 @@ async def _node_settle(state: GraphState) -> Command:
             }
         )
         # Do not claim design success; surface repair draft.
-        st.reply = (
-            "Governance FAIL:\n"
-            + "\n".join(f"- {x}" for x in list(gov.get("explain") or [])[:6])
-            + "\nRepair draft ready (not applied)."
-        )[:2000]
+        from app.services.design.runtime.graph.nodes.governance import (
+            format_governance_fail_reply,
+        )
+        from app.services.design.runtime.host.prompts import locale_for_runtime
+
+        st.reply = format_governance_fail_reply(
+            gov, locale=locale_for_runtime(rt)
+        )
         if "governance_fail" not in (st.errors or []):
             try:
                 st.note_error("governance_fail")
@@ -260,6 +263,8 @@ async def _node_settle(state: GraphState) -> Command:
         spend = prior_charged
         _log.debug("settle idempotent skip task=%s charged=%s", st.task_id, spend)
     else:
+        from app.services.llm import is_byok_model_ref
+
         spend = await asyncio.to_thread(
             _design_settle_hold_fn(rt),
             rt.user_id,
@@ -269,6 +274,8 @@ async def _node_settle(state: GraphState) -> Command:
             rules=rt.rules,
             free_daily=rt.free_daily,
             images_hydrated=st.images_hydrated,
+            byok=is_byok_model_ref(rt.user_selected_model),
+            mode=rt.mode or "agent",
         )
     has_proposal = bool(st.proposed_ops)
     settle_intent = (

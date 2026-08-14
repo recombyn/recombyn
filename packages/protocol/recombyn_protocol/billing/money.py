@@ -50,3 +50,29 @@ def micros_to_money(micros: int | None) -> Decimal:
     """Micros → Decimal currency amount."""
     n = int(micros or 0)
     return (Decimal(n) / MICROS_PER_UNIT).quantize(Decimal("0.000001"))
+
+
+def credits_from_sell_cost_micros(
+    sell_cost_micros: int,
+    *,
+    credit_value_micros: int,
+    min_charge_credits: int = 1,
+    round_mode: str = "ceil",
+) -> int:
+    """Map a sell amount (micros) → credits (ceil by default).
+
+    ``sell_cost_micros`` is host-defined. This helper is open so wallets / SDKs
+    share one rounding rule with CreditPolicySchema.
+    """
+    sell = max(0, int(sell_cost_micros or 0))
+    value = max(1, int(credit_value_micros or 1))
+    if sell <= 0:
+        return 0
+    mode = str(round_mode or "ceil").strip().lower()
+    if mode == "floor":
+        n = sell // value
+    elif mode == "nearest":
+        n = int(Decimal(sell) / Decimal(value) + Decimal("0.5"))
+    else:
+        n = (sell + value - 1) // value
+    return max(int(min_charge_credits or 0), n) if n > 0 else 0

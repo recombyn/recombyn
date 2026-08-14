@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 
 BillingEventKind = Literal[
     "estimate",
-    "reserve",
-    "charge",
+    "authorize",
+    "reserve",  # legacy alias of authorize
+    "capture",
+    "charge",  # legacy alias of capture
     "release",
     "refund",
     "topup",
@@ -19,19 +21,21 @@ BillingEventKind = Literal[
 
 
 class BillingEventSchema(BaseModel):
-    """Wallet lifecycle around a task or pack (estimate → reserve → settle).
+    """Wallet lifecycle around a task or pack.
 
-    Typical settle::
+    Typical settle (Stripe-shaped)::
 
-        reserve 30 → actual 22 → charge 22 + release 8
+        authorize 100 → actual 70 → capture 70 + release 30
     """
 
     event_id: str = ""
-    kind: BillingEventKind | str = "charge"
+    kind: BillingEventKind | str = "capture"
     user_id: str = ""
     task_id: str = ""
     credits_delta: int = 0
+    credits_authorized: int | None = None
     credits_reserved: int | None = None
+    credits_captured: int | None = None
     credits_charged: int | None = None
     credits_released: int | None = None
     estimate_low: int | None = None
@@ -39,6 +43,7 @@ class BillingEventSchema(BaseModel):
     currency: str = "CREDITS"
     pricing_version_ids: list[str] = Field(default_factory=list)
     usage_event_ids: list[str] = Field(default_factory=list)
+    task_pricing_id: str = ""
     task_cost_id: str = ""
     timestamp: float | None = None
     meta: dict[str, Any] = Field(default_factory=dict)

@@ -1,7 +1,9 @@
-"""Task billing lifecycle helpers — estimate → reserve → settle (charge/release).
+"""Task billing lifecycle helpers — estimate → authorize → capture/release.
 
 Wraps wallet spend/credit at the **credit** layer (design holds). Emits Billing
 Protocol event shapes. Commercial packs / margin stay private.
+
+Stripe-shaped aliases: authorize(=reserve), capture(=charge).
 """
 
 from __future__ import annotations
@@ -48,6 +50,40 @@ def estimate_task_credits(
     }
 
 
+def estimate_from_task_pricing(
+    *,
+    mode: str,
+    task_id: str = "",
+    user_id: str = "",
+    rules: dict[str, Any] | None = None,
+    pipeline: str = "",
+    byok: bool = False,
+) -> dict[str, Any]:
+    """Estimate credit band from TaskPricing (or BYOK agent fee)."""
+    from app.services.wallet.billing import (
+        byok_agent_fee_credits,
+        estimate_design_hold_credits,
+        resolve_task_pricing,
+    )
+
+    if byok:
+        fee = byok_agent_fee_credits(rules)
+        out = estimate_task_credits(
+            low=fee, high=fee, task_id=task_id, user_id=user_id
+        )
+        out["source"] = "byok_agent_fee"
+        out["byokAgentFeeCredits"] = fee
+        return out
+
+    sheet = resolve_task_pricing(mode, rules=rules, pipeline=pipeline)
+    lo = max(0, int(sheet.base_credit or 0))
+    hi = max(lo, int(estimate_design_hold_credits(mode, rules=rules, pipeline=pipeline)))
+    out = estimate_task_credits(low=lo, high=hi, task_id=task_id, user_id=user_id)
+    out["source"] = "task_pricing"
+    out["taskPricing"] = sheet.model_dump()
+    return out
+
+
 def reserve_task_credits(
     *,
     user_id: str,
@@ -80,6 +116,21 @@ def reserve_task_credits(
         status="reserved",
     )
     return {"billingEvent": ev.model_dump(), "taskCost": task.model_dump(), "reserved": n}
+
+
+def authorize_task_credits(
+    *,
+    user_id: str,
+    credits: int,
+    task_id: str = "",
+    detail: str = "",
+) -> dict[str, Any]:
+    """Stripe-shaped alias for ``reserve_task_credits``."""
+    out = reserve_task_credits(
+        user_id=user_id, credits=credits, task_id=task_id, detail=detail
+    )
+    out["lifecycleStage"] = "authorize"
+    return out
 
 
 def settle_task_credits(
@@ -151,3 +202,27 @@ def settle_task_credits(
         "released": released,
         "settledAt": time.time(),
     }
+
+
+def capture_task_credits(
+    *,
+    user_id: str,
+    reserved: int,
+    actual: int,
+    task_id: str = "",
+    detail: str = "",
+    pricing_version_ids: list[str] | None = None,
+    usage_event_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Stripe-shaped alias for ``settle_task_credits`` (capture + release)."""
+    out = settle_task_credits(
+        user_id=user_id,
+        reserved=reserved,
+        actual=actual,
+        task_id=task_id,
+        detail=detail,
+        pricing_version_ids=pricing_version_ids,
+        usage_event_ids=usage_event_ids,
+    )
+    out["lifecycleStage"] = "capture"
+    return out

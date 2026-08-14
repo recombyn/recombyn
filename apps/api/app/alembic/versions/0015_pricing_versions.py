@@ -29,7 +29,8 @@ def upgrade() -> None:
             sa.Column("provider", sa.String(64), nullable=False, server_default=""),
             sa.Column("model_id", sa.String(128), nullable=False, server_default=""),
             sa.Column("currency", sa.String(16), nullable=False, server_default="USD"),
-            sa.Column("rates_json", sa.Text(), nullable=False, server_default="[]"),
+            # MySQL: TEXT/BLOB/JSON cannot have a DEFAULT — app writes "[]".
+            sa.Column("rates_json", sa.Text(), nullable=False),
             sa.Column("status", sa.String(32), nullable=False, server_default="draft"),
             sa.Column("effective_from", sa.Float(), nullable=True),
             sa.Column("effective_to", sa.Float(), nullable=True),
