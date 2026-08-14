@@ -77,7 +77,7 @@ describe('arrow outline keeps scene position', () => {
     expect(outline!.bakeAngle).toBe(true);
 
     const patch = outlineNodePatch(node, outline!);
-    expect(Number(patch.attrs.angle) || 0).toBe(0);
+    expect(Number((patch.attrs as { angle?: unknown }).angle) || 0).toBe(0);
 
     const c = pathCentroid(String(patch.attrs.path));
     const world = { x: patch.x + c.x, y: patch.y + c.y };

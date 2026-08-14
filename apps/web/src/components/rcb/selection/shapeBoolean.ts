@@ -124,6 +124,7 @@ function ellipseLocalPolygon(b: ShapeBox): Polygon {
       top: (b.height - ih) / 2,
       width: iw,
       height: ih,
+      shapeType: b.shapeType,
     },
     Math.max(48, Math.ceil(segs * Math.max(0.25, inner)))
   );

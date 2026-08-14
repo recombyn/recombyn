@@ -22,8 +22,9 @@ describe('cloneSceneValue', () => {
       const cloned = cloneSceneValue(draft);
       expect(cloned).toEqual(node);
       expect(cloned).not.toBe(draft);
-      cloned.attrs = { ...cloned.attrs, processStatus: 'running' };
-      expect(draft.attrs?.processStatus).toBeUndefined();
+      const nextAttrs = { ...cloned.attrs, processStatus: 'running' };
+      cloned.attrs = nextAttrs as typeof cloned.attrs;
+      expect((draft.attrs as { processStatus?: string } | undefined)?.processStatus).toBeUndefined();
     });
   });
 

@@ -49,9 +49,8 @@ describe('pen/pencil outline → path-edit paint', () => {
     // Path-edit must treat this as fill ink — not an open hairline centerline.
     const anyClosed = subs.some((s) => s.closed);
     const fillEnabled =
-      patch.attrs['fill-enabled'] !== false &&
       patch.attrs['fill-enabled'] !== 'false' &&
-      patch.attrs['fill-color'] &&
+      Boolean(patch.attrs['fill-color']) &&
       patch.attrs['fill-color'] !== 'transparent';
     expect(anyClosed && fillEnabled).toBeTruthy();
   });
