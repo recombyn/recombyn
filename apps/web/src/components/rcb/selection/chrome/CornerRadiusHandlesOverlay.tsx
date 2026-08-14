@@ -467,7 +467,19 @@ function shouldSkipRadiusHandles(node: SceneNodeInput, shapeType: string): boole
   const d = String(node?.attrs?.path || node?.attrs?.d || '').trim();
   if (!d) return false;
   const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
-  return rings >= 4;
+  if (rings >= 4) return true;
+  // Pen/pencil stroke→fill ribbons: dense cusps would carpet R-dots on select.
+  const strokeOff =
+    node?.attrs?.['stroke-enabled'] === false || node?.attrs?.['stroke-enabled'] === 'false';
+  const fillOn =
+    node?.attrs?.['fill-enabled'] !== false &&
+    node?.attrs?.['fill-enabled'] !== 'false' &&
+    String(node?.attrs?.['fill-color'] || node?.attrs?.fill || '') !== 'transparent';
+  if (strokeOff && fillOn && (shapeType === 'path' || node?.key === 'path')) {
+    const vertApprox = (d.match(/[MLQCmlqc]/g) || []).length;
+    if (vertApprox > 24) return true;
+  }
+  return false;
 }
 
 /**

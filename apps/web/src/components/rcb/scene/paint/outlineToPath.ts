@@ -1688,18 +1688,26 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
  * user can still enter path edit manually from the toolbar.
  * Also skip when the path is many closed rings (outlined text) — auto-enter
  * dumps every silhouette vert as knobs and looks like “points flying around”.
+ * Stroke outlines (pen / pencil / line / arrow): never auto-enter — path-edit
+ * force-hides the host, so a hairline preview reads as “thickness gone”.
  */
-export function requestEnterPathEdit(nodeId: string, pathD?: string) {
+export function requestEnterPathEdit(
+  nodeId: string,
+  pathD?: string,
+  opts?: { fromStrokeOutline?: boolean }
+) {
   if (typeof window === 'undefined' || !nodeId) return;
+  if (opts?.fromStrokeOutline) return;
   const d = pathD != null ? String(pathD) : '';
   if (d.length >= HEAVY_PATH_D_CHARS) return;
   if (d) {
     const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
     if (rings >= 4) return;
-    // Dense stroke ribbons (pen/pencil outline): auto path-edit carpets knobs and
-    // reads as “thickness gone”. User can enter path-edit from the toolbar.
+    // Dense closed ribbons: auto path-edit carpets knobs and reads as “thickness gone”.
     const vertApprox = (d.match(/[MLQCmlqc]/g) || []).length;
+    const closedRibbon = /z\s*$/i.test(d.trim());
     if (vertApprox > 64) return;
+    if (closedRibbon && vertApprox > 24) return;
   }
   queueMicrotask(() => {
     window.dispatchEvent(

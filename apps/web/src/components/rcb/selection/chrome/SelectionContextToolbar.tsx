@@ -807,7 +807,13 @@ function SelectionContextToolbar(props: Props): ReactNode {
                             },
                           })
                         );
-                        requestEnterPathEdit(nodeId, outline.pathD);
+                        const st = String(node?.attrs?.shapeType || node?.key || '');
+                        const fromStrokeOutline =
+                          st === 'pen' ||
+                          st === 'pencil' ||
+                          st === 'line' ||
+                          st === 'arrow';
+                        requestEnterPathEdit(nodeId, outline.pathD, { fromStrokeOutline });
                         message.success('Outlined');
                       } finally {
                         hide();
