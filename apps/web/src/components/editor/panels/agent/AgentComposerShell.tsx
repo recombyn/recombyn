@@ -276,8 +276,6 @@ type Props = {
   /** Video-mode settings / model / credit send (Video Generator鈥搒tyle chrome). */
   videoModeControls?: VideoModeComposerControls | null;
   modelButtonProps: {
-    /** @deprecated Unused — model chip no longer shows a hover tip. */
-    title?: string;
     open: boolean;
     /** Preferred: Dropdown-hosted primary panel (flip / shift, stable anchor). */
     panel?: ReactNode;
@@ -292,6 +290,8 @@ type Props = {
     icon?: ReactNode;
     /** Short label shown in the pill (e.g. Auto / DeepSeek). */
     label?: string;
+    /** Optional muted trailing chip text (e.g. design intensity short). */
+    labelSuffix?: string;
     /**
      * `icon` — cube only (editor default).
      * `chip` — bordered pill with icon + label (home “智能设计系统”).
@@ -1449,23 +1449,26 @@ function AgentComposerShell({
           >
             <button
               type="button"
-              aria-label={
-                modelButtonProps.label ||
-                modelButtonProps.title ||
-                t('agent.selectModel')
-              }
+              aria-label={modelButtonProps.label || t('agent.selectModel')}
               aria-expanded={modelButtonProps.open}
               className={
                 modelButtonProps.label
                   ? cn(
-                      'inline-flex h-7 max-w-[11rem] shrink-0 items-center rounded-xl px-2 text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
+                      'inline-flex h-7 max-w-[14rem] shrink-0 items-center rounded-xl px-2 text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
                       modelButtonProps.open && TOOL_ICON_BTN_ACTIVE
                     )
                   : cn(TOOL_ICON_BTN, modelButtonProps.open && TOOL_ICON_BTN_ACTIVE)
               }
             >
               {modelButtonProps.label ? (
-                <span className="max-w-[11rem] truncate">{modelButtonProps.label}</span>
+                <span className="inline-flex max-w-[14rem] items-center gap-1 truncate">
+                  <span className="truncate">{modelButtonProps.label}</span>
+                  {modelButtonProps.labelSuffix ? (
+                    <span className="shrink-0 text-[11px] font-normal opacity-70">
+                      {modelButtonProps.labelSuffix}
+                    </span>
+                  ) : null}
+                </span>
               ) : (
                 modelButtonProps.icon ?? (
                   <Icon name="editor-model-cube" width={16} height={16} />

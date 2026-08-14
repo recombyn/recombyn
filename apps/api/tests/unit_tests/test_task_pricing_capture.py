@@ -20,9 +20,13 @@ def test_byok_capture_is_agent_fee_only():
     assert credits == byok_agent_fee_credits()
 
 
-def test_oss_floor_when_no_usage():
+def test_oss_floor_when_no_usage(monkeypatch):
     from app.services.wallet.billing import resolve_task_pricing
 
+    monkeypatch.setattr(
+        "app.services.design.intelligence_runtime.quote_remote_task_credits",
+        lambda *_a, **_k: None,
+    )
     credits, source = resolve_capture_credits(
         mode="agent",
         actual_tokens=0,

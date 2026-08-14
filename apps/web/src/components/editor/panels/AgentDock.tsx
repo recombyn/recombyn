@@ -585,18 +585,6 @@ function mentionAttachRefPayload(kind: 'image' | 'video' | 'audio', ordinal: num
   return `[Ref: Attached image ${ordinal}]`;
 }
 
-function modelButtonTitle(
-  modelId: string,
-  models: LlmModel[],
-  fallbackLabel: string,
-  t: (key: string) => string
-): string {
-  if (modelId === 'auto') return modelDescription(AUTO_MODEL, t);
-  const m = models.find((x) => x.id === modelId);
-  if (!m) return fallbackLabel;
-  return `${m.label || m.id} — ${modelDescription(m, t)}`;
-}
-
 function modelButtonLabel(
   modelId: string,
   selected: LlmModel | undefined,
@@ -3327,7 +3315,6 @@ function AgentDock({
   });
 
   const modelButtonProps = {
-    title: modelButtonTitle(model, models, selectedModelLabel, t),
     label: modelButtonLabel(model, selectedModel, selectedModelLabel, t),
     labelSuffix: t(`agent.designIntensity.${designIntensity}.short`),
     variant: 'chip' as const,
