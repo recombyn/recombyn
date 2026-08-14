@@ -46,7 +46,7 @@ function createPage(id?: string): ScenePage {
 export function cloneSceneValue<T>(value: T): T {
   if (value == null || typeof value !== 'object') return value;
   // Reducers run under Immer — drafts are Proxies and throw DataCloneError in structuredClone.
-  const plain = (isDraft(value) ? current(value) : value) as T;
+  const plain = (isDraft(value) ? current(value as never) : value) as T;
   try {
     if (typeof structuredClone === 'function') return structuredClone(plain);
   } catch {
