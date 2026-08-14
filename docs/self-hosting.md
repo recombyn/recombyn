@@ -106,7 +106,7 @@ Details: [agent-profile.md](./agent-profile.md).
 
 | HTTP | Role |
 |------|------|
-| `POST /design/run` | SSE main run |
+| `POST /design/run` | SSE main run (`locale`, `design_intensity` — [agent-profile.md](./agent-profile.md#run-request-locale--design-intensity)) |
 | `POST /design/run/{taskId}/scene` | FE scene → resume interrupt |
 | `POST …/pause` · `/cancel` · `/resume` | Durable lifecycle |
 | `GET /design/catalog` · `/canvas-tools` | Catalogs |

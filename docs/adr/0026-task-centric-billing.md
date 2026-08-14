@@ -25,7 +25,22 @@ Credit must mean **AI work value**, not a token counter.
 | `EntitlementSchema` | Plan grants (credits + quotas + features) — portable shape only |
 | `BillingMeterSchema` | What Runtime may count (`llm.*`, `image.gen`, `agent.*`, …) |
 
-Helpers: `credits_from_sell_cost_micros(sell_cost_micros, credit_value_micros=…)`.
+Helpers: `credits_from_sell_cost_micros(sell_cost_micros, credit_value_micros=…)`,
+`default_oss_task_pricing_catalog()`.
+
+### OSS authorize floors (`default_oss_task_pricing_catalog`)
+
+Runtime and host quote adapters share this public catalog so authorize ceilings
+stay aligned. Hosts may override via rules (`billing.task_pricing_json`); the
+table below is the **open floor**, not a host list price.
+
+| Pipeline key | `base_credit` | Steps (credits) | High estimate |
+|--------------|---------------|-----------------|---------------|
+| `agent` | 20 | research 3 + paint 5 + review 2 | 30 |
+| `single_model` | 20 | — | 20 |
+| `partial` | 10 | — | 10 |
+| `image` | 2 | — | 2 |
+| `chat` | 1 | — | 1 |
 
 Lifecycle aliases (Stripe-shaped):
 
@@ -66,6 +81,8 @@ valid usage inputs; they are not the Design Agent sell unit.
 - Protocol pin: **0.1.3+**.
 - Capture prefers an optional host quote (`credits_to_charge`); otherwise OSS
   TaskPricing / legacy hybrid / BYOK agent fee.
+- `default_oss_task_pricing_catalog()` is the shared authorize floor
+  (`packages/protocol/recombyn_protocol/billing/task_pricing.py`).
 - Public docs and ADRs do not describe host markup formulas or private services.
 
 ## References
