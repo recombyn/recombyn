@@ -1353,7 +1353,6 @@ _DEFAULT_PAINT_EDIT_TOOLS = (
     "update_node",
     "delete_nodes",
 )
-_LEAN_PAINT_PROMPT_CHARS = 96
 
 
 def _agent_turn_parser():

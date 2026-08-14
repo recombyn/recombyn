@@ -124,7 +124,6 @@ def test_review_auto_gates(monkeypatch):
     monkeypatch.setattr(observe_mod, "_review_stage_enabled", lambda: True)
     monkeypatch.setattr(observe_mod, "_review_mode", lambda *_a, **_k: "auto")
 
-    # > lean threshold (96 compact chars) so always-mode is not skipped as short edit.
     long_prompt = (
         "Design a complete multi-section marketing landing page with nav, hero, "
         "three feature blocks, testimonials, pricing table, FAQ, and footer."
@@ -141,8 +140,9 @@ def test_review_auto_gates(monkeypatch):
         is True
     )
 
+    # Taste phrases must NOT force Review — intent LLM / signals only.
     taste = _rt(classified_intent="design", prompt="这个太丑了重新设计", images=None)
-    assert observe_mod._should_route_to_review(taste) is True
+    assert observe_mod._should_route_to_review(taste) is False
 
     retry = _rt(classified_intent="design", prompt=long_prompt, images=None)
     retry.flags["critique_failed"] = True
@@ -163,7 +163,7 @@ def test_review_auto_gates(monkeypatch):
     lean = _rt(classified_intent="canvas_op", prompt="加个红圆", images=None)
     assert observe_mod._should_route_to_review(lean) is False
     lean_taste = _rt(classified_intent="canvas_op", prompt="这个太丑了", images=None)
-    assert observe_mod._should_route_to_review(lean_taste) is True
+    assert observe_mod._should_route_to_review(lean_taste) is False
 
 
 

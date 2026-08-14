@@ -9,6 +9,8 @@ from app.services.design.runtime.graph.nodes.governance import (
     contrast_ratio,
     format_governance_for_settle,
     run_design_governance_pipeline,
+    should_route_to_governance,
+    should_skip_design_governance,
 )
 from app.services.design.runtime.graph.state import (
     GOVERNANCE_LANES,
@@ -170,3 +172,82 @@ def test_fail_explain_repair_draft_not_ops():
     assert "copyright" in fails
     assert "design_system" in fails
     assert "tool_permission" in fails
+
+
+def test_skip_governance_on_chitchat():
+    rt = _rt()
+    rt.classified_intent = "chat"
+    rt.run.intent = "chat"
+    assert should_skip_design_governance(rt) is True
+
+
+def test_skip_governance_on_empty_intent():
+    rt = _rt()
+    rt.classified_intent = ""
+    rt.flags = {}
+    assert should_skip_design_governance(rt) is True
+
+
+def test_skip_governance_on_legacy_create_edit():
+    rt = _rt()
+    rt.classified_intent = "edit"
+    rt.flags = {"intent": "create"}
+    rt.apply_ops = [{"name": "create_shape", "args": {"shapeType": "rect"}}]
+    assert should_skip_design_governance(rt) is True
+
+
+def test_skip_governance_on_canvas_op_even_if_painted():
+    rt = _rt()
+    rt.classified_intent = "canvas_op"
+    rt.flags["intent"] = "canvas_op"
+    rt.flags["gate_intent"] = "canvas_op"
+    rt.run.intent = "create"
+    rt.run.painted = True
+    rt.apply_ops = [{"name": "create_shape", "args": {"shapeType": "rect"}}]
+    assert should_skip_design_governance(rt) is True
+    assert should_route_to_governance(rt) is False
+
+
+def test_keep_governance_on_design():
+    design = _rt()
+    assert should_skip_design_governance(design) is True
+    assert should_route_to_governance(design) is False
+    painted_design = _rt()
+    painted_design.classified_intent = "design"
+    painted_design.flags["gate_intent"] = "design"
+    painted_design.flags["design_brief"] = {"palette": {"dominant": ["#111111"]}}
+    painted_design.run.intent = "create"
+    painted_design.run.painted = True
+    assert should_skip_design_governance(painted_design) is False
+    assert should_route_to_governance(painted_design) is True
+
+
+def test_skip_governance_on_design_tool_op_without_brief():
+    rt = _rt()
+    rt.classified_intent = "design"
+    rt.flags["gate_intent"] = "design"
+    rt.run.painted = True
+    rt.apply_ops = [{"name": "create_shape", "args": {"shapeType": "rect"}}]
+    assert should_route_to_governance(rt) is False
+    assert should_skip_design_governance(rt) is True
+
+
+def test_keep_governance_when_gate_intent_frozen_after_edit_rewrite():
+    rt = _rt()
+    rt.flags["gate_intent"] = "design"
+    rt.flags["design_brief"] = {"visual_focus": "hero"}
+    rt.classified_intent = "edit"
+    rt.run.painted = True
+    assert should_skip_design_governance(rt) is False
+    assert should_route_to_governance(rt) is True
+
+
+def test_chat_and_empty_intent_do_not_route_quality_check():
+    chat = _rt()
+    chat.classified_intent = "chat"
+    chat.flags["gate_intent"] = "chat"
+    assert should_route_to_governance(chat) is False
+    empty = _rt()
+    empty.classified_intent = ""
+    empty.flags = {}
+    assert should_route_to_governance(empty) is False

@@ -224,9 +224,12 @@ export function buildProjectDocumentPatch(
     Object.keys(upsertNodes).length + removeNodeIds.length;
   const patchBytes = stableJson(patch).length;
   const fullBytes = Math.max(1, stableJson(next).length);
+  // Byte-ratio vs the whole doc is useless on small canvases: a 2-shape boolean
+  // PATCH is already most of the JSON, so 0.6 * full forced PUT every save.
+  // Prefer PUT only when the delta is a large fraction of a large graph, or
+  // when the patch payload is strictly bigger than a full replace.
   const preferFull =
-    changed > Math.max(24, Math.ceil(nodeCount * 0.35)) ||
-    patchBytes > fullBytes * 0.6;
+    changed > Math.max(24, Math.ceil(nodeCount * 0.35)) || patchBytes > fullBytes;
 
   return { patch, preferFull };
 }
@@ -346,7 +349,25 @@ export async function markProjectDraftSynced(
     const draft = (await idbReq(
       store.get(projectPersistenceKey(id))
     )) as ProjectDraftRecord | undefined;
-    if (!draft || draft.contentHash !== contentHash) {
+    if (!draft) {
+      db.close();
+      return;
+    }
+    if (draft.contentHash !== contentHash) {
+      // ACK still advanced the server revision; this draft is a newer local edit
+      // (boolean / delete during the in-flight PUT). Keep it unsynced but store
+      // the new If-Match so the follow-up write is not 412.
+      const nextRev =
+        cloudRevision !== undefined ? cloudRevision : draft.cloudRevision ?? null;
+      if (nextRev != null && nextRev !== (draft.cloudRevision ?? null)) {
+        await idbReq(
+          store.put({
+            ...draft,
+            cloudRevision: nextRev,
+            syncedAt: null,
+          })
+        );
+      }
       db.close();
       return;
     }

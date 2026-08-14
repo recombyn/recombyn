@@ -10,9 +10,8 @@ import type {
 import PlansDialog from '@/components/layout/PlansDialog';
 import RedeemDialog from '@/components/layout/RedeemDialog';
 import { apiQuery } from '@/service/client';
-import { useWalletSnapshot, type WalletSnapshot } from '@/service/wallet';
+import { usePlanCatalog, useWalletSnapshot, type WalletSnapshot } from '@/service/wallet';
 import {
-  PLAN_CATALOG,
   formatTokens,
   isTopOfferedPlan,
   normalizePlanId,
@@ -24,6 +23,7 @@ import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 import ProgressBar from '@/components/base/progress';
 import { SegmentedControl } from '@/components/base';
+import { BrandWordmarkLoader } from '@/components/base/AppLogo';
 
 type Filter = WalletLedgerKindFilter;
 
@@ -162,6 +162,7 @@ function WalletLedgerPanel({
   const [searchParams, setSearchParams] = useSearchParams();
   const { tokens: walletTokens, planId: walletPlanId, planLocked: walletPlanLocked, planExpiresAt: walletExpires } =
     useWalletSnapshot();
+  const catalog = usePlanCatalog();
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(1);
   const [redeemOpen, setRedeemOpen] = useState(false);
@@ -209,7 +210,7 @@ function WalletLedgerPanel({
     else setRedeemOpen(true);
   };
 
-  const plan = PLAN_CATALOG[planId] || PLAN_CATALOG.free;
+  const plan = catalog[planId] || catalog.free;
   const planLabel = t(planLabelKey(planId));
   const planBlurb = t(`wallet.planBlurb.${planId}`);
   const priceLabel =
@@ -404,11 +405,8 @@ function WalletLedgerPanel({
               <tbody>
                 {loading ? (
                   <tr>
-                    <td
-                      colSpan={5}
-                      className="px-5 py-12 text-center text-[13px] text-[var(--muted)]"
-                    >
-                      {t('common.loading')}
+                    <td colSpan={5} className="px-5 py-12">
+                      <BrandWordmarkLoader label={t('common.loading')} />
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (

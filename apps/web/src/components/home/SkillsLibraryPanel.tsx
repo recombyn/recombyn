@@ -29,7 +29,7 @@ const DEFAULT_SKILL_GRID =
  */
 /** ~one row beside the upload tile on the 2xl 5-col grid (upload + 4). */
 const SKILL_SKELETON_MINE = 4;
-/** ~one row on the 2xl 5-col grid. */
+/** Official loading placeholders — several rows on the 2xl 5-col grid. */
 const SKILL_SKELETON_OFFICIAL = 5;
 
 /** Skill card — icon + title/2-line subtitle + switch; 10px pad. */

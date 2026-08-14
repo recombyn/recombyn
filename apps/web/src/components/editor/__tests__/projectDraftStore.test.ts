@@ -94,4 +94,27 @@ describe('buildProjectDocumentPatch', () => {
     const out = buildProjectDocumentPatch(sampleDoc(baseNodes), sampleDoc(nextNodes));
     expect(out?.preferFull).toBe(true);
   });
+
+  it('keeps incremental PATCH for a small-canvas boolean (2 shapes → 1 path)', () => {
+    const base = sampleDoc({
+      a: { id: 'a', key: 'shape', x: 0, y: 0, width: 80, height: 80 },
+      b: { id: 'b', key: 'shape', x: 40, y: 40, width: 80, height: 80 },
+    });
+    const next = sampleDoc({
+      c: {
+        id: 'c',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 120,
+        attrs: { shapeType: 'path', path: 'M0 0L120 0L120 120L0 120Z' },
+      },
+    });
+    const out = buildProjectDocumentPatch(base, next);
+    expect(out?.preferFull).toBe(false);
+    expect(out?.patch.removeNodeIds).toEqual(['a', 'b']);
+    expect(out?.patch.upsertNodes).toHaveProperty('c');
+    expect(out?.patch.pageChildren).toEqual(['c']);
+  });
 });

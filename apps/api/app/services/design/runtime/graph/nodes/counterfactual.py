@@ -12,16 +12,13 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from langgraph.types import Command
-
 from app.services.design.runtime.graph.state import (
     AgentRuntime,
-    GraphState,
     SceneVisualSnapshot,
     compute_visual_diff,
     parse_design_counterfactual,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
+from app.services.design.runtime.graph.support import _emit
 
 
 def _clamp01(n: float) -> float:
@@ -476,10 +473,3 @@ async def run_design_counterfactual(rt: AgentRuntime) -> dict[str, Any] | None:
             }
         )
         return None
-
-
-async def _node_counterfactual(state: GraphState) -> Command:
-    """Optional graph hop — counterfactual then continue to design_agent."""
-    rt = state["rt"]
-    await run_design_counterfactual(rt)
-    return Command(update=_bump(rt), goto="design_agent")

@@ -37,11 +37,11 @@ def _bind_host_artboard_focus(rt: Any, frame_id: str) -> None:
 
 
 def _should_early_open_artboard(rt: Any) -> bool:
-    """Open shimmer loading plate after intent=design create (before paint).
+    """Open shimmer loading plate after LLM intent=design create (before paint).
 
     Chat / canvas_op / Ask / user @ board: never invent a sibling plate.
-    Client size chip preferred; otherwise prompt WxH or scene stock — so Auto
-    still gets a skeleton instead of a blank canvas until paint finishes.
+    Intent ownership is the classifier LLM — no length/keyword demotion here.
+    Client size chip preferred; otherwise prompt WxH or scene stock.
     """
     if str(rt.flags.get("mode") or "") == "ask":
         return False

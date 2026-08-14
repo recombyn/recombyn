@@ -13,15 +13,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from langgraph.types import Command
-
 from app.services.design.runtime.graph.state import (
     AgentRuntime,
-    GraphState,
     parse_design_candidate_set,
     parse_design_strategy,
 )
-from app.services.design.runtime.graph.support import _bump, _emit
+from app.services.design.runtime.graph.support import _emit
 
 # Spec lanes: Editorial / Minimal Product / Art Direction / Experimental / Brand-led
 _CANDIDATE_LANES: tuple[tuple[str, str, dict[str, str]], ...] = (
@@ -344,10 +341,3 @@ async def run_multi_candidate(rt: AgentRuntime) -> dict[str, Any] | None:
             }
         )
         return None
-
-
-async def _node_candidates(state: GraphState) -> Command:
-    """Optional graph hop — candidates then continue to design_agent."""
-    rt = state["rt"]
-    await run_multi_candidate(rt)
-    return Command(update=_bump(rt), goto="design_agent")

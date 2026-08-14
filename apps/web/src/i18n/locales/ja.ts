@@ -426,10 +426,14 @@ const ja = {
       pro: '安定した大量制作・納品向け',
       ultra: 'チーム・ヘビープロダクション向け',
     },
+    planCreditsGift: '月 {{count}} クレジット（チャット / Agent / 画像共用）',
+    planUsageEstimate: '約 {{chats}} 回チャット · 約 {{images}} 枚画像',
+    planUsageEstimateLong:
+      '約 {{chats}} 回チャット · 約 {{images}} 枚画像（モデルにより変動）',
     planPriceNote: {
       free: '無料体験、1日1回のデザイン実行',
-      plus: '約 100 回チャット · 約 100 枚画像',
-      pro: '約 350 回チャット · 約 400 枚画像',
+      plus: '約 170 回チャット · 約 170 枚画像',
+      pro: '約 500 回チャット · 約 500 枚画像',
       ultra: '約 800 回チャット · 約 800 枚画像',
     },
     planFeatures: {
@@ -442,23 +446,17 @@ const ja = {
         'アップグレードでモデル選択と月次枠を拡大',
       ],
       plus: [
-        '月 200 クレジット（チャット / Agent / 画像共用）',
-        '約 100 回チャット · 約 100 枚画像（モデルにより変動）',
         'プラットフォームモデルを選択可（進階モード）',
         'サードパーティ追加可（自前キー・当プラットフォーム課金なし）',
         'Fast + プロモード',
         'より高い書き出し品質',
       ],
       pro: [
-        '月 750 クレジット（チャット / Agent / 画像共用）',
-        '約 350 回チャット · 約 400 枚画像（モデルにより変動）',
         'サードパーティモデルをカスタム可',
         '深い調査ツール',
         '高同時実行・優先枠',
       ],
       ultra: [
-        '月 1600 クレジット（チャット / Agent / 画像共用）',
-        '約 800 回チャット · 約 800 枚画像（モデルにより変動）',
         '最高枠と優先体験',
         '強力モデルを優先',
         'ベータ機能を優先',
@@ -605,9 +603,9 @@ const ja = {
     creditsBalanceItem: '現在の残高',
     creditsUsedLabel: '使用 {{count}}',
     creditsRemainLabel: '残り {{count}}',
-    creditsBarHint: 'バーは今月のプラン枠 {{total}} を基準にします。',
-    creditsExtraHint: '追加チャージ分 {{extra}} がプラン枠を超えています。',
-    creditsBarAria: '使用 {{used}}、残り {{remain}}、枠 {{total}}',
+    creditsBarHint: 'バーは使用量 / 保有量（保有 = 残高 + 使用量）です。',
+    creditsExtraHint: '追加チャージ分 {{extra}}。',
+    creditsBarAria: '使用 {{used}}、残り {{remain}}、保有 {{total}}',
   },
   account: {
     title: 'アカウント管理',
@@ -1659,6 +1657,8 @@ const ja = {
     providerPresetModel: 'モデル',
     providerPresetModelPlaceholder: 'モデルを選択',
     providerPresetComingSoon: '近日対応',
+    providerManualHint:
+      'カスタムエンドポイント：API キー、リクエスト URL、プロバイダー名が必要です。モデル ID は任意で、未入力時はプロバイダー名を上流 model に使います。',
     providerPlatformHint:
       'OpenRouter または Volcengine を選ぶと、そのプラットフォームで既に対応している全モデルが1つの API キーで使えます。「カスタム」は単一のカスタムエンドポイント向けです。',
     providerPlatformUnlock:
@@ -1792,7 +1792,7 @@ const ja = {
     count: '枚数',
     priceCny: '販売価格（元）',
     priceTip:
-      'プラスプラン換算：¥29 ≈ 200 クレジット（¥1 ≈ {{perCny}}）。販売価格から額面を算出します。',
+      'プラスプラン換算：¥49 ≈ 340 クレジット（¥1 ≈ {{perCny}}）。販売価格から額面を算出します。',
     priceTipAria: '額面の説明',
     tokensPerKey: '額面クレジット',
     expiresDays: '有効日数',

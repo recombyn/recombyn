@@ -649,43 +649,15 @@ def heuristic_route_lane(
 ) -> ModelRouteDecision:
     """Deterministic fallback when the LLM router is unavailable.
 
-    Uses only structural signals (images / length / node count / scene) —
-    no prompt keyword lists. Content judgment belongs to the LLM router pack.
+    Structural only (images). No prompt length tiers / keyword lists —
+    content judgment belongs to the LLM router pack.
     """
-    text = (prompt or "").strip()
-    n = len(text)
-    emptyish = canvas_node_count <= 2
-
+    del prompt, canvas_node_count, scene
     if has_images:
         return ModelRouteDecision(
             lane="vision",
             needs_image_gen=False,
             rationale="heuristic: has_images",
-        )
-    if emptyish and n >= 60:
-        return ModelRouteDecision(
-            lane="reasoning",
-            needs_image_gen=False,
-            rationale="heuristic: empty_canvas+long_prompt",
-        )
-    if n >= 220:
-        return ModelRouteDecision(
-            lane="reasoning",
-            needs_image_gen=False,
-            rationale="heuristic: long_prompt",
-        )
-    if n < 40 and canvas_node_count > 0:
-        return ModelRouteDecision(
-            lane="fast",
-            needs_image_gen=False,
-            rationale="heuristic: short_prompt+existing_nodes",
-        )
-    sc = (scene or "").strip().lower()
-    if sc in ("website", "mobile") and n >= 80:
-        return ModelRouteDecision(
-            lane="reasoning",
-            needs_image_gen=False,
-            rationale="heuristic: scene+mid_prompt",
         )
     return ModelRouteDecision(
         lane="standard",
@@ -773,6 +745,78 @@ def _user_request_core(prompt: str) -> str:
     return p
 
 
+_CHITCHAT_STRIP_RX = re.compile(
+    r"[\s\-_=+~`!@#$%^&*()\[\]{};:'\",.<>/?\\|，。！？、；：「」『』（）【】…·—～]+"
+)
+_CHITCHAT_EMOJI_RX = re.compile(
+    r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF\U0001F1E6-\U0001F1FF]+"
+)
+_CHITCHAT_SOFT = ("呀", "啊", "哇", "吗", "嘛", "哦", "哟", "呢", "吧", "哈", "喽", "咯")
+_CHITCHAT_CORES = frozenset(
+    {
+        "hi",
+        "hii",
+        "hiii",
+        "hello",
+        "helloo",
+        "hey",
+        "heya",
+        "yo",
+        "hola",
+        "你好",
+        "您好",
+        "嗨",
+        "嗨喽",
+        "哈喽",
+        "哈罗",
+        "哈囉",
+        "在吗",
+        "在嘛",
+        "早上好",
+        "晚上好",
+        "早安",
+        "午安",
+        "晚安",
+        "谢谢",
+        "谢谢你",
+        "谢谢您",
+        "thanks",
+        "thankyou",
+        "ok",
+        "okay",
+        "好",
+        "好的",
+        "嗯",
+        "哦",
+        "こんにちは",
+        "안녕",
+        "안녕하세요",
+    }
+)
+
+
+def _soften_chitchat_core(core: str) -> str:
+    s = core
+    changed = True
+    while changed and s:
+        changed = False
+        for suf in _CHITCHAT_SOFT:
+            if s.endswith(suf) and len(s) > len(suf):
+                s = s[: -len(suf)]
+                changed = True
+                break
+    return s
+
+
+def is_chitchat_prompt(prompt: str) -> bool:
+    """True for a bare greeting — not '你好，帮我做张海报'."""
+    compact = _CHITCHAT_EMOJI_RX.sub("", _CHITCHAT_STRIP_RX.sub("", _user_request_core(prompt)))
+    key = compact.lower()
+    if key in _CHITCHAT_CORES:
+        return True
+    return _soften_chitchat_core(key) in _CHITCHAT_CORES
+
+
 def heuristic_user_intent(
     prompt: str,
     *,
@@ -781,12 +825,13 @@ def heuristic_user_intent(
 ) -> IntentClassifyDecision:
     """Fallback when the intent LLM is unavailable.
 
-    Structural only (images / length / target blob) — no content keyword lists.
-    Normal path uses ``agent.prompt.intent_classify`` + canvas tools catalog.
+    Structural only (images / target chip / bare greeting). Never maps
+    prompt length or content keywords → canvas_op vs design — that belongs
+    to ``agent.prompt.intent_classify``. Non-greeting text fail-opens to
+    design/create so craft still gets a plate path when the classifier is down.
     """
+    del canvas_node_count
     full = str(prompt or "")
-    p = _user_request_core(full)
-    compact = re.sub(r"\s+", "", p)
     has_target = "[Target element" in full or "Target element —" in full
     if has_images:
         return IntentClassifyDecision(
@@ -802,16 +847,15 @@ def heuristic_user_intent(
             reply="",
             rationale="heuristic_target",
         )
-    if len(compact) >= 4:
+    if is_chitchat_prompt(full) or not _user_request_core(full).strip():
         return IntentClassifyDecision(
-            intent="canvas_op",
-            paint_lane="create",
-            reply="",
-            rationale="heuristic_task",
+            intent="chat", paint_lane="", reply="", rationale="heuristic_chitchat"
         )
-    del canvas_node_count
     return IntentClassifyDecision(
-        intent="chat", paint_lane="", reply="", rationale="heuristic_short"
+        intent="design",
+        paint_lane="create",
+        reply="",
+        rationale="heuristic_default_design",
     )
 
 
@@ -924,9 +968,7 @@ async def classify_user_intent(
             )
             return fallback
         action = normalize_proposal_action(raw_action, has_pending=has_pending)
-        # Trust the intent LLM. Do NOT demote design→canvas_op by char length:
-        # Chinese page asks (e.g. 「设计移动端登录页」~13 chars) are shorter than
-        # the old English-oriented threshold and were wrongly forced to canvas_op.
+        # Trust the intent LLM fully — no chitchat / length / keyword demotion.
         reply_s = str(reply or "").strip()
         if intent != "chat" and action != "dismiss":
             reply_s = ""
@@ -1003,8 +1045,8 @@ async def classify_model_route(
         else:
             return fallback
         lane = clamp_lane(decision.lane, enabled_lanes(rules))
-        # Soft force vision when images present and classifier picked fast with long prompt.
-        if has_images and lane == "fast" and len((prompt or "").strip()) >= 80:
+        # Images need vision — structural only (no prompt-length override).
+        if has_images and lane == "fast":
             lane = "vision"
         return ModelRouteDecision(
             lane=lane,  # type: ignore[arg-type]

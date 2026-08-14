@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from typing import Any
 
 from recombyn_protocol.billing import (
@@ -31,15 +32,131 @@ RULE_BYOK_FEE = "billing.byok_agent_fee_credits"
 # How many billed LLM tokens equal 1 wallet 积分 (transitional fallback).
 TOKENS_PER_CREDIT = 15_000
 
-# OSS face-value anchor for credit-key / CNY→积分 conversion (not a membership SKU).
-PLUS_LIST_PRICE_CNY = 29.0
-PLUS_IMAGE_FACE_CREDITS = 200
+# OSS face-value anchor for credit-key / CNY→积分 conversion (Plus list SKU).
+PLUS_LIST_PRICE_CNY = 49.0
+PLUS_IMAGE_FACE_CREDITS = 340
 # Fallback when catalog has no image price.
 DEFAULT_IMAGE_CREDITS = 2
 
 # Public credit unit value + Design Agent BYOK orchestration fee defaults.
 DEFAULT_CREDIT_VALUE_MICROS = 100_000
 DEFAULT_BYOK_AGENT_FEE = 5
+
+# OSS list SKUs when Intelligence is unreachable (aligned with commercial defaults).
+_OSS_PLAN_CATALOG: tuple[dict[str, Any], ...] = (
+    {
+        "planId": "free",
+        "priceCny": 0,
+        "creditsIncluded": 0,
+        "period": "month",
+        "dailyRuns": 1,
+    },
+    {
+        "planId": "plus",
+        "priceCny": 49,
+        "creditsIncluded": 340,
+        "period": "month",
+    },
+    {
+        "planId": "pro",
+        "priceCny": 149,
+        "creditsIncluded": 1030,
+        "period": "month",
+    },
+    {
+        "planId": "ultra",
+        "priceCny": 499,
+        "creditsIncluded": 4000,
+        "period": "month",
+    },
+)
+_PLAN_ID_ALIASES = {"studio": "ultra", "basic": "plus", "hobby": "free"}
+_catalog_cache: tuple[float, list[dict[str, Any]]] | None = None
+_CATALOG_TTL_SEC = 60.0
+
+
+def _canonical_plan_id(raw: Any) -> str:
+    pid = str(raw or "").strip().lower()
+    return _PLAN_ID_ALIASES.get(pid, pid)
+
+
+def _sanitize_plan_row(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    pid = _canonical_plan_id(raw.get("planId") or raw.get("plan_id"))
+    if pid not in ("free", "plus", "pro", "ultra"):
+        return None
+    feats = raw.get("features") if isinstance(raw.get("features"), dict) else {}
+    daily = feats.get("daily_runs") if "daily_runs" in feats else raw.get("dailyRuns")
+    try:
+        price = int(raw.get("priceCny") if raw.get("priceCny") is not None else raw.get("list_price_cny") or 0)
+    except (TypeError, ValueError):
+        price = 0
+    try:
+        credits = int(
+            raw.get("creditsIncluded")
+            if raw.get("creditsIncluded") is not None
+            else raw.get("credits_grant") or 0
+        )
+    except (TypeError, ValueError):
+        credits = 0
+    row: dict[str, Any] = {
+        "planId": pid,
+        "priceCny": max(0, price),
+        "creditsIncluded": max(0, credits),
+        "period": str(raw.get("period") or raw.get("credits_period") or "month"),
+    }
+    try:
+        if daily is not None:
+            row["dailyRuns"] = max(0, int(daily))
+    except (TypeError, ValueError):
+        pass
+    return row
+
+
+def oss_plan_catalog() -> list[dict[str, Any]]:
+    return [dict(x) for x in _OSS_PLAN_CATALOG]
+
+
+def public_plan_catalog(*, force: bool = False) -> list[dict[str, Any]]:
+    """Host list SKUs: Intelligence `/billing/plans`, else OSS fallback."""
+    global _catalog_cache
+    now = time.time()
+    if not force and _catalog_cache and now - _catalog_cache[0] < _CATALOG_TTL_SEC:
+        return [dict(x) for x in _catalog_cache[1]]
+    rows = oss_plan_catalog()
+    try:
+        from app.services.design.intelligence_runtime import call_remote_billing
+
+        remote = call_remote_billing("GET", "/billing/plans")
+        remote_plans = remote.get("plans") if isinstance(remote, dict) else None
+        if isinstance(remote_plans, list):
+            parsed = [_sanitize_plan_row(x) for x in remote_plans]
+            cleaned = [x for x in parsed if x]
+            if cleaned:
+                by_id = {x["planId"]: x for x in rows}
+                for item in cleaned:
+                    by_id[item["planId"]] = item
+                rows = list(by_id.values())
+    except Exception:
+        pass
+    _catalog_cache = (now, rows)
+    return [dict(x) for x in rows]
+
+
+def plan_row(plan_id: str) -> dict[str, Any] | None:
+    pid = _canonical_plan_id(plan_id)
+    for row in public_plan_catalog():
+        if row.get("planId") == pid:
+            return row
+    return None
+
+
+def plan_credit_grant(plan_id: str) -> int:
+    row = plan_row(plan_id)
+    if row:
+        return int(row.get("creditsIncluded") or 0)
+    return 0
 
 
 def _as_float(raw: Any, default: float) -> float:
@@ -181,8 +298,13 @@ def estimate_design_hold_credits(
 
 
 def credits_per_cny() -> float:
-    """How many 积分 equal ¥1, from billing face (¥29 → 200 积分)."""
-    return float(PLUS_IMAGE_FACE_CREDITS) / PLUS_LIST_PRICE_CNY
+    """How many 积分 equal ¥1, from Plus list SKU (catalog, else OSS face)."""
+    row = plan_row("plus")
+    price = float((row or {}).get("priceCny") or PLUS_LIST_PRICE_CNY)
+    credits = float((row or {}).get("creditsIncluded") or PLUS_IMAGE_FACE_CREDITS)
+    if price <= 0:
+        return float(PLUS_IMAGE_FACE_CREDITS) / PLUS_LIST_PRICE_CNY
+    return credits / price
 
 
 def tokens_to_credits(billed_tokens: int) -> int:

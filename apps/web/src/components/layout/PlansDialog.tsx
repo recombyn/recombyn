@@ -7,8 +7,8 @@ import {
   HiOutlineHandThumbUp,
 } from 'react-icons/hi2';
 import { Dialog, message } from '@/components/base';
-import { useWalletSnapshot } from '@/service/wallet';
-import { PLAN_CATALOG, PLAN_ORDER, type PlanId } from '@/utils/wallet';
+import { usePlanCatalog, useWalletSnapshot } from '@/service/wallet';
+import { PLAN_ORDER, type PlanId } from '@/utils/wallet';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
@@ -25,6 +25,7 @@ const FAQ_IDS = ['units', 'chat', 'image', 'how'] as const;
 function PlansPanel({ active = true, compact = false }: PlansPanelProps) {
   const { t, i18n } = useTranslation();
   const { planId: current, planLocked, planExpiresAt } = useWalletSnapshot();
+  const catalog = usePlanCatalog();
   const [picked, setPicked] = useState<PlanId>(current);
   const [faqOpen, setFaqOpen] = useState<string | null>('units');
 
@@ -52,25 +53,46 @@ function PlansPanel({ active = true, compact = false }: PlansPanelProps) {
   const rows = useMemo(
     () =>
       PLAN_ORDER.map((id) => {
-        const def = PLAN_CATALOG[id];
-        const featuresRaw = t(`wallet.planFeatures.${id}`, { returnObjects: true });
-        const features = Array.isArray(featuresRaw)
+        const def = catalog[id];
+        const credits = def.creditsIncluded;
+        const featuresRaw = t(`wallet.planFeatures.${id}`, {
+          returnObjects: true,
+          count: credits,
+        });
+        const capability = Array.isArray(featuresRaw)
           ? featuresRaw.map((x) => String(x))
           : [];
+        const features =
+          id === 'free'
+            ? capability
+            : [
+                t('wallet.planCreditsGift', { count: credits }),
+                t('wallet.planUsageEstimateLong', {
+                  chats: credits,
+                  images: Math.max(1, Math.round(credits / 2)),
+                }),
+                ...capability,
+              ];
         return {
           id,
           def,
           title: t(`wallet.plan.${id}`),
           code: t(`wallet.planCode.${id}`),
           blurb: t(`wallet.planBlurb.${id}`),
-          priceNote: t(`wallet.planPriceNote.${id}`),
+          priceNote:
+            id === 'free'
+              ? t(`wallet.planPriceNote.${id}`)
+              : t('wallet.planUsageEstimate', {
+                  chats: credits,
+                  images: Math.max(1, Math.round(credits / 2)),
+                }),
           features,
           featured: id === 'pro',
           popular: Boolean(def.recommended),
           bestValue: id === 'pro',
         };
       }),
-    [t]
+    [t, catalog]
   );
 
   const choose = (id: PlanId) => {

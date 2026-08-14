@@ -29,42 +29,6 @@ from app.services.design.runtime.graph.support import (
     _structure_verify_issues,
 )
 
-# Complaint-oriented prompts — not positive create asks like "高级感海报".
-_TASTE_REVIEW_HINTS = (
-    "太丑",
-    "好丑",
-    "难看",
-    "不好看",
-    "丑死",
-    "丑爆",
-    "太土",
-    "土气",
-    "审美不行",
-    "配色很差",
-    "排版很乱",
-    "看着廉价",
-    "太ai",
-    "ai感",
-    "重新设计",
-    "重做审美",
-    "换个风格",
-    "好看点",
-    "精致一点",
-    "ugly",
-    "hideous",
-    "looks bad",
-    "looks ugly",
-    "too plain",
-    "too generic",
-    "ai looking",
-    "redesign this",
-    "make it prettier",
-    "make it nicer",
-    "fix the look",
-    "more polished",
-)
-
-
 # PR10 deterministic QA — facts only. Do not treat these as taste.
 _PLATE_AREA_RATIO = 0.85
 _OVERLAP_MIN_AREA = 64.0
@@ -775,10 +739,9 @@ def _review_mode(rt: Any | None = None) -> str:
 
 
 def _user_wants_taste_review(prompt: str | None) -> bool:
-    text = str(prompt or "").strip().lower()
-    if not text:
-        return False
-    return any(h.lower() in text for h in _TASTE_REVIEW_HINTS)
+    """Deprecated: taste complaints are LLM intent/Brief — never keyword-guess."""
+    del prompt
+    return False
 
 
 def _is_paint_retry_turn(rt: Any) -> bool:
@@ -822,9 +785,12 @@ def _should_route_to_review(
 
     Modes (settings / rules / profile ``review_mode``):
     - off: never
-    - always: every non-lean design paint (canvas_op / lean only on taste)
-    - auto: only when structure signals, paint retry, taste complaint, or
-      narrow high-stakes (ref images + design, multi-artboard)
+    - always: every design paint (canvas_op never)
+    - auto: structure signals, paint retry, or narrow high-stakes
+      (ref images + design, multi-artboard)
+
+    Never keyword/length-guess taste from the user prompt — intent LLM owns
+    canvas_op vs design; review follows structural signals only.
     """
     if not _review_stage_enabled():
         return False
@@ -833,26 +799,18 @@ def _should_route_to_review(
         return False
     try:
         from app.services.design.runtime.models_route import normalize_user_intent
-        from app.services.design.runtime.graph.paint_kit import _is_lean_paint_turn
 
         intent = normalize_user_intent(getattr(rt, "classified_intent", None))
-        # canvas_op: Review only on taste complaints (structure tip is enough otherwise).
+        # canvas_op: catalog tools only — no Review plate.
         if intent == "canvas_op":
-            return _user_wants_taste_review(getattr(rt, "prompt", None))
-        lean = _is_lean_paint_turn(rt)
-    except Exception:
-        lean = False
-    if mode == "always":
-        # Keep cheap short edits off Review unless the user asked for taste fix.
-        if lean and not _user_wants_taste_review(getattr(rt, "prompt", None)):
             return False
+    except Exception:
+        pass
+    if mode == "always":
         return True
-    # auto — lean clean first paints fall through as False (no signals / retry / taste).
     if list(signals or []):
         return True
     if _is_paint_retry_turn(rt):
-        return True
-    if _user_wants_taste_review(getattr(rt, "prompt", None)):
         return True
     if _is_high_stakes_review_turn(rt):
         return True

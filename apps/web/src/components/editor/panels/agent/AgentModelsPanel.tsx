@@ -209,14 +209,7 @@ function AddPlatformModelFields(props: {
     onIconKey,
     onIconUrl,
   } = props;
-  // Extra catalog model is optional when saving a platform key — only required if started.
-  const started = Boolean(apiId.trim() || name.trim() || iconKey.trim() || iconUrl.trim());
-  const opt = (
-    <span className="ml-1 text-[11px] font-normal text-[var(--muted)]">
-      ({t('agent.providerOptional')})
-    </span>
-  );
-  const req = started ? <span className="text-red-500"> *</span> : opt;
+  const req = <span className="text-red-500"> *</span>;
 
   return (
     <>
@@ -252,7 +245,7 @@ function AddPlatformModelFields(props: {
       <ModelIconPickerFields
         iconKey={iconKey}
         iconUrl={iconUrl}
-        required={started}
+        required
         t={t}
         onIconKey={onIconKey}
         onIconUrl={onIconUrl}
@@ -487,12 +480,9 @@ function AgentModelsPanel({
       setError(t('agent.providerBaseUrlInvalid'));
       return;
     }
-    // Aggregators: one key unlocks the catalog (apiModel sentinel). Model IDs only via銆屾坊鍔犳ā鍨嬨€峯r manual.
-    const mid = isPlatform ? '*' : apiModel.trim();
-    if (!mid) {
-      setError(t('agent.providerApiModelRequired', { defaultValue: '请填写模型 ID（如 gpt-4o）' }));
-      return;
-    }
+    // Aggregators: one key unlocks the catalog (`*` sentinel). Custom may omit model ID
+    // and fall back to the provider name (same as hydrate).
+    const mid = isPlatform ? '*' : (apiModel.trim() || n);
     const key = apiKey.trim();
     if (!key) {
       setError(t('agent.providerApiKeyRequired', { defaultValue: 'API key is required' }));
@@ -518,7 +508,12 @@ function AgentModelsPanel({
     const extraIconKey = addModelIconKey.trim();
     const extraIconUrl = addModelIconUrl.trim();
     const extraKind = addModelKind === 'platform' ? 'text' : addModelKind;
-    if (extraMid) {
+    const extraStarted = Boolean(extraMid || extraName || extraIconKey || extraIconUrl);
+    if (extraStarted) {
+      if (!extraMid) {
+        setError(t('agent.providerApiModelRequired', { defaultValue: '请填写模型 ID' }));
+        return;
+      }
       if (!extraName) {
         setError(t('agent.providerPlatformModelNameRequired'));
         return;
@@ -803,7 +798,9 @@ function AgentModelsPanel({
                     <label className="mb-4 block">
                       <span className="text-[13px] font-medium text-[var(--ink)]">
                         {t('agent.providerApiModel', { defaultValue: '模型 ID' })}
-                        <span className="text-red-500"> *</span>
+                        <span className="ml-1 text-[11px] font-normal text-[var(--muted)]">
+                          ({t('agent.providerOptional')})
+                        </span>
                       </span>
                       <input
                         className={fieldClass}
@@ -813,7 +810,6 @@ function AgentModelsPanel({
                           defaultValue: '例如 gpt-4o / deepseek-chat',
                         })}
                         autoComplete="off"
-                        required
                       />
                       <span className="mt-1.5 block text-[12px] text-[var(--muted)]">
                         {t('agent.providerApiModelHint', {

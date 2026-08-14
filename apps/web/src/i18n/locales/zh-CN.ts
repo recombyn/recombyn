@@ -439,10 +439,13 @@ const zhCN = {
       pro: '适合大批量稳定产出与交付',
       ultra: '适合团队与重度生产',
     },
+    planCreditsGift: '每月 {{count}} 积分（对话 / Agent / 出图共用）',
+    planUsageEstimate: '约 {{chats}} 次对话 · 约 {{images}} 张图',
+    planUsageEstimateLong: '约合 {{chats}} 次对话 · 约 {{images}} 张图（视模型而定）',
     planPriceNote: {
       free: '免费体验，每天 1 次设计执行',
-      plus: '约 100 次对话 · 约 100 张图',
-      pro: '约 350 次对话 · 约 400 张图',
+      plus: '约 170 次对话 · 约 170 张图',
+      pro: '约 500 次对话 · 约 500 张图',
       ultra: '约 800 次对话 · 约 800 张图',
     },
     planFeatures: {
@@ -455,23 +458,17 @@ const zhCN = {
         '升级解锁模型自选与月度赠送',
       ],
       plus: [
-        '每月 200 积分（对话 / Agent / 出图共用）',
-        '约合 100 次对话 · 约 100 张图（视模型而定）',
         '可自选平台模型（含进阶模式）',
         '可添加第三方模型（自有 Key，不计平台积分）',
         'Fast + 专业模式',
         '更高导出质量',
       ],
       pro: [
-        '每月 750 积分（对话 / Agent / 出图共用）',
-        '约合 350 次对话 · 约 400 张图（视模型而定）',
         '可自定义第三方模型',
         '深度能力与研究工具',
         '更高并发与优先队列',
       ],
       ultra: [
-        '每月 1600 积分（对话 / Agent / 出图共用）',
-        '约合 800 次对话 · 约 800 张图（视模型而定）',
         '最高额度与优先体验',
         '强力模型优先接入',
         '内测功能优先',
@@ -563,7 +560,7 @@ const zhCN = {
       },
       image: {
         q: '出图怎么扣费？',
-        a: 'Seedream 等按张折算积分，从同一积分余额扣除。标准档（¥29）每月 200 积分，专业档 750；也可用积分卡密单独充值。',
+        a: 'Seedream 等按张折算积分，从同一积分余额扣除。标准档（¥49）每月 340 积分，专业档 1030；也可用积分卡密单独充值。',
       },
       how: {
         q: '如何获得额度？',
@@ -1811,9 +1808,9 @@ const zhCN = {
     providerPresetModelPlaceholder: '选择模型',
     providerPresetComingSoon: '即将支持',
     providerManualHint:
-      '自定义端点：需填写 API Key、请求地址，以及上游 model 字段（如 deepseek-chat）。仅填密钥不够，请求必须带模型 ID。',
+      '自定义端点：需填写 API Key、请求地址和供应商名称。模型 ID 可不填，默认用供应商名称作为上游 model。',
     providerPlatformHint:
-      '选择平台后先填 API Key；名称和请求地址会自动回显。目录外模型在下方可选填写（开始填写后名称/图标/分类才必填）。',
+      '选择平台后先填 API Key；名称和请求地址会自动回显。目录外模型在下方补全时，模型 ID、名称、图标、分类均为必填。',
     providerPlatformUnlock: '解锁该平台目录中的全部模型。使用你自己的额度，不消耗平台积分。',
     providerPlatformAutofillHint: '已按平台自动填好，一般不用改。',
     providerModelKindPlatform: '平台',
@@ -1935,7 +1932,7 @@ const zhCN = {
     count: '数量',
     priceCny: '售价（元）',
     priceTip:
-      '按标准会员定价折算：¥29 ≈ 200 积分，即 ¥1 ≈ {{perCny}} 积分。填写售价后自动换算面额。',
+      '按标准会员定价折算：¥49 ≈ 340 积分，即 ¥1 ≈ {{perCny}} 积分。填写售价后自动换算面额。',
     priceTipAria: '查看定价说明',
     tokensPerKey: '面额积分',
     expiresDays: '有效天数',
