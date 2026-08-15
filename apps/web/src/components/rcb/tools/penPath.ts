@@ -205,6 +205,42 @@ export function offsetAnchors(anchors: PenAnchor[], dx: number, dy: number): Pen
   return localizeAnchors(anchors, -dx, -dy);
 }
 
+/**
+ * Rotate anchors (and Bezier handles) about a local-box center.
+ * Used so path-edit chrome matches a host with attrs.angle (boolean / outlined).
+ */
+export function rotateAnchorsAroundCenter(
+  anchors: PenAnchor[],
+  cx: number,
+  cy: number,
+  angleDeg: number
+): PenAnchor[] {
+  if (!anchors.length || Math.abs(angleDeg) < 0.01) return anchors;
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const rot = (x: number, y: number) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+  };
+  return anchors.map((a) => {
+    const p = rot(a.x, a.y);
+    const next: PenAnchor = { x: p.x, y: p.y };
+    if (a.outX != null && a.outY != null) {
+      const o = rot(a.outX, a.outY);
+      next.outX = o.x;
+      next.outY = o.y;
+    }
+    if (a.inX != null && a.inY != null) {
+      const inn = rot(a.inX, a.inY);
+      next.inX = inn.x;
+      next.inY = inn.y;
+    }
+    return next;
+  });
+}
+
 function tokenizePathD(d: string): string[] {
   return String(d || '').match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || [];
 }

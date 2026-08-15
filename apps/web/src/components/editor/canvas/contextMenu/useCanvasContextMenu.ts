@@ -6,19 +6,16 @@ import {
   type SetStateAction,
 } from 'react';
 import { useDispatch } from 'react-redux';
-import { rcbResolveViewportEl, type RcbCamera } from '@/components/rcb';
+import { rcbResolveViewportEl, useRcbScreenToScene } from '@/components/rcb';
 import type { ContextMenuState } from '@/components/rcb/selection/chrome/CanvasContextMenu';
 import {
   setActiveFrameId,
   setSelectedNodeId,
   setSelectedNodeIds,
 } from '@/store/modules/editor';
-import { pointerToWorld, type ArtboardRect } from '../pointerToWorld';
 
 type UseCanvasContextMenuArgs = {
   readOnly: boolean;
-  camera: RcbCamera;
-  artboard?: ArtboardRect;
   viewportEl: HTMLElement | null;
   stageEl: HTMLElement | null;
   paperEl: HTMLElement | null;
@@ -91,6 +88,19 @@ function isOverlayUiTarget(target: EventTarget | null) {
   return Boolean(el.closest(OVERLAY_UI_SEL));
 }
 
+/** Fallback when geometry hit misses but the pointer landed on an SVG host. */
+function nodeIdFromEventTarget(target: EventTarget | null): string | null {
+  const el = target as Element | null;
+  if (!el?.closest) return null;
+  const host = el.closest('[data-rcb-shape-id],[data-scene-node-id]');
+  if (!host) return null;
+  return (
+    host.getAttribute('data-rcb-shape-id') ||
+    host.getAttribute('data-scene-node-id') ||
+    null
+  );
+}
+
 function clientInElement(el: HTMLElement, clientX: number, clientY: number) {
   const r = el.getBoundingClientRect();
   return (
@@ -147,8 +157,6 @@ function findFrameIdAtScene(
 export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
   const {
     readOnly,
-    camera,
-    artboard,
     viewportEl,
     stageEl,
     paperEl,
@@ -160,20 +168,14 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
     setCtxMenu,
   } = args;
   const dispatch = useDispatch();
+  /** Same CameraTransform path as SelectionFeature (DPR-snapped pan). */
+  const toScene = useRcbScreenToScene();
 
   const openedAtRef = useRef(0);
-  const cameraRef = useRef(camera);
-  const artboardRef = useRef(artboard);
   const hitTestRef = useRef(hitTest);
-  const viewportElRef = useRef(viewportEl);
-  const stageElRef = useRef(stageEl);
-  const paperElRef = useRef(paperEl);
-  cameraRef.current = camera;
-  artboardRef.current = artboard;
+  const toSceneRef = useRef(toScene);
   hitTestRef.current = hitTest;
-  viewportElRef.current = viewportEl;
-  stageElRef.current = stageEl;
-  paperElRef.current = paperEl;
+  toSceneRef.current = toScene;
 
   useEffect(() => {
     const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
@@ -191,19 +193,10 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
       longPress = null;
     };
 
-    const openMenuAt = (clientX: number, clientY: number) => {
-      const p = pointerToWorld(
-        cameraRef.current,
-        {
-          viewportEl: viewportElRef.current,
-          stageEl: stageElRef.current,
-          paperEl: paperElRef.current,
-          artboard: artboardRef.current,
-        },
-        clientX,
-        clientY
-      );
-      const id = hitTestRef.current(p.x, p.y, { clientX, clientY });
+    const openMenuAt = (clientX: number, clientY: number, target: EventTarget | null) => {
+      const p = toSceneRef.current(clientX, clientY);
+      let id = hitTestRef.current(p.x, p.y, { clientX, clientY });
+      if (!id) id = nodeIdFromEventTarget(target);
       const selected = selectedIdsRef.current;
       if (id && !selected.includes(id)) {
         dispatch(setSelectedNodeIds([id]));
@@ -240,7 +233,7 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
       if (!clientInElement(hitEl, clientX, clientY)) return;
       if (!isCanvasGestureTarget(hitEl, target)) return;
       openedAtRef.current = performance.now();
-      openMenuAt(clientX, clientY);
+      openMenuAt(clientX, clientY, target);
     };
 
     const startLongPress = (
@@ -348,6 +341,7 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
     selectedIdsRef,
     setCtxMenu,
     stageEl,
+    toScene,
     viewportEl,
   ]);
 }

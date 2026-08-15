@@ -72,7 +72,7 @@ describe('nodeTitleLabelWorldPlacement — title layout contract', () => {
   });
 
   it.each([...CANVAS_ZOOMS])(
-    'keeps a 10 layout-px gap above the plate at canvas zoom %s',
+    'keeps a 10 screen-px gap above the control box at canvas zoom %s',
     (zoom) => {
       const box = { left: 0, top: 24, width: 15, height: 24 };
       const place = nodeTitleLabelWorldPlacement(box, zoom);
@@ -137,20 +137,21 @@ describe('toolbar 20px outside node @ canvas + browser zoom', () => {
         SELECTION_TOOLBAR_ABOVE_BOX_GAP_PX / zoom,
         8
       );
+      // Scene gap shrinks with zoom — at 10000% it is < 1 CSS px in world space.
+      // Placement must apply that air as screen px inside scale(1/zoom), not as
+      // world `top` alone (subpixel world offsets get eaten next to the stroke).
+      expect((boxTop - anchor) * zoom).toBeCloseTo(gap, 6);
       // eslint-disable-next-line no-console
       console.log('[test:toolbar-gap@canvas]', { zoom, gapLayoutPx: gap, anchor });
     }
   );
 
   it.each([...CANVAS_ZOOMS])(
-    'titled toolbar clears title (10+16+8) + handle at zoom %s',
+    'titled toolbar clears title stack (10+16+8) at zoom %s',
     (zoom) => {
       const boxTop = 40;
       const gap = toolbarAboveScreenGapPx(boxTop, zoom, true);
-      expect(gap).toBeCloseTo(
-        toolbarAboveClearancePx(true) + SELECTION_HANDLE_CLEARANCE_PX,
-        6
-      );
+      expect(gap).toBeCloseTo(toolbarAboveClearancePx(true), 6);
       const box = { left: 0, top: boxTop, width: 15, height: 24 };
       const title = nodeTitleLabelWorldPlacement(box, zoom);
       const toolbarAnchor = selectionToolbarAboveAnchorScene(boxTop, zoom, true);
@@ -170,9 +171,7 @@ describe('toolbar 20px outside node @ canvas + browser zoom', () => {
       const boxTop = 40;
       const zoom = 2.247;
       const visual = toolbarAboveScreenGapPx(boxTop, zoom, true, 0, viewportScale);
-      const expected =
-        (toolbarAboveClearancePx(true) + SELECTION_HANDLE_CLEARANCE_PX) *
-        viewportScale;
+      const expected = toolbarAboveClearancePx(true) * viewportScale;
       expect(visual).toBeCloseTo(expected, 6);
     }
   );

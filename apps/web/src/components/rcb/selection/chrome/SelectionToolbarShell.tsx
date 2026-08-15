@@ -7,8 +7,12 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { useRcbCamera } from '../../camera/context';
-import { rcbCameraCssZoom, rcbScreenPxToScene } from '../../core/math';
+import {
+  RcbOverlayPortal,
+  useRcbCamera,
+  useRcbDevicePixelRatio,
+} from '../../camera/context';
+import { rcbCameraCssZoom, rcbSceneToScreen } from '../../core/math';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { cn } from '@/utils/classnames';
 
@@ -90,6 +94,37 @@ export const SELECTION_TOOLBAR_BELOW_BOX_GAP_PX = 20;
 /** Half knob + air outside the chrome edge (must clear 10px resize hit). */
 export const SELECTION_HANDLE_CLEARANCE_PX = 14;
 
+/**
+ * Scene distance from the **control-box** edge outward for chrome UI
+ * (title / toolbar / generator composers).
+ *
+ * `gapPx` (+ optional extra) are **screen pixels**, converted with `/zoom`.
+ * Do not pass scene stroke widths here — `strokeScene * zoom` as a screen
+ * offset makes titles/toolbars fly away while zooming (looks like drift).
+ * Clear thick stroke by parking knobs, not by shoving the whole chrome UI.
+ */
+export function chromeUiOutsideScene(
+  zoom: number,
+  gapPx: number,
+  extraScreenPx = 0
+): number {
+  const z = Math.max(0.05, Number(zoom) || 1);
+  return chromeUiOutsideScreenPx(z, gapPx, extraScreenPx) / z;
+}
+
+/** Screen-px outside the control box (counter-scaled HTML titles / math). */
+export function chromeUiOutsideScreenPx(
+  _zoom: number,
+  gapPx: number,
+  extraScreenPx = 0
+): number {
+  return (
+    Math.max(0, gapPx) +
+    SELECTION_HANDLE_CLEARANCE_PX +
+    Math.max(0, extraScreenPx)
+  );
+}
+
 export type SelectionToolbarBox = {
   left: number;
   top: number;
@@ -112,12 +147,15 @@ export function selectionToolbarAboveAnchorScene(
   boxTop: number,
   zoom: number,
   hasTitleLabel: boolean,
-  edgePadScene = 0
+  extraScreenPx = 0
 ): number {
-  const z = Math.max(0.05, zoom || 1);
-  const handleClear = SELECTION_HANDLE_CLEARANCE_PX / z;
-  const clear = handleClear + Math.max(0, edgePadScene);
-  return boxTop - toolbarAboveClearancePx(hasTitleLabel) / z - clear;
+  const z = Math.max(0.05, Number(zoom) || 1);
+  const gapPx = toolbarAboveClearancePx(hasTitleLabel);
+  // Titled: stack already sits above knobs (title = 10px). Untitled: clear handles.
+  const screen = hasTitleLabel
+    ? gapPx + Math.max(0, extraScreenPx)
+    : chromeUiOutsideScreenPx(z, gapPx, extraScreenPx);
+  return boxTop - screen / z;
 }
 
 /**
@@ -128,7 +166,7 @@ export function toolbarAboveScreenGapPx(
   boxTop: number,
   zoom: number,
   hasTitleLabel: boolean,
-  edgePadScene = 0,
+  extraScreenPx = 0,
   viewportScale = 1
 ): number {
   const z = Math.max(0.05, zoom || 1);
@@ -137,25 +175,32 @@ export function toolbarAboveScreenGapPx(
     boxTop,
     z,
     hasTitleLabel,
-    edgePadScene
+    extraScreenPx
   );
   return (boxTop - anchor) * z * sx;
 }
 
 /**
- * World-layer HTML chrome under camera `scale(zoom)`.
+ * Screen-space HTML chrome on `[data-rcb-overlay]` (no camera / no `scale(1/zoom)`).
  *
- * Why DevTools shows a “phantom” strip on the box while the pill sits above:
- * anchor is at the selection edge; `translate` only moves paint.
- * If the wrapper keeps the toolbar’s layout size + `pointer-events:auto`, that
- * untransformed box covers the top edge / NE resize knob. Same fix as
- * SelectionFeature overlays: outer `0×0` shell, absolute pe:auto content.
+ * Callers pass **scene** `left` / `top` / `railWidth`; this converts via
+ * `rcbSceneToScreen` so the pill stays screen-sized while tracking the box.
+ *
+ * - **Rail** (`railWidth` > 0): `left` = selection left; pill flex-aligns in
+ *   that width (selection toolbars + generator composers).
+ * - **Point** (`railWidth` = 0): `left` = mid-x (or right edge); width-0 flex
+ *   centers / end-aligns on that point.
+ *
+ * `edgeGapPx` is screen-constant air between the selection edge and the pill.
+ * Outer stays height-0 / pe:none so the layout box cannot cover resize knobs.
  */
 export function WorldScreenChromeRoot({
   left,
   top,
   anchor = 'bottom',
   hAlign = 'center',
+  edgeGapPx = 0,
+  railWidth = 0,
   className,
   style,
   children,
@@ -166,83 +211,110 @@ export function WorldScreenChromeRoot({
   anchor?: 'bottom' | 'top';
   /** Horizontal dock: center (default) or top-right of the selection. */
   hAlign?: 'center' | 'right';
+  /** Screen px between selection edge and toolbar (zoom-stable). */
+  edgeGapPx?: number;
+  /**
+   * Scene width of the selection. When > 0, `left` is the left edge and the
+   * pill is flex-aligned inside this rail (preferred for selection toolbars
+   * and generator composers).
+   */
+  railWidth?: number;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
 } & Omit<HTMLAttributes<HTMLDivElement>, 'style' | 'children'>) {
   const camera = useRcbCamera();
-  const inv = 1 / rcbCameraCssZoom(camera);
-  const yShift = anchor === 'bottom' ? '-100%' : '0';
-  const xShift = hAlign === 'right' ? '-100%' : '-50%';
+  const dpr = useRcbDevicePixelRatio();
+  const zoom = rcbCameraCssZoom(camera);
+  const gap = Math.max(0, Number(edgeGapPx) || 0);
+  // Above: pill bottom at -gap. Below: pill top at +gap.
+  const contentTop = anchor === 'bottom' ? -gap : gap;
+  const rail = Math.max(0, Number(railWidth) || 0);
+  const alignEnd = hAlign === 'right';
+  const { x: screenLeft, y: screenTop } = rcbSceneToScreen(camera, left, top, dpr);
+  const railScreen = rail * zoom;
+
   return (
-    <div
-      className={cn('pointer-events-none absolute overflow-visible', className)}
-      style={{
-        position: 'absolute',
-        left,
-        top,
-        width: 0,
-        height: 0,
-        transform: `scale(${inv})`,
-        transformOrigin: '0 0',
-        // Inline beats world `[&>*]:pointer-events-auto` if mounted there.
-        pointerEvents: 'none',
-        ...style,
-      }}
-    >
+    <RcbOverlayPortal>
       <div
-        className="pointer-events-auto absolute left-0 top-0"
+        className={cn('pointer-events-none absolute overflow-visible', className)}
         style={{
-          transform: `translate(${xShift}, ${yShift})`,
-          width: 'max-content',
+          position: 'absolute',
+          left: screenLeft,
+          top: screenTop,
+          width: railScreen,
+          height: 0,
+          display: 'flex',
+          justifyContent: alignEnd ? 'flex-end' : 'center',
+          pointerEvents: 'none',
+          ...style,
         }}
-        {...rest}
       >
-        {children}
+        <div
+          className="pointer-events-auto"
+          style={{
+            marginTop: contentTop,
+            transform: anchor === 'bottom' ? 'translateY(-100%)' : undefined,
+            width: 'max-content',
+          }}
+          {...rest}
+        >
+          {children}
+        </div>
       </div>
-    </div>
+    </RcbOverlayPortal>
   );
 }
 
 /**
- * World-space placement for selection / frame floating toolbars.
- * With `anchor: 'bottom'`, `top` is the toolbar bottom edge.
- * Horizontally centered on the selection (pill stays above mid-box).
+ * Scene-edge placement for selection / frame floating toolbars.
+ * `top` is the selection edge; {@link WorldScreenChromeRoot} applies `edgeGapPx`
+ * in screen space so high zoom cannot eat the air gap.
+ * Horizontally: rail = selection AABB (`left` + `railWidth`) so the pill
+ * flex-centers on the control box.
  */
 export function useSelectionToolbarPlacement(opts: {
   box: SelectionToolbarBox | null | undefined;
   hasTitleLabel?: boolean;
-  /** Extra scene pad outside the chrome (e.g. stroke ink beyond the path). */
+  /** Extra **screen** px beyond the usual gap (not scene stroke). */
   edgePadScene?: number;
 }): {
   preferAbove: boolean;
   left: number;
+  railWidth: number;
   top: number;
   anchor: 'bottom' | 'top';
+  edgeGapPx: number;
 } {
   const camera = useRcbCamera();
   const zoom = rcbCameraCssZoom(camera);
   const hasTitle = Boolean(opts.hasTitleLabel);
-  const edgePad = Math.max(0, Number(opts.edgePadScene) || 0);
-  const handleClear = rcbScreenPxToScene(SELECTION_HANDLE_CLEARANCE_PX, zoom);
-  const clear = handleClear + edgePad;
-  const aboveGap = rcbScreenPxToScene(toolbarAboveClearancePx(hasTitle), zoom) + clear;
-  const belowGap = rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom) + clear;
+  const extraPx = Math.max(0, Number(opts.edgePadScene) || 0);
+  const aboveScreen = hasTitle
+    ? toolbarAboveClearancePx(true) + extraPx
+    : chromeUiOutsideScreenPx(zoom, toolbarAboveClearancePx(false), extraPx);
+  const belowScreen = chromeUiOutsideScreenPx(
+    zoom,
+    SELECTION_TOOLBAR_BELOW_BOX_GAP_PX,
+    extraPx
+  );
+  const aboveGapScene = aboveScreen / Math.max(0.05, zoom);
   const box = opts.box;
-  const preferAbove = Boolean(box) && box.top >= aboveGap;
-  const left = box ? box.left + box.width / 2 : 0;
+  const preferAbove = Boolean(box) && box.top >= aboveGapScene;
+  const left = box ? box.left : 0;
+  const railWidth = box ? Math.max(0, box.width) : 0;
   let top = 0;
   if (box) {
-    top = preferAbove
-      ? selectionToolbarAboveAnchorScene(box.top, zoom, hasTitle, edgePad)
-      : box.top + box.height + belowGap;
+    top = preferAbove ? box.top : box.top + box.height;
   }
 
   return {
     preferAbove,
     left,
+    railWidth,
     top,
     anchor: (preferAbove ? 'bottom' : 'top') as 'bottom' | 'top',
+    edgeGapPx: preferAbove ? aboveScreen : belowScreen,
   };
 }
 
@@ -258,7 +330,7 @@ type ShellProps = {
   zIndexClassName?: string;
 };
 
-/** World-layer selection toolbars (clears titles; aligns Frame / Image / Shape). */
+/** Overlay selection toolbars (clears titles; aligns Frame / Image / Shape). */
 function SelectionToolbarShell({
   box,
   hasTitleLabel = false,
@@ -269,7 +341,7 @@ function SelectionToolbarShell({
   bare = false,
   zIndexClassName = 'z-30',
 }: ShellProps) {
-  const { left, top, anchor } = useSelectionToolbarPlacement({
+  const { left, railWidth, top, anchor, edgeGapPx } = useSelectionToolbarPlacement({
     box,
     hasTitleLabel,
     edgePadScene,
@@ -280,8 +352,10 @@ function SelectionToolbarShell({
   return (
     <WorldScreenChromeRoot
       left={left}
+      railWidth={railWidth}
       top={top}
       anchor={anchor}
+      edgeGapPx={edgeGapPx}
       hAlign="center"
       data-sel-toolbar
       {...(isFrameToolbar ? { 'data-frame-toolbar': true } : {})}

@@ -20,14 +20,18 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   STROKE_HIT,
-  sceneHitSlop,
   strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
   deflateSelectionBox,
   inflateSelectionBox,
 } from '@/components/rcb/scene/document/sceneEffects';
-import { hitTestSceneAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
+import { hitTestWithSpatialIndex } from '@/components/rcb/render/sceneRenderer';
+import {
+  clearNodeTransformPreviews,
+  setNodeTransformAngles,
+  setNodeTransformPreviews,
+} from '@/components/rcb/core/transformPreview';
 import {
   parseNodeText,
   parseNodeTextStyle,
@@ -255,27 +259,19 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     y: number,
     screen?: { clientX: number; clientY: number }
   ) => {
-    const doc = deps.getDocument();
     const board = deps.getBoard();
-    const zoom = Math.max(0.05, deps.getZoom() || 1);
-    const pad = sceneHitSlop(zoom);
-    const allIds = listNodeIds();
-    const order = deps.spatial.hitCandidateIds({
-      x,
-      y,
-      pad: pad + 64 / zoom,
-      allIds,
-    });
-    return hitTestSceneAtPoint({
-      document: doc,
-      order,
-      x,
-      y,
-      zoom,
-      screen,
-      getNodeBox,
-      nodeEls: board?.nodeEls ?? null,
-    });
+    return hitTestWithSpatialIndex(
+      {
+        getDocument: deps.getDocument,
+        getSpatial: () => deps.spatial,
+        getZoom: deps.getZoom,
+        listNodeIds,
+        getNodeBox,
+        getNodeEls: () => board?.nodeEls ?? null,
+      },
+      { x, y },
+      screen
+    );
   };
 
   const hitTestFrame = (x: number, y: number) => hitTestFrameInDoc(deps.getDocument(), x, y);
@@ -526,6 +522,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     // Same React turn as Redux doc — HTML plates must not fall back to stale
     // coords between commit and onTransformingChange(false).
     deps.clearVideoLiveGeom();
+    clearNodeTransformPreviews();
   };
 
   const onGeometryPreview = (
@@ -545,6 +542,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     const videoOverrides: Record<string, VideoGeomOverride> = {};
     let hasVideo = false;
     const coalescer = deps.getDragWriteCoalescer();
+    const previewPatches: Array<{
+      nodeId: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      angle?: number;
+    }> = [];
     normalized.forEach((p) => {
       const node = next?.deltaSetLike?.[p.nodeId];
       const isText = node?.key === 'text';
@@ -557,6 +562,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
               height: Math.max(1, Number(node.height) || p.height),
             }
           : p;
+      previewPatches.push({
+        nodeId: p.nodeId,
+        left: box.left,
+        top: box.top,
+        width: Math.max(1, box.width),
+        height: Math.max(1, box.height),
+        angle: Number(node?.attrs?.angle) || 0,
+      });
       if (
         node?.key === 'video' ||
         node?.key === 'lottie' ||
@@ -587,6 +600,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         textStyle: isText ? parseNodeTextStyle(node.attrs || {}) : undefined,
       });
     });
+    // Fact-layer preview for Canvas underlay / chrome (ADR 0027) — not SVG-DOM-only.
+    setNodeTransformPreviews(previewPatches);
     // Keep HTML <video> plates glued to chrome (Redux doc is still pre-gesture).
     if (hasVideo) {
       deps.publishVideoLiveGeom({
@@ -623,6 +638,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         skipHistory: Boolean(options?.skipHistory),
       })
     );
+    clearNodeTransformPreviews([nodeId]);
   };
 
   const onAnglePreview = (nodeId: string, angleDeg: number) => {
@@ -641,6 +657,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         },
       }),
     });
+    setNodeTransformAngles([{ nodeId, angle: nextAngle }]);
     const synced = previewSvgNodeAngle(
       board.nodeEls,
       nodeId,

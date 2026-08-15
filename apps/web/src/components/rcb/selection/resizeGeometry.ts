@@ -34,6 +34,80 @@ function clampBoxAnchored(
   return { left: nl, top: nt, width: nw, height: nh };
 }
 
+/** Local (top-left origin) point that must stay fixed while dragging `handle`. */
+function oppositeLocalPoint(handle: ResizeHandle, w: number, h: number): { x: number; y: number } {
+  switch (handle) {
+    case 'se':
+      return { x: 0, y: 0 };
+    case 'sw':
+      return { x: w, y: 0 };
+    case 'ne':
+      return { x: 0, y: h };
+    case 'nw':
+      return { x: w, y: h };
+    case 'e':
+      return { x: 0, y: h / 2 };
+    case 'w':
+      return { x: w, y: h / 2 };
+    case 's':
+      return { x: w / 2, y: 0 };
+    case 'n':
+      return { x: w / 2, y: h };
+    default:
+      return { x: w / 2, y: h / 2 };
+  }
+}
+
+function rotateLocalOffset(dx: number, dy: number, angleDeg: number): { x: number; y: number } {
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return { x: dx * cos - dy * sin, y: dx * sin + dy * cos };
+}
+
+/** Box-local → world under rotate-about-center (same as host chrome). */
+function localPointToWorldBox(
+  box: SceneBox,
+  lx: number,
+  ly: number,
+  angleDeg: number
+): { x: number; y: number } {
+  const w = Math.max(1e-4, box.width);
+  const h = Math.max(1e-4, box.height);
+  const r = rotateLocalOffset(lx - w / 2, ly - h / 2, angleDeg);
+  return { x: box.left + w / 2 + r.x, y: box.top + h / 2 + r.y };
+}
+
+/**
+ * Place `box` so the opposite-of-handle local point stays at `fixedWorld`.
+ * Required when angle≠0: AABB left/top math keeps the unrotated opposite fixed,
+ * but rotation-about-center makes that corner drift in world space.
+ */
+export function reanchorResizeOpposite(
+  box: SceneBox,
+  handle: ResizeHandle,
+  angleDeg: number,
+  fixedWorld: { x: number; y: number }
+): SceneBox {
+  const w = Math.max(1e-4, box.width);
+  const h = Math.max(1e-4, box.height);
+  const local = oppositeLocalPoint(handle, w, h);
+  const r = rotateLocalOffset(local.x - w / 2, local.y - h / 2, angleDeg);
+  const cx = fixedWorld.x - r.x;
+  const cy = fixedWorld.y - r.y;
+  return { left: cx - w / 2, top: cy - h / 2, width: box.width, height: box.height };
+}
+
+/** World position of the resize anchor (opposite corner/edge) for `union` + `handle`. */
+export function resizeOppositeWorld(
+  union: SceneBox,
+  handle: ResizeHandle,
+  angleDeg: number
+): { x: number; y: number } {
+  const local = oppositeLocalPoint(handle, union.width, union.height);
+  return localPointToWorldBox(union, local.x, local.y, angleDeg);
+}
+
 export function applyAspectToHandle(
   handle: ResizeHandle,
   left: number,
@@ -110,6 +184,8 @@ export function resizeFromHandle(
   const sin = Math.sin(rad);
   const ldx = dx * cos + dy * sin;
   const ldy = -dx * sin + dy * cos;
+  // Capture before size change — re-anchor after so rotated opposite stays put.
+  const fixedWorld = resizeOppositeWorld(union, handle, angleDeg);
 
   let { left, top, width, height } = union;
 
@@ -163,7 +239,7 @@ export function resizeFromHandle(
     box = clampBoxAnchored(handle, box.left, box.top, box.width, box.height, min);
   }
 
-  return box;
+  return reanchorResizeOpposite(box, handle, angleDeg, fixedWorld);
 }
 
 export function sizeFromAspectPreset(

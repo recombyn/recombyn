@@ -135,6 +135,9 @@ function RcbShapeHost({
     node?.attrs?.autoSize,
     node?.attrs?.path,
     node?.attrs?.shapeType,
+    // Remount when rotation commits — chrome knobs mirror host transform; without
+    // this, translate-only lag after angle commit leaves radius dots "跑路".
+    node?.attrs?.angle,
     node?.attrs?.brushStyle,
     node?.attrs?.pathPressure,
     // Empty generator / process hairlines are screen-constant (css/zoom) — remount on zoom.

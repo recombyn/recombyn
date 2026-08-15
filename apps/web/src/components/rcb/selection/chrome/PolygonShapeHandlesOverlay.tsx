@@ -5,7 +5,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * Rect / triangle keep CornerRadiusHandlesOverlay; star uses StarShapeHandlesOverlay.
  * Freehand `path` has no AABB R-dots (radius baked into d).
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -31,13 +31,14 @@ import {
   getSharedNodeEls,
   notifyShapeHostGeometry,
 } from '@/components/rcb/shapes/shapeHostRegistry';
+import { strokeInnerClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 import type { SceneBox } from '../alignGuides';
 import {
   CHROME_HANDLE_VIS_PX,
-  CHROME_RADIUS_HIT_PX,
   CHROME_STROKE_PX,
   radiusHandleParkScreenPx,
   radiusParkSceneForBox,
+  setOverlayHandleSeats,
   WorldSvgFrame,
   WorldScreenBadge,
 } from '../SelectionChrome';
@@ -45,7 +46,6 @@ import {
 const DRAG_DISTANCE_SQUARED = 16;
 const SIDES_DRAG_STEP_PX = 14;
 const KNOB_VIS_PX = CHROME_HANDLE_VIS_PX;
-const KNOB_HIT_PX = CHROME_RADIUS_HIT_PX;
 const KNOB_STROKE_PX = CHROME_STROKE_PX;
 const RADIUS_MIN_INSET_PX = radiusHandleParkScreenPx();
 
@@ -126,22 +126,35 @@ function topRadiusSite(
   return { x: top[0], y: top[1], ix: ix / len, iy: iy / len };
 }
 
-/** Rightmost vertex — sides knob sits on the tip, not floating on an AABB edge. */
+/** Rightmost vertex — sides knob parks inward from the tip (not on the vertex). */
 function sidesHandleLocal(
   shapeType: string,
   width: number,
   height: number,
-  sides: number
+  sides: number,
+  parkScene: number
 ): { x: number; y: number } {
   const pts = shapeVertexPoints(shapeType, width, height, sides);
-  if (!pts.length) return { x: width, y: height / 2 };
+  const cx = width / 2;
+  const cy = height / 2;
+  if (!pts.length) {
+    const park = Math.max(0, parkScene);
+    return { x: width - park, y: height / 2 };
+  }
   let best = pts[0];
   for (const p of pts) {
     if (p[0] > best[0] + 1e-6 || (Math.abs(p[0] - best[0]) <= 1e-6 && p[1] < best[1])) {
       best = p;
     }
   }
-  return { x: best[0], y: best[1] };
+  let ix = cx - best[0];
+  let iy = cy - best[1];
+  const len = Math.hypot(ix, iy) || 1;
+  const park = Math.max(0, parkScene);
+  return {
+    x: best[0] + (ix / len) * park,
+    y: best[1] + (iy / len) * park,
+  };
 }
 
 function uniformRadii(r: number): CornerRadii {
@@ -243,6 +256,14 @@ function PolygonShapeHandlesOverlay({
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [liveSides, setLiveSides] = useState<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const seatOwnerId = `poly:${nodeId}`;
+
+  useEffect(
+    () => () => {
+      setOverlayHandleSeats(seatOwnerId, null);
+    },
+    [seatOwnerId]
+  );
 
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
@@ -261,10 +282,16 @@ function PolygonShapeHandlesOverlay({
   const radius = dragValue != null && activeKey === 'radius' ? dragValue : baseR;
 
   // Seat tracks R along the top-vertex inward normal (same as rect R-dots).
+  const parkScene = radiusParkSceneForBox(
+    w,
+    h,
+    z,
+    RADIUS_MIN_INSET_PX,
+    strokeInnerClearanceScene(node)
+  );
   const insetFor = (r: number) => {
-    const park = radiusParkSceneForBox(w, h, z, RADIUS_MIN_INSET_PX);
-    const maxAlong = Math.max(park, maxR - 1);
-    return Math.max(park, Math.min(Math.max(0, Number(r) || 0), maxAlong));
+    const maxAlong = Math.max(parkScene, maxR - 1);
+    return Math.max(parkScene, Math.min(Math.max(0, Number(r) || 0), maxAlong));
   };
 
   const topSite = topRadiusSite(shapeType, w, h, sides);
@@ -274,7 +301,7 @@ function PolygonShapeHandlesOverlay({
         y: topSite.y + topSite.iy * insetFor(radius),
       }
     : { x: w / 2, y: insetFor(radius) };
-  const sidesLocal = sidesHandleLocal(shapeType, w, h, sides);
+  const sidesLocal = sidesHandleLocal(shapeType, w, h, sides, parkScene);
   const radiusPos = localPointToScene(radiusLocal.x, radiusLocal.y, box, angle);
   const sidesPos = localPointToScene(sidesLocal.x, sidesLocal.y, box, angle);
 
@@ -401,19 +428,11 @@ function PolygonShapeHandlesOverlay({
     maxR,
   ]);
 
-  if (!topSite) return null;
-
-  const hitSize = KNOB_HIT_PX * k;
   const visualSize = KNOB_VIS_PX * k;
   const stroke = KNOB_STROKE_PX * k;
   const halfVis = visualSize / 2;
-  const halfHit = hitSize / 2;
   const left = box.left;
   const top = box.top;
-  const gTransform =
-    Math.abs(angle) > 0.001
-      ? `translate(${left} ${top}) rotate(${angle} ${w / 2} ${h / 2})`
-      : `translate(${left} ${top})`;
 
   const sidesLabel = isStar
     ? t('editor.imageToolbar.pointCount', { defaultValue: '角数' })
@@ -430,103 +449,126 @@ function PolygonShapeHandlesOverlay({
     key: 'radius' | 'sides';
     lx: number;
     ly: number;
+    sceneX: number;
+    sceneY: number;
     label: string;
-    onDown: (e: ReactPointerEvent<SVGElement>) => void;
+    onDown: (e: PointerEvent) => void;
   };
 
-  const knobs: KnobSpec[] = [
-    {
-      key: 'radius',
-      lx: radiusLocal.x,
-      ly: radiusLocal.y,
-      label: radiusLabel,
-      onDown: (e) => {
-        if (e.button !== 0 || !topSite) return;
-        e.preventDefault();
-        e.stopPropagation();
-        dragRef.current = {
-          mode: 'radius',
-          startR: baseR,
-          site: topSite,
-          startX: e.clientX,
-          startY: e.clientY,
-          moved: false,
-        };
-        setActiveKey('radius');
-        setDragValue(baseR);
-      },
-    },
-    {
-      key: 'sides',
-      lx: sidesLocal.x,
-      ly: sidesLocal.y,
-      label: sidesLabel,
-      onDown: (e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        dragRef.current = {
-          mode: 'sides',
-          startSides: baseSides,
-          startX: e.clientX,
-          startY: e.clientY,
-          moved: false,
-        };
-        setActiveKey('sides');
-        setDragValue(baseSides);
-        setLiveSides(baseSides);
-      },
-    },
-  ];
+  const knobs: KnobSpec[] = topSite
+    ? [
+        {
+          key: 'radius',
+          lx: radiusLocal.x,
+          ly: radiusLocal.y,
+          sceneX: radiusPos.x,
+          sceneY: radiusPos.y,
+          label: radiusLabel,
+          onDown: (e) => {
+            if (e.button !== 0 || !topSite) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragRef.current = {
+              mode: 'radius',
+              startR: baseR,
+              site: topSite,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
+            setActiveKey('radius');
+            setDragValue(baseR);
+          },
+        },
+        {
+          key: 'sides',
+          lx: sidesLocal.x,
+          ly: sidesLocal.y,
+          sceneX: sidesPos.x,
+          sceneY: sidesPos.y,
+          label: sidesLabel,
+          onDown: (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragRef.current = {
+              mode: 'sides',
+              startSides: baseSides,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
+            setActiveKey('sides');
+            setDragValue(baseSides);
+            setLiveSides(baseSides);
+          },
+        },
+      ]
+    : [];
+
+  if (Boolean(topSite) && interactive && knobs.length > 0) {
+    setOverlayHandleSeats(
+      seatOwnerId,
+      knobs.map((knob) => ({ pickKey: `poly-${knob.key}`, start: knob.onDown }))
+    );
+  } else {
+    setOverlayHandleSeats(seatOwnerId, null);
+  }
+
+  if (!topSite) return null;
 
   return (
-    <WorldSvgFrame left={left} top={top} width={w} height={h} angle={angle} zClass="z-[28]">
-      <g transform={gTransform}>
-        {knobs.map((knob) => {
-          const isActive = activeKey === knob.key;
-          return (
-            <g
-              key={knob.key}
-              data-poly-handle={knob.key}
-              transform={`translate(${knob.lx} ${knob.ly})`}
-              style={{
-                pointerEvents: interactive ? 'all' : 'none',
-                cursor: interactive ? 'default' : undefined,
-              }}
-              onPointerDown={interactive ? knob.onDown : undefined}
-            >
-              <title>{knob.label}</title>
-              <rect x={-halfHit} y={-halfHit} width={hitSize} height={hitSize} fill="transparent" />
+    <WorldSvgFrame
+      nodeId={nodeId}
+      left={left}
+      top={top}
+      width={w}
+      height={h}
+      angle={angle}
+      zClass="z-[28]"
+      pointerEvents="none"
+      sceneChildren={
+        badgePos && activeKey && dragValue != null ? (
+          <WorldScreenBadge
+            text={badgeText}
+            x={badgePos.x}
+            y={badgePos.y}
+            inv={k}
+            anchor="right"
+            clearance={halfVis + 2 * k}
+          />
+        ) : null
+      }
+    >
+      {knobs.map((knob) => {
+        const isActive = activeKey === knob.key;
+        return (
+          <g
+            key={knob.key}
+            data-poly-handle={knob.key}
+            transform={`translate(${knob.lx} ${knob.ly})`}
+            style={{ pointerEvents: 'all' }}
+          >
+            <title>{knob.label}</title>
+            <circle
+              r={Math.max(0.01, halfVis - stroke / 2)}
+              fill="#ffffff"
+              stroke="#3388ff"
+              strokeWidth={stroke}
+              style={{ pointerEvents: 'all' }}
+            />
+            {isActive ? (
               <circle
-                r={Math.max(0.01, halfVis - stroke / 2)}
-                fill="#ffffff"
-                stroke="#3388ff"
-                strokeWidth={stroke}
+                r={Math.max(0.01, halfVis + stroke)}
+                fill="none"
+                stroke="rgba(51,136,255,0.35)"
+                strokeWidth={2 * k}
                 style={{ pointerEvents: 'none' }}
               />
-              {isActive ? (
-                <circle
-                  r={Math.max(0.01, halfVis + stroke)}
-                  fill="none"
-                  stroke="rgba(51,136,255,0.35)"
-                  strokeWidth={2 * k}
-                  style={{ pointerEvents: 'none' }}
-                />
-              ) : null}
-            </g>
-          );
-        })}
-      </g>
-      {badgePos && activeKey && dragValue != null ? (
-        <WorldScreenBadge
-          text={badgeText}
-          x={badgePos.x}
-          y={badgePos.y}
-          inv={k}
-          anchor="right"
-          clearance={halfVis + 2 * k}
-        />
-      ) : null}
+            ) : null}
+          </g>
+        );
+      })}
     </WorldSvgFrame>
   );
 }

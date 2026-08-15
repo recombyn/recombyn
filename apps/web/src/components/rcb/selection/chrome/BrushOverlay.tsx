@@ -1,7 +1,6 @@
 /**
- * Marquee brush overlay.
- *
- * Same world-SVG paint contract as SelectionChrome — scene coords + `px/zoom`.
+ * Marquee brush overlay on the screen overlay (ADR 0027).
+ * Absolute scene coords under CameraTransform scale — stroke = px/zoom.
  */
 import { useRcbCamera } from '@/components/rcb/camera/context';
 import {

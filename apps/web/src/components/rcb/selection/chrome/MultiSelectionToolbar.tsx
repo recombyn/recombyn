@@ -36,7 +36,8 @@ import {
   supportsCornerRadius,
   supportsFill,
   supportsStroke,
-  supportsBooleanOp
+  supportsBooleanOp,
+  isOutlinedPath,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   openShapeStylePanel,
@@ -347,7 +348,9 @@ function MultiSelectionToolbar({
   const showBoolean = shapeBoxes.length >= 2 && allSupport(supportsBooleanOp);
   const showStroke = allSupport(supportsStroke);
   const showFill = allSupport(supportsFill);
-  const showCornerRadius = allSupport(supportsCornerRadius);
+  const showCornerRadius =
+    allSupport(supportsCornerRadius) &&
+    opNodeIds.every((id) => !isOutlinedPath(document?.deltaSetLike?.[id]));
   const showAspectPresets = allSupport(supportsAspectPresets);
   const canAlign = boxes.length >= 2;
   const canDistribute = boxes.length >= 3;
@@ -416,6 +419,8 @@ function MultiSelectionToolbar({
     const attrs = node.attrs as Record<string, unknown>;
     attrs['fill-rule'] = result.fillRule;
     attrs.closed = 'true';
+    // Same as 轮廓化 — densified boolean path: no corner-radius chrome.
+    attrs.outlined = 'true';
     applyBooleanResultPaint(
       attrs,
       sampleNode?.attrs as Record<string, unknown> | undefined,

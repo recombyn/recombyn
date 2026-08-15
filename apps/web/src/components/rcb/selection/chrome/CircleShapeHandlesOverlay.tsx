@@ -2,7 +2,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Circle / ellipse knobs: 内半径, 开始位置 (display), 弧度 / 周弧度.
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeEllipseParams } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -30,19 +30,19 @@ import {
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import type { SceneBox } from '../alignGuides';
 import {
-  CHROME_HANDLE_HIT_PX,
   CHROME_HANDLE_VIS_PX,
   CHROME_STROKE_PX,
+  radiusHandleParkScreenPx,
+  radiusParkSceneForBox,
+  setOverlayHandleSeats,
   WorldSvgFrame,
   WorldScreenBadge,
 } from '../SelectionChrome';
+import { strokeInnerClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 
 const DRAG_DISTANCE_SQUARED = 16;
 const KNOB_VIS_PX = CHROME_HANDLE_VIS_PX;
-const KNOB_HIT_PX = CHROME_HANDLE_HIT_PX;
 const KNOB_STROKE_PX = CHROME_STROKE_PX;
-/** Arc / start knobs sit slightly inside the rim so they clear resize chrome. */
-const ARC_RIM_INSET_PX = 10;
 
 function liveNodeEl(nodeId: string): Element | null {
   return (
@@ -174,6 +174,14 @@ function CircleShapeHandlesOverlay({
   const [liveInner, setLiveInner] = useState<number | null>(null);
   const [liveArc, setLiveArc] = useState<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const seatOwnerId = `circle:${nodeId}`;
+
+  useEffect(
+    () => () => {
+      setOverlayHandleSeats(seatOwnerId, null);
+    },
+    [seatOwnerId]
+  );
 
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
@@ -190,18 +198,29 @@ function CircleShapeHandlesOverlay({
   const arcPercent = liveArc ?? baseArc;
   const isFull = Math.abs(arcPercent) >= 99.95;
 
-  const rimInset = Math.min(outerR * 0.2, ARC_RIM_INSET_PX * k);
-  const arcSeatR = Math.max(outerR * 0.35, outerR - rimInset);
+  // Same park model as corner-radius: screen gap + stroke inner (any zoom).
+  // Old `ARC_RIM_INSET_PX / zoom` collapsed onto the rim at high magnification.
+  const rimInset = radiusParkSceneForBox(
+    w,
+    h,
+    z,
+    radiusHandleParkScreenPx(),
+    strokeInnerClearanceScene(node)
+  );
+  const arcSeatR = Math.max(outerR * 0.2, outerR - rimInset);
   const { a0, a1, mid } = ellipseArcEndAngles(arcPercent, startDeg);
   const seatOnRim = (ang: number, r: number) => ({
     x: cx + Math.cos(ang) * (rx / outerR) * r,
     y: cy + Math.sin(ang) * (ry / outerR) * r,
   });
-  // 内半径: solid → center; donut → mid-sweep on the inner rim.
+  // 内半径: solid → center; donut → mid-sweep on the inner rim, then park inward.
   const innerSeatR =
     innerRatio > 1e-4 ? Math.max(2 * k, outerR * innerRatio) : 0;
-  const innerLocal =
-    innerRatio > 1e-4 ? seatOnRim(mid, innerSeatR) : { x: cx, y: cy };
+  let innerLocal = { x: cx, y: cy };
+  if (innerRatio > 1e-4) {
+    const parkedInnerR = Math.max(0, innerSeatR - rimInset);
+    innerLocal = seatOnRim(mid, parkedInnerR);
+  }
   // Full: one 周弧度 knob where ends coincide (at 开始位置).
   // Partial: fixed 开始位置 at a0 + movable 弧度 at a1.
   const startLocal = seatOnRim(a0, arcSeatR);
@@ -348,17 +367,11 @@ function CircleShapeHandlesOverlay({
     h,
   ]);
 
-  const hitSize = KNOB_HIT_PX * k;
   const visualSize = KNOB_VIS_PX * k;
   const stroke = KNOB_STROKE_PX * k;
   const halfVis = visualSize / 2;
-  const halfHit = hitSize / 2;
   const left = box.left;
   const top = box.top;
-  const gTransform =
-    Math.abs(angle) > 0.001
-      ? `translate(${left} ${top}) rotate(${angle} ${w / 2} ${h / 2})`
-      : `translate(${left} ${top})`;
 
   const innerLabel = t('editor.imageToolbar.ellipseInnerRadius', {
     defaultValue: '内半径',
@@ -384,7 +397,7 @@ function CircleShapeHandlesOverlay({
     badgeText = `${startLabel} ${startDegLabel}°`;
   }
 
-  const beginInner = (e: ReactPointerEvent<SVGElement>) => {
+  const beginInner = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -403,7 +416,7 @@ function CircleShapeHandlesOverlay({
   };
 
   /** Double-click 内半径 → solid disk (restore after opening a hole). */
-  const resetInnerSolid = (e: React.MouseEvent<SVGElement>) => {
+  const resetInnerSolid = (e: MouseEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -422,7 +435,7 @@ function CircleShapeHandlesOverlay({
     preview({ inner: 0 });
   };
 
-  const beginArc = (e: ReactPointerEvent<SVGElement>) => {
+  const beginArc = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -446,7 +459,7 @@ function CircleShapeHandlesOverlay({
   };
 
   /** Double-click 弧度 → full circle (keep prior CW/CCW sign). */
-  const resetArcFull = (e: React.MouseEvent<SVGElement>) => {
+  const resetArcFull = (e: MouseEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -470,11 +483,13 @@ function CircleShapeHandlesOverlay({
     key: string;
     lx: number;
     ly: number;
+    sceneX: number;
+    sceneY: number;
     label: string;
     interactive: boolean;
     isActive: boolean;
-    onDown?: (e: ReactPointerEvent<SVGElement>) => void;
-    onDoubleClick?: (e: React.MouseEvent<SVGGElement>) => void;
+    onDown?: (e: PointerEvent) => void;
+    onDoubleClick?: (e: MouseEvent) => void;
     onEnter?: () => void;
     onLeave?: () => void;
   };
@@ -484,6 +499,8 @@ function CircleShapeHandlesOverlay({
       key: 'inner',
       lx: innerLocal.x,
       ly: innerLocal.y,
+      sceneX: innerPos.x,
+      sceneY: innerPos.y,
       label: innerLabel,
       interactive: true,
       isActive: activeKey === 'inner',
@@ -498,6 +515,8 @@ function CircleShapeHandlesOverlay({
       key: 'arc',
       lx: arcLocal.x,
       ly: arcLocal.y,
+      sceneX: arcPos.x,
+      sceneY: arcPos.y,
       label: arcLabel,
       interactive: true,
       isActive: activeKey === 'arc',
@@ -510,6 +529,8 @@ function CircleShapeHandlesOverlay({
         key: 'start',
         lx: startLocal.x,
         ly: startLocal.y,
+        sceneX: startPos.x,
+        sceneY: startPos.y,
         label: `${startLabel} ${startDegLabel}°`,
         interactive: false,
         isActive: hoverStart,
@@ -520,6 +541,8 @@ function CircleShapeHandlesOverlay({
         key: 'arc',
         lx: arcLocal.x,
         ly: arcLocal.y,
+        sceneX: arcPos.x,
+        sceneY: arcPos.y,
         label: arcLabel,
         interactive: true,
         isActive: activeKey === 'arc',
@@ -529,63 +552,71 @@ function CircleShapeHandlesOverlay({
     );
   }
 
+  if (interactive && knobs.length > 0) {
+    setOverlayHandleSeats(
+      seatOwnerId,
+      knobs.map((knob) => ({
+        pickKey: `circle-${knob.key}`,
+        interactive: knob.interactive,
+        start: knob.onDown ?? (() => {}),
+        onDoubleClick: knob.onDoubleClick,
+        onEnter: knob.onEnter,
+        onLeave: knob.onLeave,
+      }))
+    );
+  } else {
+    setOverlayHandleSeats(seatOwnerId, null);
+  }
+
   return (
-    <WorldSvgFrame left={left} top={top} width={w} height={h} angle={angle} zClass="z-[28]">
-      <g transform={gTransform}>
-        {knobs.map((knob) => {
-          const canHit = interactive && (knob.interactive || Boolean(knob.onEnter));
-          return (
-            <g
-              key={knob.key}
-              data-circle-handle={knob.key}
-              transform={`translate(${knob.lx} ${knob.ly})`}
-              style={{
-                pointerEvents: canHit ? 'all' : 'none',
-                cursor: knob.interactive && interactive ? 'default' : undefined,
-              }}
-              onPointerDown={
-                interactive && knob.interactive && knob.onDown ? knob.onDown : undefined
-              }
-              onDoubleClick={
-                interactive && knob.interactive && knob.onDoubleClick
-                  ? knob.onDoubleClick
-                  : undefined
-              }
-              onPointerEnter={interactive ? knob.onEnter : undefined}
-              onPointerLeave={interactive ? knob.onLeave : undefined}
-            >
-              <title>{knob.label}</title>
-              <rect x={-halfHit} y={-halfHit} width={hitSize} height={hitSize} fill="transparent" />
-              <circle
-                r={Math.max(0.01, halfVis - stroke / 2)}
-                fill="#ffffff"
-                stroke="#3388ff"
-                strokeWidth={stroke}
-                style={{ pointerEvents: 'none' }}
-              />
-              {knob.isActive ? (
-                <circle
-                  r={Math.max(0.01, halfVis + stroke)}
-                  fill="none"
-                  stroke="rgba(51,136,255,0.35)"
-                  strokeWidth={2 * k}
-                  style={{ pointerEvents: 'none' }}
-                />
-              ) : null}
-            </g>
-          );
-        })}
-      </g>
-      {badgePos ? (
-        <WorldScreenBadge
-          text={badgeText}
-          x={badgePos.x}
-          y={badgePos.y}
-          inv={k}
-          anchor="right"
-          clearance={halfVis + 2 * k}
-        />
-      ) : null}
+    <WorldSvgFrame
+      nodeId={nodeId}
+      left={left}
+      top={top}
+      width={w}
+      height={h}
+      angle={angle}
+      zClass="z-[28]"
+      pointerEvents="none"
+      sceneChildren={
+        badgePos ? (
+          <WorldScreenBadge
+            text={badgeText}
+            x={badgePos.x}
+            y={badgePos.y}
+            inv={k}
+            anchor="right"
+            clearance={halfVis + 2 * k}
+          />
+        ) : null
+      }
+    >
+      {knobs.map((knob) => (
+        <g
+          key={knob.key}
+          data-circle-handle={knob.key}
+          transform={`translate(${knob.lx} ${knob.ly})`}
+          style={{ pointerEvents: 'all' }}
+        >
+          <title>{knob.label}</title>
+          <circle
+            r={Math.max(0.01, halfVis - stroke / 2)}
+            fill="#ffffff"
+            stroke="#3388ff"
+            strokeWidth={stroke}
+            style={{ pointerEvents: 'all' }}
+          />
+          {knob.isActive ? (
+            <circle
+              r={Math.max(0.01, halfVis + stroke)}
+              fill="none"
+              stroke="rgba(51,136,255,0.35)"
+              strokeWidth={2 * k}
+              style={{ pointerEvents: 'none' }}
+            />
+          ) : null}
+        </g>
+      ))}
     </WorldSvgFrame>
   );
 }

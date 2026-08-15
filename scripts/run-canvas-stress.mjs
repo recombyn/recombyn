@@ -71,6 +71,7 @@ failed |= run('web.rcb.regression', 'npm', [
   '--workspace=apps/web',
   '--',
   'src/components/rcb/selection/__tests__/postSplitCanvasRegression.test.ts',
+  'src/components/rcb/selection/__tests__/screenChromeBodyTransform.test.ts',
   'src/components/rcb/scene/document/__tests__/sceneClipboardZod.test.ts',
 ]);
 

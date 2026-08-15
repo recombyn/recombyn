@@ -289,6 +289,7 @@ function HtmlArtboardFrame({
           originX={frame.x}
           originY={frame.y}
           renameAriaLabel="Frame name"
+          nodeId={frame.id}
         />
       </>
     );

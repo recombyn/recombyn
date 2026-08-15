@@ -3,6 +3,7 @@ import {
   matchAspectPresetKey,
   pointInOrientedBox,
   resizeFromHandle,
+  resizeOppositeWorld,
   resolveControlChrome,
   unionOfBoxes,
 } from '../resizeGeometry';
@@ -25,6 +26,43 @@ describe('resizeFromHandle', () => {
     const mid = resizeFromHandle(union, 'se', -35, -35, 0);
     expect(mid.width).toBe(5);
     expect(mid.height).toBe(5);
+  });
+
+  it('keeps the opposite corner fixed in world space when rotated', () => {
+    const union = { left: 100, top: 80, width: 200, height: 80 };
+    const angle = 35;
+    const handles = ['se', 'sw', 'ne', 'nw'] as const;
+    for (const handle of handles) {
+      const fixed0 = resizeOppositeWorld(union, handle, angle);
+      // Drag along local SE-ish diagonal in world (any non-zero delta).
+      const next = resizeFromHandle(union, handle, 40, 25, angle);
+      const fixed1 = resizeOppositeWorld(next, handle, angle);
+      expect(fixed1.x).toBeCloseTo(fixed0.x, 6);
+      expect(fixed1.y).toBeCloseTo(fixed0.y, 6);
+      expect(next.width).toBeGreaterThan(1);
+      expect(next.height).toBeGreaterThan(1);
+    }
+  });
+
+  it('keeps opposite edge mid fixed for side handles when rotated', () => {
+    const union = { left: 50, top: 40, width: 120, height: 60 };
+    const angle = -42;
+    for (const handle of ['e', 'w', 'n', 's'] as const) {
+      const fixed0 = resizeOppositeWorld(union, handle, angle);
+      const next = resizeFromHandle(union, handle, 30, -18, angle);
+      const fixed1 = resizeOppositeWorld(next, handle, angle);
+      expect(fixed1.x).toBeCloseTo(fixed0.x, 6);
+      expect(fixed1.y).toBeCloseTo(fixed0.y, 6);
+    }
+  });
+
+  it('angle 0 SE still grows from top-left', () => {
+    const union = { left: 10, top: 20, width: 100, height: 50 };
+    const next = resizeFromHandle(union, 'se', 20, 10, 0);
+    expect(next.left).toBeCloseTo(10, 6);
+    expect(next.top).toBeCloseTo(20, 6);
+    expect(next.width).toBeCloseTo(120, 6);
+    expect(next.height).toBeCloseTo(60, 6);
   });
 });
 

@@ -87,7 +87,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:stress": "vitest run src/components/rcb/scene/__tests__/canvasStress.bench.test.ts"
+    "test:stress": "vitest run src/components/rcb/scene/__tests__/canvasStress.bench.test.ts src/components/rcb/scene/__tests__/canvasFunctionalStress.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

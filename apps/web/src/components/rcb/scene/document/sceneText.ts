@@ -47,10 +47,11 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
   textDecoration: 'none',
 };
 
-/** Bold = CSS `font-weight` only (B button). Face files use the weight dropdown. */
+/** Bold = CSS weight ≥600, or a dedicated catalog Bold face (… Bold + weight normal). */
 export function isTextBold(style: Partial<TextStyle> | null | undefined) {
   const w = style?.fontWeight;
-  return w === 'bold' || Number(w) >= 600;
+  if (w === 'bold' || Number(w) >= 600) return true;
+  return /\bbold\b/i.test(String(style?.fontFamily || ''));
 }
 
 export function isTextItalic(style: Partial<TextStyle> | null | undefined) {
@@ -102,7 +103,7 @@ function measureLineWidth(
   letterSpacing: number
 ) {
   const raw = line.length ? line : ' ';
-  if (ctx) {
+  if (ctx && typeof ctx.measureText === 'function') {
     const base = ctx.measureText(raw).width;
     return base + letterSpacing * Math.max(0, raw.length - 1);
   }

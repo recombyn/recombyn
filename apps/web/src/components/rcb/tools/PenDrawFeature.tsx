@@ -2,6 +2,7 @@ import {
   useRcbCamera,
   useRcbScreenToScene,
 } from '../camera/context';
+import { rcbCameraCssZoom } from '../core/math';
 import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -207,8 +208,8 @@ type PenDrawFeatureProps = {
   document?: any;
 };
 
-const HANDLE_HIT_PX = 14;
-const ANCHOR_HIT_PX = 16;
+const HANDLE_HIT_PX = 22;
+const ANCHOR_HIT_PX = 24;
 const ANCHOR_DBL_MS = 450;
 
 /** Same as SelectionChrome: page size = screenPx / zoom under camera scale. */
@@ -413,7 +414,10 @@ function PenDrawFeature({
   const camera = useRcbCamera();
   const toScene = useRcbScreenToScene();
   const [anchors, setAnchors] = useState<PenAnchor[]>([]);
+  /** Rubber-band end (raw pointer, or Shift octant). */
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  /** Lattice place target (click lands here; snap-tip overlay). */
+  const [placeCursor, setPlaceCursor] = useState<{ x: number; y: number } | null>(null);
   const [closeHot, setCloseHot] = useState(false);
   const [closing, setClosing] = useState(false);
   const [selectedHandle, setSelectedHandle] = useState<HandleHit | null>(null);
@@ -457,6 +461,7 @@ function PenDrawFeature({
     setAnchors([]);
     setCloseHot(false);
     setCursor(null);
+    setPlaceCursor(null);
     setClosing(false);
     setSelectedHandle(null);
     setHoverHandle(null);
@@ -540,6 +545,7 @@ function PenDrawFeature({
       draggingRef.current = false;
       setAnchors([anchor]);
       setCursor(anchor);
+      setPlaceCursor(anchor);
       setSelectedHandle(null);
       setHoverHandle(null);
       setHoverAnchor(null);
@@ -553,8 +559,8 @@ function PenDrawFeature({
     const hitEl = stageEl || paperEl;
 
     const radii = () => ({
-      anchor: hitRadiusScene(camera.zoom, ANCHOR_HIT_PX),
-      handle: hitRadiusScene(camera.zoom, HANDLE_HIT_PX),
+      anchor: hitRadiusScene(rcbCameraCssZoom(camera), ANCHOR_HIT_PX),
+      handle: hitRadiusScene(rcbCameraCssZoom(camera), HANDLE_HIT_PX),
     });
 
     const nearClose = (p: { x: number; y: number }) => {
@@ -635,7 +641,9 @@ function PenDrawFeature({
               gridSizeRef.current,
               !gridSnapRef.current
             );
-        setCursor(tip);
+        const rubber = shift ? tip : { x: lastPt.rawX, y: lastPt.rawY };
+        setCursor(rubber);
+        setPlaceCursor(tip);
         setCloseHot(nearClose(tip));
       }
     };
@@ -692,6 +700,7 @@ function PenDrawFeature({
         setClosing(false);
         setCloseHot(false);
         setCursor(null);
+        setPlaceCursor(null);
         setSelectedHandle(handleHit);
         setHoverHandle(handleHit);
         setHoverAnchor(null);
@@ -728,6 +737,7 @@ function PenDrawFeature({
           setCloseHot(false);
           setAnchors(resume.anchors);
           setCursor(p);
+          setPlaceCursor(p);
           setHoverAnchor(null);
           return;
         }
@@ -751,6 +761,7 @@ function PenDrawFeature({
         setCloseHot(true);
         setHoverAnchor(null);
         setCursor(null);
+        setPlaceCursor(null);
         hitEl.setPointerCapture?.(e.pointerId);
         return;
       }
@@ -777,6 +788,7 @@ function PenDrawFeature({
         dragKindRef.current = null;
         setCloseHot(false);
         setCursor(p);
+        setPlaceCursor(p);
         setPaperCursor(hitEl || paperEl, 'pointer');
         return;
       }
@@ -863,14 +875,16 @@ function PenDrawFeature({
         }
         setCloseHot(false);
         setCursor(null);
+        setPlaceCursor(null);
         setHoverHandle(null);
         setHoverAnchor(null);
         setPaperCursor(hitEl || paperEl, PEN_CURSOR);
         return;
       }
 
-      // Idle: prefer anchor hover, then handle diamonds (raw hit). Tip always
-      // sticks to grid corners / edge mids so the CSS pen cursor tip ≠ place lattice.
+      // Idle: prefer anchor hover, then handle diamonds (raw hit).
+      // Rubber-band follows raw pointer; snap tip + click use the lattice so the
+      // dashed preview does not jump cell-to-cell mid-gesture.
       lastScenePointerRef.current = { x: p.x, y: p.y, rawX: raw.x, rawY: raw.y };
       const aIdx = hitAnchor(anchorsRef.current, raw, anchorR);
       if (aIdx >= 0) {
@@ -879,6 +893,7 @@ function PenDrawFeature({
         setPaperCursor(hitEl || paperEl, 'pointer');
         setCloseHot(false);
         setCursor(p);
+        setPlaceCursor(p);
         return;
       }
 
@@ -889,19 +904,29 @@ function PenDrawFeature({
         setPaperCursor(hitEl || paperEl, 'grab');
         setCloseHot(false);
         setCursor(p);
+        setPlaceCursor(p);
         return;
       }
 
       setPaperCursor(hitEl || paperEl, PEN_CURSOR);
-      // Rubber-band: Shift locks to 45° from the last placed anchor.
       const lastAnchor =
         anchorsRef.current.length > 0
           ? anchorsRef.current[anchorsRef.current.length - 1]
           : null;
-      const tip = snapPenStrokeOctant(lastAnchor, raw.x, raw.y, e.shiftKey);
-      const cursorTip = e.shiftKey && lastAnchor ? tip : p;
-      setCursor(cursorTip);
-      setCloseHot(nearClose(cursorTip));
+      const placeTip = e.shiftKey
+        ? snapPenStrokeOctant(lastAnchor, raw.x, raw.y, true)
+        : p;
+      const rubberTip =
+        e.shiftKey && lastAnchor ? placeTip : { x: raw.x, y: raw.y };
+      lastScenePointerRef.current = {
+        x: placeTip.x,
+        y: placeTip.y,
+        rawX: raw.x,
+        rawY: raw.y,
+      };
+      setCursor(rubberTip);
+      setPlaceCursor(placeTip);
+      setCloseHot(nearClose(placeTip));
     };
 
     const onUp = (e: PointerEvent) => {
@@ -933,6 +958,7 @@ function PenDrawFeature({
           setCloseHot(!hit && nearClose(p));
         }
         setCursor(p);
+        setPlaceCursor(p);
         return;
       }
 
@@ -951,13 +977,16 @@ function PenDrawFeature({
       dragKindRef.current = null;
       const rawUp = toScene(e.clientX, e.clientY);
       const skipUp = e.ctrlKey || !gridSnapRef.current;
-      setCursor(snapPenAnchorPoint(rawUp.x, rawUp.y, gridSizeRef.current, skipUp));
+      const upTip = snapPenAnchorPoint(rawUp.x, rawUp.y, gridSizeRef.current, skipUp);
+      setCursor(upTip);
+      setPlaceCursor(upTip);
       setPaperCursor(hitEl || paperEl, PEN_CURSOR);
     };
 
     const onLeave = () => {
       if (placingRef.current || closingRef.current || dragKindRef.current) return;
       setCursor(null);
+      setPlaceCursor(null);
       setCloseHot(false);
       setHoverHandle(null);
       setHoverAnchor(null);
@@ -1082,8 +1111,8 @@ function PenDrawFeature({
 
   // Snapped place tip (even before first click) — CSS pen cursor tip ≠ lattice.
   const snapTip =
-    cursor && !hoverHandle && hoverAnchor == null && !placingRef.current
-      ? cursor
+    placeCursor && !hoverHandle && hoverAnchor == null && !placingRef.current
+      ? placeCursor
       : null;
 
   return (

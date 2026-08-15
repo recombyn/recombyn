@@ -118,13 +118,37 @@ export function strokeVisualOutset(node: SceneNodeInput): number {
 }
 
 /**
+ * Scene distance from the path into the fill past the **inner** stroke edge.
+ * Radius knobs park here so they stay inside the stroke band at any zoom
+ * (stroke width is scene-constant; screen park alone cannot clear it).
+ */
+export function strokeInnerClearanceScene(node: SceneNodeInput): number {
+  const meta = strokePaintMeta(node);
+  if (!meta || !(meta.strokeWidth > 0)) return 0;
+  if (meta.align === 'outside') return 0;
+  if (meta.align === 'inside') return meta.strokeWidth;
+  return meta.strokeWidth / 2;
+}
+
+/**
+ * Scene distance from the path into the exterior past the **outer** stroke edge.
+ * Rotate hotzones sit beyond this so they stay outside the stroke at any zoom.
+ */
+export function strokeOuterClearanceScene(node: SceneNodeInput): number {
+  const meta = strokePaintMeta(node);
+  if (!meta || !(meta.strokeWidth > 0)) return 0;
+  if (meta.align === 'inside') return 0;
+  if (meta.align === 'outside') return meta.strokeWidth;
+  return meta.strokeWidth / 2;
+}
+
+/**
  * How far selection chrome sits outside the geometric box (≥ 0).
  * Control box = **vector path** (geometry AABB). Stroke align is paint-only —
  * do not pad the blue box to outer ink. Move/snap still uses visual outer via
  * `strokeVisualOutset` / `inflateBoxByVisualOutset`.
  */
-export function strokeChromeOutset(node: SceneNodeInput): number {
-  void node;
+export function strokeChromeOutset(_node: SceneNodeInput): number {
   return 0;
 }
 
@@ -377,6 +401,14 @@ export function resolveStrokeLinejoin(attrs: Record<string, unknown> | null | un
   const v = String(attrs?.strokeLinejoin || attrs?.['stroke-linejoin'] || 'miter');
   if (v === 'miter' || v === 'round' || v === 'bevel') return v;
   return 'miter';
+}
+
+/** Match outline / design tools — keep acute pen tips (SVG default 4 clips them flat). */
+export function resolveStrokeMiterlimit(attrs: Record<string, unknown> | null | undefined): number {
+  const raw = attrs?.strokeMiterlimit ?? attrs?.['stroke-miterlimit'] ?? attrs?.miterLimit;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return Math.min(1000, Math.max(1, n));
+  return 100;
 }
 
 export type ShadowSpec = {

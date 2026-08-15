@@ -239,7 +239,7 @@ function onGrid(value: number, g: number) {
   return Math.abs(value - q) < 1e-6;
 }
 
-/** Measure infinite-canvas grid SVG vs shape hosts — always prints JSON. */
+/** Measure infinite-canvas grid (Canvas underlay) vs shape hosts — always prints JSON. */
 export function dumpGridVsHosts(getState: () => {
   dpr: number;
   camera: RcbCamera;
@@ -247,16 +247,24 @@ export function dumpGridVsHosts(getState: () => {
 }): Record<string, unknown> {
   const { dpr, camera, boxes = [] } = getState();
   const world = document.querySelector('[data-rcb-world="1"]') as HTMLElement | null;
-  const grid = document.querySelector('[data-rcb-pixel-grid="1"]') as SVGSVGElement | null;
+  const grid =
+    (document.querySelector('[data-rcb-scene-canvas][data-rcb-pixel-grid="1"]') as
+      | HTMLCanvasElement
+      | null) ||
+    (document.querySelector('[data-rcb-pixel-grid="1"]') as SVGSVGElement | HTMLCanvasElement | null);
   const g = Number(grid?.getAttribute('data-rcb-grid-size') || 1) || 1;
   const gridLeft = parsePx(grid?.getAttribute('data-rcb-grid-left'));
   const gridTop = parsePx(grid?.getAttribute('data-rcb-grid-top'));
-  const gridStyleLeft = parsePx(grid?.style?.left);
-  const gridStyleTop = parsePx(grid?.style?.top);
+  const gridStyleLeft =
+    grid instanceof HTMLCanvasElement ? null : parsePx((grid as SVGSVGElement | null)?.style?.left);
+  const gridStyleTop =
+    grid instanceof HTMLCanvasElement ? null : parsePx((grid as SVGSVGElement | null)?.style?.top);
   const gridRect = grid?.getBoundingClientRect?.() ?? null;
   const worldTf = world?.style?.transform || '';
 
-  const hosts = Array.from(document.querySelectorAll('[data-rcb-infinite="1"]:not([data-rcb-pixel-grid])'));
+  const hosts = Array.from(
+    document.querySelectorAll('[data-rcb-infinite="1"]:not([data-rcb-pixel-grid]):not([data-rcb-scene-canvas])')
+  );
   const hostRows = hosts.slice(0, 24).map((node, i) => {
     const el = node as SVGSVGElement;
     const left = parsePx(el.style.left) ?? parsePx(el.getAttribute('x'));
