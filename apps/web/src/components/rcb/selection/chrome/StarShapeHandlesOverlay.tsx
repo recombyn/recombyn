@@ -3,7 +3,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * Star shape handles.
  * World-SVG knobs — same paint contract as SelectionChrome / CornerRadius.
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -30,13 +30,14 @@ import {
   getSharedNodeEls,
   notifyShapeHostGeometry,
 } from '@/components/rcb/shapes/shapeHostRegistry';
+import { strokeInnerClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 import type { SceneBox } from '../alignGuides';
 import {
   CHROME_HANDLE_VIS_PX,
-  CHROME_RADIUS_HIT_PX,
   CHROME_STROKE_PX,
   radiusHandleParkScreenPx,
   radiusParkSceneForBox,
+  setOverlayHandleSeats,
   WorldSvgFrame,
   WorldScreenBadge,
 } from '../SelectionChrome';
@@ -44,7 +45,6 @@ import {
 const DRAG_DISTANCE_SQUARED = 16;
 const SIDES_DRAG_STEP_PX = 14;
 const KNOB_VIS_PX = CHROME_HANDLE_VIS_PX;
-const KNOB_HIT_PX = CHROME_RADIUS_HIT_PX;
 const KNOB_STROKE_PX = CHROME_STROKE_PX;
 const RADIUS_MIN_INSET_PX = radiusHandleParkScreenPx();
 
@@ -129,15 +129,25 @@ function starSites(width: number, height: number, sides: number, innerRatio: num
   const len = Math.hypot(ix, iy) || 1;
   ix /= len;
   iy /= len;
+  let vix = cx - valley[0];
+  let viy = cy - valley[1];
+  const vlen = Math.hypot(vix, viy) || 1;
+  vix /= vlen;
+  viy /= vlen;
   const outerDist = Math.hypot(top[0] - cx, top[1] - cy) || 1;
   const tip = rightmostOuterTip(pts);
+  let tix = cx - tip.x;
+  let tiy = cy - tip.y;
+  const tlen = Math.hypot(tix, tiy) || 1;
+  tix /= tlen;
+  tiy /= tlen;
   return {
     pts,
     cx,
     cy,
     top: { x: top[0], y: top[1], ix, iy },
-    valley: { x: valley[0], y: valley[1] },
-    tip,
+    valley: { x: valley[0], y: valley[1], ix: vix, iy: viy },
+    tip: { x: tip.x, y: tip.y, ix: tix, iy: tiy },
     outerDist,
   };
 }
@@ -227,6 +237,14 @@ function StarShapeHandlesOverlay({
   const [liveSides, setLiveSides] = useState<number | null>(null);
   const [liveInner, setLiveInner] = useState<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const seatOwnerId = `star:${nodeId}`;
+
+  useEffect(
+    () => () => {
+      setOverlayHandleSeats(seatOwnerId, null);
+    },
+    [seatOwnerId]
+  );
 
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
@@ -248,10 +266,16 @@ function StarShapeHandlesOverlay({
   // Seat tracks R along the tip→center bisector (same contract as rect R-dots).
   // A fixed park inset left the knob glued to the sharp tip while the rounded
   // silhouette pulled inward — looked like “controls stuck at the old place”.
+  const parkScene = radiusParkSceneForBox(
+    w,
+    h,
+    z,
+    RADIUS_MIN_INSET_PX,
+    strokeInnerClearanceScene(node)
+  );
   const insetFor = (r: number) => {
-    const park = radiusParkSceneForBox(w, h, z, RADIUS_MIN_INSET_PX);
-    const maxAlong = Math.max(park, maxR - 1);
-    return Math.max(park, Math.min(Math.max(0, Number(r) || 0), maxAlong));
+    const maxAlong = Math.max(parkScene, maxR - 1);
+    return Math.max(parkScene, Math.min(Math.max(0, Number(r) || 0), maxAlong));
   };
 
   let radiusLocal = { x: w / 2, y: insetFor(radius) };
@@ -262,8 +286,15 @@ function StarShapeHandlesOverlay({
       x: sites.top.x + sites.top.ix * insetFor(radius),
       y: sites.top.y + sites.top.iy * insetFor(radius),
     };
-    innerLocal = sites.valley;
-    sidesLocal = sites.tip;
+    // Inner / sides sit on vertices — park toward center past stroke (any zoom).
+    innerLocal = {
+      x: sites.valley.x + sites.valley.ix * parkScene,
+      y: sites.valley.y + sites.valley.iy * parkScene,
+    };
+    sidesLocal = {
+      x: sites.tip.x + sites.tip.ix * parkScene,
+      y: sites.tip.y + sites.tip.iy * parkScene,
+    };
   }
 
   const radiusPos = localPointToScene(radiusLocal.x, radiusLocal.y, box, angle);
@@ -419,19 +450,11 @@ function StarShapeHandlesOverlay({
     maxR,
   ]);
 
-  if (!sites) return null;
-
-  const hitSize = KNOB_HIT_PX * k;
   const visualSize = KNOB_VIS_PX * k;
   const stroke = KNOB_STROKE_PX * k;
   const halfVis = visualSize / 2;
-  const halfHit = hitSize / 2;
   const left = box.left;
   const top = box.top;
-  const gTransform =
-    Math.abs(angle) > 0.001
-      ? `translate(${left} ${top}) rotate(${angle} ${w / 2} ${h / 2})`
-      : `translate(${left} ${top})`;
 
   const radiusLabel = t('editor.imageToolbar.cornerRadius');
   const innerLabel = t('editor.imageToolbar.innerRadius', { defaultValue: '内角半径' });
@@ -456,127 +479,152 @@ function StarShapeHandlesOverlay({
     key: 'radius' | 'inner' | 'sides';
     lx: number;
     ly: number;
+    sceneX: number;
+    sceneY: number;
     label: string;
-    onDown: (e: ReactPointerEvent<SVGElement>) => void;
+    onDown: (e: PointerEvent) => void;
   };
 
-  const knobs: KnobSpec[] = [
-    {
-      key: 'radius',
-      lx: radiusLocal.x,
-      ly: radiusLocal.y,
-      label: radiusLabel,
-      onDown: (e) => {
-        if (e.button !== 0 || !sites) return;
-        e.preventDefault();
-        e.stopPropagation();
-        dragRef.current = {
-          mode: 'radius',
-          startR: baseR,
-          site: sites.top,
-          startX: e.clientX,
-          startY: e.clientY,
-          moved: false,
-        };
-        setActiveKey('radius');
-        setDragValue(baseR);
-      },
-    },
-    {
-      key: 'inner',
-      lx: innerLocal.x,
-      ly: innerLocal.y,
-      label: innerLabel,
-      onDown: (e) => {
-        if (e.button !== 0 || !sites) return;
-        e.preventDefault();
-        e.stopPropagation();
-        dragRef.current = {
-          mode: 'inner',
-          startRatio: baseInner,
-          outerDist: sites.outerDist,
-          cx: sites.cx,
-          cy: sites.cy,
-          startX: e.clientX,
-          startY: e.clientY,
-          moved: false,
-        };
-        setActiveKey('inner');
-        setDragValue(Math.round(baseInner * 100));
-        setLiveInner(baseInner);
-      },
-    },
-    {
-      key: 'sides',
-      lx: sidesLocal.x,
-      ly: sidesLocal.y,
-      label: sidesLabel,
-      onDown: (e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        dragRef.current = {
-          mode: 'sides',
-          startSides: baseSides,
-          startX: e.clientX,
-          startY: e.clientY,
-          moved: false,
-        };
-        setActiveKey('sides');
-        setDragValue(baseSides);
-        setLiveSides(baseSides);
-      },
-    },
-  ];
+  const knobs: KnobSpec[] = sites
+    ? [
+        {
+          key: 'radius',
+          lx: radiusLocal.x,
+          ly: radiusLocal.y,
+          sceneX: radiusPos.x,
+          sceneY: radiusPos.y,
+          label: radiusLabel,
+          onDown: (e) => {
+            if (e.button !== 0 || !sites) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragRef.current = {
+              mode: 'radius',
+              startR: baseR,
+              site: sites.top,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
+            setActiveKey('radius');
+            setDragValue(baseR);
+          },
+        },
+        {
+          key: 'inner',
+          lx: innerLocal.x,
+          ly: innerLocal.y,
+          sceneX: innerPos.x,
+          sceneY: innerPos.y,
+          label: innerLabel,
+          onDown: (e) => {
+            if (e.button !== 0 || !sites) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragRef.current = {
+              mode: 'inner',
+              startRatio: baseInner,
+              outerDist: sites.outerDist,
+              cx: sites.cx,
+              cy: sites.cy,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
+            setActiveKey('inner');
+            setDragValue(Math.round(baseInner * 100));
+            setLiveInner(baseInner);
+          },
+        },
+        {
+          key: 'sides',
+          lx: sidesLocal.x,
+          ly: sidesLocal.y,
+          sceneX: sidesPos.x,
+          sceneY: sidesPos.y,
+          label: sidesLabel,
+          onDown: (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragRef.current = {
+              mode: 'sides',
+              startSides: baseSides,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
+            setActiveKey('sides');
+            setDragValue(baseSides);
+            setLiveSides(baseSides);
+          },
+        },
+      ]
+    : [];
+
+  if (Boolean(sites) && interactive && knobs.length > 0) {
+    setOverlayHandleSeats(
+      seatOwnerId,
+      knobs.map((knob) => ({ pickKey: `star-${knob.key}`, start: knob.onDown }))
+    );
+  } else {
+    setOverlayHandleSeats(seatOwnerId, null);
+  }
+
+  if (!sites) return null;
 
   return (
-    <WorldSvgFrame left={left} top={top} width={w} height={h} angle={angle} zClass="z-[28]">
-      <g transform={gTransform}>
-        {knobs.map((knob) => {
-          const isActive = activeKey === knob.key;
-          return (
-            <g
-              key={knob.key}
-              data-star-handle={knob.key}
-              transform={`translate(${knob.lx} ${knob.ly})`}
-              style={{
-                pointerEvents: interactive ? 'all' : 'none',
-                cursor: interactive ? 'default' : undefined,
-              }}
-              onPointerDown={interactive ? knob.onDown : undefined}
-            >
-              <title>{knob.label}</title>
-              <rect x={-halfHit} y={-halfHit} width={hitSize} height={hitSize} fill="transparent" />
+    <WorldSvgFrame
+      nodeId={nodeId}
+      left={left}
+      top={top}
+      width={w}
+      height={h}
+      angle={angle}
+      zClass="z-[28]"
+      pointerEvents="none"
+      sceneChildren={
+        badgePos ? (
+          <WorldScreenBadge
+            text={badgeText}
+            x={badgePos.x}
+            y={badgePos.y}
+            inv={k}
+            anchor="right"
+            clearance={halfVis + 2 * k}
+          />
+        ) : null
+      }
+    >
+      {knobs.map((knob) => {
+        const isActive = activeKey === knob.key;
+        return (
+          <g
+            key={knob.key}
+            data-star-handle={knob.key}
+            transform={`translate(${knob.lx} ${knob.ly})`}
+            style={{ pointerEvents: 'all' }}
+          >
+            <title>{knob.label}</title>
+            <circle
+              r={Math.max(0.01, halfVis - stroke / 2)}
+              fill="#ffffff"
+              stroke="#3388ff"
+              strokeWidth={stroke}
+              style={{ pointerEvents: 'all' }}
+            />
+            {isActive ? (
               <circle
-                r={Math.max(0.01, halfVis - stroke / 2)}
-                fill="#ffffff"
-                stroke="#3388ff"
-                strokeWidth={stroke}
+                r={Math.max(0.01, halfVis + stroke)}
+                fill="none"
+                stroke="rgba(51,136,255,0.35)"
+                strokeWidth={2 * k}
                 style={{ pointerEvents: 'none' }}
               />
-              {isActive ? (
-                <circle
-                  r={Math.max(0.01, halfVis + stroke)}
-                  fill="none"
-                  stroke="rgba(51,136,255,0.35)"
-                  strokeWidth={2 * k}
-                  style={{ pointerEvents: 'none' }}
-                />
-              ) : null}
-            </g>
-          );
-        })}
-      </g>
-      {badgePos ? (
-        <WorldScreenBadge
-          text={badgeText}
-          x={badgePos.x}
-          y={badgePos.y}
-          inv={k}
-          anchor="right"
-          clearance={halfVis + 2 * k}
-        />
-      ) : null}
+            ) : null}
+          </g>
+        );
+      })}
     </WorldSvgFrame>
   );
 }

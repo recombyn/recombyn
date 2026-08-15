@@ -25,6 +25,7 @@ import {
   parseNodeTextStyle,
   textVerticalOriginY,
   textVisualLines,
+  toFabricFontFamily,
 } from '@/components/rcb/scene/document/sceneText';
 import {
   parsePathPressures,
@@ -443,45 +444,15 @@ function appendCircularArcPolyline(
   }
 }
 
-/** Collapse centerline so geometric offset stays stable (no fold needles).
- * Always enforce seg ≳ half-width — long zigzags were the main spike source.
+/**
+ * Keep centerline verts as drawn. Only drop consecutive duplicates —
+ * RDP / min-seg / maxPts used to flatten pen tips before offset.
  */
 function prepareStrokeCenterline(
   ptsIn: Array<[number, number]>,
-  strokeWidth: number
+  _strokeWidth: number
 ): Array<[number, number]> {
-  const half = Math.max(0.5, strokeWidth / 2);
-  const minGap = Math.max(0.85, half * 0.5);
-  const cleaned = dedupePolylinePts(ptsIn, minGap * 0.35);
-  if (cleaned.length <= 2) return cleaned.length >= 2 ? cleaned : ptsIn.slice(0, 2);
-  if (cleaned.length === 3) return enforceMinSegLength(cleaned, minGap);
-
-  const eps = Math.max(0.9, half * 0.35);
-  let out = simplifyRdp(cleaned, eps);
-  const maxPts = 24;
-  if (out.length > maxPts) {
-    let e = eps;
-    for (let g = 0; g < 10 && out.length > maxPts; g += 1) {
-      e *= 1.35;
-      out = simplifyRdp(cleaned, e);
-    }
-  }
-  out = enforceMinSegLength(out.length >= 2 ? out : cleaned, minGap);
-  return out.length >= 2 ? out : cleaned.slice(0, 2);
-}
-
-/**
- * Join policy for clean corner knobs:
- * - short simple polylines: keep requested miter/round
- * - long / many folds: bevel (accurate ribbon, no miter spikes)
- */
-function strokeJoinForCenterline(
-  pts: Array<[number, number]>,
-  requested: CanvasLineJoin
-): CanvasLineJoin {
-  if (requested === 'bevel') return 'bevel';
-  if (pts.length >= 5) return 'bevel';
-  return requested;
+  return dedupePolylinePts(ptsIn, 0.02);
 }
 
 /** Merge consecutive verts closer than `minLen` (keep endpoints). */
@@ -566,18 +537,30 @@ function parseClosedOutlineVerts(d: string): Array<[number, number]> | null {
 
 /**
  * Uniform-width stroke outline of a polyline.
- * Prepares centerline once, then offsets (bevel on long folds).
+ * Offset the drawn centerline with the painted linecap / linejoin — no reshape.
+ * `closed`: Z / coincident ends — miter every vertex incl. closure (no butt caps).
  */
 function outlinePolylineStroke(
   ptsIn: Array<[number, number]>,
   strokeWidth: number,
-  linecap: CanvasLineCap = 'round',
-  linejoin: CanvasLineJoin = 'round'
+  linecap: CanvasLineCap = 'butt',
+  linejoin: CanvasLineJoin = 'miter',
+  miterLimit = 100,
+  closed = false
 ): string | null {
-  const pts = prepareStrokeCenterline(ptsIn, strokeWidth);
+  let pts = prepareStrokeCenterline(ptsIn, strokeWidth);
+  if (closed && pts.length >= 3) {
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.05) pts = pts.slice(0, -1);
+  }
+  if (closed && pts.length >= 3) {
+    return outlineClosedPolylineStroke(pts, strokeWidth, linejoin, miterLimit);
+  }
   if (pts.length < 2) return null;
-  const join = strokeJoinForCenterline(pts, linejoin);
+  const join = linejoin;
   const half = Math.max(0.25, strokeWidth / 2);
+  const miterCap = half * Math.max(1, miterLimit);
   const n = pts.length;
 
   type SegOff = {
@@ -649,13 +632,7 @@ function outlinePolylineStroke(
     prevSeg: SegOff,
     nextSeg: SegOff
   ) => {
-    const vx0 = from[0] - vertex[0];
-    const vy0 = from[1] - vertex[1];
-    const vx1 = to[0] - vertex[0];
-    const vy1 = to[1] - vertex[1];
-    const cr = cross(vx0, vy0, vx1, vy1);
-    const exterior = leftSide ? cr > 1e-8 : cr < -1e-8;
-    if (!exterior || join === 'bevel') {
+    if (join === 'bevel') {
       emitL(to[0], to[1]);
       return;
     }
@@ -665,8 +642,9 @@ function outlinePolylineStroke(
         : intersectOffsetLines(prevSeg.r0, prevSeg.r1, nextSeg.r0, nextSeg.r1);
       if (tip) {
         const miterLen = Math.hypot(tip[0] - vertex[0], tip[1] - vertex[1]);
-        // Tight limit (~SVG 2.5): longer tips become needles on acute folds.
-        if (miterLen <= half * 2.5 + 1e-6) {
+        // Always keep the geometric tip when within limit — do not gate on
+        // “exterior” (that mis-classified acute pen corners as bevels).
+        if (Number.isFinite(miterLen) && miterLen <= miterCap + 1e-6) {
           if (Math.hypot(curX - from[0], curY - from[1]) < mergeEps * 4) {
             replaceCursorWith(tip[0], tip[1]);
           } else {
@@ -675,6 +653,17 @@ function outlinePolylineStroke(
           return;
         }
       }
+      emitL(to[0], to[1]);
+      return;
+    }
+    // round
+    const vx0 = from[0] - vertex[0];
+    const vy0 = from[1] - vertex[1];
+    const vx1 = to[0] - vertex[0];
+    const vy1 = to[1] - vertex[1];
+    const cr = cross(vx0, vy0, vx1, vy1);
+    const exterior = leftSide ? cr > 1e-8 : cr < -1e-8;
+    if (!exterior) {
       emitL(to[0], to[1]);
       return;
     }
@@ -724,28 +713,148 @@ function outlinePolylineStroke(
   }
 
   parts.push('Z');
-  const rawD = parts.join(' ');
-  const verts = parseClosedOutlineVerts(rawD);
-  if (!verts) return rawD;
-  const cleaned = stripOutlineNeedles(verts, strokeWidth);
-  return closedPathDFromPts(cleaned) || rawD;
+  // Keep the offset silhouette as emitted — do not strip miter tips as “needles”.
+  return parts.join(' ');
+}
+
+type StrokeSegOff = {
+  l0: [number, number];
+  l1: [number, number];
+  r0: [number, number];
+  r1: [number, number];
+};
+
+/** Join point(s) at a vertex for closed-ring offset (miter / bevel / round). */
+function closedJoinRingPoints(
+  vertex: [number, number],
+  from: [number, number],
+  to: [number, number],
+  leftSide: boolean,
+  prevSeg: StrokeSegOff,
+  nextSeg: StrokeSegOff,
+  join: CanvasLineJoin,
+  half: number,
+  miterCap: number
+): Array<[number, number]> {
+  if (join === 'bevel') return [to];
+  if (join === 'miter') {
+    const tip = leftSide
+      ? intersectOffsetLines(prevSeg.l0, prevSeg.l1, nextSeg.l0, nextSeg.l1)
+      : intersectOffsetLines(prevSeg.r0, prevSeg.r1, nextSeg.r0, nextSeg.r1);
+    if (tip) {
+      const miterLen = Math.hypot(tip[0] - vertex[0], tip[1] - vertex[1]);
+      if (Number.isFinite(miterLen) && miterLen <= miterCap + 1e-6) return [tip];
+    }
+    return [to];
+  }
+  const cross2 = (ax: number, ay: number, bx: number, by: number) => ax * by - ay * bx;
+  const vx0 = from[0] - vertex[0];
+  const vy0 = from[1] - vertex[1];
+  const vx1 = to[0] - vertex[0];
+  const vy1 = to[1] - vertex[1];
+  const cr = cross2(vx0, vy0, vx1, vy1);
+  const exterior = leftSide ? cr > 1e-8 : cr < -1e-8;
+  if (!exterior) return [to];
+  const len0 = Math.hypot(vx0, vy0) || 1;
+  const len1 = Math.hypot(vx1, vy1) || 1;
+  const parts: string[] = [];
+  appendCircularArcPolyline(parts, vertex, from, to, half, [
+    vx0 / len0 + vx1 / len1,
+    vy0 / len0 + vy1 / len1,
+  ]);
+  const out: Array<[number, number]> = [];
+  for (const p of parts) {
+    const m = /^L\s+(-?[\d.]+)\s+(-?[\d.]+)/.exec(p);
+    if (m) out.push([parseFloat(m[1]), parseFloat(m[2])]);
+  }
+  return out.length ? out : [to];
+}
+
+/**
+ * Closed centerline → outer + inner offset rings (evenodd fill).
+ * Joins every vertex including the Z closure — same miter as mid-path corners.
+ */
+function outlineClosedPolylineStroke(
+  ptsIn: Array<[number, number]>,
+  strokeWidth: number,
+  linejoin: CanvasLineJoin,
+  miterLimit: number
+): string | null {
+  // Collapse near-duplicate consecutive verts (incl. wrap) so every edge is real.
+  const raw = dedupePolylinePts(ptsIn, 0.05);
+  if (raw.length < 3) return null;
+  const pts =
+    Math.hypot(raw[0][0] - raw[raw.length - 1][0], raw[0][1] - raw[raw.length - 1][1]) < 0.05
+      ? raw.slice(0, -1)
+      : raw;
+  const n = pts.length;
+  if (n < 3) return null;
+  const join = linejoin;
+  const half = Math.max(0.25, strokeWidth / 2);
+  const miterCap = half * Math.max(1, miterLimit);
+  const segs: StrokeSegOff[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    if (Math.hypot(dx, dy) < 1e-8) return null;
+    const [nx, ny] = segUnitNormal(dx, dy);
+    segs.push({
+      l0: [a[0] + nx * half, a[1] + ny * half],
+      l1: [b[0] + nx * half, b[1] + ny * half],
+      r0: [a[0] - nx * half, a[1] - ny * half],
+      r1: [b[0] - nx * half, b[1] - ny * half],
+    });
+  }
+  if (segs.length < 3) return null;
+
+  const leftRing: Array<[number, number]> = [];
+  const rightRing: Array<[number, number]> = [];
+  for (let i = 0; i < n; i += 1) {
+    const prev = segs[(i - 1 + n) % n];
+    const next = segs[i];
+    const vertex = pts[i];
+    leftRing.push(
+      ...closedJoinRingPoints(vertex, prev.l1, next.l0, true, prev, next, join, half, miterCap)
+    );
+    rightRing.push(
+      ...closedJoinRingPoints(vertex, prev.r1, next.r0, false, prev, next, join, half, miterCap)
+    );
+  }
+  const outer = closedPathDFromPts(dedupePolylinePts(leftRing, 0.15));
+  const inner = closedPathDFromPts(dedupePolylinePts(rightRing.slice().reverse(), 0.15));
+  if (!outer || !inner) return outer || inner || null;
+  return `${outer} ${inner}`;
+}
+
+/** True when an SVG subpath closes (Z) or ends on its start. */
+function strokeSubpathIsClosed(chunk: string, pts: Array<[number, number]>): boolean {
+  if (/[zZ]\s*$/.test(String(chunk || '').trim())) return true;
+  if (pts.length < 3) return false;
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  return Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.05;
 }
 
 /** Sample each SVG subpath into a polyline (absolute). */
-function samplePathSubpaths(d: string, stepPx = 1.25): Array<Array<[number, number]>> {
-  if (typeof document === 'undefined') return [];
+function samplePathSubpaths(
+  d: string,
+  stepPx = 1.25
+): Array<{ pts: Array<[number, number]>; closed: boolean }> {
   const chunks = String(d || '')
     .split(/(?=[Mm])/)
     .map((s) => s.trim())
     .filter(Boolean);
-  const out: Array<Array<[number, number]>> = [];
+  const out: Array<{ pts: Array<[number, number]>; closed: boolean }> = [];
   for (const chunk of chunks) {
     // Straight M/L/H/V polylines keep corner verts only (no px densify).
     const linear = polylineVertsFromLinearPath(chunk);
     if (linear) {
-      out.push(linear);
+      out.push({ pts: linear, closed: strokeSubpathIsClosed(chunk, linear) });
       continue;
     }
+    if (typeof document === 'undefined') continue;
     try {
       const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       el.setAttribute('d', chunk);
@@ -757,13 +866,11 @@ function samplePathSubpaths(d: string, stepPx = 1.25): Array<Array<[number, numb
         const p = el.getPointAtLength((len * i) / n);
         pts.push([p.x, p.y]);
       }
-      // Curves: sample then RDP; outlinePolylineStroke prepares again for offset.
-      const cleaned = dedupePolylinePts(pts);
-      const simplified =
-        cleaned.length > 8
-          ? simplifyRdp(cleaned, Math.max(1.0, stepPx * 0.85))
-          : cleaned;
-      if (simplified.length >= 2) out.push(dedupePolylinePts(simplified));
+      // Curves: keep samples dense — do not RDP-shred the silhouette.
+      const cleaned = dedupePolylinePts(pts, 0.15);
+      if (cleaned.length >= 2) {
+        out.push({ pts: cleaned, closed: strokeSubpathIsClosed(chunk, cleaned) });
+      }
     } catch {
       /* skip bad subpath */
     }
@@ -773,14 +880,14 @@ function samplePathSubpaths(d: string, stepPx = 1.25): Array<Array<[number, numb
 
 /**
  * Stroke → filled outline (pen / line / arrow / pencil).
- * Pure geometric offset — no raster. Clean corner knobs, no miter needles:
- * prepare centerline (seg ≳ half-width) → offset with bevel on long folds.
+ * Pure geometric offset of the drawn path — no reshape / sparsify / tip stripping.
  */
 function outlineFromSvgStroke(opts: {
   pathD: string;
   strokeWidth: number;
   linecap?: CanvasLineCap;
   linejoin?: CanvasLineJoin;
+  miterLimit?: number;
   fillColor: string;
   zoom?: number;
 }): OutlineResult | null {
@@ -789,31 +896,44 @@ function outlineFromSvgStroke(opts: {
   if (!raw) return null;
   const linecap = opts.linecap || 'butt';
   const linejoin = opts.linejoin || 'miter';
+  const miterLimit = opts.miterLimit ?? 100;
 
-  const finish = (d: string | null): OutlineResult | null => {
+  const finish = (d: string | null, fillRule?: 'nonzero' | 'evenodd'): OutlineResult | null => {
     if (!d) return null;
-    // Keep the geometric ribbon intact — path-edit knobs are thinned at paint time
-    // (PenPathEditFeature), not by shredding silhouette verts here.
-    return { pathD: d, closed: true, fillColor: opts.fillColor };
+    return {
+      pathD: d,
+      closed: true,
+      fillColor: opts.fillColor,
+      ...(fillRule ? { fillRule } : {}),
+    };
   };
 
-  // M/L corners as-is; curves → sparse polyline, then the same geometric offset.
-  const subpaths = samplePathSubpaths(raw, Math.max(1.5, Math.min(4, sw * 0.5)));
+  // M/L corners as-is; curves → dense polyline (fine step, light dedupe only).
+  const subpaths = samplePathSubpaths(raw, Math.max(0.5, Math.min(1.5, sw * 0.2)));
   if (!subpaths.length) return null;
 
   const parts: OutlineResult[] = [];
-  for (const pts of subpaths) {
-    const d = outlinePolylineStroke(pts, sw, linecap, linejoin);
+  let anyClosed = false;
+  for (const sub of subpaths) {
+    const d = outlinePolylineStroke(sub.pts, sw, linecap, linejoin, miterLimit, sub.closed);
     if (d) {
-      parts.push({ pathD: d, closed: true, fillColor: opts.fillColor });
+      if (sub.closed) anyClosed = true;
+      parts.push({
+        pathD: d,
+        closed: true,
+        fillColor: opts.fillColor,
+        fillRule: sub.closed ? 'evenodd' : undefined,
+      });
     }
   }
   if (!parts.length) return null;
-  if (parts.length === 1) return finish(parts[0].pathD);
+  if (parts.length === 1) {
+    return finish(parts[0].pathD, parts[0].fillRule);
+  }
 
-  // Arrow etc.: union geometric ribbons (still no raster).
   const u = unionOutlineResults(parts, opts.fillColor);
-  return u ? finish(u.pathD) : finish(parts.map((p) => p.pathD).join(' '));
+  if (u) return finish(u.pathD, u.fillRule || (anyClosed ? 'evenodd' : undefined));
+  return finish(parts.map((p) => p.pathD).join(' '), anyClosed ? 'evenodd' : undefined);
 }
 
 export type OutlineBuildOpts = {
@@ -888,6 +1008,14 @@ function readStrokeLinejoin(
   if (shapeType === 'pencil') return 'round';
   if (shapeType === 'pen' || shapeType === 'line' || shapeType === 'arrow') return 'miter';
   return 'miter';
+}
+
+function readStrokeMiterLimit(attrs: Record<string, unknown> | undefined): number {
+  const raw = attrs?.strokeMiterlimit ?? attrs?.['stroke-miterlimit'] ?? attrs?.miterLimit;
+  const n = Number(raw);
+  // High default: keep acute pen tips. Only clamp when the node stores a limit.
+  if (Number.isFinite(n) && n > 0) return Math.min(1000, Math.max(1, n));
+  return 100;
 }
 
 function distPointToSeg(
@@ -1051,6 +1179,7 @@ export function strokeCenterlineToFilledOutline(
     strokeWidth,
     linecap: readStrokeLinecap(attrs),
     linejoin: readStrokeLinejoin(attrs),
+    miterLimit: readStrokeMiterLimit(attrs),
     fillColor: '#000000',
   });
 }
@@ -1130,6 +1259,7 @@ function outlinePenLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
       strokeWidth: nodeStrokeWidth(node, 2),
       linecap: readStrokeLinecap(node.attrs, 'pen'),
       linejoin: readStrokeLinejoin(node.attrs, 'pen'),
+      miterLimit: readStrokeMiterLimit(node.attrs),
       fillColor: nodeStrokeInk(node),
       zoom,
     })
@@ -1147,6 +1277,7 @@ function outlineLineLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null 
       strokeWidth: nodeStrokeWidth(node, 2),
       linecap: readStrokeLinecap(node.attrs, 'line'),
       linejoin: readStrokeLinejoin(node.attrs, 'line'),
+      miterLimit: readStrokeMiterLimit(node.attrs),
       fillColor: nodeStrokeInk(node),
       zoom,
     })
@@ -1170,6 +1301,7 @@ function outlineArrowLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null
       strokeWidth: nodeStrokeWidth(node, 2),
       linecap: readStrokeLinecap(node.attrs, 'arrow'),
       linejoin: readStrokeLinejoin(node.attrs, 'arrow'),
+      miterLimit: readStrokeMiterLimit(node.attrs),
       fillColor: nodeStrokeInk(node),
       zoom,
     })
@@ -1383,17 +1515,17 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   const boxH = Math.max(1, Math.round(Number(node.height) || 1));
   const autoSize = String(node.attrs?.autoSize ?? 'true') !== 'false';
   const pad = 4;
-  const scale = 6;
-  const fontSize = Math.max(1, style.fontSize) * scale;
+  // Higher supersample — scale 6 left CJK counters looking like jagged shards.
+  const scale = 12;
+  const fontSize = Math.max(1, Number(style.fontSize) || 14) * scale;
   const lineHeight = Math.max(0.8, Number(style.lineHeight) || 1.4);
   const lh = lineHeight * fontSize;
   const letterSpacing = (Number(style.letterSpacing) || 0) * scale;
   const align = String(style.textAlign || 'left');
   const lines = textVisualLines(plain, style, { width: boxW, autoSize });
-  // Keep CJK / system fallbacks so canvas matches on-screen text when the
-  // primary face lacks glyphs (fontkit already bailed on .notdef).
-  const family = String(style.fontFamily || 'sans-serif');
-  const fontCss = `${style.fontWeight || 400} ${fontSize}px ${family}, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif`;
+  // Same CSS face as SVG paint (延用自身) — no substitute stack.
+  const family = toFabricFontFamily(style.fontFamily);
+  const fontCss = `${style.fontWeight || 400} ${fontSize}px "${family}"`;
 
   const measureCtx = document.createElement('canvas').getContext('2d');
   if (!measureCtx) return null;
@@ -1451,7 +1583,7 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
         px / scale - pad + destX,
         py / scale - pad + destY,
       ]);
-      const simplified = simplifyClosedPolyline(world, 0.35, 180);
+      const simplified = simplifyClosedPolyline(world, 0.18, 720, 0.75);
       if (simplified.length < 3) continue;
       parts.push(
         `M ${simplified.map(([a, b]) => `${a.toFixed(1)} ${b.toFixed(1)}`).join(' L ')} Z`
@@ -1516,14 +1648,13 @@ function fitOutlineResult(result: OutlineResult): OutlineResult | null {
   };
 }
 
-/** Build local-space outline path for a node (sync; text uses canvas fallback). */
+/** Build local-space outline path for a node (sync; text requires async fontkit). */
 export function buildOutlinePath(node: SceneNodeInput, opts?: OutlineBuildOpts): OutlineResult | null {
   if (!canOutlineNode(node)) return null;
+  // Text: only `buildOutlinePathAsync` (fontkit). No sync canvas downgrade.
+  if (node.key === 'text') return null;
   const zoom = resolveOutlineZoom(opts?.zoom);
-  let result: OutlineResult | null = null;
-  if (node.key === 'text') result = outlineTextLocal(node);
-  else result = outlineShapeLocal(node, zoom);
-  return fitOutlineResult(result as OutlineResult);
+  return fitOutlineResult(outlineShapeLocal(node, zoom) as OutlineResult);
 }
 
 /** Ensure the CSS face used for canvas tracing is ready (avoids empty / tofu outlines). */
@@ -1531,10 +1662,10 @@ async function ensureTextFontsLoaded(node: SceneNodeInput): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts?.load) return;
   try {
     const style = parseNodeTextStyle(node.attrs || {});
-    const family = String(style.fontFamily || 'sans-serif');
+    const family = toFabricFontFamily(style.fontFamily || 'sans-serif');
     const size = Math.max(1, Number(style.fontSize) || 14);
     const weight = style.fontWeight || 400;
-    const css = `${weight} ${size}px ${family}, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif`;
+    const css = `${weight} ${size}px "${family}"`;
     await document.fonts.load(css);
     await document.fonts.ready;
   } catch {
@@ -1543,9 +1674,9 @@ async function ensureTextFontsLoaded(node: SceneNodeInput): Promise<void> {
 }
 
 /**
- * Prefer fontkit glyph outlines for text (complete Chinese counters, no missing strokes).
- * Falls back to canvas contour when the face has no downloadable font file
- * or the face is missing glyphs for the text (.notdef boxes).
+ * Text outline: prefer fontkit glyph paths (same vectors as the face file).
+ * Last resort: canvas trace of the same CSS face the node paints (延用自身) —
+ * never a substitute family that changes corners / counters.
  */
 export async function buildOutlinePathAsync(
   node: SceneNodeInput,
@@ -1557,17 +1688,18 @@ export async function buildOutlinePathAsync(
     try {
       const { outlineTextFromFont } = await import('@/components/rcb/scene/paint/outlineTextFont');
       const fromFont = await outlineTextFromFont(node);
-      if (fromFont?.pathD) {
-        // Keep fontkit Q/C contours. Flattening to M/L shreds letterforms and
-        // floods selection with false “corner radius” sites; path-edit knobs
-        // only appear after the user enters path-edit mode.
-        return fitOutlineResult(fromFont);
-      }
+      if (fromFont?.pathD) return fitOutlineResult(fromFont);
     } catch (err) {
-      console.warn('[outline] fontkit outline failed, using canvas fallback', err);
+      console.warn('[outline] fontkit outline failed', err);
     }
-    await ensureTextFontsLoaded(node);
-    return fitOutlineResult(outlineTextLocal(node) as OutlineResult);
+    try {
+      await ensureTextFontsLoaded(node);
+      const fromCanvas = outlineTextLocal(node);
+      if (fromCanvas?.pathD) return fitOutlineResult(fromCanvas);
+    } catch (err) {
+      console.warn('[outline] canvas text outline failed', err);
+    }
+    return null;
   }
   try {
     return fitOutlineResult(outlineShapeLocal(node, zoom) as OutlineResult);
@@ -1671,6 +1803,8 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
     attrs: {
       ...prev,
       shapeType: 'path',
+      // Mark 轮廓化 / densified silhouette — no R-dots or toolbar radius.
+      outlined: 'true',
       // Single copy — readers use path || d; duplicating doubles history/clone cost.
       path: outline.pathD,
       closed: outline.closed ? 'true' : 'false',
@@ -1684,12 +1818,11 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
 
 /**
  * Fire after outline so canvas can open path-edit chrome.
- * Skip for heavy multi-glyph outlines — hundreds of anchors freeze the UI;
- * user can still enter path edit manually from the toolbar.
- * Also skip when the path is many closed rings (outlined text) — auto-enter
- * dumps every silhouette vert as knobs and looks like “points flying around”.
- * Stroke outlines (pen / pencil / line / arrow): never auto-enter — path-edit
- * force-hides the host, so a hairline preview reads as “thickness gone”.
+ * Prefer not calling this after 轮廓化 (text / pen / …): path-edit force-hides
+ * the host so dense silhouettes look like hairlines + knob carpets. Users enter
+ * path-edit manually (dblclick / toolbar) when they want anchors.
+ *
+ * Still skips heavy multi-glyph / dense closed ribbons if a caller invokes it.
  */
 export function requestEnterPathEdit(
   nodeId: string,
@@ -1703,7 +1836,6 @@ export function requestEnterPathEdit(
   if (d) {
     const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
     if (rings >= 4) return;
-    // Dense closed ribbons: auto path-edit carpets knobs and reads as “thickness gone”.
     const vertApprox = (d.match(/[MLQCmlqc]/g) || []).length;
     const closedRibbon = /z\s*$/i.test(d.trim());
     if (vertApprox > 64) return;

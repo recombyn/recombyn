@@ -48,6 +48,10 @@ import {
   setSceneHitTestBridge,
 } from '@/components/rcb/scene/document/sceneHitBridge';
 import { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
+import {
+  createSvgSceneRenderer,
+  type SceneRenderer,
+} from '@/components/rcb/render/sceneRenderer';
 import { useSvgBoard } from '@/components/rcb/canvas/useSvgBoard';
 import {
   RcbShapesLayer,
@@ -659,7 +663,6 @@ function SvgCanvas({
   const {
     listNodeIds,
     getNodeBox,
-    hitTest,
     hitTestFrame,
     queryNodeIdsInRect,
     finishToSelect,
@@ -672,6 +675,30 @@ function SvgCanvas({
     onAngleCommit,
     onAnglePreview,
   } = session;
+
+  /**
+   * ADR 0027 SceneRenderer — svg adapter owns hit; paint still via shape hosts.
+   * canvasSession.hitTest uses the same spatial helper for non-UI callers.
+   */
+  const sceneRenderer = useMemo(
+    (): SceneRenderer =>
+      createSvgSceneRenderer({
+        getDocument: () => documentRef.current,
+        getSpatial: () => spatialRuntimeRef.current,
+        getZoom: () => cameraZoomRef.current,
+        listNodeIds,
+        getNodeBox,
+        getNodeEls: () => boardRefHolder.current.current?.nodeEls ?? null,
+      }),
+    [listNodeIds, getNodeBox]
+  );
+  useEffect(() => () => sceneRenderer.dispose(), [sceneRenderer]);
+
+  const hitTest = useCallback(
+    (x: number, y: number, screen?: { clientX: number; clientY: number }) =>
+      sceneRenderer.hitTest({ x, y }, screen),
+    [sceneRenderer]
+  );
 
   const nodeSpatialIndex = useMemo(() => {
     const runtime = spatialRuntimeRef.current;
@@ -1341,6 +1368,7 @@ function SvgCanvas({
       pathD: string;
       box: { left: number; top: number; width: number; height: number };
       closed: boolean;
+      clearAngle?: boolean;
     }) => {
       const doc = documentRef.current;
       if (!doc || readOnly) return;
@@ -1361,6 +1389,8 @@ function SvgCanvas({
               shapeType,
               path: payload.pathD,
               closed: payload.closed ? 'true' : 'false',
+              // Baked world path — leaving angle would double-rotate the silhouette.
+              ...(payload.clearAngle ? { angle: 0 } : {}),
             },
           },
         })
@@ -1468,6 +1498,9 @@ function SvgCanvas({
               shapeType: 'path',
               path: result.path,
               closed: 'true',
+              outlined: 'true',
+              // Boolean result is world-baked — drop host angle or the silhouette spins.
+              angle: 0,
               'fill-rule': result.fillRule,
               'fill-enabled': 'true',
               'fill-visible': 'true',
@@ -1541,8 +1574,6 @@ function SvgCanvas({
 
   useCanvasContextMenu({
     readOnly,
-    camera,
-    artboard,
     viewportEl,
     stageEl,
     paperEl,
@@ -1927,13 +1958,14 @@ function SvgCanvas({
     return out;
   }, [ids, editingTextId, editingPenId]);
 
-  /** Editors need full SVG; selection alone must stay LOD while zoomed out. */
+  /** Editors + selection must stay full SVG so SVG DOM preview and hit stay live.
+   * Canvas underlay still consumes TransformPreview for any remaining proxies. */
   const forceFullIds = useMemo(() => {
-    const out: string[] = [];
+    const out = [...ids];
     if (editingTextId) out.push(editingTextId);
     if (editingPenId) out.push(editingPenId);
     return out;
-  }, [editingTextId, editingPenId]);
+  }, [ids, editingTextId, editingPenId]);
 
   // Path-edit stays open on empty selection (blank click must not dismiss).
   // Only leave when the user selects a *different* node.

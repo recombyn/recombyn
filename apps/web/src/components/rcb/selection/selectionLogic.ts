@@ -18,6 +18,8 @@ import {
 import {
   RESIZE_MIN_SIZE,
   resizeFromHandle,
+  resizeOppositeWorld,
+  reanchorResizeOpposite,
   rotateBoxesAround,
   scaleBoxesToOrientedUnion,
   unionOfBoxes,
@@ -52,6 +54,7 @@ import {
   inflateBoxByVisualOutset,
   inflateSelectionBox,
   strokeChromeOutset,
+  strokeOuterClearanceScene,
   strokeVisualOutset,
 } from '@/components/rcb/scene/document/sceneEffects';
 import { isEditablePathNode } from '@/components/rcb/scene/paint/outlineToPath';
@@ -965,8 +968,10 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
   guides: SmartGuideLine[];
 } {
   const handle = ctx.drag.handle!;
+  const angle0 = ctx.drag.angle0 || 0;
+  const rotated = Math.abs(angle0) >= 0.01;
   const lockAspect = resolveLockAspect(ctx.document, ctx.drag.origins, handle, ctx.shiftKey);
-  let next = resizeFromHandle(ctx.drag.union, handle, ctx.dx, ctx.dy, ctx.drag.angle0 || 0, {
+  let next = resizeFromHandle(ctx.drag.union, handle, ctx.dx, ctx.dy, angle0, {
     lockAspect,
     aspectRatio: ctx.drag.aspectRatio,
   });
@@ -977,11 +982,12 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
   const paintEps = guidePaintEps(ctx.threshold);
   if (!ctx.disableSnap) {
     // Grid **outer ink** (match draw + move); inset back to path. Guides when near.
+    // Axis-aligned grid snap fights oriented resize — skip when rotated.
     if (snapAsPath && singleNode) {
       const path0 = deflateSelectionBox({ ...next }, singleNode);
       const outset = strokeVisualOutset(singleNode);
       let pathNext = path0;
-      if (ctx.gridSize > 0) {
+      if (ctx.gridSize > 0 && !rotated) {
         const visualNext = snapResizeToGrid(
           inflateBoxByVisualOutset(path0, singleNode),
           handle,
@@ -996,7 +1002,7 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
       }
       next = inflateSelectionBox(pathNext, singleNode);
     } else {
-      if (ctx.gridSize > 0) {
+      if (ctx.gridSize > 0 && !rotated) {
         next = snapResizeToGrid(next, handle, ctx.gridSize, RESIZE_MIN_SIZE, {
           lockAspect,
           aspectRatio: ctx.drag.aspectRatio,
@@ -1014,6 +1020,15 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
   };
   if (ctx.drag.origins.length === 1) {
     next = applyTextWrapHeight(ctx.document, ctx.drag.origins[0].nodeId, next);
+  }
+  // Text wrap / path inflate can nudge size — pin opposite again when rotated.
+  if (rotated) {
+    next = reanchorResizeOpposite(
+      next,
+      handle,
+      angle0,
+      resizeOppositeWorld(ctx.drag.union, handle, angle0)
+    );
   }
   const textMode =
     ctx.drag.origins.length === 1 &&
@@ -1462,6 +1477,7 @@ export function buildShapeOutlines(opts: {
       shaftEndpoints,
       edgeHandles,
       chromeOutset: Math.max(0, strokeChromeOutset(node)),
+      strokeOuterScene: Math.max(0, strokeOuterClearanceScene(node)),
       showRotate:
         withHandles &&
         !lineMode &&
@@ -1529,6 +1545,11 @@ export function buildShapeOutlines(opts: {
       union = unionOfBoxes(memberBoxes);
     }
     if (union) {
+      let strokeOuter = 0;
+      for (const id of opts.selectedNodeIds) {
+        const node = opts.document?.deltaSetLike?.[id];
+        if (node) strokeOuter = Math.max(strokeOuter, strokeOuterClearanceScene(node));
+      }
       out.push({
         id: '__rcb_sel_union__',
         mirrorHostId: opts.selectedNodeIds[0],
@@ -1543,6 +1564,7 @@ export function buildShapeOutlines(opts: {
         cornerHandlesOnly: true,
         // Same multi-rotate as world chrome (orbit about union center).
         showRotate: !opts.transforming,
+        strokeOuterScene: strokeOuter,
       });
     }
   }
@@ -1550,12 +1572,44 @@ export function buildShapeOutlines(opts: {
   return out;
 }
 
-/** Scene pad beyond chrome to outer stroke ink (center → sw/2 outside the box). */
+/** Scene pad beyond the control box to outer stroke ink (same as rotate park). */
 export function resolveToolbarEdgePadScene(node: SceneNodeInput): number {
   if (!node) return 0;
-  const visual = strokeVisualOutset(node);
-  const chrome = Math.max(0, strokeChromeOutset(node));
-  return Math.max(0, visual - chrome);
+  return Math.max(0, strokeOuterClearanceScene(node));
+}
+
+/**
+ * Control box for painted chrome — must match HostPathChrome / SelectionChrome ink.
+ * Prefer live host `__sceneLeft` lattice; Redux `liveUnion` alone drifts after sticky re-align.
+ */
+export function resolvePaintedControlChrome(
+  document: SceneDocument,
+  origins: Array<{ nodeId: string; box: SceneBox }>,
+  liveUnion?: SceneBox | null,
+  liveAngle?: number
+): { box: SceneBox; angle: number } {
+  const fallback = resolveControlChrome(document, origins, liveUnion, liveAngle);
+  if (!origins.length) return fallback;
+
+  // Oriented multi / session box is what host union chrome paints.
+  if (origins.length > 1 && Math.abs(fallback.angle) > 0.01 && liveUnion) {
+    return { box: { ...liveUnion }, angle: fallback.angle };
+  }
+
+  const lives: SceneBox[] = [];
+  for (const o of origins) {
+    if (parseFrameSelId(o.nodeId)) {
+      lives.push({ ...o.box });
+      continue;
+    }
+    const live = liveShapeGeomBox(o.nodeId);
+    if (!live) return fallback;
+    lives.push(inflateSelectionBox(live, document?.deltaSetLike?.[o.nodeId]));
+  }
+  if (lives.length !== origins.length) return fallback;
+  const box = origins.length === 1 ? lives[0] : unionOfBoxes(lives);
+  if (!box) return fallback;
+  return { box: { ...box }, angle: fallback.angle };
 }
 
 /**
@@ -1583,6 +1637,9 @@ export function resolveChromeUnion(opts: {
   const base = opts.selectionUnion;
   if (!base) return opts.liveUnion;
   // Prefer live host → path chrome (single + multi) so the box tracks remounts.
+  // No scene-unit drift gate: at 6000% zoom, 0.1 scene = 6px and sticky re-align
+  // routinely exceeds the old 2-unit threshold, which forced Redux while paint
+  // stayed on the host — chrome looked right but picks missed.
   if (opts.selectedFrameIds.length === 0 && opts.selectedNodeIds.length >= 1) {
     const lives: SceneBox[] = [];
     for (const id of opts.selectedNodeIds) {
@@ -1593,15 +1650,22 @@ export function resolveChromeUnion(opts: {
     if (lives.length === opts.selectedNodeIds.length) {
       const liveUnion =
         opts.selectedNodeIds.length === 1 ? lives[0] : unionOfBoxes(lives);
-      if (
-        liveUnion &&
-        Math.abs(liveUnion.left - base.left) < 2 &&
-        Math.abs(liveUnion.top - base.top) < 2 &&
-        Math.abs(liveUnion.width - base.width) < 2 &&
-        Math.abs(liveUnion.height - base.height) < 2
-      ) {
-        return liveUnion;
-      }
+      if (liveUnion) return liveUnion;
+    }
+  }
+  // Frames: title uses live `__sceneLeft` / sticky transform; chrome must too —
+  // Redux frame.x alone drifts at 10000% so the label looks off the left edge.
+  if (opts.selectedNodeIds.length === 0 && opts.selectedFrameIds.length >= 1) {
+    const lives: SceneBox[] = [];
+    for (const id of opts.selectedFrameIds) {
+      const live = liveShapeGeomBox(id);
+      if (!live) break;
+      lives.push(live);
+    }
+    if (lives.length === opts.selectedFrameIds.length) {
+      const liveUnion =
+        opts.selectedFrameIds.length === 1 ? lives[0] : unionOfBoxes(lives);
+      if (liveUnion) return liveUnion;
     }
   }
   return base;

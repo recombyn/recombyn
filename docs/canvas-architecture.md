@@ -7,14 +7,21 @@ RCB is Recombyn’s infinite vector canvas. This note is for people changing pai
 | Layer | Role | Primary paths |
 |-------|------|----------------|
 | Stage shell | Camera, frames, product canvas | `editor/page/EditorStageWorld.tsx` |
-| Camera / pan-zoom | Infinite world (`zoom` ~0.05–100) | `rcb/canvas/RcbCanvas.tsx`, `rcb/core/math.ts` (`RCB_MIN_ZOOM` / `RCB_MAX_ZOOM`) |
-| Product canvas | Tools, media overlays, Redux writes | `editor/canvas/SvgCanvas.tsx` |
-| Shape paint | Per-node SVG hosts + LOD proxies | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx` |
+| Camera / pan-zoom | Infinite world (`zoom` ~0.05–100); **CameraTransform** is the sole world↔screen API | `rcb/canvas/RcbCanvas.tsx`, `rcb/core/math.ts`, `rcb/camera/transform.ts` |
+| SceneRenderer | Paint/hit backend (`svg` hosts + `canvas2d` underlay for grid + LOD proxies) | `rcb/render/sceneRenderer.ts` |
+| Product canvas | Tools, media overlays, Redux writes; hit via SceneRenderer | `editor/canvas/SvgCanvas.tsx` |
+| Shape paint | Per-node SVG hosts; LOD via `setSceneLodPaint` → stage Canvas (**transitional**) | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx` |
+| Pixel grid + LOD | Stage Canvas2D underlay (`[data-rcb-scene-canvas]`), camera baked | `RcbCanvas` + `createCanvasSceneRenderer` |
+| Selection chrome | Screen-space overlay (`[data-rcb-overlay]`) for AABB, path silhouette, shape knobs, marquee | `rcb/selection/SelectionChrome.tsx`, `HostPathChrome.tsx`, chrome overlays |
+| Transform gestures | `pointermove` → RAF-coalesced live preview into `TransformPreview` + transitional SVG DOM; `pointerup` commits SceneDocument and clears preview | `core/transformPreview.ts`, `SelectionFeature` coalescer, `canvasSession.onGeometryPreview/Commit` |
+| Pointer hit | Overlay seats → chrome **geometry** → spatial index → Path2D/AABB precise | `pickSelectionInkAtClient`, `SceneSpatialRuntime.hitCandidateIds`, `hitTestSceneAtPoint` |
 | Document model | Types + Zod | `rcb/sceneNode.ts`, `packages/scene-schema` |
 | Mutations | normalize / stack / CRUD | `rcb/scene/document/sceneDocument.ts` |
 | Live state | `document`, selection, tools | `store/modules/editor.ts` |
 | Undo | COW / patch history | `store/modules/editorHistory.ts` |
 | Collab | Yjs ↔ scene ↔ Redux | `editor/collab/sceneYBridge.ts`, `CollabRoomProvider.tsx` |
+
+**Fact layer (ADR 0027):** `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SVG/`sceneToSvg` is export + transitional live paint — not the interaction substrate.
 
 ## Document shape
 
@@ -27,6 +34,12 @@ RCB is Recombyn’s infinite vector canvas. This note is for people changing pai
 There is **no hard max node count** on the document. Capacity is governed by paint/hit budgets below.
 
 ## Paint model (what you see)
+
+### Pixel grid → Canvas2D underlay
+
+At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes snap via `snapSceneStrokeAxis` when DPR is known). SVG no longer carries the grid `<path>`.
+
+LOD overflow and **idle Canvas-capable nodes** (`canIdlePaintOnCanvas`: **solid** fill only, **no stroke / shadow**, simple rect·roundRect·circle·ellipse — no donut/arc, gradients, image/diffuse, polygon/path/text) are published by `RcbShapesLayer` through `setSceneLodPaint` and painted on the **same** stage underlay. Stroke, complex fills, paths, text, and **media plates** keep SVG hosts (or editor `forceFullSet`). There is no separate world-space `[data-rcb-lod-layer]` canvas.
 
 ### Committed ink → SVG hosts
 

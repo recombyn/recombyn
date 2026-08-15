@@ -67,7 +67,17 @@ export function resolveFontFileUrl(
   if (children.length) {
     const exact = children.filter((c) => c.family === fontFamily && c.url);
     // Unique face name (… Bold) — that file only; never pick sibling Regular by CSS weight.
-    if (exact.length === 1) return resolveFontUrl(exact[0].url!);
+    // Exception: base Regular + CSS bold/700 → Bold sibling (B button / outline must match paint).
+    if (exact.length === 1) {
+      const face = exact[0];
+      if (Number.isFinite(numeric) && numeric >= 600 && (face.weight ?? 400) < 600) {
+        const bold =
+          children.find((c) => (c.weight ?? 0) >= 600 && c.url) ||
+          children.find((c) => /bold/i.test(c.family) && c.url);
+        if (bold?.url) return resolveFontUrl(bold.url);
+      }
+      return resolveFontUrl(face.url!);
+    }
     // Shared CSS family — pick by weight axis.
     if (exact.length > 1 && Number.isFinite(numeric)) {
       const byW = exact.find((c) => c.weight === numeric);
@@ -335,6 +345,43 @@ export function styleFromFontChild(
   }
   // One file per family name (… Light / Regular / Bold) — switch family, not CSS weight.
   return { fontFamily: child.family, fontWeight: 'normal' };
+}
+
+/** True when the current face is a Bold catalog file (… Bold) even with CSS weight normal. */
+export function isCatalogBoldFace(fontFamily: string, catalog = getFontCatalogSync()): boolean {
+  const key = String(fontFamily || '');
+  if (/\bbold\b/i.test(key)) return true;
+  const child = findFontChild(key, catalog);
+  return Boolean(child && (child.weight ?? 0) >= 600);
+}
+
+/**
+ * B button: switch to the real Bold/Regular face file when the catalog has one.
+ * Avoids CSS faux-bold on Regular (paint ≠ outline).
+ */
+export function toggleCatalogTextBold(
+  fontFamily: string,
+  fontWeight: string | number | undefined,
+  catalog = getFontCatalogSync()
+): { fontFamily: string; fontWeight: string } {
+  const children = getFontChildren(fontFamily, catalog);
+  const weightBold = fontWeight === 'bold' || Number(fontWeight) >= 600;
+  const onBold = weightBold || isCatalogBoldFace(fontFamily, catalog);
+
+  if (onBold) {
+    const regular =
+      children.find((c) => (c.weight ?? 400) === 400) ||
+      children.find((c) => (c.weight ?? 0) < 600) ||
+      getDefaultFontChild(fontFamily, catalog);
+    if (regular) return styleFromFontChild(regular, catalog);
+    return { fontFamily: getBaseFontFamily(fontFamily, catalog), fontWeight: 'normal' };
+  }
+
+  const bold =
+    children.find((c) => (c.weight ?? 0) >= 600) ||
+    children.find((c) => /bold/i.test(c.displayName) || /bold/i.test(c.family));
+  if (bold) return styleFromFontChild(bold, catalog);
+  return { fontFamily, fontWeight: 'bold' };
 }
 
 export function parseWeightSelectValue(

@@ -48,6 +48,14 @@ function assertOnPenGridLattice(anchors: PenAnchor[], gridSize: number) {
 }
 
 describe('snapPenAnchorPoint (corners + edge mids)', () => {
+  it('place tip and raw tip can differ inside a cell (rubber-band follows raw)', () => {
+    const raw = { x: 10.3, y: 20.7 };
+    const place = snapPenAnchorPoint(raw.x, raw.y, 1, false);
+    // Lattice place is not the free pointer — preview must not force the rubber band onto place.
+    expect(Math.hypot(place.x - raw.x, place.y - raw.y)).toBeGreaterThan(0.05);
+    expect(place.x % 1 === 0 || place.x % 1 === 0.5).toBe(true);
+    expect(place.y % 1 === 0 || place.y % 1 === 0.5).toBe(true);
+  });
   it('snaps to nearest grid cell corner when closer than edge mid', () => {
     const p = snapPenAnchorPoint(10.15, 20.85, 1, false);
     // eslint-disable-next-line no-console

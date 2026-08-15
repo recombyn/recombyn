@@ -8,6 +8,7 @@ import {
   rcbScreenToScene,
   rcbSnapSceneAxis,
 } from '../math';
+import { snapSceneStrokeAxis } from '../dpr';
 
 function mockViewport(opts: {
   left: number;
@@ -126,5 +127,19 @@ describe('rcb screen ↔ scene', () => {
     const a = mockViewport({ left: 0, top: 0, width: 1, height: 1, connected: false });
     const b = mockViewport({ left: 0, top: 0, width: 1, height: 1, connected: true });
     expect(rcbResolveViewportEl(a, b)).toBe(b);
+  });
+});
+
+describe('snapSceneStrokeAxis', () => {
+  it('centers odd device-pixel strokes on .5 device px', () => {
+    // 1 CSS px stroke at dpr=1 → 1 device px (odd) → align to n+0.5
+    const scene = snapSceneStrokeAxis(10.2, 1, 0, 1, 1);
+    expect(scene).toBeCloseTo(10.5, 6);
+  });
+
+  it('snaps even device-pixel strokes onto integer device coords under dpr=2', () => {
+    // 1 CSS px * dpr 2 = 2 device px (even) → align 0
+    const scene = snapSceneStrokeAxis(10.4, 1, 0, 2, 1);
+    expect(scene * 2).toBeCloseTo(21, 6);
   });
 });

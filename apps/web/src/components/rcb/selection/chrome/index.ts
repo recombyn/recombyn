@@ -10,8 +10,11 @@ export {
   WorldScreenChromeRoot,
   useChromePointerActivate,
   SELECTION_TOOLBAR_BELOW_BOX_GAP_PX,
+  SELECTION_HANDLE_CLEARANCE_PX,
   NODE_TITLE_LABEL_GAP_PX,
   NODE_TITLE_LABEL_LINE_PX,
+  chromeUiOutsideScene,
+  chromeUiOutsideScreenPx,
 } from './SelectionToolbarShell';
 export { default as NodeTitleLabel } from './NodeTitleLabel';
 export { default as ToolbarMenuSelect } from './ToolbarMenuSelect';

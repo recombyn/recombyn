@@ -31,6 +31,7 @@ import {
   resolveStrokeAlign,
   resolveStrokeLinecap,
   resolveStrokeLinejoin,
+  resolveStrokeMiterlimit,
 } from '../document/sceneEffects';
 import type { StrokeAlign, StrokeLinecap, StrokeLinejoin } from '../document/sceneEffects';
 import { isTransparentFill, resolveDocumentBackground, resolveFill } from '../document/sceneFill';
@@ -43,6 +44,7 @@ import {
   isLottieGeneratorNode,
   isLottieNode,
   isNodeHidden,
+  isOutlinedPath,
   isVideoGeneratorNode
 } from '../document/nodeCapabilities';
 import {
@@ -58,7 +60,7 @@ import {
   roundedRectPath,
   type CornerRadii,
 } from '../document/sceneRadii';
-import { isCustomPathShape } from '../document/pathScale';
+import { isCustomPathShape, scalePathData } from '../document/pathScale';
 import { shapeVertexPoints, sidesFromAttrs, clampShapeSides, DEFAULT_SHAPE_SIDES, starInnerRatioFromAttrs, ellipseInnerRatioFromAttrs, ellipseArcPercentFromAttrs, ellipseStartDegFromAttrs, clampEllipseInnerRatio, clampEllipseArcPercent, clampEllipseStartDeg } from '../document/sceneShapes';
 import { getShapeBaseline, getShapeBaselineD } from '@/components/rcb/core/geometry';
 import { applyNodeShadow, applySvgFill } from './svgPaint';
@@ -220,6 +222,7 @@ type ShapeStrokeOpts = {
   align: StrokeAlign;
   linecap: StrokeLinecap;
   linejoin: StrokeLinejoin;
+  miterlimit: number;
 };
 
 function strokeOptsFromNode(node: SceneNodeInput, color: string, width: number): ShapeStrokeOpts {
@@ -231,6 +234,7 @@ function strokeOptsFromNode(node: SceneNodeInput, color: string, width: number):
     align: resolveStrokeAlign(node?.attrs),
     linecap: resolveStrokeLinecap(node?.attrs),
     linejoin: resolveStrokeLinejoin(node?.attrs),
+    miterlimit: resolveStrokeMiterlimit(node?.attrs),
   };
 }
 
@@ -409,6 +413,7 @@ function applyElementStroke(
       width: opts.width * 2,
       linecap: opts.linecap || 'butt',
       linejoin: opts.linejoin || 'miter',
+      miterlimit: opts.miterlimit ?? 100,
       ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
     };
     setAttrs(el, { 'paint-order': 'stroke fill' });
@@ -426,6 +431,7 @@ function applyElementStroke(
       width: opts.width * 2,
       linecap: opts.linecap || 'butt',
       linejoin: opts.linejoin || 'miter',
+      miterlimit: opts.miterlimit ?? 100,
       ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
     });
     return;
@@ -436,6 +442,7 @@ function applyElementStroke(
     width: opts.width,
     linecap: opts.linecap || 'butt',
     linejoin: opts.linejoin || 'miter',
+    miterlimit: opts.miterlimit ?? 100,
     ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
   });
 }
@@ -468,6 +475,7 @@ function applyOutsideStrokeUnderlay(el: SVGElement, opts: ShapeStrokeOpts): bool
     width: opts.width * 2,
     linecap: opts.linecap || 'butt',
     linejoin: opts.linejoin || 'miter',
+    miterlimit: opts.miterlimit ?? 100,
     ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
   });
   parent.insertBefore(under, el);
@@ -529,6 +537,10 @@ export type SceneSvgHost = SVGElement & {
   __scenePlainText?: string;
   __sceneDragBaseW?: number;
   __sceneDragBaseH?: number;
+  /** Painted path `d` at gesture start (custom path live resize). */
+  __sceneDragBasePath?: string;
+  /** Unfilleted base path at gesture start, when present. */
+  __sceneDragBasePathRaw?: string;
   __sceneDragBaseFontSize?: number;
   __sceneDragBaseLetterSpacing?: number;
   __sceneDidResize?: boolean;
@@ -1160,9 +1172,9 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
         ? resolveFill(node, 'transparent')
         : resolveFill(node, closed ? '#FFFFFF' : 'transparent');
     const baseD = String(d);
-    // Pen centerlines stay raw. Closed boolean/outline paths keep a sharp base
-    // and fillet via radiusVertices (same R dots as rect, seated on corners).
-    const skipFillet = shapeType === 'pen' || !closed;
+    // Pen centerlines stay raw. 轮廓化 / densified silhouettes must not be
+    // re-filleted (would shred fontkit / canvas glyph rings into wedges).
+    const skipFillet = shapeType === 'pen' || !closed || isOutlinedPath(node);
     const cornerR = skipFillet
       ? { tl: 0, tr: 0, br: 0, bl: 0 }
       : radiiFromAttrs(node.attrs);
@@ -2388,6 +2400,10 @@ export function expandInfiniteSvgPad(root: SVGSVGElement, pad: number): boolean 
 /**
  * Body `<g transform>` matching host ink.
  * `mirrored`: prefer live host `transform` / `__sceneLeft`; else box translate (+ rotate).
+ *
+ * Always honor `angleDeg` when the live host transform is translate-only (or missing).
+ * Otherwise radius / star / poly knobs stay axis-aligned while the blue control box tilts
+ * ("points ran away after rotate").
  */
 export function hostChromeBodyTransform(
   el: SVGElement | null | undefined,
@@ -2395,22 +2411,31 @@ export function hostChromeBodyTransform(
   angleDeg: number,
   mirrored: boolean
 ): string {
+  const w = Math.max(1, box.width);
+  const h = Math.max(1, box.height);
+  const angle = Number(angleDeg) || 0;
+  const withAngle = (translate: string) => {
+    if (Math.abs(angle) <= 0.01) return translate;
+    return `${translate} rotate(${angle} ${w / 2} ${h / 2})`;
+  };
+
   if (mirrored) {
-    const hostTransform = el?.getAttribute?.('transform') || '';
-    if (hostTransform) return hostTransform;
+    const hostTransform = (el?.getAttribute?.('transform') || '').trim();
+    if (hostTransform) {
+      // Host already encodes rotation — trust ink (previewSvgNodeAngle / applyMeta).
+      if (/\brotate\s*\(/i.test(hostTransform) || Math.abs(angle) <= 0.01) {
+        return hostTransform;
+      }
+      // Translate-only host while chrome still has angle (commit race / remount lag).
+      return withAngle(hostTransform);
+    }
     const hl = Number((el as { __sceneLeft?: number } | null | undefined)?.__sceneLeft);
     const ht = Number((el as { __sceneTop?: number } | null | undefined)?.__sceneTop);
     const left = Number.isFinite(hl) ? hl : box.left;
     const top = Number.isFinite(ht) ? ht : box.top;
-    return `translate(${left} ${top})`;
+    return withAngle(`translate(${left} ${top})`);
   }
-  const w = Math.max(1, box.width);
-  const h = Math.max(1, box.height);
-  const angle = Number(angleDeg) || 0;
-  if (Math.abs(angle) > 0.01) {
-    return `translate(${box.left} ${box.top}) rotate(${angle} ${w / 2} ${h / 2})`;
-  }
-  return `translate(${box.left} ${box.top})`;
+  return withAngle(`translate(${box.left} ${box.top})`);
 }
 
 /** React props for a scene-surface SVG (CSS box === viewBox). */
@@ -2654,6 +2679,8 @@ export function clearSceneDragPreview(nodeEls: Map<string, SVGElement>, nodeId: 
   const bag = asHost(el);
   delete bag.__sceneDragBaseW;
   delete bag.__sceneDragBaseH;
+  delete bag.__sceneDragBasePath;
+  delete bag.__sceneDragBasePathRaw;
   delete bag.__sceneDragBaseFontSize;
   delete bag.__sceneDragBaseLetterSpacing;
   delete bag.__sceneDidResize;
@@ -2852,7 +2879,15 @@ export function previewSvgNodeAngle(
   anyEl.__sceneAngle = angleDeg;
   const baseW = Number(anyEl.__sceneDragBaseW);
   const baseH = Number(anyEl.__sceneDragBaseH);
-  if (anyEl.__sceneDidResize && baseW > 0 && baseH > 0) {
+  const shapeType = String(
+    anyEl.sceneShapeType || el.getAttribute('data-scene-shape-type') || ''
+  );
+  // Path live-resize already baked sx/sy into `d` — do not CSS-scale again (stroke thickens).
+  const pathDScaled =
+    isCustomPathShape(shapeType) &&
+    el.tagName.toLowerCase() === 'path' &&
+    Boolean(anyEl.__sceneDragBasePath);
+  if (anyEl.__sceneDidResize && baseW > 0 && baseH > 0 && !pathDScaled) {
     reapplySceneTransformScaled(
       el,
       geom.left,
@@ -3093,9 +3128,9 @@ export function previewSvgNodeGeometry(
       return previewResizeText(el, box, options);
     }
 
-    // Custom path (boolean / pen): live resize is CSS scale from gesture base.
-    // Keep that scale for the whole gesture — including when clamped at min size
-    // (sameSize). Dropping it calls plain translate and the path flashes at 1:1.
+    // Custom path (boolean / pen): scale path `d` like commit (`scalePathData`).
+    // CSS scale(sx,sy) also scales stroke → anisotropic edge thickness while dragging.
+    // Stamp pencil hosts are <g> — keep CSS scale for those bitmaps.
     if (isCustomPathShape(shapeType) && (!sameSize || anyEl.__sceneDidResize)) {
       if (!anyEl.__sceneDragBaseW) {
         anyEl.__sceneDragBaseW = geom.width;
@@ -3111,6 +3146,32 @@ export function previewSvgNodeGeometry(
         height: box.height,
         abs: false,
       });
+
+      if (el.tagName.toLowerCase() === 'path') {
+        if (!anyEl.__sceneDragBasePath) {
+          anyEl.__sceneDragBasePath = el.getAttribute('d') || '';
+          anyEl.__sceneDragBasePathRaw =
+            String(anyEl.__sceneBasePath || '') ||
+            el.getAttribute('data-scene-base-path') ||
+            anyEl.__sceneDragBasePath;
+        }
+        const baseD = String(anyEl.__sceneDragBasePath || '');
+        if (baseD) {
+          const sx = box.width / bw;
+          const sy = box.height / bh;
+          const nextD = scalePathData(baseD, sx, sy);
+          setPathD(el, nextD);
+          const rawBase = String(anyEl.__sceneDragBasePathRaw || '');
+          if (rawBase) {
+            const nextRaw = scalePathData(rawBase, sx, sy);
+            anyEl.__sceneBasePath = nextRaw;
+            el.setAttribute('data-scene-base-path', nextRaw);
+          }
+          reapplySceneTransform(el, box.left, box.top, box.width, box.height);
+          return true;
+        }
+      }
+
       reapplySceneTransformScaled(
         el,
         box.left,

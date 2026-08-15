@@ -155,7 +155,32 @@ function isMultiGlyphOutlinePath(node: SceneNodeRef): boolean {
   return rings >= 4;
 }
 
+/** Set by `outlineNodePatch` / boolean result — densified path, no R chrome. */
+export function isOutlinedPath(node: SceneNodeRef): boolean {
+  const v = node?.attrs?.outlined;
+  return v === true || v === 'true' || v === 1 || v === '1';
+}
+
+/**
+ * Legacy 轮廓化 (before `outlined` flag): fill-only path that kept stroke width
+ * from pen/line/arrow bake (`border-width` / `strokeWidth`).
+ */
+function isLegacyStrokeBakedOutline(node: SceneNodeRef): boolean {
+  if (isOutlinedPath(node)) return false;
+  if (!node?.attrs) return false;
+  const t = String(node.attrs.shapeType || node.key || '');
+  if (t !== 'path') return false;
+  const strokeOff =
+    node.attrs['stroke-enabled'] === false || node.attrs['stroke-enabled'] === 'false';
+  if (!strokeOff) return false;
+  const bw = Number(
+    node.attrs['border-width'] ?? node.attrs.borderWidth ?? node.attrs.strokeWidth ?? 0
+  );
+  return Number.isFinite(bw) && bw > 0;
+}
+
 function pathAllowsCornerRadius(node: SceneNodeRef): boolean {
+  if (isOutlinedPath(node) || isLegacyStrokeBakedOutline(node)) return false;
   return isClosedFilletPath(node) && !isMultiGlyphOutlinePath(node);
 }
 
@@ -166,9 +191,9 @@ export function supportsCornerRadius(node: SceneNodeRef) {
   // corners (outside the disk). Use path/geo edit instead.
   if (node.key === 'ellipse') return false;
   if (node.key === 'rect' || node.key === 'image') return true;
-  // Closed boolean / outlined paths: fillet sharp corners (same R dots as rect).
+  // Closed path (boolean / 轮廓化) with `outlined`: hide R dots + toolbar.
   // Open pen / pencil / freehand stay out — no meaningful box corners.
-  // Multi-glyph outlines (text→path): no R-dots until path-edit mode.
+  // Multi-glyph text outlines without the flag: still skipped via ring count.
   if (node.key === 'path') return pathAllowsCornerRadius(node);
   if (node.key === 'shape') {
     const t = String(node.attrs?.shapeType || 'rect');
