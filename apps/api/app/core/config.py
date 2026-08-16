@@ -109,10 +109,15 @@ class Settings(BaseSettings):
     design_paint_attempt_timeout_sec: float = 90.0
     design_image_hydrate_timeout_sec: float = 90.0
     design_image_hydrate_async: bool = True
+    # Worker mode is opt-in until command subscription is enabled in production.
+    design_agent_worker_enabled: bool = False
+    design_agent_worker_requeue_sec: float = 60.0
+    design_agent_outbox_retention_days: int = 7
     design_image_hydrate_queue_stall_sec: float = 5.0
     design_review_llm_timeout_sec: float = 100.0
     design_exec_trace: bool = False
-    design_graph_run_timeout_sec: float = 600.0
+    # Cloud intelligence + image hydrate + review retry often exceeds 10 minutes.
+    design_graph_run_timeout_sec: float = 1200.0
     design_run_timeout_resumable: bool = True
     design_run_error_resumable: bool = True
     design_run_checkpoint_ttl_hours: float = 72.0

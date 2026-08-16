@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  rcbCameraCssZoom,
   rcbCameraScreenOffset,
   rcbClientDeltaToScene,
   rcbClientToStageLocal,
@@ -7,6 +8,7 @@ import {
   rcbSceneToScreen,
   rcbScreenToScene,
   rcbSnapSceneAxis,
+  rcbZoomAtPoint,
 } from '../math';
 import { snapSceneStrokeAxis } from '../dpr';
 
@@ -109,7 +111,7 @@ describe('rcb screen ↔ scene', () => {
   });
 
   it('world-equivalent viewport is identical for grid and hosts', () => {
-    // sceneLeft = -camX/z — same formula worldCameraViewport uses.
+    // Shared camera inverse: sceneLeft = -camX/z.
     const camera = { zoom: 1, x: 10, y: -20 };
     const dpr = 0.9;
     const offset = rcbCameraScreenOffset(camera, dpr);
@@ -127,6 +129,24 @@ describe('rcb screen ↔ scene', () => {
     const a = mockViewport({ left: 0, top: 0, width: 1, height: 1, connected: false });
     const b = mockViewport({ left: 0, top: 0, width: 1, height: 1, connected: true });
     expect(rcbResolveViewportEl(a, b)).toBe(b);
+  });
+  it('rcbZoomAtPoint keeps the pivot fixed on the display lattice (fractional DPR)', () => {
+    const dpr = 0.75;
+    const camera = { zoom: 1, x: 10.1, y: 20.2 };
+    const localX = 400;
+    const localY = 300;
+    const pan0 = rcbCameraScreenOffset(camera, dpr);
+    const z0 = 1; // rcbCameraCssZoom
+    const sceneX = (localX - pan0.x) / z0;
+    const sceneY = (localY - pan0.y) / z0;
+    const next = rcbZoomAtPoint(camera, 2, localX, localY, dpr);
+    const pan1 = rcbCameraScreenOffset(next, dpr);
+    const z1 = rcbCameraCssZoom(next);
+    const screenX = sceneX * z1 + pan1.x;
+    const screenY = sceneY * z1 + pan1.y;
+    // After snap, pivot stays within one device CSS px.
+    expect(Math.abs(screenX - localX)).toBeLessThan(1.5);
+    expect(Math.abs(screenY - localY)).toBeLessThan(1.5);
   });
 });
 

@@ -6,7 +6,9 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
@@ -16,16 +18,13 @@ from pydantic import BaseModel, Field
 
 from app.services.agent_memory.long_term import insert_long_memory
 from app.services.design.readpath.catalog import ensure_design_catalog, get_catalog_payload
-from app.services.design.runtime.orchestrator import run_design_job
+from app.services.design.runtime.orchestrator import run_design_job_from_snapshot
 from app.services.design.runtime.pipeline_support import _run_error_code
+from app.services.design.runtime.sse_transport import local_run_sse as _transport_local_run_sse, worker_run_sse as _worker_run_sse
 from app.services.design.prompts.rules_text import _safe_print
 
 router = APIRouter(prefix="/design", tags=["design"])
 _log = logging.getLogger("design.run_api")
-
-# Keep proxies (Vite/nginx) from idle-closing long LLM steps.
-# Also drives user-visible Thought-row heartbeats while the model is silent.
-_SSE_HEARTBEAT_SEC = 8.0
 
 _DESIGN_ARM_STAGES = frozenset(
     {
@@ -51,19 +50,34 @@ _TERMINAL_STAGES = frozenset({"done", "failed"})
 
 
 
-def _sse_data(obj: dict[str, Any]) -> str:
-    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
 
 
-def _outcome_from_event_type(et: str | None) -> str | None:
-    if et == "error":
-        return "error"
-    if et in ("done", "finished", "complete"):
-        return "ok"
-    if et == "paused":
-        return "paused"
-    return None
+async def _local_run_sse(
+    task_id: str,
+    source: Callable[[], AsyncIterator[dict[str, Any]]],
+) -> AsyncIterator[str]:
+    """Shared local /run and /resume SSE transport."""
+    state = _PipelineSseState(task_id=task_id)
 
+    def emit(event: dict[str, Any]) -> list[dict[str, Any]]:
+        state.remember_task_id(event)
+        return list(_pipeline_side_effects(state, event))
+
+    async for frame in _transport_local_run_sse(
+        source,
+        emit=emit,
+        persist=state.persist_event,
+        heartbeat=state.heartbeat_stage_event,
+        terminal=state.terminal_stage_event,
+        error_code=_run_error_code,
+    ):
+        yield frame
+    return
 
 @dataclass
 class _PipelineSseState:
@@ -75,6 +89,7 @@ class _PipelineSseState:
     chat_divert: bool = False
     result_failed: bool = False
     out_n: int = 0
+    task_id: str | None = None
     t0: float = field(default_factory=time.time)
 
     def arm(self, stage: str | None = "prepare") -> None:
@@ -101,13 +116,30 @@ class _PipelineSseState:
     def heartbeat_stage_event(self) -> dict[str, Any] | None:
         from app.services.design.runtime.progress_stages import thought_stage_event
 
-        if not self.pipeline_armed or self.chat_divert or self.saw_paint:
+        if not self.pipeline_armed or self.chat_divert:
             return None
         if not self.current_stage or self.current_stage in _TERMINAL_STAGES:
             return None
         elapsed = int(time.time() - self.t0)
         return thought_stage_event(self.current_stage, elapsed_s=elapsed)
 
+    def remember_task_id(self, payload: Any) -> None:
+        if not isinstance(payload, dict) or self.task_id:
+            return
+        task_id = str(payload.get("task_id") or "").strip()
+        if task_id:
+            self.task_id = task_id
+
+    def persist_event(self, payload: Any) -> None:
+        self.remember_task_id(payload)
+        if not self.task_id or not isinstance(payload, dict):
+            return
+        try:
+            from app.services.design.runtime.event_publisher import publish_design_output
+
+            publish_design_output(self.task_id, payload)
+        except Exception:
+            _log.exception("design event persistence failed task=%s", self.task_id)
 
 def _should_chat_divert(payload: dict[str, Any]) -> bool:
     et = str(payload.get("type") or "")
@@ -488,137 +520,102 @@ async def design_run(
 
     observe_design_run_start(str(body.run_mode or "agent"))
     client_country = resolve_client_country(request)
+    run_task_id = str(uuid.uuid4())
+    from app.services.design.admin.task_store import (
+        build_worker_snapshot,
+        initialize_design_task,
+    )
+    worker_snapshot = build_worker_snapshot(
+        mode=body.run_mode,
+        prompt=body.prompt,
+        canvas_id=body.canvas_id,
+        canvas_size=body.canvas_size,
+        scene=body.scene,
+        focus_frame_id=body.focus_frame_id,
+        scene_nodes=body.scene_nodes,
+        scene_frames=body.scene_frames,
+        images=body.images,
+        user_selected_model=body.user_selected_model,
+        style_group_id=body.style_group_id,
+        ref_image_sizes=body.ref_image_sizes,
+        target_layer_id=body.target_layer_id,
+        layer_ids=body.layer_ids,
+        current_svg=body.current_svg,
+        spatial_summary=body.spatial_summary,
+        session_id=body.session_id,
+        project_id=body.project_id or body.canvas_id,
+        memory=body.memory,
+        route_overrides=body.route_overrides,
+        apply_ops=body.apply_ops,
+        proposal_id=body.proposal_id,
+        proposal_task_id=body.proposal_task_id,
+        interaction_mode=body.interaction_mode,
+        client_country=client_country,
+        skill_refs=body.skill_refs,
+        paint_mode=body.paint_mode,
+        locale=body.locale,
+        design_intensity=body.design_intensity,
+    )
 
-    async def gen():
-        # Flush headers / proxy buffers immediately so FE can leave "Thinking…".
-        yield ": connected\n\n"
-
-        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
-        state = _PipelineSseState()
-        t_run0 = time.perf_counter()
-        outcome = "incomplete"
-
-        async def produce() -> None:
-            try:
-                async for ev in run_design_job(
-                    user_id=current_user.id,
-                    run_mode=body.run_mode,
-                    prompt=body.prompt,
-                    scene=body.scene,
-                    style_group_id=body.style_group_id,
-                    user_selected_model=body.user_selected_model or "auto",
-                    canvas_id=body.canvas_id,
-                    canvas_size=body.canvas_size,
-                    ref_image_sizes=body.ref_image_sizes,
-                    target_layer_id=body.target_layer_id,
-                    layer_ids=body.layer_ids,
-                    current_svg=body.current_svg,
-                    scene_nodes=body.scene_nodes,
-                    scene_frames=body.scene_frames,
-                    spatial_summary=body.spatial_summary,
-                    focus_frame_id=body.focus_frame_id,
-                    images=body.images,
-                    is_premium=False,
-                    session_id=body.session_id,
-                    project_id=body.project_id or body.canvas_id,
-                    memory=body.memory,
-                    route_overrides=body.route_overrides,
-                    apply_ops=body.apply_ops,
-                    proposal_id=body.proposal_id,
-                    proposal_task_id=body.proposal_task_id,
-                    interaction_mode=body.interaction_mode,
-                    client_country=client_country,
-                    skill_refs=body.skill_refs,
-                    paint_mode=body.paint_mode,
-                    locale=body.locale,
-                    design_intensity=body.design_intensity,
-                ):
-                    await queue.put(("ev", ev))
-            except Exception as err:  # noqa: BLE001
-                await queue.put(("err", err))
-            finally:
-                await queue.put(("done", None))
-
-        task = asyncio.create_task(produce())
-        try:
-            while True:
-                try:
-                    kind, payload = await asyncio.wait_for(
-                        queue.get(), timeout=_SSE_HEARTBEAT_SEC
-                    )
-                except asyncio.TimeoutError:
-                    hb = state.heartbeat_stage_event()
-                    if hb:
-                        yield _sse_data(hb)
-                    yield ": ping\n\n"
-                    continue
-
-                if kind == "done":
-                    term = state.terminal_stage_event()
-                    if term:
-                        yield _sse_data(term)
-                    outcome = "ok"
-                    break
-
-                if kind == "err":
-                    msg = str(payload)[:800] or "design_run_failed"
-                    yield _sse_data({"type": "error", "code": _run_error_code(msg), "message": msg})
-                    outcome = "error"
-                    break
-
-                state.out_n += 1
-                et = payload.get("type") if isinstance(payload, dict) else None
-                if isinstance(payload, dict):
-                    for frame in _pipeline_side_effects(state, payload):
-                        yield _sse_data(frame)
-                    next_outcome = _outcome_from_event_type(
-                        et if isinstance(et, str) else None
-                    )
-                    if next_outcome:
-                        outcome = next_outcome
-
-                if _should_log_sse(et if isinstance(et, str) else None, state.out_n):
-                    line = _sse_log_line(
-                        t0=state.t0,
-                        out_n=state.out_n,
-                        et=et if isinstance(et, str) else None,
-                        payload=payload,
-                    )
-                    _log.info(line)
-                    _safe_print(line)
-
-                if isinstance(payload, dict):
-                    yield _sse_data(payload)
-                else:
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-            yield "data: [DONE]\n\n"
-        finally:
-            try:
-                from app.core.metrics import observe_design_run_outcome
-
-                observe_design_run_outcome(
-                    outcome, duration_s=time.perf_counter() - t_run0
-                )
-            except Exception:
-                pass
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
+    await asyncio.to_thread(
+        initialize_design_task,
+        {
+            "id": run_task_id,
+            "user_id": current_user.id,
+            "canvas_id": body.canvas_id,
+            "scene": body.scene,
+            "skill_group_id": body.style_group_id,
+            "task_type": body.run_mode,
+            "user_selected_model": body.user_selected_model or "auto",
+            "actual_models": "[]",
+            "target_layer_id": body.target_layer_id,
+            "current_skill_index": 0,
+            "status": "queued",
+            "hold_credits": 0,
+            "charged_credits": 0,
+            "total_tokens": 0,
+            "prompt": body.prompt,
+            "canvas_size": body.canvas_size,
+            "result_svg": None,
+            "error_message": None,
+            "meta_json": json.dumps(
+                {
+                    "worker_snapshot": worker_snapshot
+                },
+                ensure_ascii=False,
+            ),
+            "created_at": time.time(),
+            "updated_at": time.time(),
         },
     )
 
+    from app.core.config import settings
+    if bool(getattr(settings, "design_agent_worker_enabled", False)):
+        try:
+            from worker.tasks import run_design_agent_job
+
+            run_design_agent_job.delay(run_task_id)
+        except Exception as err:
+            raise HTTPException(status_code=503, detail="design_worker_unavailable") from err
+        return StreamingResponse(
+            _worker_run_sse(run_task_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    async def source() -> AsyncIterator[dict[str, Any]]:
+        async for event in run_design_job_from_snapshot(
+            user_id=current_user.id,
+            snapshot=worker_snapshot,
+            task_id=run_task_id,
+        ):
+            yield event
+
+    return StreamingResponse(_local_run_sse(run_task_id, source), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 @router.post("/run/{task_id}/scene")
 async def design_run_scene_feedback(
@@ -668,6 +665,10 @@ class DesignResumeIn(BaseModel):
     resume_token: str | None = None
 
 
+class CanvasCommandAckIn(BaseModel):
+    seq: int = Field(ge=0)
+
+
 @router.get("/run/{task_id}")
 def design_run_status(
     current_user: CurrentUser,
@@ -682,6 +683,43 @@ def design_run_status(
         raise HTTPException(status_code=403, detail="forbidden")
     st.pop("user_id", None)
     return st
+
+
+@router.get("/run/{task_id}/events")
+def design_run_events(
+    current_user: CurrentUser,
+    task_id: str,
+    after_seq: int = Query(default=0, ge=0),
+    limit: int = Query(default=96, ge=1, le=96),
+) -> dict[str, Any]:
+    """Replay the safe product timeline after an SSE reconnect."""
+    from app.services.design.admin.task_store import get_design_task, get_task_events
+
+    row = get_design_task(task_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="task_not_found")
+    if str(row.get("user_id") or "") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return get_task_events(task_id, after_seq=after_seq, limit=limit)
+
+
+@router.get("/run/{task_id}/commands")
+def design_run_commands(current_user: CurrentUser, task_id: str, after_seq: int = Query(default=0, ge=0)) -> dict[str, Any]:
+    from app.services.design.admin.task_store import get_canvas_commands, get_design_task
+    row = get_design_task(task_id)
+    if not row or str(row.get("user_id") or "") != str(current_user.id):
+        raise HTTPException(status_code=404, detail="task_not_found")
+    return get_canvas_commands(task_id, after_seq=after_seq)
+
+
+@router.post("/run/{task_id}/commands/ack")
+def design_run_commands_ack(current_user: CurrentUser, task_id: str, body: CanvasCommandAckIn) -> dict[str, Any]:
+    from app.services.design.admin.task_store import acknowledge_canvas_commands, get_design_task
+    row = get_design_task(task_id)
+    if not row or str(row.get("user_id") or "") != str(current_user.id):
+        raise HTTPException(status_code=404, detail="task_not_found")
+    acknowledge_canvas_commands(task_id, body.seq)
+    return {"ok": True, "seq": body.seq}
 
 
 @router.post("/run/{task_id}/pause")
@@ -733,79 +771,51 @@ async def design_run_resume(
     """Resume a paused / waiting_client / resumable-error design run (SSE)."""
     token = (body.resume_token if body else None) or None
     from app.services.design.runtime.orchestrator import resume_design_job
-
-    async def gen():
-        yield ": connected\n\n"
-        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
-        state = _PipelineSseState()
-
-        async def produce() -> None:
-            try:
-                async for ev in resume_design_job(
-                    user_id=current_user.id,
-                    task_id=task_id,
-                    resume_token=token,
-                ):
-                    await queue.put(("ev", ev))
-            except Exception as err:  # noqa: BLE001
-                await queue.put(("err", err))
-            finally:
-                await queue.put(("done", None))
-
-        task = asyncio.create_task(produce())
-        try:
-            while True:
-                try:
-                    kind, payload = await asyncio.wait_for(
-                        queue.get(), timeout=_SSE_HEARTBEAT_SEC
-                    )
-                except asyncio.TimeoutError:
-                    hb = state.heartbeat_stage_event()
-                    if hb:
-                        yield _sse_data(hb)
-                    yield ": ping\n\n"
-                    continue
-
-                if kind == "done":
-                    term = state.terminal_stage_event()
-                    if term:
-                        yield _sse_data(term)
-                    break
-
-                if kind == "err":
-                    # Cooperative pause re-raises CancelledError after emitting paused.
-                    if isinstance(payload, asyncio.CancelledError):
-                        break
-                    msg = str(payload)[:800] or "design_resume_failed"
-                    yield _sse_data({"type": "error", "code": _run_error_code(msg), "message": msg})
-                    break
-
-                state.out_n += 1
-                if isinstance(payload, dict):
-                    for frame in _pipeline_side_effects(state, payload):
-                        yield _sse_data(frame)
-                    yield _sse_data(payload)
-                else:
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-            yield "data: [DONE]\n\n"
-        finally:
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    from app.services.design.admin.task_store import (
+        get_design_task,
+        get_run_lifecycle,
+        parse_task_meta,
+        task_is_resumable,
     )
+
+    row = get_design_task(task_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="task_not_found")
+    if str(row.get("user_id") or "") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="forbidden")
+    if not task_is_resumable(row):
+        raise HTTPException(status_code=409, detail="not_resumable")
+    expected_token = str(get_run_lifecycle(parse_task_meta(row.get("meta_json"))).get("resume_token") or "")
+    if not token or not expected_token or token != expected_token:
+        raise HTTPException(status_code=403, detail="resume_token_mismatch")
+
+    from app.core.config import settings
+    if bool(getattr(settings, "design_agent_worker_enabled", False)):
+        try:
+            from worker.tasks import run_design_agent_job
+
+            run_design_agent_job.delay(task_id, True, token)
+        except Exception as err:
+            raise HTTPException(status_code=503, detail="design_worker_unavailable") from err
+        return StreamingResponse(
+            _worker_run_sse(task_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    async def source() -> AsyncIterator[dict[str, Any]]:
+        async for event in resume_design_job(
+            user_id=current_user.id,
+            task_id=task_id,
+            resume_token=token,
+        ):
+            yield event
+
+    return StreamingResponse(_local_run_sse(task_id, source), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 class LottieGenerateIn(BaseModel):

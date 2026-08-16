@@ -7,7 +7,6 @@ import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 import { create as createFontkitFont } from 'fontkit';
 import {
   findFontChild,
-  getFontCatalogSync,
   loadFontCatalog,
   resolveFontFileUrl,
 } from '@/components/rcb/scene/document/fontCatalog';
@@ -110,9 +109,11 @@ async function loadFontkitFont(url: string): Promise<FkFont | null> {
 function commandsToPathD(commands: FkCommand[], ox: number, oy: number, scale: number): string {
   if (!commands?.length) return '';
   const out: string[] = [];
-  // 1 decimal (~0.1px) — halves outline payload vs toFixed(2) with no visible loss.
-  const X = (x: number) => (ox + x * scale).toFixed(1);
-  const Y = (y: number) => (oy - y * scale).toFixed(1); // font space ↑ → SVG ↓
+  // Scene-space decimals: ~0.05px accuracy. Fixed toFixed(1) collapsed CJK
+  // outlines when fontSize is ~1 scene px (common at high zoom) → W≈few H≈1 junk.
+  const decimals = outlinePathDecimals(scale);
+  const X = (x: number) => (ox + x * scale).toFixed(decimals);
+  const Y = (y: number) => (oy - y * scale).toFixed(decimals); // font space ↑ → SVG ↓
   for (const c of commands) {
     const a = c.args || [];
     switch (c.command) {
@@ -144,6 +145,15 @@ function commandsToPathD(commands: FkCommand[], ox: number, oy: number, scale: n
   return out.join(' ');
 }
 
+/** Decimal places for glyph coords so small scene fontSize keeps counters. */
+export function outlinePathDecimals(scale: number): number {
+  const s = Math.max(1e-9, Number(scale) || 0);
+  if (s >= 0.05) return 1;
+  if (s >= 0.01) return 2;
+  if (s >= 0.002) return 3;
+  return 4;
+}
+
 function measureLayoutWidth(
   font: FkFont,
   line: string,
@@ -162,7 +172,7 @@ function measureLayoutWidth(
   return w;
 }
 
-/** Font file URLs to try — painted face first, then CJK-capable catalog fallbacks. */
+/** Font file URLs to try — painted face first, then a short CJK-capable list. */
 function outlineFontCandidateUrls(family: string, weight: number): string[] {
   const urls: string[] = [];
   const push = (url: string | null | undefined) => {
@@ -178,13 +188,15 @@ function outlineFontCandidateUrls(family: string, weight: number): string[] {
   for (const name of OUTLINE_FONT_FALLBACKS) {
     push(resolveFontFileUrl(name, weight));
   }
-  const catalog = getFontCatalogSync();
-  for (const node of catalog) {
-    const label = `${node.family} ${node.displayName || ''}`;
-    if (!/sc|cjk|han|普惠|黑体|宋体|楷|明朝|gothic|sans sc/i.test(label)) continue;
-    push(resolveFontFileUrl(node.family, weight));
-  }
-  return urls;
+  // Cap: full-catalog CJK sweeps load multi‑MB faces serially and freeze the
+  // main thread (e2e / Outline button hang). Named fallbacks above are enough.
+  return urls.slice(0, 6);
+}
+
+function yieldMain(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 function buildGlyphPathParts(
@@ -244,6 +256,13 @@ export async function outlineTextFromFont(node: SceneNodeInput): Promise<Outline
   const plain = parseNodeText(node.attrs || {}).trim();
   if (!plain) return null;
 
+  // fontkit parses CJK OTF/TTF synchronously on the main thread (multi‑MB faces).
+  // That freezes Outline UI / e2e for minutes. Let `outlineTextLocal` trace the
+  // already-painted CSS face instead; Latin stays on the vector fontkit path.
+  if (/[\u3400-\u9fff\uf900-\ufaff]/.test(plain)) {
+    return null;
+  }
+
   await loadFontCatalog();
 
   const style = parseNodeTextStyle(node.attrs || {});
@@ -271,6 +290,7 @@ export async function outlineTextFromFont(node: SceneNodeInput): Promise<Outline
   };
 
   for (const url of urls) {
+    await yieldMain();
     const font = await loadFontkitFont(url);
     if (!font?.unitsPerEm) continue;
     const parts = buildGlyphPathParts(font, lines, layoutOpts);

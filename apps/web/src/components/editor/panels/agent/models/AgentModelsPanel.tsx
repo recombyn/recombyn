@@ -33,13 +33,13 @@ import {
   removeCustomLlmProvider,
   type CustomLlmProvider,
   type CustomModelKind,
-} from './customLlmProviders';
+} from '../customLlmProviders';
 import { CUSTOM_MODEL_ICON_OPTIONS, ModelBrandIcon } from './ModelPickerPanel';
 import {
   cachePresetRules,
   getCachedOpenrouterAvailability,
   warmOpenrouterAvailability,
-} from './agentRoutePrefs';
+} from '../agentRoutePrefs';
 import {
   AgentRoutePrefsEditor,
   routeCatalogFromListModels,
@@ -1081,5 +1081,5 @@ export {
   warmAgentRoutePresetRules,
   type AgentRoutePreset,
   type AgentRoutePrefs,
-} from './agentRoutePrefs';
+} from '../agentRoutePrefs';
 export { AgentRoutePrefsEditor, type SharedRouteCatalog } from './AgentRoutePrefsEditor';

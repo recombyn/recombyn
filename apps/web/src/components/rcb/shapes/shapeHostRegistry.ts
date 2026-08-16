@@ -16,19 +16,31 @@ export type ShapeHostHandle = {
 
 const hosts = new Map<string, ShapeHostHandle>();
 const hostListeners = new Set<() => void>();
+const nodeHostListeners = new Map<string, Set<() => void>>();
 let hostEpoch = 0;
 
 /** Shared nodeId → paint element map used by preview/replace. */
 let sharedNodeEls: Map<string, SceneHostEl> | null = null;
 
-function bumpHostEpoch() {
-  hostEpoch += 1;
-  for (const fn of hostListeners) {
+function notifyListeners(listeners: Iterable<() => void>) {
+  for (const fn of listeners) {
     try {
       fn();
     } catch {
       /* ignore */
     }
+  }
+}
+
+function bumpHostEpoch(nodeId?: string) {
+  hostEpoch += 1;
+  notifyListeners(hostListeners);
+  if (nodeId) {
+    notifyListeners(nodeHostListeners.get(nodeId) || []);
+    return;
+  }
+  for (const listeners of nodeHostListeners.values()) {
+    notifyListeners(listeners);
   }
 }
 
@@ -40,13 +52,26 @@ export function subscribeShapeHosts(fn: () => void) {
   };
 }
 
+/** Subscribe to one host only; title chrome must not rerender for unrelated nodes. */
+export function subscribeShapeHost(nodeId: string, fn: () => void) {
+  const id = String(nodeId || '');
+  if (!id) return () => {};
+  const listeners = nodeHostListeners.get(id) || new Set<() => void>();
+  listeners.add(fn);
+  nodeHostListeners.set(id, listeners);
+  return () => {
+    listeners.delete(fn);
+    if (!listeners.size) nodeHostListeners.delete(id);
+  };
+}
+
 /**
  * Live DOM geometry preview (corner radius / star tip) changed `d` without remount.
  * Bump listeners so HostPathChrome re-reads the baseline path.
  */
 export function notifyShapeHostGeometry(nodeId?: string) {
   if (nodeId) invalidateNodePath2D(nodeId);
-  bumpHostEpoch();
+  bumpHostEpoch(nodeId);
 }
 
 export function getShapeHostEpoch() {
@@ -72,7 +97,7 @@ export function registerShapeHost(handle: ShapeHostHandle) {
   if (handle.layer && sceneShapesMount && handle.layer.parentNode === sceneShapesMount) {
     syncSharedMountPaintOrder(sceneShapesMount);
   }
-  bumpHostEpoch();
+  bumpHostEpoch(handle.nodeId);
 }
 
 export function updateShapeHostElement(nodeId: string, el: SceneHostEl | null) {
@@ -84,14 +109,14 @@ export function updateShapeHostElement(nodeId: string, el: SceneHostEl | null) {
   }
   // Paint remount → drop Path2D binding so the next hit rebuilds from current `d`.
   invalidateNodePath2D(nodeId);
-  bumpHostEpoch();
+  bumpHostEpoch(nodeId);
 }
 
 export function unregisterShapeHost(nodeId: string) {
   hosts.delete(nodeId);
   sharedNodeEls?.delete(nodeId);
   invalidateNodePath2D(nodeId);
-  bumpHostEpoch();
+  bumpHostEpoch(nodeId);
 }
 
 export function getShapeHost(nodeId: string) {
@@ -106,23 +131,26 @@ export function clearShapeHosts() {
   hosts.clear();
 }
 
-/** One SVG under `[data-rcb-world]` — grid + all shape layers share this lattice. */
+/** One screen-surface SVG — all shape layers share the canonical camera matrix. */
 let sceneWorldRoot: SVGSVGElement | null = null;
 let sceneShapesMount: SVGGElement | null = null;
 let sceneDrawPreviewMount: SVGGElement | null = null;
 let sceneSmartGuidesMount: SVGGElement | null = null;
+let sceneSelectionChromeMount: SVGGElement | null = null;
 let sceneWorldEpoch = 0;
 
 export function setSceneWorldRoot(
   root: SVGSVGElement | null,
   shapesMount: SVGGElement | null,
   drawPreviewMount: SVGGElement | null = null,
-  smartGuidesMount: SVGGElement | null = null
+  smartGuidesMount: SVGGElement | null = null,
+  selectionChromeMount: SVGGElement | null = null
 ) {
   sceneWorldRoot = root;
   sceneShapesMount = shapesMount;
   sceneDrawPreviewMount = drawPreviewMount;
   sceneSmartGuidesMount = smartGuidesMount;
+  sceneSelectionChromeMount = selectionChromeMount;
   sceneWorldEpoch += 1;
   bumpHostEpoch();
 }
@@ -202,6 +230,11 @@ export function getSceneDrawPreviewMount() {
 /** Align/gap guides — must share world SVG lattice (not a sibling surface). */
 export function getSceneSmartGuidesMount() {
   return sceneSmartGuidesMount;
+}
+
+/** Selection paint shares the exact SVG root and camera group with scene ink. */
+export function getSceneSelectionChromeMount() {
+  return sceneSelectionChromeMount;
 }
 
 export function getSceneWorldEpoch() {

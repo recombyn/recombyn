@@ -185,6 +185,40 @@ function calcExpandCornerResize(
 }
 
 const EXPAND_PAD = 40;
+/** Keep the snap affordance stable regardless of canvas zoom. */
+const EXPAND_CENTER_SNAP_PX = 8;
+
+export type ExpandCenterSnap = {
+  frame: ExpandFrame;
+  snapX: boolean;
+  snapY: boolean;
+};
+
+/**
+ * Snap the expanded frame's center to the source image center, per axis.
+ * The returned frame remains image-local and keeps the image fully enclosed.
+ */
+export function snapExpandFrameToImageCenter(
+  frame: ExpandFrame,
+  imageWidth: number,
+  imageHeight: number,
+  threshold: number
+): ExpandCenterSnap {
+  const targetOx = (imageWidth - frame.w) / 2;
+  const targetOy = (imageHeight - frame.h) / 2;
+  const limit = Math.max(0, Number(threshold) || 0);
+  const snapX = Math.abs(frame.ox - targetOx) <= limit;
+  const snapY = Math.abs(frame.oy - targetOy) <= limit;
+  return {
+    frame: {
+      ...frame,
+      ox: snapX ? targetOx : frame.ox,
+      oy: snapY ? targetOy : frame.oy,
+    },
+    snapX,
+    snapY,
+  };
+}
 
 export function initialExpandFrame(cw: number, ch: number): ExpandFrame {
   const pad = EXPAND_PAD;
@@ -239,7 +273,6 @@ export function expandFrameForRatio(
 const ACCENT = '#3388ff';
 const ACCENT_SOFT = 'rgba(51, 136, 255, 0.4)';
 const LABEL = '#ffffff';
-const EXPAND_GRAY = '#e8e8e8';
 /** Dim outside the crop hole (kept region stays clear). */
 const CROP_MASK = 'rgba(0, 0, 0, 0.48)';
 
@@ -292,6 +325,7 @@ function CropExpandOverlay({
   const document = useSelector((state: any) => state.editor.document);
   const gridSize = getDocumentGridSize(document);
   const [dragging, setDragging] = useState(false);
+  const [centerSnap, setCenterSnap] = useState({ x: false, y: false });
   const dragRef = useRef<DragState | null>(null);
   const cropRef = useRef(cropRect);
   const expandRef = useRef(expandFrame);
@@ -372,15 +406,27 @@ function CropExpandOverlay({
       const orig = drag.expand;
       if (drag.type === 'move') {
         const moved = calcExpandMove(orig, dx, dy, cw, ch);
+        const centered =
+          e.ctrlKey || e.metaKey
+            ? { frame: moved, snapX: false, snapY: false }
+            : snapExpandFrameToImageCenter(moved, cw, ch, EXPAND_CENTER_SNAP_PX / z);
+        setCenterSnap((prev) =>
+          prev.x === centered.snapX && prev.y === centered.snapY
+            ? prev
+            : { x: centered.snapX, y: centered.snapY }
+        );
         let world: SceneBox = {
-          left: img.left + moved.ox,
-          top: img.top + moved.oy,
-          width: moved.w,
-          height: moved.h,
+          left: img.left + centered.frame.ox,
+          top: img.top + centered.frame.oy,
+          width: centered.frame.w,
+          height: centered.frame.h,
         };
         if (!e.ctrlKey && !e.metaKey) {
           world = snapBoxToGrid(world, gridSize);
         }
+        // A grid step must never pull an axis away from a matched center line.
+        if (centered.snapX) world.left = img.left + centered.frame.ox;
+        if (centered.snapY) world.top = img.top + centered.frame.oy;
         const next = calcExpandMove(
           orig,
           world.left - img.left - orig.ox,
@@ -402,6 +448,7 @@ function CropExpandOverlay({
     const onUp = () => {
       dragRef.current = null;
       setDragging(false);
+      setCenterSnap({ x: false, y: false });
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -424,6 +471,7 @@ function CropExpandOverlay({
       expand: { ...expandRef.current },
     };
     setDragging(true);
+    setCenterSnap({ x: false, y: false });
   };
 
   const startResize = (handle: HandlePos) => (e: React.PointerEvent) => {
@@ -438,6 +486,7 @@ function CropExpandOverlay({
       expand: { ...expandRef.current },
     };
     setDragging(true);
+    setCenterSnap({ x: false, y: false });
   };
 
   const frameStyle: CSSProperties = {
@@ -527,6 +576,19 @@ function CropExpandOverlay({
 
   const holeLeft = mode === 'expand' ? -expandFrame.ox * z : 0;
   const holeTop = mode === 'expand' ? -expandFrame.oy * z : 0;
+  const guideLeft = Math.min(origin.x, imgOrigin.x);
+  const guideTop = Math.min(origin.y, imgOrigin.y);
+  const guideRight = Math.max(origin.x + stageW, imgOrigin.x + imgStageW);
+  const guideBottom = Math.max(origin.y + stageH, imgOrigin.y + imgStageH);
+  const isExpandingMove = mode === 'expand' && dragging && dragRef.current?.type === 'move';
+  const centerGuideStyle = (axis: 'x' | 'y'): CSSProperties => ({
+    // Center guides are an active snap affordance only. Keep them thin and
+    // visually consistent with the existing alignment guides.
+    backgroundImage:
+      axis === 'x'
+        ? `repeating-linear-gradient(to bottom, ${ACCENT_SOFT} 0 4px, transparent 4px 8px)`
+        : `repeating-linear-gradient(to right, ${ACCENT_SOFT} 0 4px, transparent 4px 8px)`,
+  });
 
   return (
     <RcbOverlayPortal>
@@ -538,34 +600,31 @@ function CropExpandOverlay({
         {mode === 'expand' ? (
           <div className="pointer-events-none absolute overflow-hidden" style={frameStyle}>
             <div
-              className="absolute left-0 right-0 top-0"
-              style={{ height: Math.max(0, holeTop), background: EXPAND_GRAY }}
+              className="rcb-crop-expand-margin absolute left-0 right-0 top-0"
+              style={{ height: Math.max(0, holeTop) }}
             />
             <div
-              className="absolute bottom-0 left-0 right-0"
+              className="rcb-crop-expand-margin absolute bottom-0 left-0 right-0"
               style={{
                 height: Math.max(0, stageH - holeTop - imgStageH),
-                background: EXPAND_GRAY,
               }}
             />
             <div
-              className="absolute"
+              className="rcb-crop-expand-margin absolute"
               style={{
                 left: 0,
                 top: holeTop,
                 width: Math.max(0, holeLeft),
                 height: imgStageH,
-                background: EXPAND_GRAY,
               }}
             />
             <div
-              className="absolute"
+              className="rcb-crop-expand-margin absolute"
               style={{
                 left: holeLeft + imgStageW,
                 top: holeTop,
                 width: Math.max(0, stageW - holeLeft - imgStageW),
                 height: imgStageH,
-                background: EXPAND_GRAY,
               }}
             />
           </div>
@@ -676,16 +735,47 @@ function CropExpandOverlay({
           })}
         </div>
 
-        {mode === 'expand' && dragging ? (
-          <div
-            className="pointer-events-none absolute ring-1 ring-black/20"
-            style={{
-              left: imgOrigin.x,
-              top: imgOrigin.y,
-              width: imgStageW,
-              height: imgStageH,
-            }}
-          />
+        {isExpandingMove ? (
+          <>
+            <div
+              className="pointer-events-none absolute"
+              style={{
+                left: imgOrigin.x,
+                top: imgOrigin.y,
+                width: imgStageW,
+                height: imgStageH,
+                boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.28)',
+              }}
+            />
+            {centerSnap.x ? (
+              <div
+                data-expand-center-guide="vertical"
+                className="pointer-events-none absolute"
+                style={{
+                  ...centerGuideStyle('x'),
+                  left: imgOrigin.x + imgStageW / 2,
+                  top: guideTop,
+                  width: 1,
+                  height: guideBottom - guideTop,
+                  transform: 'translateX(-50%)',
+                }}
+              />
+            ) : null}
+            {centerSnap.y ? (
+              <div
+                data-expand-center-guide="horizontal"
+                className="pointer-events-none absolute"
+                style={{
+                  ...centerGuideStyle('y'),
+                  left: guideLeft,
+                  top: imgOrigin.y + imgStageH / 2,
+                  width: guideRight - guideLeft,
+                  height: 1,
+                  transform: 'translateY(-50%)',
+                }}
+              />
+            ) : null}
+          </>
         ) : null}
 
       </div>

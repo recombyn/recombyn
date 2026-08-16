@@ -92,56 +92,10 @@ function AppLogo({
 
 export default memo(AppLogo);
 
-export type BrandWordmarkLoaderSize = 'sm' | 'lg';
-
-type BrandWordmarkLoaderProps = {
-  size?: BrandWordmarkLoaderSize;
-  /** Screen-reader status. Omit when the parent already exposes busy/label. */
-  label?: string;
-  className?: string;
-};
-
-/**
- * Gradient-shine wordmark used as the app loading indicator
- * (not skeletons, not inline button spinners).
- * Also drops the static `index.html` splash when first mounted.
- */
+/** Drops the static `index.html` splash when the app shell mounts. */
 export function dismissHtmlBootSplash() {
   if (typeof document === 'undefined') return;
   const el = document.getElementById('boot-splash');
   if (!el) return;
   el.remove();
 }
-
-function BrandWordmarkLoader({
-  size = 'sm',
-  label,
-  className,
-}: BrandWordmarkLoaderProps) {
-  const { t } = useTranslation();
-  const wordmark = t('app.name').toLowerCase();
-  const labelled = Boolean(label);
-
-  useEffect(() => {
-    dismissHtmlBootSplash();
-  }, []);
-
-  return (
-    <div
-      className={cn('flex items-center justify-center', className)}
-      role={labelled ? 'status' : undefined}
-      aria-busy={labelled || undefined}
-      aria-label={label}
-    >
-      <span
-        className={cn('rcb-boot-wordmark', size === 'sm' && 'rcb-boot-wordmark--sm')}
-        aria-hidden
-      >
-        {wordmark}
-      </span>
-    </div>
-  );
-}
-
-const MemoizedBrandWordmarkLoader = memo(BrandWordmarkLoader);
-export { MemoizedBrandWordmarkLoader as BrandWordmarkLoader };

@@ -87,4 +87,21 @@ describe('pen/pencil outline → path-edit paint', () => {
     expect(withForceHandles).toBeGreaterThan(withoutForce);
     expect(withoutForce).toBeLessThanOrEqual(48);
   });
+
+  it('keeps rotation on a rounded outline when arc commands cannot be safely baked', () => {
+    const node = {
+      key: 'rect' as const,
+      x: 120,
+      y: 80,
+      width: 180,
+      height: 96,
+      attrs: { shapeType: 'roundRect', radius: 18, angle: 31, 'fill-color': '#ffffff' },
+    };
+    const out = buildOutlinePath(node, { zoom: 1 });
+    expect(out?.bakeAngle).toBeUndefined();
+    expect(out?.pathD).toMatch(/[Aa]/);
+    const patch = outlineNodePatch(node, out!);
+    expect(Number((patch.attrs as Record<string, unknown>).angle || 0)).toBe(31);
+    expect(String(patch.attrs.path)).toBe(out?.pathD);
+  });
 });

@@ -30,8 +30,9 @@ import {
   rcbStepZoom,
   rcbZoomAtPoint,
 } from '../core/math';
-import { SceneSpatialRuntime } from '../core/spatialIndex';
+import { SceneSpatialRuntime, getSharedSceneSpatialRuntime } from '../core/spatialIndex';
 import { RCB_DEFAULT_CAMERA, type RcbCamera } from '../core/types';
+import { cameraSvgTransform, createCameraTransform } from '../camera/transform';
 import {
   createCanvasSceneRenderer,
   getSceneLodPaint,
@@ -41,19 +42,24 @@ import {
 } from '../render/sceneRenderer';
 import { subscribeTransformPreview } from '../core/transformPreview';
 import type { SceneDocument } from '../sceneNode';
-import {
-  setInfiniteSvgPaintCamera,
-  snapInfiniteSvgViewportToCamera,
-  worldCameraViewport,
-} from '../scene/paint/sceneToSvg';
-import { listShapeHosts, notifyShapeHostGeometry, setSceneWorldRoot } from '../shapes/shapeHostRegistry';
+import { setInfiniteSvgPaintCamera } from '../scene/paint/sceneToSvg';
+import { notifyShapeHostGeometry, setSceneWorldRoot } from '../shapes/shapeHostRegistry';
 import { DEFAULT_GRID_SIZE, shouldShowPixelGrid } from '../selection/alignGuides';
 
 const EMPTY_SCENE_DOC: SceneDocument = {
   deltaSetLike: {
-    ROOT: { id: 'ROOT', key: 'group', children: [] },
+    ROOT: {
+      id: 'ROOT',
+      key: 'group',
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      attrs: {},
+      children: [],
+    },
   },
-} as SceneDocument;
+};
 
 export type { RcbCamera };
 export { RCB_DEFAULT_CAMERA };
@@ -90,9 +96,10 @@ export function zoomAtPoint(
   camera: RcbCamera,
   nextZoom: number,
   localX: number,
-  localY: number
+  localY: number,
+  dpr?: number
 ): RcbCamera {
-  return rcbZoomAtPoint(camera, nextZoom, localX, localY);
+  return rcbZoomAtPoint(camera, nextZoom, localX, localY, dpr);
 }
 
 export type RcbCanvasProps = {
@@ -143,8 +150,8 @@ export type RcbCanvasProps = {
  * Layers:
  *   1. Viewport — wheel / pan, overflow hidden
  *   2. Scene Canvas underlay — screen-space Canvas2D (grid + idle/LOD ink)
- *   3. World — CSS `translate + scale` (SVG/HTML content; chrome is overlay)
- *   4. Overlay — unscaled screen UI (selection chrome portals)
+ *   3. Shared SVG camera group — scene ink, previews, guides, and chrome
+ *   4. Overlay — unscaled HTML UI
  *
  * Pixel grid uses CameraTransform on the underlay (same pan/zoom as ink), not
  * an SVG path under world `scale`.
@@ -188,6 +195,7 @@ function RcbCanvas({
   const [overlayEl, setOverlayEl] = useState<HTMLDivElement | null>(null);
   const [viewportEl, setViewportEl] = useState<HTMLElement | null>(null);
   const [devicePixelRatio, setDevicePixelRatio] = useState(() => readDevicePixelRatio());
+  const devicePixelRatioRef = useRef(devicePixelRatio);
   const paintCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintRendererRef = useRef<SceneRenderer | null>(null);
   const gridSizeRef = useRef(gridSize);
@@ -195,6 +203,7 @@ function RcbCanvas({
 
   cameraRef.current = camera;
   gridSizeRef.current = gridSize;
+  devicePixelRatioRef.current = devicePixelRatio;
 
   const markCameraMoving = useCallback(() => {
     setCameraMoving(true);
@@ -385,7 +394,13 @@ function RcbCanvas({
 
       if (e.ctrlKey || e.metaKey) {
         onCameraChange(
-          rcbZoomAtPoint(cam, cam.zoom * (deltaY > 0 ? 0.92 : 1.08), local.x, local.y)
+          rcbZoomAtPoint(
+            cam,
+            cam.zoom * (deltaY > 0 ? 0.92 : 1.08),
+            local.x,
+            local.y,
+            devicePixelRatioRef.current
+          )
         );
         return;
       }
@@ -472,52 +487,52 @@ function RcbCanvas({
   setInfiniteSvgPaintCamera(camera, devicePixelRatio, { width: stageW, height: stageH });
   const g = gridSize > 0 ? gridSize : DEFAULT_GRID_SIZE;
   const showPixelGrid = shouldShowPixelGrid(camZ);
-  const worldVp = worldCameraViewport(camera, devicePixelRatio, stageW, stageH);
-  const sceneLeft = worldVp?.left ?? -camX / camZ;
-  const sceneTop = worldVp?.top ?? -camY / camZ;
+  const sceneLeft = -camX / camZ;
+  const sceneTop = -camY / camZ;
 
   // Keep every host on the shared world viewport; bump chrome to re-mirror.
-  useEffect(() => {
+  // useLayoutEffect: same frame as world CSS camera — useEffect left one paint of desync.
+  useLayoutEffect(() => {
     setInfiniteSvgPaintCamera(camera, devicePixelRatio, {
       width: viewportEl?.clientWidth || 0,
       height: viewportEl?.clientHeight || 0,
     });
-    for (const h of listShapeHosts()) {
-      if (h.root) snapInfiniteSvgViewportToCamera(h.root, camera, devicePixelRatio);
-    }
     notifyShapeHostGeometry();
   }, [camera, devicePixelRatio, viewportEl?.clientWidth, viewportEl?.clientHeight]);
 
   // One scene SVG for shape layers (grid lives on the Canvas underlay).
-  const sceneRootRef = useRef<SVGSVGElement | null>(null);
-  const shapesMountRef = useRef<SVGGElement | null>(null);
   const setSceneRootNode = useCallback((node: SVGSVGElement | null) => {
-    sceneRootRef.current = node;
-    const mount = node
-      ? (node.querySelector(':scope > g[data-rcb-shapes-mount]') as SVGGElement | null)
+    const cameraRoot = node
+      ? (node.querySelector(':scope > g[data-rcb-scene-camera]') as SVGGElement | null)
       : null;
-    const previewMount = node
-      ? (node.querySelector(':scope > g[data-rcb-draw-preview-mount]') as SVGGElement | null)
+    const mount = cameraRoot
+      ? (cameraRoot.querySelector(':scope > g[data-rcb-shapes-mount]') as SVGGElement | null)
       : null;
-    const guidesMount = node
-      ? (node.querySelector(':scope > g[data-rcb-smart-guides-mount]') as SVGGElement | null)
+    const previewMount = cameraRoot
+      ? (cameraRoot.querySelector(':scope > g[data-rcb-draw-preview-mount]') as SVGGElement | null)
       : null;
-    shapesMountRef.current = mount;
-    setSceneWorldRoot(node, mount, previewMount, guidesMount);
+    const guidesMount = cameraRoot
+      ? (cameraRoot.querySelector(':scope > g[data-rcb-smart-guides-mount]') as SVGGElement | null)
+      : null;
+    const selectionChromeMount = cameraRoot
+      ? (cameraRoot.querySelector(':scope > g[data-rcb-selection-chrome-mount]') as SVGGElement | null)
+      : null;
+    setSceneWorldRoot(node, mount, previewMount, guidesMount, selectionChromeMount);
   }, []);
   useEffect(() => {
-    return () => setSceneWorldRoot(null, null, null, null);
+    return () => setSceneWorldRoot(null, null, null, null, null);
   }, []);
 
   // Stage Canvas2D underlay — grid + LOD / idle proxies (ADR 0027).
+  // Prefer the product SceneSpatialRuntime when SvgCanvas has published it.
   useEffect(() => {
     const canvas = paintCanvasRef.current;
     if (!canvas) return;
-    const spatial = new SceneSpatialRuntime(64);
+    const fallbackSpatial = new SceneSpatialRuntime(64);
     const renderer = createCanvasSceneRenderer({
       canvas,
       getDocument: () => getSceneLodPaint()?.document ?? EMPTY_SCENE_DOC,
-      getSpatial: () => spatial,
+      getSpatial: () => getSharedSceneSpatialRuntime() ?? fallbackSpatial,
       getZoom: () => rcbCameraCssZoom(cameraRef.current),
       listNodeIds: () => listSceneLodPaintIds(),
       getNodeBox: (id) => getSceneLodPaint()?.getNodeBox(id) ?? null,
@@ -563,33 +578,9 @@ function RcbCanvas({
     });
   }, [camera, devicePixelRatio, stageW, stageH, g, showPixelGrid, lodPaintEpoch]);
 
-  // Sync shared scene root viewport whenever camera / stage / dpr changes.
-  // Primitives (not `worldVp` object) — that helper returns a fresh object each render.
-  const worldVpLeft = worldVp?.left;
-  const worldVpTop = worldVp?.top;
-  const worldVpWidth = worldVp?.width;
-  const worldVpHeight = worldVp?.height;
-  useEffect(() => {
-    const root = sceneRootRef.current;
-    if (
-      !root ||
-      worldVpLeft == null ||
-      worldVpTop == null ||
-      worldVpWidth == null ||
-      worldVpHeight == null
-    ) {
-      return;
-    }
-    root.setAttribute('width', String(worldVpWidth));
-    root.setAttribute('height', String(worldVpHeight));
-    root.setAttribute('viewBox', `${worldVpLeft} ${worldVpTop} ${worldVpWidth} ${worldVpHeight}`);
-    root.setAttribute('data-rcb-world-surface', '1');
-    root.setAttribute('data-rcb-infinite', '1');
-    root.style.left = `${worldVpLeft}px`;
-    root.style.top = `${worldVpTop}px`;
-    root.style.width = `${worldVpWidth}px`;
-    root.style.height = `${worldVpHeight}px`;
-  }, [worldVpLeft, worldVpTop, worldVpWidth, worldVpHeight]);
+  const sceneCameraTransform = cameraSvgTransform(
+    createCameraTransform(camera, devicePixelRatio)
+  );
 
   return (
     <RcbCameraContext.Provider value={camera}>
@@ -639,52 +630,40 @@ function RcbCanvas({
                 data-rcb-grid-top={String(Math.floor(sceneTop / g) * g)}
                 className="pointer-events-none absolute inset-0 z-0"
               />
-              {/* Infinite canvas world: camera CSS + scene SVG hosts (shapes). */}
-              <div
-                className="rcb-html-layer absolute left-0 top-0 z-[1] origin-top-left overflow-visible [&>*]:pointer-events-auto"
-                data-rcb-world="1"
-                data-rcb-html-layer="1"
-                style={{
-                  // Plain 2D translate (not translate3d): GPU float32 layers drift
-                  // from Canvas2D / overlay math at 10000% and detach chrome / grid.
-                  transform: `translate(${camX}px, ${camY}px) scale(${camZ})`,
-                  // Screen-constant SVG chrome under camera scale (1/zoom).
-                  ['--rcb-zoom' as string]: String(camZ),
-                  ['--rcb-scale' as string]: `calc(1 / ${camZ})`,
-                }}
-              >
-                {worldVp && worldVp.width > 0 && worldVp.height > 0 ? (
-                  <svg
-                    ref={setSceneRootNode}
-                    aria-hidden
-                    data-rcb-scene-root="1"
-                    data-rcb-infinite="1"
-                    data-rcb-world-surface="1"
-                    data-rcb-scene-surface="1"
-                    data-rcb-grid-size={String(g)}
-                    className="pointer-events-none absolute z-0 overflow-visible"
-                    width={worldVp.width}
-                    height={worldVp.height}
-                    viewBox={`${worldVp.left} ${worldVp.top} ${worldVp.width} ${worldVp.height}`}
-                    preserveAspectRatio="none"
-                    style={{
-                      left: worldVp.left,
-                      top: worldVp.top,
-                      width: worldVp.width,
-                      height: worldVp.height,
-                      display: 'block',
-                      overflow: 'visible',
-                      shapeRendering: 'geometricPrecision',
-                      pointerEvents: 'none',
-                    }}
-                  >
+              {/* SVG paint uses the exact same direct CameraTransform as screen chrome. */}
+              {stageW > 0 && stageH > 0 ? (
+                <svg
+                  ref={setSceneRootNode}
+                  aria-hidden
+                  data-rcb-scene-root="1"
+                  data-rcb-screen-surface="1"
+                  data-rcb-infinite="1"
+                  data-rcb-shared-scene-surface="1"
+                  data-rcb-scene-surface="1"
+                  data-rcb-grid-size={String(g)}
+                  className="pointer-events-none absolute inset-0 z-[1] overflow-visible"
+                  width={stageW}
+                  height={stageH}
+                  viewBox={`0 0 ${stageW} ${stageH}`}
+                  preserveAspectRatio="none"
+                  style={{
+                    width: stageW,
+                    height: stageH,
+                    display: 'block',
+                    overflow: 'visible',
+                    shapeRendering: 'geometricPrecision',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <g data-rcb-scene-camera="1" transform={sceneCameraTransform}>
                     <g data-rcb-shapes-mount="1" />
                     <g data-rcb-draw-preview-mount="1" />
                     <g data-rcb-smart-guides-mount="1" />
-                  </svg>
-                ) : null}
-                {children}
-              </div>
+                    <g data-rcb-selection-chrome-mount="1" pointerEvents="none" />
+                  </g>
+                </svg>
+              ) : null}
+              {children}
               <div
                 ref={setOverlayEl}
                 data-rcb-overlay="1"

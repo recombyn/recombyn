@@ -1,20 +1,26 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, memo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   useRcbCamera,
+  useRcbDevicePixelRatio,
   useRcbScreenToScene,
+  useRcbViewportEl,
 } from '../camera/context';
-import { rcbCameraCssZoom } from '../core/math';
+import { rcbCameraCssZoom, rcbResolveViewportEl } from '../core/math';
 import {
+  clearChromeHitPads,
   clearChromeKnobHits,
   pickChromeKnobHit,
   setChromeKnobHits,
   type ChromeKnobHit,
+  type PaintedHitZonePick,
 } from '../selection/SelectionChrome';
+import { attachViewportToolPointers } from '../scene/document/sceneHitBridge';
 import {
   boundsOfAnchors,
   findClosestPathHit,
+  insertAnchorOnPath,
   localizeAnchors,
   offsetAnchors,
   penAnchorsToD,
@@ -68,6 +74,8 @@ type Props = {
    * (pull out mirrored handles / cornerize / clear one handle).
    */
   convertPointMode?: boolean;
+  /** Path-edit Add anchor subtool — click a path segment to split it at the landing point. */
+  insertAnchorMode?: boolean;
   /** Stroke paint for newly drawn paths (path-edit Pen). */
   newStrokeColor?: string;
   newStrokeWidth?: number;
@@ -96,8 +104,8 @@ const ANCHOR_HIT_PX = 24;
 const PATH_HIT_PX = 20;
 
 /**
- * Screen-constant chrome (same contract as SelectionChrome):
- * page size = screenPx / zoom under the camera CSS scale. No Math.min caps.
+ * Screen-constant chrome (same contract as SelectionChrome overlay pads):
+ * hit radius in scene = screenPx / zoom. Pads place via worldToScreen.
  */
 const ANCHOR_VIS_PX = 8;
 /** Min screen gap between painted knobs — dense outline verts stay in data / hit-test. */
@@ -110,6 +118,22 @@ const SEL_BASELINE = '#3388ff';
 
 function hitRadiusScene(zoom: number, screenPx: number) {
   return screenPx / Math.max(0.05, zoom || 1);
+}
+
+/**
+ * Screen-constant chrome hit (ADR 0027): scene AABB registry only.
+ * No HTML/SVG pad DOM fallback — same `pickChromeKnobHit` as other knobs.
+ */
+function resolvePenPathEditKnobPick(
+  _e: PointerEvent,
+  sceneX: number,
+  sceneY: number
+): PaintedHitZonePick | null {
+  const painted = pickChromeKnobHit(sceneX, sceneY);
+  if (painted?.kind === 'pen-anchor' || painted?.kind === 'pen-handle') {
+    return painted;
+  }
+  return null;
 }
 
 /**
@@ -534,6 +558,7 @@ function PenPathEditFeature({
   stageEl = null,
   drawNewShapeMode = false,
   convertPointMode = false,
+  insertAnchorMode = false,
   newStrokeColor = '#333333',
   newStrokeWidth = 2,
   gridSnap = true,
@@ -543,6 +568,8 @@ function PenPathEditFeature({
   onExit,
 }: Props) {
   const camera = useRcbCamera();
+  const dpr = useRcbDevicePixelRatio();
+  const viewportEl = useRcbViewportEl();
   const toScene = useRcbScreenToScene();
   const [subpaths, setSubpaths] = useState<PenSubpath[]>([]);
   const [strokeWidth, setStrokeWidth] = useState(0);
@@ -574,6 +601,7 @@ function PenPathEditFeature({
   const onCommitNewShapeRef = useRef(onCommitNewShape);
   const drawNewRef = useRef(drawNewShapeMode);
   const convertPointRef = useRef(convertPointMode);
+  const insertAnchorRef = useRef(insertAnchorMode);
   const newStrokeWidthRef = useRef(newStrokeWidth);
   const gridSnapRef = useRef(gridSnap);
   const gridSizeRef = useRef(gridSize);
@@ -582,6 +610,7 @@ function PenPathEditFeature({
   onCommitNewShapeRef.current = onCommitNewShape;
   drawNewRef.current = drawNewShapeMode;
   convertPointRef.current = convertPointMode;
+  insertAnchorRef.current = insertAnchorMode;
   newStrokeWidthRef.current = newStrokeWidth;
   gridSnapRef.current = gridSnap;
   gridSizeRef.current = gridSize;
@@ -710,12 +739,63 @@ function PenPathEditFeature({
     window.addEventListener('resume:exit-path-edit', onExitToolbar);
     return () => {
       window.removeEventListener('resume:exit-path-edit', onExitToolbar);
-      clearChromeKnobHits(`pen-edit:${nodeId}`);
     };
   }, [enabled, nodeId]);
 
+  // Scene AABB knob registry only (ADR 0027 appendix A — no HTML hit pads).
+  useLayoutEffect(() => {
+    const ownerId = `pen-edit:${nodeId}`;
+    if (!enabled || !subpaths.length) {
+      clearChromeHitPads(ownerId);
+      clearChromeKnobHits(ownerId);
+      return undefined;
+    }
+    clearChromeHitPads(ownerId);
+    const z = Math.max(0.05, rcbCameraCssZoom(camera));
+    const anchorHalf = ANCHOR_HIT_PX / (2 * z);
+    const handleHalf = HANDLE_HIT_PX / (2 * z);
+    const knobHits: ChromeKnobHit[] = [];
+    subpaths.forEach((sp, si) => {
+      sp.anchors.forEach((a, i) => {
+        knobHits.push({
+          ownerId,
+          kind: 'pen-anchor',
+          key: `pen-anchor-${si}-${i}`,
+          x: a.x,
+          y: a.y,
+          half: anchorHalf,
+        });
+        if (a.outX != null && a.outY != null) {
+          knobHits.push({
+            ownerId,
+            kind: 'pen-handle',
+            key: `pen-handle-${si}-${i}-out`,
+            x: a.outX,
+            y: a.outY,
+            half: handleHalf,
+          });
+        }
+        if (a.inX != null && a.inY != null) {
+          knobHits.push({
+            ownerId,
+            kind: 'pen-handle',
+            key: `pen-handle-${si}-${i}-in`,
+            x: a.inX,
+            y: a.inY,
+            half: handleHalf,
+          });
+        }
+      });
+    });
+    setChromeKnobHits(ownerId, knobHits);
+    return () => {
+      clearChromeHitPads(ownerId);
+      clearChromeKnobHits(ownerId);
+    };
+  }, [enabled, nodeId, subpaths, camera.x, camera.y, camera.zoom, dpr]);
+
   useEffect(() => {
-    const hitEl = stageEl || paperEl;
+    const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
     if (!enabled || !hitEl) return undefined;
 
     const radii = () => ({
@@ -772,8 +852,38 @@ function PenPathEditFeature({
         return;
       }
 
-      // Scene registry is the hit truth for painted anchors/handles.
-      const painted = pickChromeKnobHit(p.x, p.y);
+      if (insertAnchorRef.current) {
+        let target: { sub: number; dist: number } | null = null;
+        for (let sub = 0; sub < list.length; sub += 1) {
+          const pathHit = findClosestPathHit(list[sub].anchors, list[sub].closed, p.x, p.y);
+          if (pathHit && (!target || pathHit.dist < target.dist)) {
+            target = { sub, dist: pathHit.dist };
+          }
+        }
+        if (!target || target.dist > radii().path) return;
+        const inserted = insertAnchorOnPath(
+          list[target.sub].anchors,
+          list[target.sub].closed,
+          p.x,
+          p.y,
+          radii().path
+        );
+        if (!inserted) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dirtyRef.current = true;
+        setSubpaths((prev) =>
+          prev.map((subpath, index) =>
+            index === target!.sub ? { ...subpath, anchors: inserted.anchors } : subpath
+          )
+        );
+        setSelectedHandle(null);
+        setHoverAnchor({ sub: target.sub, index: inserted.index });
+        return;
+      }
+
+      // Scene registry first; overlay HTML pads as DOM fallback.
+      const painted = resolvePenPathEditKnobPick(e, p.x, p.y);
       let aRef: AnchorRef | null = null;
       let handleHit: HandleHit | null = null;
       if (painted?.kind === 'pen-anchor') {
@@ -900,13 +1010,18 @@ function PenPathEditFeature({
       if (!drag) {
         const { anchor: anchorR, handle: handleR, path: pathR } = radii();
         const list = subpathsRef.current;
-        if (drawNewRef.current) {
-          // Always show edge preview on the edited path — even mid-draw.
+        if (drawNewRef.current || insertAnchorRef.current) {
+          // Pen and Add anchor share the same edge landing preview.
           const nearest = findClosestOnSubpaths(list, p.x, p.y);
           if (nearest && nearest.dist <= pathR) {
             setPathHover({ x: nearest.x, y: nearest.y });
           } else {
             setPathHover(null);
+          }
+          if (insertAnchorRef.current) {
+            setHoverAnchor(null);
+            setHoverHandle(null);
+            return;
           }
           const skipGrid = e.ctrlKey || !gridSnapRef.current;
           // Snap tip even before the first draft click (CSS cursor ≠ lattice).
@@ -915,8 +1030,21 @@ function PenPathEditFeature({
           setHoverHandle(null);
           return;
         }
-        setHoverAnchor(hitAnchor(list, p, anchorR));
-        setHoverHandle(hitHandle(list, p, handleR));
+        const painted = resolvePenPathEditKnobPick(e, p.x, p.y);
+        if (painted?.kind === 'pen-anchor') {
+          setHoverAnchor({ sub: painted.sub, index: painted.index });
+          setHoverHandle(null);
+        } else if (painted?.kind === 'pen-handle') {
+          setHoverHandle({
+            sub: painted.sub,
+            index: painted.index,
+            side: painted.side,
+          });
+          setHoverAnchor(null);
+        } else {
+          setHoverAnchor(hitAnchor(list, p, anchorR));
+          setHoverHandle(hitHandle(list, p, handleR));
+        }
         setPathHover(null);
         return;
       }
@@ -924,7 +1052,7 @@ function PenPathEditFeature({
       if (drag.kind === 'convert') {
         const dist = Math.hypot(p.x - drag.ax, p.y - drag.ay);
         // Small threshold so a plain Alt-click can still mean 鈥渕ake corner鈥?
-        if (dist < 3 / Math.max(0.05, camera.zoom || 1)) return;
+        if (dist < 3 / Math.max(0.05, rcbCameraCssZoom(camera))) return;
         drag.pulled = true;
         dirtyRef.current = true;
         setSubpaths((prev) =>
@@ -1030,19 +1158,19 @@ function PenPathEditFeature({
     };
 
     hitEl.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    const detachPointers = attachViewportToolPointers(hitEl, {
+      onMove,
+      onUp,
+    });
     window.addEventListener('keydown', onKey, true);
     return () => {
       hitEl.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      detachPointers();
       window.removeEventListener('keydown', onKey, true);
     };
-  }, [enabled, paperEl, stageEl, camera, toScene, nodeId]);
+  }, [enabled, paperEl, stageEl, viewportEl, camera, toScene, nodeId]);
 
   if (!enabled || !subpaths.length) {
-    clearChromeKnobHits(`pen-edit:${nodeId}`);
     return null;
   }
 
@@ -1138,46 +1266,6 @@ function PenPathEditFeature({
     });
   });
 
-  const ownerId = `pen-edit:${nodeId}`;
-  // Hit pads cover every vert / handle even when paint is thinned — otherwise
-  // dense outline points are nearly impossible to grab at high zoom.
-  const anchorHalf = ANCHOR_HIT_PX / (2 * z);
-  const handleHalf = HANDLE_HIT_PX / (2 * z);
-  const knobHits: ChromeKnobHit[] = [];
-  subpaths.forEach((sp, si) => {
-    sp.anchors.forEach((a, i) => {
-      knobHits.push({
-        ownerId,
-        kind: 'pen-anchor',
-        key: `pen-anchor-${si}-${i}`,
-        x: a.x,
-        y: a.y,
-        half: anchorHalf,
-      });
-      if (a.outX != null && a.outY != null) {
-        knobHits.push({
-          ownerId,
-          kind: 'pen-handle',
-          key: `pen-handle-${si}-${i}-out`,
-          x: a.outX,
-          y: a.outY,
-          half: handleHalf,
-        });
-      }
-      if (a.inX != null && a.inY != null) {
-        knobHits.push({
-          ownerId,
-          kind: 'pen-handle',
-          key: `pen-handle-${si}-${i}-in`,
-          x: a.inX,
-          y: a.inY,
-          half: handleHalf,
-        });
-      }
-    });
-  });
-  setChromeKnobHits(ownerId, knobHits);
-
   return (
     <PenPathEditInkSvg
       pathD={d}
@@ -1247,7 +1335,7 @@ function PenPathEditInkSvg({
   knobStroke: number;
   handleStroke: number;
 }) {
-  // Portal into shared world SVG — sibling sceneSurfaceSvgProps drifts under fractional DPR.
+  // Portal into the shared camera group so edit chrome and scene ink use one lattice.
   const [, setWorldEpoch] = useState(() => getSceneWorldEpoch());
   useEffect(
     () =>

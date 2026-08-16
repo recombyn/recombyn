@@ -28,8 +28,7 @@ describe('snapTranslateToPeers (自动吸附)', () => {
     expect(nudgeY).toBe(0);
   });
 
-  it('frame only mid↔mid — edge does not park on plate center', () => {
-    // Mover right edge near frame center (would be the old 假墙); peer edge closer for flush.
+  it('snaps a node outside an artboard to its boundary', () => {
     const frame = {
       left: 0,
       top: 0,
@@ -37,14 +36,26 @@ describe('snapTranslateToPeers (自动吸附)', () => {
       height: 300,
       guideKind: 'frame' as const,
     };
-    const peer = { left: 0, top: 40, width: 100, height: 80, guideKind: 'peer' as const };
-    // Want left=100 (flush to peer). Frame center x=200.
-    const mover = { left: 108, top: 40, width: 50, height: 50 };
+    const mover = { left: 395, top: 80, width: 10, height: 40 };
     const thr = smartSnapThreshold(1); // 8
-    const { box, nudgeX } = snapTranslateToPeers(mover, [frame, peer], thr);
-    expect(box.left).toBe(100);
-    expect(nudgeX).toBe(-8);
-    // Must not jump toward frame center (200 - 108 - 50 = 42… left would become ~150).
-    expect(box.left).not.toBe(150);
+    const { box, nudgeX } = snapTranslateToPeers(mover, [frame], thr);
+    expect(nudgeX).toBe(-5);
+    expect(box.left + box.width).toBe(400);
+  });
+
+  it('snaps content inside an artboard to its boundary', () => {
+    const frame = {
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 300,
+      guideKind: 'frame' as const,
+    };
+    const mover = { left: 6, top: 6, width: 50, height: 40 };
+    const { box, nudgeX, nudgeY } = snapTranslateToPeers(mover, [frame], 8);
+    expect(nudgeX).toBe(-6);
+    expect(nudgeY).toBe(-6);
+    expect(box.left).toBe(0);
+    expect(box.top).toBe(0);
   });
 });

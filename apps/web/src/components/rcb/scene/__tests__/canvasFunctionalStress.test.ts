@@ -30,6 +30,8 @@ import {
 import { createShapeNode, createTextNode } from '@/components/rcb/scene/document/nodeFactories';
 import {
   inflateBoxByVisualOutset,
+  inflateSelectionBox,
+  deflateSelectionBox,
 } from '@/components/rcb/scene/document/sceneEffects';
 import {
   isEditablePathNode,
@@ -44,7 +46,7 @@ import {
   smartSnapThreshold,
 } from '@/components/rcb/selection/alignGuides';
 import {
-  screenChromeBodyTransform,
+  sceneChromeBodyTransform,
   chromeHandleHitRadiusScene,
   pickChromeHandleByGeometry,
   CHROME_HANDLE_HIT_PX,
@@ -74,10 +76,19 @@ function docWithRoot(nodes: SceneDocument['deltaSetLike']): SceneDocument {
     height: 4000,
     gridSize: GRID,
     deltaSetLike: {
-      ROOT: { id: 'ROOT', key: 'group', children: ids },
+      ROOT: {
+        id: 'ROOT',
+        key: 'group',
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        attrs: {},
+        children: ids,
+      },
       ...nodes,
     },
-  } as SceneDocument;
+  };
 }
 
 describe('canvas functional stress (可用性)', () => {
@@ -133,14 +144,9 @@ describe('canvas functional stress (可用性)', () => {
   it('selection chrome body is screen-space via CameraTransform (ADR 0027)', () => {
     const camera = { x: 10, y: -4, zoom: RCB_MAX_ZOOM };
     const box = { left: 100.5, top: 40, width: 5, height: 3 };
-    const z = rcbCameraCssZoom(camera);
-    const t = createCameraTransform(camera, 1);
-    const origin = worldToScreen(t, box.left, box.top);
-    expect(screenChromeBodyTransform(null, box, 0, camera, 1)).toBe(
-      `translate(${origin.x} ${origin.y}) scale(${z})`
-    );
-    expect(screenChromeBodyTransform(null, box, 12, camera, 1)).toBe(
-      `translate(${origin.x} ${origin.y}) rotate(12 ${(5 * z) / 2} ${(3 * z) / 2}) scale(${z})`
+    expect(sceneChromeBodyTransform(box, 0)).toBe('translate(100.5 40)');
+    expect(sceneChromeBodyTransform(box, 12)).toBe(
+      'translate(100.5 40) rotate(12 2.5 1.5)'
     );
     const hit = chromeHandleHitRadiusScene(RCB_MAX_ZOOM, CHROME_HANDLE_HIT_PX, 1);
     expect(hit * RCB_MAX_ZOOM).toBeCloseTo(CHROME_HANDLE_HIT_PX / 2, 6);
@@ -172,21 +178,17 @@ describe('canvas functional stress (可用性)', () => {
     }
   });
 
-  it('pen place + many commits stay on corner/edge-mid lattice', () => {
+  it('pen place + many commits stay on grid-cell perimeter targets', () => {
     const placed: Array<{ x: number; y: number }> = [];
     for (let i = 0; i < 200; i += 1) {
       const raw = { x: 10 + (i % 17) * 0.37, y: 20 + (i % 13) * 0.41 };
       const p = snapPenAnchorPoint(raw.x, raw.y, GRID, false);
       placed.push(p);
-      const onCorner =
-        Math.abs(p.x - snapCoordToGrid(p.x, GRID)) < 1e-9 &&
-        Math.abs(p.y - snapCoordToGrid(p.y, GRID)) < 1e-9;
-      const onEdgeMid =
-        (Math.abs(p.x - snapCoordToGrid(p.x, GRID)) < 1e-9 &&
-          Math.abs((p.y * 2) / GRID - Math.round((p.y * 2) / GRID)) < 1e-9) ||
-        (Math.abs(p.y - snapCoordToGrid(p.y, GRID)) < 1e-9 &&
-          Math.abs((p.x * 2) / GRID - Math.round((p.x * 2) / GRID)) < 1e-9);
-      expect(onCorner || onEdgeMid).toBe(true);
+      const x2 = Math.round((p.x / GRID) * 2);
+      const y2 = Math.round((p.y / GRID) * 2);
+      expect(Math.abs(p.x / GRID - x2 / 2)).toBeLessThan(1e-9);
+      expect(Math.abs(p.y / GRID - y2 / 2)).toBeLessThan(1e-9);
+      expect(x2 % 2 === 0 || y2 % 2 === 0).toBe(true);
     }
     const d = penAnchorsToD(
       placed.slice(0, 8).map((p) => ({ x: p.x, y: p.y })),
@@ -266,10 +268,19 @@ describe('canvas functional stress (可用性)', () => {
     expect(movedFill.nextUnion.width).toBe(box.width);
     expect(movedFill.nextUnion.height).toBe(box.height);
 
-    // Center stroke: product snaps **visual outer ink**; path may sit on half-grid.
+    // Center stroke: origins are chrome (visual outer); path may sit on half-grid.
+    const strokePath = {
+      left: box.left + 0.5,
+      top: box.top + 0.5,
+      width: Math.max(1, box.width - 1),
+      height: Math.max(1, box.height - 1),
+    };
+    const strokeChrome = inflateSelectionBox(strokePath, stroked);
+    assertOnLattice(strokeChrome.left);
+    assertOnLattice(strokeChrome.top);
     const movedStroke = computeMovedUnion({
-      union: box,
-      origins: [{ nodeId: 's', box }],
+      union: strokeChrome,
+      origins: [{ nodeId: 's', box: strokeChrome }],
       document,
       dx: 5.7,
       dy: 6.3,
@@ -278,7 +289,10 @@ describe('canvas functional stress (可用性)', () => {
       targets: [],
       threshold: smartSnapThreshold(zoom),
     });
-    const visual = inflateBoxByVisualOutset(movedStroke.nextUnion, stroked);
+    assertOnLattice(movedStroke.nextUnion.left);
+    assertOnLattice(movedStroke.nextUnion.top);
+    const pathAfter = deflateSelectionBox(movedStroke.nextUnion, stroked);
+    const visual = inflateBoxByVisualOutset(pathAfter, stroked);
     assertOnLattice(visual.left);
     assertOnLattice(visual.top);
 

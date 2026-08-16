@@ -60,15 +60,15 @@ import AgentComposerInput, {
 import {
   ComposerAttachmentChip,
   composerAttachActionClass,
-} from '@/components/editor/panels/agent/AgentComposerShell';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import MentionAttachPanel, {
   type MentionAttachItem,
-} from '@/components/editor/panels/agent/MentionAttachPanel';
+} from '@/components/editor/panels/agent/composer/MentionAttachPanel';
 import type { UserAsset } from '@/models/assets';
-import { AspectRatioGlyph } from '@/components/editor/panels/agent/ImageAspectRatioPicker';
+import { AspectRatioGlyph } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   ModelBrandIcon,
-} from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { buildByokAwareModelList, modelSupportsVisionInput } from '@/components/editor/panels/agent/llmModelMeta';
 import { flyPickIntoImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import {
@@ -91,7 +91,7 @@ import {
   setDocumentFromCanvas,
   startCanvasAttachPick,
 } from '@/store/modules/editor';
-import { noteCanvasFlyLand } from '@/components/editor/panels/agent/flyToChat';
+import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateLottieCredits } from '@/utils/imageCredits';

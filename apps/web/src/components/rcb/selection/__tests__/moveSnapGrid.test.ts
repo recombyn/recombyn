@@ -65,7 +65,7 @@ describe('visual-outer move snap (1px grid)', () => {
     },
   };
 
-  it('chrome stays on path; visual outer is separate (move/snap only)', () => {
+  it('chrome stays on stored geometry while stroke keeps its visual outset', () => {
     expect(strokeChromeOutset(centerStroke1)).toBe(0);
     expect(strokeVisualOutset(centerStroke1)).toBe(0.5);
     const path = { left: 10.5, top: 8.5, width: 3, height: 2 };

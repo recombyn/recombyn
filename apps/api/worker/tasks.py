@@ -18,6 +18,7 @@ _EXPORT_KIND = "export"
 _IMAGE_KIND = "image"
 _VIDEO_KIND = "video"
 _AUDIO_KIND = "audio"
+_DESIGN_AGENT_KIND = "design_agent"
 _JOB_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 
 
@@ -47,6 +48,116 @@ def _fail_job_to_dlq(
         extra={"job_id": job_id, "trace_id": trace_id, "event": "dlq"},
     )
     return {"job_id": job_id, "status": "failed", "error": error, "dlq": True}
+
+
+@celery.task(name="worker.tasks.run_design_agent_job", bind=True)
+def run_design_agent_job(
+    self, task_id: str, resume: bool = False, resume_token: str | None = None
+) -> dict:
+    """Run a persisted design task. Payload travels via DB, never Celery messages."""
+    from app.services.design.admin.task_store import get_design_task, parse_task_meta
+    from app.services.design.runtime.event_publisher import publish_design_output
+    from app.services.design.runtime.orchestrator import (
+        resume_design_job,
+        run_design_job_from_snapshot,
+    )
+
+    row = get_design_task(task_id)
+    if not row:
+        return {"task_id": task_id, "status": "error", "error": "task_not_found"}
+    meta = parse_task_meta(row.get("meta_json"))
+    snapshot = meta.get("worker_snapshot")
+    if not isinstance(snapshot, dict) or int(snapshot.get("version") or 0) != 2:
+        return {"task_id": task_id, "status": "error", "error": "snapshot_unavailable"}
+
+    async def execute() -> None:
+        if resume:
+            async for event in resume_design_job(
+                user_id=str(row.get("user_id") or ""),
+                task_id=task_id,
+                resume_token=resume_token,
+            ):
+                publish_design_output(task_id, event)
+            return
+        async for event in run_design_job_from_snapshot(
+            user_id=str(row.get("user_id") or ""),
+            snapshot=snapshot,
+            task_id=task_id,
+        ):
+            publish_design_output(task_id, event)
+
+    try:
+        asyncio.run(execute())
+        return {"task_id": task_id, "status": "done"}
+    except Exception as exc:  # noqa: BLE001
+        from app.services.design.admin.task_store import (
+            _update_task,
+            build_run_lifecycle,
+            merge_task_meta,
+            release_run_lease,
+        )
+
+        error = str(exc)[:800] or "worker_failed"
+        publish_design_output(task_id, {"type": "error", "code": "worker_failed", "message": error})
+        merge_task_meta(
+            task_id,
+            {
+                "run_lifecycle": build_run_lifecycle(
+                    thread_id=f"design:{task_id}",
+                    resumable=True,
+                    interrupt_kind="worker_failed",
+                    extra={"recovery_hint": "resume_from_checkpoint"},
+                )
+            },
+        )
+        _update_task(task_id, status="error", error_message=error)
+        release_run_lease(task_id)
+        return {"task_id": task_id, "status": "error", "error": str(exc)[:800]}
+
+
+@celery.task(name="worker.tasks.requeue_stale_design_agent_jobs")
+def requeue_stale_design_agent_jobs() -> dict:
+    """Recover tasks lost between API persistence and Worker claim."""
+    from app.core.config import settings
+
+    if not bool(getattr(settings, "design_agent_worker_enabled", False)):
+        return {"status": "disabled", "requeued": 0}
+    from app.services.design.admin.task_store import list_stale_queued_task_ids
+
+    ids = list_stale_queued_task_ids(
+        older_than_sec=float(getattr(settings, "design_agent_worker_requeue_sec", 60.0))
+    )
+    for task_id in ids:
+        run_design_agent_job.delay(task_id)
+    return {"status": "ok", "requeued": len(ids)}
+
+
+@celery.task(name="worker.tasks.recover_expired_design_agent_leases")
+def recover_expired_design_agent_leases() -> dict:
+    from app.core.config import settings
+    from app.services.design.admin.task_store import (
+        list_stale_running_task_ids,
+        recover_expired_running_task,
+    )
+
+    if not bool(getattr(settings, "design_agent_worker_enabled", False)):
+        return {"status": "disabled", "recovered": 0}
+    ttl = float(getattr(settings, "design_run_lease_ttl_sec", 90.0))
+    ids = list_stale_running_task_ids(older_than_sec=ttl, limit=100)
+    recovered = sum(1 for task_id in ids if recover_expired_running_task(task_id))
+    return {"status": "ok", "recovered": recovered}
+
+
+@celery.task(name="worker.tasks.prune_design_agent_outboxes")
+def prune_design_agent_outboxes() -> dict:
+    from app.core.config import settings
+    from app.services.design.admin.task_store import prune_design_run_outboxes
+
+    if not bool(getattr(settings, "design_agent_worker_enabled", False)):
+        return {"status": "disabled", "events": 0, "commands": 0}
+    return {"status": "ok", **prune_design_run_outboxes(
+        retention_days=int(getattr(settings, "design_agent_outbox_retention_days", 7))
+    )}
 
 
 @celery.task(name="worker.tasks.run_import_job", bind=True)

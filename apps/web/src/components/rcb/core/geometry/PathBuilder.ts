@@ -91,7 +91,7 @@ export class PathBuilder {
     const inner = Math.max(0, Math.min(0.92, Number(opts?.innerRatio) || 0));
     const rawArc = Number(opts?.arcPercent);
     const arc = Number.isFinite(rawArc) ? rawArc : 100;
-    const absPct = Math.min(100, Math.max(0.5, Math.abs(arc)));
+    const absPct = Math.min(100, Math.max(0, Math.abs(arc)));
     const positiveDir = !(arc < 0);
     const rawStart = Number(opts?.startDeg);
     const startDeg = Number.isFinite(rawStart) ? rawStart : 90;

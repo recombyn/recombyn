@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { message } from '@/components/base';
+import {
+  message,
+  advanceBootProgress,
+  readBootProgress,
+  resetBootProgress,
+} from '@/components/base';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   peekHomeAgentBoot,
@@ -17,7 +22,7 @@ import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvide
 import { isCollabActive } from '@/components/editor/collab/collabRuntime';
 import type { ComposerContext } from '@/components/editor/panels/AgentComposerInput';
 import AgentDock from '@/components/editor/panels/AgentDock';
-import type { ComposerInteractionMode } from '@/components/editor/panels/agent/AgentComposerShell';
+import type { ComposerInteractionMode } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import DevPropertiesPanel from '@/components/editor/panels/DevPropertiesPanel';
 import ShareDialog from '@/components/editor/panels/ShareDialog';
 import { apiClient } from '@/service/client';
@@ -578,7 +583,7 @@ function EditorPage() {
   const useCompactTooling = isTabletViewport;
   const [bootOpen, setBootOpen] = useState(true);
   const [bootExiting, setBootExiting] = useState(false);
-  const [bootProgress, setBootProgress] = useState(8);
+  const [bootProgress, setBootProgress] = useState(() => Math.max(8, readBootProgress()));
   const [tourActive, setTourActive] = useState(false);
   const bootStartedAt = useRef(Date.now());
   const bootOpenRef = useRef(true);
@@ -666,7 +671,8 @@ function EditorPage() {
     };
     const onSubtool = (e: Event) => {
       const s = (e as CustomEvent).detail?.subtool;
-      setPathEditSubtool(s === 'pen' ? 'pen' : 'select');
+      if (s === 'pen' || s === 'add-anchor' || s === 'curve') setPathEditSubtool(s);
+      else setPathEditSubtool('select');
     };
     window.addEventListener('resume:path-edit', onPathEdit);
     window.addEventListener('resume:path-edit-subtool', onSubtool);
@@ -1112,7 +1118,7 @@ function EditorPage() {
     });
     const wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootStartedAt.current));
     window.setTimeout(() => {
-      setBootProgress(100);
+      setBootProgress(advanceBootProgress(100));
       setBootExiting(true);
       rcbJumpLog('finishBoot.exiting', {
         stageW: stageRef.current?.clientWidth || 0,
@@ -1123,6 +1129,7 @@ function EditorPage() {
         setBootOpen(false);
         setBootExiting(false);
         bootExitTimer.current = null;
+        resetBootProgress();
         rcbJumpLog('finishBoot.revealed', {
           stageW: stageRef.current?.clientWidth || 0,
           stageH: stageRef.current?.clientHeight || 0,
@@ -1139,7 +1146,7 @@ function EditorPage() {
       setBootProgress((p) => {
         if (p >= 90) return p;
         const step = 4 + Math.random() * 10;
-        return Math.min(90, p + step);
+        return advanceBootProgress(Math.min(90, p + step));
       });
     }, 380);
     return () => window.clearInterval(id);

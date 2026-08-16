@@ -149,7 +149,9 @@ export function getShapeBaseline(
   }
 
   if (shapeType === 'arrow') {
-    return { d: arrowBaselinePath(w, h), closed: false, kind: 'stroke' };
+    const requestedHead = Number(node.attrs?.['arrow-head-size']);
+    const head = Number.isFinite(requestedHead) && requestedHead > 0 ? requestedHead : ARROW_HEAD;
+    return { d: arrowBaselinePath(w, h, head), closed: false, kind: 'stroke' };
   }
 
   if (shapeType === 'circle') {

@@ -5,7 +5,7 @@
 import type {
   AgentEngineMode,
   CodingCliOption,
-} from '@/components/editor/panels/agent/AgentDockHeader';
+} from '@/components/editor/panels/agent/dock/AgentDockHeader';
 import type { AgentToolOp } from '@/components/editor/panels/agent/toolOpsContract';
 
 const AGENT_ENGINE_MODE_KEY = 'recombyn.agentEngineMode.v1';

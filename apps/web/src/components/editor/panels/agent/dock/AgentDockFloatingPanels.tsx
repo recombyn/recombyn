@@ -1,9 +1,9 @@
-﻿import { FloatingPortal } from '@floating-ui/react';
+import { FloatingPortal } from '@floating-ui/react';
 import type { CSSProperties } from 'react';
 import type { UserAsset } from '@/models/assets';
 import MentionAttachPanel, {
   type MentionAttachItem,
-} from '@/components/editor/panels/agent/MentionAttachPanel';
+} from '@/components/editor/panels/agent/composer/MentionAttachPanel';
 
 type FloatingPanelBinding = {
   refs: {

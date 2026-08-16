@@ -1,6 +1,12 @@
 import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
 import { SoftGlowSurface } from '@/components/base';
-import { useRcbCamera, rcbCameraCssZoom } from '@/components/rcb';
+import {
+  RcbOverlayPortal,
+  useRcbCamera,
+  useRcbDevicePixelRatio,
+  rcbCameraCssZoom,
+  rcbSceneToScreen,
+} from '@/components/rcb';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
@@ -61,35 +67,45 @@ function ProcessNodeChrome({
   document: SceneDocument;
   override?: ProcessGeomOverride | null;
 }): ReactNode {
-  const { left, top, width, height, inv, borderRadius, angle } = useProcessWorldBox(
+  const { left, top, width, height, borderRadius, angle } = useProcessWorldBox(
     document,
     node,
     override
   );
+  const camera = useRcbCamera();
+  const dpr = useRcbDevicePixelRatio();
+  const origin = rcbSceneToScreen(camera, left, top, dpr);
+  const z = rcbCameraCssZoom(camera);
+  const screenWidth = width * z;
+  const screenHeight = height * z;
+  const screenBorderRadius = borderRadius
+    .split(' ')
+    .map((value) => `${Math.max(0, Number.parseFloat(value) * z)}px`)
+    .join(' ');
   const label = String(node.attrs?.processLabel || '处理中');
 
   const frameStyle = useMemo((): CSSProperties => {
     const style: CSSProperties = {
       position: 'absolute',
-      left,
-      top,
-      width,
-      height,
+      left: origin.x,
+      top: origin.y,
+      width: screenWidth,
+      height: screenHeight,
     };
     if (Math.abs(angle) > 0.001) {
       style.transform = `rotate(${angle}deg)`;
       style.transformOrigin = 'center center';
     }
     return style;
-  }, [left, top, width, height, angle]);
+  }, [origin.x, origin.y, screenWidth, screenHeight, angle]);
 
   const shimmerStyle = useMemo(
     (): CSSProperties => ({
       position: 'absolute',
       inset: 0,
-      borderRadius,
+      borderRadius: screenBorderRadius,
     }),
-    [borderRadius]
+    [screenBorderRadius]
   );
 
   // Counter-scale the pill so typography stays screen-constant under camera zoom.
@@ -97,19 +113,20 @@ function ProcessNodeChrome({
     (): CSSProperties => ({
       position: 'absolute',
       left: '50%',
-      top: height - PILL_BOTTOM_PAD_PX * inv,
-      transform: `translate(-50%, -100%) scale(${inv})`,
+      top: screenHeight - PILL_BOTTOM_PAD_PX,
+      transform: 'translate(-50%, -100%)',
       transformOrigin: 'center bottom',
     }),
-    [height, inv]
+    [screenHeight]
   );
 
   return (
-    <div
-      data-scene-node-id={nodeId}
-      className="pointer-events-none absolute z-[1]"
-      style={frameStyle}
-    >
+    <RcbOverlayPortal>
+      <div
+        data-scene-node-id={nodeId}
+        className="pointer-events-none absolute z-0"
+        style={frameStyle}
+      >
       <SoftGlowSurface
         data-image-process-shimmer
         tone="random"
@@ -125,7 +142,8 @@ function ProcessNodeChrome({
       >
         {label}
       </div>
-    </div>
+      </div>
+    </RcbOverlayPortal>
   );
 }
 

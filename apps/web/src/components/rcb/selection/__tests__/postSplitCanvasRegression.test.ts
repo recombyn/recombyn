@@ -19,6 +19,7 @@ import {
   ensureMinScreenHitBox,
   MARQUEE_MIN_HIT_SCREEN_PX,
   nodeHitsMarquee,
+  resolveMarqueeCandidates,
   makeDragSeed,
   visualGuideBoxForNode,
 } from '../selectionLogic';
@@ -52,6 +53,14 @@ describe('frameSelectionIds', () => {
 });
 
 describe('selectionLogic marquee helpers', () => {
+  it('resolveMarqueeCandidates treats empty spatial as miss, not no-nodes', () => {
+    const all = ['a', 'b', 'c'];
+    expect(resolveMarqueeCandidates(['b'], all)).toEqual(['b']);
+    expect(resolveMarqueeCandidates([], all)).toEqual(all);
+    expect(resolveMarqueeCandidates(undefined, all)).toEqual(all);
+    expect(resolveMarqueeCandidates(null, all)).toEqual(all);
+  });
+
   it('normalizeBox + boxesIntersect', () => {
     const box = normalizeBox(120, 80, 20, 10);
     expect(box).toEqual({ left: 20, top: 10, width: 100, height: 70 });
@@ -273,7 +282,8 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
       attrs: { ...centerStroke.attrs },
       children: [],
     };
-    const chrome = { left: pathLeft, top: pathTop, width: 40, height: 40 };
+    // Selection chrome is visual-outer (center stroke outset 1) — deflate → path.
+    const chrome = { left: pathLeft - 1, top: pathTop - 1, width: 42, height: 42 };
     const doc = {
       x: 0,
       y: 0,
@@ -283,10 +293,10 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
     } as SceneDocument;
     const moverPath = visualGuideBoxForNode('m', doc, chrome);
     const targetPath = visualGuideBoxForNode('s', doc, {
-      left: 10,
-      top: pathTop,
-      width: 50,
-      height: 80,
+      left: 10 - 1,
+      top: pathTop - 1,
+      width: 52,
+      height: 82,
     });
     expect(moverPath?.top).toBe(pathTop);
     expect(targetPath?.top).toBe(pathTop);
@@ -438,7 +448,8 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
   });
 
   it('center-stroke move keeps outer ink on grid (not path integers)', () => {
-    const chrome = { left: 100.5, top: 20.5, width: 40, height: 40 };
+    // Chrome = visual outer. Path at *.5 with center sw=1 → outer at integers.
+    const chrome = { left: 100, top: 20, width: 41, height: 41 };
     const node = {
       id: 'm',
       key: 'shape',
@@ -473,9 +484,10 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
       targets: [],
       threshold: 8,
     });
-    // Outer ink was at 100; +2.3 → snap to 102 → path stays *.5
-    expect(sdx).toBe(2);
-    expect(nextUnion.left).toBe(102.5);
+    // Visual-outer snap: outer stays on integer lattice after the gesture.
+    expect(Number.isInteger(nextUnion.left)).toBe(true);
+    expect(sdx).toBe(nextUnion.left - chrome.left);
+    expect(Math.abs(sdx - 2.3)).toBeLessThan(0.6);
   });
 });
 

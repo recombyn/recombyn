@@ -72,6 +72,9 @@ failed |= run('web.rcb.regression', 'npm', [
   '--',
   'src/components/rcb/selection/__tests__/postSplitCanvasRegression.test.ts',
   'src/components/rcb/selection/__tests__/screenChromeBodyTransform.test.ts',
+  'src/components/rcb/tools/__tests__/penPathEditHitPads.test.ts',
+  'src/components/rcb/scene/paint/__tests__/outlineTextSmallFont.test.ts',
+  'src/components/rcb/scene/paint/__tests__/outlineTextKeepBeziers.test.ts',
   'src/components/rcb/scene/document/__tests__/sceneClipboardZod.test.ts',
 ]);
 
@@ -79,6 +82,24 @@ if (!token) {
   console.warn('WARN: no E2E_TOKEN — skipping Playwright canvas suites');
   results.push({ name: 'e2e.skipped', ok: true, exit: 0, ms: 0, note: 'no token' });
 } else {
+  failed |= run(
+    'e2e.canvas.penGrid',
+    'npx',
+    ['playwright', 'test', 'tests/canvas.penGrid.spec.ts', '--reporter=list', '--workers=1', '--retries=0'],
+    { cwd: resolve(ROOT, 'e2e'), env: e2eEnv }
+  );
+  failed |= run(
+    'e2e.canvas.chromeAlign',
+    'npx',
+    ['playwright', 'test', 'tests/canvas.chromeAlign.spec.ts', '--reporter=list', '--workers=1', '--retries=0'],
+    { cwd: resolve(ROOT, 'e2e'), env: e2eEnv }
+  );
+  failed |= run(
+    'e2e.canvas.outlineHit',
+    'npx',
+    ['playwright', 'test', 'tests/canvas.outlineHit.spec.ts', '--reporter=list', '--workers=1', '--retries=0'],
+    { cwd: resolve(ROOT, 'e2e'), env: e2eEnv }
+  );
   failed |= run(
     'e2e.canvas.foundations',
     'npx',

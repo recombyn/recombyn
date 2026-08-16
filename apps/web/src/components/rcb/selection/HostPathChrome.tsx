@@ -1,7 +1,7 @@
 import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Path indicator + path handles on screen overlay (ADR 0027).
- * Paint via CameraTransform; hit via geometry + world HTML pads — not host SVG pe.
+ * Paint via CameraTransform; hit via geometry (no HTML hit-pad divs).
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRcbCamera, useRcbDevicePixelRatio } from '@/components/rcb/camera/context';
@@ -10,6 +10,7 @@ import { geometryIndicatorPathD } from '@/components/rcb/scene/paint/outlineToPa
 import {
   getShapeHost,
   getSharedNodeEls,
+  getSceneSelectionChromeMount,
   listShapeHosts,
   subscribeShapeHosts,
 } from '@/components/rcb/shapes/shapeHostRegistry';
@@ -18,23 +19,18 @@ import {
   CHROME_CORNER_L_ARM_PX,
   CHROME_CORNER_L_CLEAR_PX,
   CHROME_CORNER_L_THICK_PX,
-  CHROME_HANDLE_HIT_PX,
   CHROME_HANDLE_VIS_PX,
   CHROME_LINE_ENDPOINT_HALO_PX,
   CHROME_LINE_ENDPOINT_VIS_PX,
   CHROME_STROKE_PX,
   chromeHitScaleForBox,
-  chromeOverlayLayerRoot,
   clearChromeHitPads,
   cornerLLocalPath,
-  cursorForResize,
   disposeLegacyHitPadLayer,
   liveHostPaintOrigin,
-  mountChromeHitPad,
-  screenChromeBodyTransform,
+  sceneChromeBodyTransform,
   strokeOuterForRotateLScene,
 } from './SelectionChrome';
-import { cursorForRotate } from './rotateCornerCursor';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 
@@ -108,35 +104,15 @@ export type ShapeOutlineItem = {
 const SVG_NS = 'http://www.w3.org/2000/svg' as const;
 const SEL_OUTLINE_ATTR = 'data-rcb-sel-outline';
 const SEL_CHROME_ATTR = 'data-rcb-sel-chrome';
+const HOST_PATH_CHROME_ATTR = 'data-rcb-host-path-chrome';
 /** Legacy host AABB box attr — cleaned on sync; path silhouette is the outline. */
 const SEL_BOX_ATTR = 'data-rcb-sel-box';
 /** Inspect pair top/bottom (or L/R) edge rails — host-injected. */
 const SEL_EDGE_ATTR = 'data-rcb-sel-edge';
 /** Gap / size badge pill — host-injected. */
 const SEL_BADGE_ATTR = 'data-rcb-sel-badge';
-/** World-layer mount for path chrome (above shape hosts; does not lift node ink). */
-const SEL_CHROME_LAYER_ATTR = 'data-rcb-sel-chrome-layer';
-const SEL_EP_HOVER_STYLE = 'g.sel-hit:hover > .sel-ep-halo { opacity: 1; }';
-
-/**
- * Screen-overlay chrome mount (ADR 0027). Paint only;
- * pointer-events stay none — hits via geometry / world HTML pads.
- */
-export function selChromeLayerShell(): {
-  className: string;
-  width: string;
-  height: string;
-  zIndex: string;
-  pointerEvents: 'none';
-} {
-  return {
-    className: 'pointer-events-none absolute inset-0 overflow-visible',
-    width: '100%',
-    height: '100%',
-    zIndex: '18',
-    pointerEvents: 'none',
-  };
-}
+const SEL_EP_HOVER_STYLE =
+  'g.sel-hit:hover > .sel-ep-halo, .sel-ep-halo[data-rcb-endpoint-hover="1"] { opacity: 0.24; }';
 
 function ensureSelEpHoverStyle(root: SVGSVGElement) {
   if (root.querySelector('style[data-rcb-sel-ep-style]')) return;
@@ -163,7 +139,7 @@ function localPointToWorld(
   const sin = Math.sin(rad);
   const dx = lx - cx;
   const dy = ly - cy;
-  // Prefer live host origin (same as hostChromeBodyTransform / liveHostPaintOrigin)
+  // Prefer the live paint origin so geometry hits follow the same scene values.
   // so hit pads stay under painted knobs after high-zoom sticky re-align.
   const origin = liveHostPaintOrigin(hostEl);
   const left = origin ? origin.left : box.left;
@@ -198,57 +174,20 @@ function boxFromLocalAnchor(
   return { left: centerX - cx, top: centerY - cy, width: w, height: h };
 }
 
-/**
- * Host selection chrome mount on the screen overlay (ADR 0027).
- * Paint only — SelectionFeature owns hits via geometry / world pads.
- */
-function ensureSelChromeLayer(): HTMLElement | null {
-  return chromeOverlayLayerRoot();
-}
-
-function ensureScreenChromeSvg(
-  layer: HTMLElement,
-  chromeId: string
-): SVGSVGElement {
-  // Drop legacy scene-SVG `g` chrome roots.
-  layer
-    .querySelectorAll(`:scope > g[${SEL_CHROME_ATTR}="${CSS.escape(chromeId)}"]`)
-    .forEach((n) => {
-      try {
-        n.remove();
-      } catch {
-        /* ignore */
-      }
-    });
-
+/** One chrome group under the same camera `<g>` as scene ink. */
+function ensureSharedChromeGroup(chromeId: string): SVGGElement | null {
+  const layer = getSceneSelectionChromeMount();
+  if (!layer) return null;
   let root = layer.querySelector(
-    `:scope > svg[${SEL_CHROME_ATTR}="${CSS.escape(chromeId)}"]`
-  ) as SVGSVGElement | null;
+    `:scope > g[${SEL_CHROME_ATTR}="${CSS.escape(chromeId)}"]`
+  ) as SVGGElement | null;
   if (!root) {
-    root = document.createElementNS(SVG_NS, 'svg');
+    root = document.createElementNS(SVG_NS, 'g');
     root.setAttribute(SEL_CHROME_ATTR, chromeId);
-    root.setAttribute('data-rcb-screen-chrome', '1');
-    root.setAttribute('overflow', 'visible');
-    root.style.position = 'absolute';
-    root.style.left = '0';
-    root.style.top = '0';
-    root.style.width = '100%';
-    root.style.height = '100%';
-    root.style.overflow = 'visible';
+    root.setAttribute(HOST_PATH_CHROME_ATTR, '1');
     root.style.pointerEvents = 'none';
-    root.style.display = 'block';
     layer.appendChild(root);
   }
-  root.style.pointerEvents = 'none';
-  root.removeAttribute('viewBox');
-  root.removeAttribute('width');
-  root.removeAttribute('height');
-  root.removeAttribute('data-rcb-world-chrome');
-  root.setAttribute('data-rcb-screen-chrome', '1');
-  root.style.left = '0';
-  root.style.top = '0';
-  root.style.width = '100%';
-  root.style.height = '100%';
   return root;
 }
 
@@ -300,6 +239,9 @@ function syncHostSelHandlesIfNeeded(
 ) {
   const key = hostSelHandlesKey(o, stroke, inv, outlineD);
   if (!o.withHandles) {
+    // SVG knobs gone — also drop overlay HTML pads (otherwise path-edit sees
+    // leftover green DevTools boxes / steals clicks at high zoom).
+    clearChromeHitPads(`sel-chrome:${o.id}`);
     if (chrome.getAttribute('data-rcb-handles-key')) {
       chrome
         .querySelectorAll(
@@ -323,9 +265,7 @@ function clearHostSelOutline(nodeId: string) {
     el,
     host?.root,
     el?.parentElement,
-    typeof document !== 'undefined'
-      ? document.querySelector(`[${SEL_CHROME_LAYER_ATTR}]`)
-      : null,
+    getSceneSelectionChromeMount(),
   ];
   const edgeForSel = `g[data-rcb-sel-edge-for="${CSS.escape(nodeId)}"]`;
   for (const scope of scopes) {
@@ -502,10 +442,10 @@ function syncHostSelHandles(
   const lineEpVis = CHROME_LINE_ENDPOINT_VIS_PX * inv;
   const angle = Number(o.angle) || 0;
   const color = o.color || '#3388ff';
-  // Same lattice as hostChromeBodyTransform / pick — never Redux alone after sticky zoom.
-  const live = liveShapeGeomBox(o.id);
-  const w = Math.max(1, live?.width ?? o.box.width);
-  const h = Math.max(1, live?.height ?? o.box.height);
+  // Prefer outline box (already live geom for singles; union AABB for multi).
+  // Do not re-query liveShapeGeomBox(o.id) — union id has no host.
+  const w = Math.max(1, o.box.width);
+  const h = Math.max(1, o.box.height);
 
   if (o.lineMode) {
     const [start, end] = pathLocalEndpoints(
@@ -530,7 +470,9 @@ function syncHostSelHandles(
       halo.setAttribute('class', 'sel-ep-halo');
       halo.setAttribute('r', String(lineEpHalo / 2));
       halo.setAttribute('fill', `${color}59`);
-      halo.setAttribute('opacity', '0');
+      // The SVG surface is geometry-hit-tested with pointer-events disabled;
+      // keep a subtle transparent circle visible instead of relying on :hover.
+      halo.setAttribute('opacity', '0.12');
       halo.setAttribute('pointer-events', 'none');
       g.appendChild(halo);
 
@@ -547,171 +489,35 @@ function syncHostSelHandles(
 
       chrome.appendChild(g);
     }
-    syncHostSelHitPads(o, camera, dpr, 0, 0, w, h, knobs);
+    // Geometry hit owns knobs (ADR 0027) — do not mount HTML hit-pad divs.
+    clearChromeHitPads(`sel-chrome:${o.id}`);
     return;
   }
 
-  const outset = Math.max(0, Number(o.chromeOutset) || 0);
-  const bx = -outset;
-  const by = -outset;
-  const bw = w + outset * 2;
-  const bh = h + outset * 2;
-  const box = document.createElementNS(SVG_NS, 'rect');
-  box.setAttribute(SEL_BOX_ATTR, o.id);
-  box.setAttribute('x', String(bx));
-  box.setAttribute('y', String(by));
-  box.setAttribute('width', String(bw));
-  box.setAttribute('height', String(bh));
-  box.setAttribute('fill', 'none');
-  box.setAttribute('stroke', color);
-  box.setAttribute('stroke-width', String(stroke));
-  box.setAttribute('pointer-events', 'none');
-  chrome.appendChild(box);
-
-  const edgeMode = o.edgeHandles || 'all';
-  if (edgeMode === 'none') return;
-
-  const knobs = boxResizeKnobs(bx, by, bw, bh, {
-    cornerHandlesOnly: o.cornerHandlesOnly,
-    edgeHandles: edgeMode,
-  });
-
-  const isCorner = (d: string) => d === 'nw' || d === 'ne' || d === 'se' || d === 'sw';
-  const orderedKnobs = [
-    ...knobs.filter(([d]) => !isCorner(d)),
-    ...knobs.filter(([d]) => isCorner(d)),
-  ];
-
-  const z = Math.max(0.05, 1 / Math.max(1e-6, inv));
-  const hitScale = chromeHitScaleForBox(bw, bh, z);
-  const hs = Math.max(0.35, hitScale);
-  const lArm = CHROME_CORNER_L_ARM_PX * inv * hs;
-  const lThick = CHROME_CORNER_L_THICK_PX * inv * hs;
-  const strokeOuter = strokeOuterForRotateLScene(Number(o.strokeOuterScene) || 0, z);
-  const lClear = halfVis + CHROME_CORNER_L_CLEAR_PX * inv * hs + strokeOuter;
-
-  if (o.showRotate) {
-    for (const dir of ['nw', 'ne', 'se', 'sw'] as const) {
-      const d = cornerLLocalPath(dir, bw, bh, lArm, lThick, lClear);
-      if (!d) continue;
-      const path = document.createElementNS(SVG_NS, 'path');
-      path.setAttribute('data-rcb-sel-rotate-l', dir);
-      if (bx !== 0 || by !== 0) {
-        path.setAttribute('transform', `translate(${bx} ${by})`);
-      }
-      path.setAttribute('d', d);
-      path.setAttribute('fill', color);
-      path.setAttribute('pointer-events', 'none');
-      chrome.appendChild(path);
-    }
-  }
-
-  for (const [dir, lx, ly] of orderedKnobs) {
-    const visFill = document.createElementNS(SVG_NS, 'rect');
-    visFill.setAttribute('data-rcb-sel-knob', dir);
-    visFill.setAttribute('x', String(lx - halfVis));
-    visFill.setAttribute('y', String(ly - halfVis));
-    visFill.setAttribute('width', String(handleVis));
-    visFill.setAttribute('height', String(handleVis));
-    visFill.setAttribute('fill', '#ffffff');
-    visFill.setAttribute('pointer-events', 'none');
-    chrome.appendChild(visFill);
-
-    const visStroke = document.createElementNS(SVG_NS, 'rect');
-    visStroke.setAttribute('data-rcb-sel-knob', dir);
-    visStroke.setAttribute('x', String(lx - halfVis));
-    visStroke.setAttribute('y', String(ly - halfVis));
-    visStroke.setAttribute('width', String(handleVis));
-    visStroke.setAttribute('height', String(handleVis));
-    visStroke.setAttribute('fill', 'none');
-    visStroke.setAttribute('stroke', color);
-    visStroke.setAttribute('stroke-width', String(stroke));
-    visStroke.setAttribute('pointer-events', 'none');
-    chrome.appendChild(visStroke);
-  }
-
-  syncHostSelHitPads(o, camera, dpr, bx, by, bw, bh, orderedKnobs);
+  // Generic resize/rotate chrome is painted by the shared SelectionChrome.
+  // HostPathChrome only owns the path silhouette and open-stroke endpoints.
+  clearChromeHitPads(`sel-chrome:${o.id}`);
 }
 
-/** Scene-space HTML pads for painted knobs (host SVG pe must not own hits). */
+/**
+ * Selection chrome hit pads are retired: SelectionFeature picks via
+ * pickChromeHandleByGeometry. Keep this as a clear-only cleanup so leftover
+ * overlay/world divs from older builds cannot steal clicks or clutter inspect.
+ */
 function syncHostSelHitPads(
   o: ShapeOutlineItem,
-  camera: RcbCamera,
-  dpr: number | undefined,
-  bx: number,
-  by: number,
-  bw: number,
-  bh: number,
-  knobs: Array<[string, number, number]>
+  _camera?: RcbCamera,
+  _dpr?: number,
+  _bx?: number,
+  _by?: number,
+  _bw?: number,
+  _bh?: number,
+  _knobs?: Array<[string, number, number]>
 ) {
-  const ownerId = `sel-chrome:${o.id}`;
-  clearChromeHitPads(ownerId);
-  if (!o.withHandles) return;
-  const hostEl = (getShapeHost(o.id)?.el || getSharedNodeEls()?.get(o.id)) as
-    | SVGElement
-    | null
-    | undefined;
-  const angle = Number(o.angle) || 0;
-  const z = Math.max(0.05, rcbCameraCssZoom(camera));
-  const hitScale = chromeHitScaleForBox(bw, bh, z);
-  const hs = Math.max(0.35, hitScale);
-  const sizePx = CHROME_HANDLE_HIT_PX * hs;
-  const origin = liveHostPaintOrigin(hostEl) || { left: o.box.left, top: o.box.top };
-  const rad = ((angle || 0) * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const cx = Math.max(1, o.box.width) / 2;
-  const cy = Math.max(1, o.box.height) / 2;
-
-  function localToScene(lx: number, ly: number) {
-    const dx = lx - cx;
-    const dy = ly - cy;
-    return {
-      x: origin.left + cx + dx * cos - dy * sin,
-      y: origin.top + cy + dx * sin + dy * cos,
-    };
-  }
-
-  for (const [dir, lx, ly] of knobs) {
-    const p = localToScene(lx, ly);
-    mountChromeHitPad({
-      ownerId,
-      zoneKey: `resize-${dir}`,
-      sizePx,
-      cursor: cursorForResize(dir as 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', angle),
-      sceneX: p.x,
-      sceneY: p.y,
-      camera,
-      dpr,
-      knobDir: dir,
-    });
-  }
-
-  if (o.showRotate) {
-    for (const corner of ['nw', 'ne', 'se', 'sw'] as const) {
-      const lx = corner === 'ne' || corner === 'se' ? bx + bw : bx;
-      const ly = corner === 'se' || corner === 'sw' ? by + bh : by;
-      const p = localToScene(lx, ly);
-      mountChromeHitPad({
-        ownerId,
-        zoneKey: `rotate-${corner}`,
-        sizePx: sizePx * 1.15,
-        cursor: cursorForRotate(
-          corner === 'nw' ? 0 : corner === 'ne' ? 90 : corner === 'se' ? 180 : 270,
-          angle
-        ),
-        sceneX: p.x,
-        sceneY: p.y,
-        camera,
-        dpr,
-        rotateCorner: corner,
-        dashed: true,
-      });
-    }
-  }
+  clearChromeHitPads(`sel-chrome:${o.id}`);
 }
 
-/** Multi-select union control box on the screen overlay. */
+/** Multi-select / frame AABB control box on the screen overlay. */
 function syncHostSelUnionChrome(
   o: ShapeOutlineItem,
   stroke: number,
@@ -719,12 +525,8 @@ function syncHostSelUnionChrome(
   camera: RcbCamera,
   dpr?: number
 ): boolean {
-  const layer = ensureSelChromeLayer();
-  if (!layer) return false;
-
-  const w = Math.max(1, o.box.width);
-  const h = Math.max(1, o.box.height);
-  const root = ensureScreenChromeSvg(layer, o.id);
+  const root = ensureSharedChromeGroup(o.id);
+  if (!root) return false;
 
   let chrome = root.querySelector(`:scope > g[${SEL_CHROME_ATTR}="body"]`) as SVGGElement | null;
   if (!chrome) {
@@ -734,16 +536,19 @@ function syncHostSelUnionChrome(
     root.appendChild(chrome);
   }
   const angle = Number(o.angle) || 0;
-  const mirrorId = o.mirrorHostId || o.id;
-  const hostEl = (getShapeHost(mirrorId)?.el || getSharedNodeEls()?.get(mirrorId)) as
-    | SVGElement
-    | null
-    | undefined;
+  // Multi-node union AABB stays on o.box — never first member live (shrinks chrome).
+  // Single frame: prefer live plate geom (mirrorHostId) so chrome tracks ink.
+  const frameHostId =
+    typeof o.id === 'string' && o.id.startsWith('__frame__:')
+      ? o.mirrorHostId || o.id.slice('__frame__:'.length)
+      : null;
+  const liveFrame = frameHostId ? liveShapeGeomBox(frameHostId) : null;
+  const paintBox = liveFrame || o.box;
   chrome.setAttribute(
     'transform',
-    screenChromeBodyTransform(hostEl, o.box, angle, camera, dpr ?? 1)
+    sceneChromeBodyTransform(paintBox, angle)
   );
-  syncHostSelHandlesIfNeeded(chrome, o, stroke, inv, '', camera, dpr);
+  syncHostSelHandlesIfNeeded(chrome, { ...o, box: paintBox }, stroke, inv, '', camera, dpr);
   return true;
 }
 
@@ -760,9 +565,6 @@ function syncHostSelOutline(
 ): boolean {
   if (o.unionChrome) return syncHostSelUnionChrome(o, stroke, inv, camera, dpr);
 
-  const layer = ensureSelChromeLayer();
-  if (!layer) return false;
-
   const host = getShapeHost(o.id);
   const el = (host?.el || getSharedNodeEls()?.get(o.id)) as SVGElement | null | undefined;
   const baseline = el
@@ -777,7 +579,7 @@ function syncHostSelOutline(
     return false;
   }
 
-  // Strip any leftover chrome still injected inside the shape host / world layer.
+  // Strip leftover chrome still injected inside the shape host (never paint there).
   if (el) {
     const hostParent =
       (baseline?.parentElement as Element | null) ||
@@ -794,23 +596,9 @@ function syncHostSelOutline(
         }
       });
   }
-  // Migrate: drop stale overlay / nested-svg screen-chrome twins.
-  document
-    .querySelectorAll(
-      `[data-rcb-overlay="1"] [data-rcb-sel-chrome-layer] svg[${SEL_CHROME_ATTR}="${CSS.escape(o.id)}"],` +
-        `[data-rcb-overlay="1"] [data-rcb-sel-chrome-layer] [${SEL_OUTLINE_ATTR}="${CSS.escape(o.id)}"],` +
-        `[data-rcb-world="1"] > div[data-rcb-sel-chrome-layer] svg[${SEL_CHROME_ATTR}="${CSS.escape(o.id)}"]`
-    )
-    .forEach((n) => {
-      try {
-        n.remove();
-      } catch {
-        /* ignore */
-      }
-    });
-
   const angle = Number(o.angle) || 0;
-  const root = ensureScreenChromeSvg(layer, o.id);
+  const root = ensureSharedChromeGroup(o.id);
+  if (!root) return false;
 
   let chrome = root.querySelector(`:scope > g[${SEL_CHROME_ATTR}="body"]`) as SVGGElement | null;
   if (!chrome) {
@@ -820,9 +608,12 @@ function syncHostSelOutline(
     root.appendChild(chrome);
   }
 
+  // Control box (selected handles): one paint AABB for CTM + knobs.
+  // Hover path silhouette (`showPath`) is best-effort and not alignment-critical.
+  const paintBox = liveShapeGeomBox(o.id) || o.box;
   chrome.setAttribute(
     'transform',
-    screenChromeBodyTransform(el, o.box, angle, camera, dpr ?? 1)
+    sceneChromeBodyTransform(paintBox, angle)
   );
 
   let outline = chrome.querySelector(
@@ -845,13 +636,14 @@ function syncHostSelOutline(
   outline.setAttribute('stroke-linejoin', roundStroke ? 'round' : 'miter');
   outline.setAttribute('stroke-linecap', roundStroke ? 'round' : 'butt');
 
-  if (o.withHandles) syncHostSelHandlesIfNeeded(chrome, o, stroke, inv, d, camera, dpr);
-  else syncHostSelHandlesIfNeeded(chrome, { ...o, withHandles: false }, stroke, inv, d, camera, dpr);
+  const handleItem = { ...o, box: paintBox };
+  if (o.withHandles) syncHostSelHandlesIfNeeded(chrome, handleItem, stroke, inv, d, camera, dpr);
+  else syncHostSelHandlesIfNeeded(chrome, { ...handleItem, withHandles: false }, stroke, inv, d, camera, dpr);
 
   return true;
 }
 
-/** Path chrome under `[data-rcb-world]` (same CSS camera as hosts). */
+/** Path chrome on screen overlay (ADR 0027); ShapeOutlineSvg drives sync only. */
 function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
@@ -888,11 +680,9 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
     for (const h of listShapeHosts()) {
       if (!active.has(h.nodeId)) clearHostSelOutline(h.nodeId);
     }
-    const layer = typeof document !== 'undefined'
-      ? document.querySelector(`[${SEL_CHROME_LAYER_ATTR}]`)
-      : null;
+    const layer = getSceneSelectionChromeMount();
     // Only direct chrome roots (node id) — never nested body g[…="body"].
-    layer?.querySelectorAll?.(`:scope > svg[${SEL_CHROME_ATTR}]`).forEach((n) => {
+    layer?.querySelectorAll?.(`:scope > g[${HOST_PATH_CHROME_ATTR}]`).forEach((n) => {
       const id = n.getAttribute(SEL_CHROME_ATTR);
       if (id && !active.has(id)) {
         try {
@@ -928,9 +718,10 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
     return () => {
       cancelAnimationFrame(raf);
       if (stickRaf) cancelAnimationFrame(stickRaf);
-      const next = new Set(outlinesRef.current.map((o) => o.id));
+      // Always clear this pass's ids. Re-run remounts survivors; unmount
+      // (path-edit disables SelectionFeature) must not leave HTML hit pads.
       for (const id of active) {
-        if (!next.has(id)) clearHostSelOutline(id);
+        clearHostSelOutline(id);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

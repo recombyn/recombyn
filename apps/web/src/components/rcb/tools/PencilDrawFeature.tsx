@@ -4,16 +4,21 @@ import {
   brushPad,
   brushSize,
   DEFAULT_PENCIL_BRUSH_ID,
+  emptyStampLiveWalk,
+  extendStampLiveWalk,
   findPencilBrush,
   interpolateStrokeGaps,
   outlinePathFromPoints,
   pencilSampleMinStep,
   polylinePathD,
   serializePathPressures,
+  STAMP_MAX_DABS_LIVE,
   STROKE_GAP_INTERP,
   type PencilBrushId,
+  type StampDab,
 } from './pencilBrushes';
 import { snapStrokeOctant } from './ShapeDrawFeature';
+import { getTintedStampSrc, STAMP_TINT_READY_EVENT } from './stampTint';
 import {
   rcbCameraCssZoom,
   rcbCameraScreenOffset,
@@ -29,6 +34,7 @@ import {
   type RcbCamera as CanvasCamera,
 } from '../core/types';
 import {
+  getShapeHost,
   getSceneDrawPreviewMount,
   getSceneWorldEpoch,
   subscribeShapeHosts,
@@ -53,6 +59,8 @@ type PencilPreview =
       pathD: string;
       color: string;
       opacity: number;
+      stampSrc?: string;
+      stampDabs?: StampDab[];
     };
 
 import pencilCursorUrl from '@/assets/svg/editor/cursor_pencil.svg?url';
@@ -166,8 +174,8 @@ type PencilDrawFeatureProps = {
   onCommit: (
     pathD: string,
     box: { left: number; top: number; width: number; height: number },
-    meta?: { pathPressure?: string; brushHardness?: number }
-  ) => void;
+    meta?: { pathPressure?: string; brushHardness?: number; brushStampSrc?: string }
+  ) => string | null | void;
   onErase?: (stroke: PencilEraseStroke) => void;
 };
 
@@ -232,11 +240,17 @@ function PencilDrawFeature({
   /** Locked overlay viewport for the active stroke — stops per-point shell resize jitter. */
   const strokeViewBoxRef = useRef<SceneBox | null>(null);
   const redrawRafRef = useRef(0);
+  const handoffRafRef = useRef(0);
+  const handoffFadeRafRef = useRef(0);
+  const previewEpochRef = useRef(0);
   const redrawOverlayRef = useRef<() => void>(() => {});
   const [preview, setPreview] = useState<PencilPreview | null>(null);
   /** Bump when shared world SVG remounts so portals retarget. */
   const [, setWorldEpoch] = useState(() => getSceneWorldEpoch());
   const lastTipPosRef = useRef<{ x: number; y: number } | null>(null);
+  /** Incremental Tip preview state; the committed stroke still uses full sampling. */
+  const stampLiveWalkRef = useRef(emptyStampLiveWalk());
+  const stampLiveConfigRef = useRef('');
   const brushRef = useRef(brushId);
   const widthRef = useRef(strokeWidth);
   const colorRef = useRef(strokeColor);
@@ -369,26 +383,120 @@ function PencilDrawFeature({
     }
     const brush = findPencilBrush(brushRef.current);
 
-    // Same SVG ribbon as commit — tip stamps used a canvas bake that lagged + jittered.
-    const pressures = points.map((p) => p.pressure);
-    const hasPressure = pressures.some((p) => typeof p === 'number' && Number.isFinite(p));
-    const d = outlinePathFromPoints(points, widthRef.current, brush.id, {
-      pressureEnabled: pressureRef.current,
-      hardness: hardnessRef.current,
-      simplify: false,
-      pressures: hasPressure
-        ? pressures.map((p) => (typeof p === 'number' && Number.isFinite(p) ? p : 0.5))
-        : undefined,
-    });
+    const isStamp = brush.kind === 'stamp' && Boolean(brush.stampSrc);
+    let d = '';
+    let stampDabs: StampDab[] | undefined;
+    if (isStamp) {
+      // Tip preview is incremental. Rebuilding all dabs and an unused outline on
+      // every frame was the main source of input lag for textured brushes.
+      const config = `${brush.id}|${widthRef.current}|${hardnessRef.current}|${pressureRef.current}`;
+      if (stampLiveConfigRef.current !== config) {
+        stampLiveWalkRef.current = emptyStampLiveWalk();
+        stampLiveConfigRef.current = config;
+      }
+      stampLiveWalkRef.current = extendStampLiveWalk(
+        stampLiveWalkRef.current,
+        points,
+        brush,
+        widthRef.current,
+        {
+          hardness: hardnessRef.current,
+          pressureEnabled: pressureRef.current,
+          maxDabs: STAMP_MAX_DABS_LIVE,
+          spacingScale: 1.15,
+        }
+      );
+      stampDabs = stampLiveWalkRef.current.dabs;
+    } else {
+      const pressures = points.map((p) => p.pressure);
+      const hasPressure = pressures.some((p) => typeof p === 'number' && Number.isFinite(p));
+      d = outlinePathFromPoints(points, widthRef.current, brush.id, {
+        pressureEnabled: pressureRef.current,
+        hardness: hardnessRef.current,
+        simplify: false,
+        pressures: hasPressure
+          ? pressures.map((p) => (typeof p === 'number' && Number.isFinite(p) ? p : 0.5))
+          : undefined,
+      });
+      stampLiveWalkRef.current = emptyStampLiveWalk();
+      stampLiveConfigRef.current = '';
+    }
+    const stampSrc = brush.stampSrc
+      ? getTintedStampSrc(brush.stampSrc, colorRef.current, hardnessRef.current)
+      : undefined;
     setPreview({
       box,
       mode: 'ink',
       pathD: d,
       color: colorRef.current,
       opacity: opacityRef.current,
+      stampSrc,
+      stampDabs,
     });
   };
   redrawOverlayRef.current = redrawOverlay;
+
+  const scheduleOverlayRedraw = () => {
+    if (redrawRafRef.current) return;
+    redrawRafRef.current = window.requestAnimationFrame(() => {
+      redrawRafRef.current = 0;
+      redrawOverlayRef.current();
+    });
+  };
+
+  const holdPreviewUntilCommittedPaint = (nodeId: string, epoch: number) => {
+    if (handoffRafRef.current) window.cancelAnimationFrame(handoffRafRef.current);
+    if (handoffFadeRafRef.current) window.cancelAnimationFrame(handoffFadeRafRef.current);
+    let attempts = 0;
+    let readyFrames = 0;
+    let fading = false;
+    let fadeFrame = 0;
+    const check = () => {
+      if (previewEpochRef.current !== epoch) return;
+      const committedEl = getShapeHost(nodeId)?.el;
+      // The host is registered before async stamp rasterization finishes. Keep
+      // the live preview until the committed image is present and has survived
+      // two paint frames, otherwise pointerup exposes a one-frame blank flash.
+      const committedPaintReady = Boolean(
+        committedEl &&
+          (committedEl.querySelector?.('image, path, rect, circle, ellipse') ||
+            committedEl.childNodes.length > 0)
+      );
+      if (committedPaintReady) readyFrames += 1;
+      else readyFrames = 0;
+      if (readyFrames >= 2 || attempts >= 120) {
+        if (!fading && attempts < 120) {
+          // Preview dabs and the committed raster are visually equivalent but
+          // not pixel-identical. Crossfade over a few frames instead of
+          // exposing the handoff as a one-frame flash.
+          fading = true;
+          const fade = () => {
+            if (previewEpochRef.current !== epoch) return;
+            fadeFrame += 1;
+            const factor = Math.max(0, 1 - fadeFrame / 4);
+            setPreview((prev) =>
+              prev?.mode === 'ink' ? { ...prev, opacity: prev.opacity * factor } : prev
+            );
+            if (fadeFrame >= 4) {
+              handoffFadeRafRef.current = 0;
+              setPreview(null);
+              return;
+            }
+            handoffFadeRafRef.current = window.requestAnimationFrame(fade);
+          };
+          handoffFadeRafRef.current = window.requestAnimationFrame(fade);
+          handoffRafRef.current = 0;
+          return;
+        }
+        handoffRafRef.current = 0;
+        setPreview(null);
+        return;
+      }
+      attempts += 1;
+      handoffRafRef.current = window.requestAnimationFrame(check);
+    };
+    handoffRafRef.current = window.requestAnimationFrame(check);
+  };
 
   const paintTipCursor = (p: { x: number; y: number } | null) => {
     if (!eraseModeRef.current) {
@@ -403,17 +511,13 @@ function PencilDrawFeature({
 
   const paintPreview = (points: { x: number; y: number; pressure?: number }[]) => {
     pts.current = points;
-    if (redrawRafRef.current) {
-      window.cancelAnimationFrame(redrawRafRef.current);
-      redrawRafRef.current = 0;
-    }
-    redrawOverlay();
+    scheduleOverlayRedraw();
   };
 
   const paintEraseTrail = (points: { x: number; y: number }[]) => {
     // pts.current already holds erase points while drawing; force redraw.
     void points;
-    redrawOverlay();
+    scheduleOverlayRedraw();
   };
 
   const paintTipCursorRef = useRef(paintTipCursor);
@@ -436,8 +540,19 @@ function PencilDrawFeature({
       }
       const p = toSceneRef.current(e.clientX, e.clientY);
       const pressure = pressureRef.current ? pointerPressure(e) : undefined;
+      previewEpochRef.current += 1;
+      if (handoffRafRef.current) {
+        window.cancelAnimationFrame(handoffRafRef.current);
+        handoffRafRef.current = 0;
+      }
+      if (handoffFadeRafRef.current) {
+        window.cancelAnimationFrame(handoffFadeRafRef.current);
+        handoffFadeRafRef.current = 0;
+      }
       drawing.current = true;
       strokeViewBoxRef.current = null;
+      stampLiveWalkRef.current = emptyStampLiveWalk();
+      stampLiveConfigRef.current = '';
       lastDrawPointerRef.current = pressure != null ? { ...p, pressure } : p;
       pts.current = [pressure != null ? { ...p, pressure } : p];
       if (eraseModeRef.current) {
@@ -488,9 +603,13 @@ function PencilDrawFeature({
       const origin = pts.current[0];
       if (!origin) {
         pts.current = [tip];
+        stampLiveWalkRef.current = emptyStampLiveWalk();
+        stampLiveConfigRef.current = '';
         return;
       }
       const snapped = snapStrokeOctant(origin.x, origin.y, tip.x, tip.y, true);
+      stampLiveWalkRef.current = emptyStampLiveWalk();
+      stampLiveConfigRef.current = '';
       pts.current = [
         origin,
         {
@@ -574,7 +693,6 @@ function PencilDrawFeature({
       } catch {
         /* ignore */
       }
-      setPreview(null);
       const wasErase = eraseModeRef.current;
       // Pin the last sample to the tip — do not streamline/simplify here.
       // Live preview draws raw points; polish on up made sharp kinks vs preview.
@@ -594,13 +712,20 @@ function PencilDrawFeature({
           }
         }
       }
+      // Pin the final raw sample into the preview before it hands off to the
+      // committed host. Clearing first caused a visible blank frame on pointerup.
+      if (!wasErase && commit && pts.current.length >= 2) {
+        redrawOverlayRef.current();
+      }
       const points = pts.current;
       pts.current = [];
+      stampLiveWalkRef.current = emptyStampLiveWalk();
+      stampLiveConfigRef.current = '';
       lastDrawPointerRef.current = null;
-      if (!wasErase) paintTipCursorRef.current(null);
+      if (!wasErase) lastTipPosRef.current = null;
       else paintTipCursorRef.current(toSceneRef.current(e.clientX, e.clientY));
-      redrawOverlayRef.current();
       if (wasErase) {
+        setPreview(null);
         if (
           commit &&
           points.length >= 1 &&
@@ -613,7 +738,10 @@ function PencilDrawFeature({
         }
         return;
       }
-      if (!commit || points.length < 2) return;
+      if (!commit || points.length < 2) {
+        setPreview(null);
+        return;
+      }
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -Infinity;
@@ -636,7 +764,7 @@ function PencilDrawFeature({
       // Same centerline as live preview (no pressure EMA / RDP polish).
       const d = polylinePathD(local);
       const pathPressure = pressureRef.current ? serializePathPressures(local) : undefined;
-      onCommit(
+      const committedId = onCommit(
         d,
         {
           left: originX,
@@ -647,8 +775,16 @@ function PencilDrawFeature({
         {
           ...(pathPressure ? { pathPressure } : {}),
           brushHardness: hardnessRef.current,
+          ...(brush.kind === 'stamp' && brush.stampSrc
+            ? { brushStampSrc: brush.stampSrc }
+            : {}),
         }
       );
+      if (committedId) {
+        holdPreviewUntilCommittedPaint(committedId, previewEpochRef.current);
+      } else {
+        setPreview(null);
+      }
     };
 
     const onUp = (e: PointerEvent) => finishStroke(e, true);
@@ -688,9 +824,17 @@ function PencilDrawFeature({
       window.removeEventListener('keydown', onShiftKey, true);
       window.removeEventListener('keyup', onShiftKey, true);
       hitEl.removeEventListener('pointerleave', onLeave);
+      if (handoffRafRef.current) window.cancelAnimationFrame(handoffRafRef.current);
+      if (handoffFadeRafRef.current) window.cancelAnimationFrame(handoffFadeRafRef.current);
       paintTipCursorRef.current(null);
     };
   }, [enabled, stageEl, paperEl, viewportEl, onCommit]);
+
+  useEffect(() => {
+    const redraw = () => redrawOverlayRef.current();
+    window.addEventListener(STAMP_TINT_READY_EVENT, redraw);
+    return () => window.removeEventListener(STAMP_TINT_READY_EVENT, redraw);
+  }, []);
 
   useEffect(() => {
     if (!eraseMode) {
@@ -751,12 +895,28 @@ function PencilDrawFeature({
   } else if (preview?.mode === 'ink' && previewMount) {
     previewPortal = createPortal(
       <g data-pencil-draw-preview pointerEvents="none" aria-hidden>
-        <path
-          d={preview.pathD}
-          fill={preview.color}
-          fillOpacity={preview.opacity}
-          stroke="none"
-        />
+        {preview.stampSrc && preview.stampDabs?.length ? (
+          preview.stampDabs.map((dab, index) => (
+            <image
+              key={index}
+              href={preview.stampSrc}
+              x={dab.x - dab.size / 2}
+              y={dab.y - dab.size / 2}
+              width={dab.size}
+              height={dab.size}
+              opacity={Math.max(0.08, Math.min(1, dab.opacity * preview.opacity))}
+              preserveAspectRatio="none"
+              transform={`rotate(${dab.angle} ${dab.x} ${dab.y})`}
+            />
+          ))
+        ) : (
+          <path
+            d={preview.pathD}
+            fill={preview.color}
+            fillOpacity={preview.opacity}
+            stroke="none"
+          />
+        )}
       </g>,
       previewMount
     );

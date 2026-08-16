@@ -23,6 +23,7 @@ export function cursorForRotate(iconDeg: number, angleDeg: number): string {
     `<svg height='32' width='32' viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'>` +
     `<defs><filter id='shadow' y='-40%' x='-40%' width='180px' height='180%' color-interpolation-filters='sRGB'>` +
     `<feDropShadow dx='${dx}' dy='${dy}' stdDeviation='1.2' flood-opacity='.5'/></filter></defs>` +
-    `<g fill='none' transform='rotate(${r} 16 16)' filter='url(%23shadow)'>${INNER}</g></svg>`;
+    `<g color='#ffffff' stroke='#171717' stroke-width='1.35' stroke-linejoin='round' paint-order='stroke fill' ` +
+    `transform='rotate(${r} 16 16)' filter='url(%23shadow)'>${INNER}</g></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 16 16, grab`;
 }

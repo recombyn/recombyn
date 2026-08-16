@@ -41,7 +41,7 @@ import VideoJsPlayer, {
 } from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
 import ImageAspectRatioPicker, {
   AspectRatioGlyph,
-} from '@/components/editor/panels/agent/ImageAspectRatioPicker';
+} from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import {
   isCanvasSizeAutoHint,
 } from '@/components/editor/chrome/SizePresetPanel';

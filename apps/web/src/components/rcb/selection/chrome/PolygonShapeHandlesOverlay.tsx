@@ -35,7 +35,10 @@ import { strokeInnerClearanceScene } from '@/components/rcb/scene/document/scene
 import type { SceneBox } from '../alignGuides';
 import {
   CHROME_HANDLE_VIS_PX,
+  CHROME_RADIUS_HIT_PX,
   CHROME_STROKE_PX,
+  chromeHandleHitRadiusScene,
+  chromeHitScaleForBox,
   radiusHandleParkScreenPx,
   radiusParkSceneForBox,
   setOverlayHandleSeats,
@@ -126,20 +129,16 @@ function topRadiusSite(
   return { x: top[0], y: top[1], ix: ix / len, iy: iy / len };
 }
 
-/** Rightmost vertex — sides knob parks inward from the tip (not on the vertex). */
+/** Rightmost vertex — the sides knob is anchored directly to the polygon corner. */
 function sidesHandleLocal(
   shapeType: string,
   width: number,
   height: number,
-  sides: number,
-  parkScene: number
+  sides: number
 ): { x: number; y: number } {
   const pts = shapeVertexPoints(shapeType, width, height, sides);
-  const cx = width / 2;
-  const cy = height / 2;
   if (!pts.length) {
-    const park = Math.max(0, parkScene);
-    return { x: width - park, y: height / 2 };
+    return { x: width, y: height / 2 };
   }
   let best = pts[0];
   for (const p of pts) {
@@ -147,14 +146,7 @@ function sidesHandleLocal(
       best = p;
     }
   }
-  let ix = cx - best[0];
-  let iy = cy - best[1];
-  const len = Math.hypot(ix, iy) || 1;
-  const park = Math.max(0, parkScene);
-  return {
-    x: best[0] + (ix / len) * park,
-    y: best[1] + (iy / len) * park,
-  };
+  return { x: best[0], y: best[1] };
 }
 
 function uniformRadii(r: number): CornerRadii {
@@ -301,7 +293,7 @@ function PolygonShapeHandlesOverlay({
         y: topSite.y + topSite.iy * insetFor(radius),
       }
     : { x: w / 2, y: insetFor(radius) };
-  const sidesLocal = sidesHandleLocal(shapeType, w, h, sides, parkScene);
+  const sidesLocal = sidesHandleLocal(shapeType, w, h, sides);
   const radiusPos = localPointToScene(radiusLocal.x, radiusLocal.y, box, angle);
   const sidesPos = localPointToScene(sidesLocal.x, sidesLocal.y, box, angle);
 
@@ -506,10 +498,22 @@ function PolygonShapeHandlesOverlay({
       ]
     : [];
 
+  const hitHalf = chromeHandleHitRadiusScene(
+    z,
+    CHROME_RADIUS_HIT_PX,
+    chromeHitScaleForBox(w, h, z)
+  );
+
   if (Boolean(topSite) && interactive && knobs.length > 0) {
     setOverlayHandleSeats(
       seatOwnerId,
-      knobs.map((knob) => ({ pickKey: `poly-${knob.key}`, start: knob.onDown }))
+      knobs.map((knob) => ({
+        pickKey: `poly-${knob.key}`,
+        start: knob.onDown,
+        sceneX: knob.sceneX,
+        sceneY: knob.sceneY,
+        half: hitHalf,
+      }))
     );
   } else {
     setOverlayHandleSeats(seatOwnerId, null);

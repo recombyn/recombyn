@@ -4,7 +4,7 @@ import {
   humanizeDesignError,
   pickDesignDoneContent,
 } from '@/components/editor/panels/agent/designAgentEventRouter';
-import type { ChatUiMessage } from '@/components/editor/panels/agent/ChatTurnList';
+import type { ChatUiMessage } from '@/components/editor/panels/agent/messages/ChatTurnList';
 
 const t = (key: string) => key;
 
@@ -33,7 +33,7 @@ describe('pickDesignDoneContent', () => {
     ).toBe('已画到画布，可直接改。');
   });
 
-  it('falls back to canvasReadyHint when painted with process steps and no summary', () => {
+  it('keeps empty when painted with no summary or stream', () => {
     expect(
       pickDesignDoneContent({
         t,
@@ -44,10 +44,10 @@ describe('pickDesignDoneContent', () => {
         designStarted: true,
         hasProposedOps: false,
       })
-    ).toBe('agent.canvasReadyHint');
+    ).toBe('');
   });
 
-  it('falls back to canvasUpdated when painted with no process and no summary', () => {
+  it('keeps empty when painted with no process and no summary', () => {
     expect(
       pickDesignDoneContent({
         t,
@@ -58,10 +58,10 @@ describe('pickDesignDoneContent', () => {
         designStarted: true,
         hasProposedOps: false,
       })
-    ).toBe('agent.canvasUpdated');
+    ).toBe('');
   });
 
-  it('ignores streamed content when design ran but painted nothing', () => {
+  it('drops mid-run stream when design ran but painted nothing', () => {
     expect(
       pickDesignDoneContent({
         t,
@@ -72,7 +72,7 @@ describe('pickDesignDoneContent', () => {
         designStarted: true,
         hasProposedOps: false,
       })
-    ).toBe('agent.designEmptyResult');
+    ).toBe('');
   });
 
   it('keeps streamed chat content when design never started', () => {

@@ -245,6 +245,9 @@ export function WorldScreenChromeRoot({
           width: railScreen,
           height: 0,
           display: 'flex',
+          // height:0 + default stretch collapses the marker/host to 0×N — Playwright
+          // (and hit tests that use host GBR) then treat the chrome as hidden.
+          alignItems: 'flex-start',
           justifyContent: alignEnd ? 'flex-end' : 'center',
           pointerEvents: 'none',
           ...style,

@@ -1,8 +1,9 @@
 import {
   useRcbCamera,
   useRcbScreenToScene,
+  useRcbViewportEl,
 } from '../camera/context';
-import { rcbCameraCssZoom } from '../core/math';
+import { rcbCameraCssZoom, rcbResolveViewportEl } from '../core/math';
 import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -20,32 +21,17 @@ import {
 import { isEditablePathNode } from '../scene/paint/outlineToPath';
 import { nodeLeftTop } from '../scene/paint/sceneToSvg';
 import { PEN_CURSOR } from './PencilDrawFeature';
-import { snapCoordToGrid } from '../selection/alignGuides';
 import {
   getSceneDrawPreviewMount,
   getSceneWorldEpoch,
   subscribeShapeHosts,
 } from '../shapes/shapeHostRegistry';
+import { attachViewportToolPointers } from '../scene/document/sceneHitBridge';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-function dist2(ax: number, ay: number, bx: number, by: number) {
-  const dx = ax - bx;
-  const dy = ay - by;
-  return dx * dx + dy * dy;
-}
-
-function isGridCorner(x: number, y: number, g: number) {
-  const qx = Math.round(x / g) * g;
-  const qy = Math.round(y / g) * g;
-  return Math.abs(x - qx) < 1e-9 && Math.abs(y - qy) < 1e-9;
-}
-
 /**
- * Snap pen anchors to the pixel-grid lattice (hold Ctrl to skip):
- * - cell **corners** (i, j)
- * - **edge midpoints** (i+½, j) / (i, j+½) — 网格边缘线中间
- *
- * Cell centers (½,½) are not snap targets (not on an edge line).
+ * Snap to the eight perimeter anchors of the containing grid cell:
+ * four corners and four edge midpoints. The cell center is never a target.
  */
 export function snapPenAnchorPoint(
   x: number,
@@ -55,55 +41,51 @@ export function snapPenAnchorPoint(
 ): { x: number; y: number } {
   if (skip || !(gridSize > 0)) return { x, y };
   const g = gridSize;
-  const half = g / 2;
-  const gx0 = Math.floor(x / g) * g;
-  const gy0 = Math.floor(y / g) * g;
-
-  let bestX = snapCoordToGrid(x, g);
-  let bestY = snapCoordToGrid(y, g);
-  let bestD = dist2(x, y, bestX, bestY);
-  let bestCorner = isGridCorner(bestX, bestY, g);
-
-  const consider = (cx: number, cy: number) => {
-    const d = dist2(x, y, cx, cy);
-    const corner = isGridCorner(cx, cy, g);
-    if (d < bestD - 1e-12) {
-      bestD = d;
-      bestX = cx;
-      bestY = cy;
-      bestCorner = corner;
-      return;
-    }
-    if (Math.abs(d - bestD) <= 1e-12) {
-      // Tie: prefer corners, then lower x, then lower y (stable).
-      if (corner && !bestCorner) {
-        bestX = cx;
-        bestY = cy;
-        bestCorner = true;
-        return;
-      }
-      if (corner === bestCorner && (cx < bestX - 1e-12 || (Math.abs(cx - bestX) <= 1e-12 && cy < bestY))) {
-        bestX = cx;
-        bestY = cy;
-        bestCorner = corner;
-      }
-    }
-  };
-
-  // Local 3×3 corners + edge mids around the containing cell.
-  for (let ix = -1; ix <= 2; ix += 1) {
-    for (let iy = -1; iy <= 2; iy += 1) {
-      const cx = gx0 + ix * g;
-      const cy = gy0 + iy * g;
-      consider(cx, cy);
-      // Mid of horizontal edge (on horizontal grid line).
-      if (iy <= 1) consider(cx + half, cy);
-      // Mid of vertical edge (on vertical grid line).
-      if (ix <= 1) consider(cx, cy + half);
+  const left = Math.floor(x / g) * g;
+  const top = Math.floor(y / g) * g;
+  const right = left + g;
+  const bottom = top + g;
+  const midX = left + g / 2;
+  const midY = top + g / 2;
+  // Clockwise order is also the stable tie-breaker at exact bisectors.
+  const targets = [
+    { x: left, y: top },
+    { x: midX, y: top },
+    { x: right, y: top },
+    { x: right, y: midY },
+    { x: right, y: bottom },
+    { x: midX, y: bottom },
+    { x: left, y: bottom },
+    { x: left, y: midY },
+  ];
+  let best = targets[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const target of targets) {
+    const dx = x - target.x;
+    const dy = y - target.y;
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance - 1e-12) {
+      best = target;
+      bestDistance = distance;
     }
   }
+  return best;
+}
 
-  return { x: bestX, y: bestY };
+/** Snap a grid point to the visible artboard edge when it is within screen reach. */
+export function snapPenPointToArtboardEdge(
+  point: { x: number; y: number },
+  artboard: { width: number; height: number },
+  zoom: number,
+  screenThreshold = 8
+): { x: number; y: number } {
+  const threshold = Math.max(0, screenThreshold) / Math.max(0.05, zoom || 1);
+  const next = { ...point };
+  if (Math.abs(next.x) <= threshold) next.x = 0;
+  else if (Math.abs(next.x - artboard.width) <= threshold) next.x = artboard.width;
+  if (Math.abs(next.y) <= threshold) next.y = 0;
+  else if (Math.abs(next.y - artboard.height) <= threshold) next.y = artboard.height;
+  return next;
 }
 
 /**
@@ -412,7 +394,14 @@ function PenDrawFeature({
   document,
 }: PenDrawFeatureProps) {
   const camera = useRcbCamera();
+  const viewportEl = useRcbViewportEl();
   const toScene = useRcbScreenToScene();
+  const snapPoint = (point: { x: number; y: number }, skip: boolean) =>
+    snapPenPointToArtboardEdge(
+      snapPenAnchorPoint(point.x, point.y, gridSizeRef.current, skip),
+      artboard,
+      rcbCameraCssZoom(camera)
+    );
   const [anchors, setAnchors] = useState<PenAnchor[]>([]);
   /** Rubber-band end (raw pointer, or Shift octant). */
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
@@ -540,7 +529,7 @@ function PenDrawFeature({
       const y = Number(detail.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       if (anchorsRef.current.length > 0) return;
-      const anchor = snapPenAnchorPoint(x, y, gridSizeRef.current, !gridSnapRef.current);
+      const anchor = snapPoint({ x, y }, !gridSnapRef.current);
       placingRef.current = null;
       draggingRef.current = false;
       setAnchors([anchor]);
@@ -556,7 +545,9 @@ function PenDrawFeature({
 
   useEffect(() => {
     if (!enabled) return undefined;
-    const hitEl = stageEl || paperEl;
+    // Prefer live viewport context — stageEl prop can detach after resize/remount
+    // while the pen cursor still looks active (no tip / dead clicks).
+    const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
 
     const radii = () => ({
       anchor: hitRadiusScene(rcbCameraCssZoom(camera), ANCHOR_HIT_PX),
@@ -571,7 +562,10 @@ function PenDrawFeature({
         anchors: list,
         snapped: p,
         raw: p,
-        anchorHitRadius: Math.max(radii().anchor, CLOSE_THRESHOLD / Math.max(1, camera.zoom || 1)),
+        anchorHitRadius: Math.max(
+          radii().anchor,
+          CLOSE_THRESHOLD / Math.max(0.05, rcbCameraCssZoom(camera))
+        ),
         closeThreshold: CLOSE_THRESHOLD,
       });
       return action.kind === 'close';
@@ -633,16 +627,14 @@ function PenDrawFeature({
         if (!lastPt || list.length < 1) return;
         const last = list[list.length - 1];
         const shift = e.type === 'keydown';
-        const tip = shift
-          ? snapPenStrokeOctant(last, lastPt.rawX, lastPt.rawY, true)
-          : snapPenAnchorPoint(
-              lastPt.rawX,
-              lastPt.rawY,
-              gridSizeRef.current,
-              !gridSnapRef.current
-            );
-        const rubber = shift ? tip : { x: lastPt.rawX, y: lastPt.rawY };
-        setCursor(rubber);
+        let tip: { x: number; y: number };
+        if (shift) {
+          const oct = snapPenStrokeOctant(last, lastPt.rawX, lastPt.rawY, true);
+          tip = snapPoint(oct, !gridSnapRef.current);
+        } else {
+          tip = snapPoint(lastPt, !gridSnapRef.current);
+        }
+        setCursor(tip);
         setPlaceCursor(tip);
         setCloseHot(nearClose(tip));
       }
@@ -667,9 +659,9 @@ function PenDrawFeature({
       if (e.button !== 0) return;
       e.preventDefault();
       const raw = toScene(e.clientX, e.clientY);
-      // Hit-test with raw pointer; place new anchors on grid corners (Ctrl = free).
+      // Hit-test with raw pointer; place on the cell perimeter (Ctrl = free).
       const skipGrid = e.ctrlKey || !gridSnapRef.current;
-      const p = snapPenAnchorPoint(raw.x, raw.y, gridSizeRef.current, skipGrid);
+      const p = snapPoint(raw, skipGrid);
       const list = anchorsRef.current;
       const { anchor: anchorR, handle: handleR } = radii();
 
@@ -797,10 +789,13 @@ function PenDrawFeature({
       setHoverAnchor(null);
 
       const lastAnchor = list.length > 0 ? list[list.length - 1] : null;
-      const placePt =
-        e.shiftKey && lastAnchor
-          ? snapPenStrokeOctant(lastAnchor, raw.x, raw.y, true)
-          : { x: action.x, y: action.y };
+      let placePt: { x: number; y: number };
+      if (e.shiftKey && lastAnchor) {
+        const oct = snapPenStrokeOctant(lastAnchor, raw.x, raw.y, true);
+        placePt = snapPoint(oct, skipGrid);
+      } else {
+        placePt = { x: action.x, y: action.y };
+      }
       const anchor: PenAnchor = { x: placePt.x, y: placePt.y };
       placingRef.current = anchor;
       draggingRef.current = false;
@@ -813,7 +808,7 @@ function PenDrawFeature({
     const onMove = (e: PointerEvent) => {
       const raw = toScene(e.clientX, e.clientY);
       const skipGrid = e.ctrlKey || !gridSnapRef.current;
-      const p = snapPenAnchorPoint(raw.x, raw.y, gridSizeRef.current, skipGrid);
+      const p = snapPoint(raw, skipGrid);
       const drag = dragKindRef.current;
       const { anchor: anchorR, handle: handleR } = radii();
 
@@ -823,7 +818,7 @@ function PenDrawFeature({
         setAnchors((prev) => {
           if (!prev[drag.index]) return prev;
           const next = [...prev];
-          // Handles stay free (curvature); only anchors snap to grid corners.
+          // Handles stay free for curvature; only anchors snap to the grid perimeter.
           next[drag.index] = setHandle(
             next[drag.index],
             drag.side,
@@ -883,8 +878,7 @@ function PenDrawFeature({
       }
 
       // Idle: prefer anchor hover, then handle diamonds (raw hit).
-      // Rubber-band follows raw pointer; snap tip + click use the lattice so the
-      // dashed preview does not jump cell-to-cell mid-gesture.
+      // Rubber-band + snap tip share the lattice place target (never mid-cell).
       lastScenePointerRef.current = { x: p.x, y: p.y, rawX: raw.x, rawY: raw.y };
       const aIdx = hitAnchor(anchorsRef.current, raw, anchorR);
       if (aIdx >= 0) {
@@ -913,18 +907,24 @@ function PenDrawFeature({
         anchorsRef.current.length > 0
           ? anchorsRef.current[anchorsRef.current.length - 1]
           : null;
-      const placeTip = e.shiftKey
-        ? snapPenStrokeOctant(lastAnchor, raw.x, raw.y, true)
-        : p;
-      const rubberTip =
-        e.shiftKey && lastAnchor ? placeTip : { x: raw.x, y: raw.y };
+      // Place tip always uses a corner/edge midpoint. Shift locks octant first,
+      // then re-snaps so the blue + never sits at the cell center.
+      let placeTip: { x: number; y: number };
+      if (e.shiftKey && lastAnchor) {
+        const oct = snapPenStrokeOctant(lastAnchor, raw.x, raw.y, true);
+        placeTip = snapPoint(oct, skipGrid);
+      } else {
+        placeTip = p;
+      }
+      // Rubber-band ends on the same lattice as the snap tip / click — mid-cell
+      // raw ends looked like "pen not on grid" at high zoom.
       lastScenePointerRef.current = {
         x: placeTip.x,
         y: placeTip.y,
         rawX: raw.x,
         rawY: raw.y,
       };
-      setCursor(rubberTip);
+      setCursor(placeTip);
       setPlaceCursor(placeTip);
       setCloseHot(nearClose(placeTip));
     };
@@ -942,7 +942,7 @@ function PenDrawFeature({
         // Back to drawing: restore rubber-band from current pointer.
         const rawUp = toScene(e.clientX, e.clientY);
         const skipUp = e.ctrlKey || !gridSnapRef.current;
-        const p = snapPenAnchorPoint(rawUp.x, rawUp.y, gridSizeRef.current, skipUp);
+        const p = snapPoint(rawUp, skipUp);
         const { anchor: anchorR, handle: handleR } = radii();
         const aIdx = hitAnchor(anchorsRef.current, rawUp, anchorR);
         if (aIdx >= 0) {
@@ -977,7 +977,7 @@ function PenDrawFeature({
       dragKindRef.current = null;
       const rawUp = toScene(e.clientX, e.clientY);
       const skipUp = e.ctrlKey || !gridSnapRef.current;
-      const upTip = snapPenAnchorPoint(rawUp.x, rawUp.y, gridSizeRef.current, skipUp);
+      const upTip = snapPoint(rawUp, skipUp);
       setCursor(upTip);
       setPlaceCursor(upTip);
       setPaperCursor(hitEl || paperEl, PEN_CURSOR);
@@ -1007,18 +1007,15 @@ function PenDrawFeature({
     };
 
     setPaperCursor(hitEl, PEN_CURSOR);
-    // Capture so anchors register even when shapes SVG sits under the pointer.
-    hitEl.addEventListener('pointerdown', onDown, true);
-    hitEl.addEventListener('pointermove', onMove);
-    hitEl.addEventListener('pointerup', onUp);
-    hitEl.addEventListener('pointerleave', onLeave);
-    hitEl.addEventListener('dblclick', onDbl, true);
+    const detachPointers = attachViewportToolPointers(hitEl, {
+      onDown,
+      onMove,
+      onUp,
+      onLeave,
+      onDblClick: onDbl,
+    });
     return () => {
-      hitEl.removeEventListener('pointerdown', onDown, true);
-      hitEl.removeEventListener('pointermove', onMove);
-      hitEl.removeEventListener('pointerup', onUp);
-      hitEl.removeEventListener('pointerleave', onLeave);
-      hitEl.removeEventListener('dblclick', onDbl, true);
+      detachPointers();
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('keyup', onKey, true);
       window.removeEventListener('resume:exit-pen', onExitEvent);
@@ -1026,7 +1023,20 @@ function PenDrawFeature({
       // Leave style.cursor alone ? React (RcbCanvas) sets the next tool cursor after commit;
       // assigning '' here runs in effect cleanup and erases pencil/bucket icons.
     };
-  }, [enabled, paperEl, stageEl, camera.zoom, toScene, onCommit, onCancel, strokeWidth, hitTest, onEditExistingPath, document]);
+  }, [
+    enabled,
+    paperEl,
+    stageEl,
+    viewportEl,
+    camera,
+    toScene,
+    onCommit,
+    onCancel,
+    strokeWidth,
+    hitTest,
+    onEditExistingPath,
+    document,
+  ]);
 
   if (!enabled) return null;
 
@@ -1038,7 +1048,7 @@ function PenDrawFeature({
     (closing || closeHot) && first && last && anchors.length >= 2 && !placingRef.current;
 
   const sw = Math.max(1, Number(strokeWidth) || 1);
-  const z = Math.max(0.05, camera.zoom || 1);
+  const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const inv = 1 / z;
   const stroke = STROKE_PX * inv;
   const handleStroke = HANDLE_STROKE_PX * inv;
@@ -1099,6 +1109,7 @@ function PenDrawFeature({
     }
   });
 
+  // Rubber-band + snap tip share the lattice place target (click lands here).
   const rubberBand =
     !showClosePreview &&
     cursor &&

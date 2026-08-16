@@ -13,8 +13,14 @@ import {
 } from 'react';
 import { LuAudioLines, LuImagePlus } from 'react-icons/lu';
 import { RiClapperboardFill, RiVideoAiLine } from 'react-icons/ri';
-import { useRcbCamera, rcbCameraCssZoom } from '@/components/rcb';
-import { subscribeShapeHosts } from '@/components/rcb/shapes/shapeHostRegistry';
+import {
+  RcbOverlayPortal,
+  useRcbCamera,
+  useRcbDevicePixelRatio,
+  rcbCameraCssZoom,
+  rcbSceneToScreen,
+} from '@/components/rcb';
+import { subscribeShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   NODE_TITLE_LABEL_GAP_PX,
   NODE_TITLE_LABEL_LINE_PX,
@@ -53,7 +59,7 @@ type Props = {
   angle?: number;
   hidden?: boolean;
   onSelect?: () => void;
-  onRename?: (name: string) => void;
+  onRename?: (name: string, options?: { skipHistory?: boolean }) => void;
   onMove?: (x: number, y: number, opts?: { skipGrid?: boolean }) => void;
   onMoveStart?: () => void;
   onMoveEnd?: () => void;
@@ -305,9 +311,12 @@ function NodeTitleLabel({
   nodeId,
 }: Props): ReactNode {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(name);
+  const lastRenamedRef = useRef(name);
+  const renameStartRef = useRef(name);
+  const wroteDuringEditRef = useRef(false);
   const [labelDragging, setLabelDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const wasEditingRef = useRef(false);
   const labelDragRef = useRef<{
     originX: number;
     originY: number;
@@ -316,26 +325,51 @@ function NodeTitleLabel({
     started: boolean;
   } | null>(null);
   const camera = useRcbCamera();
+  const dpr = useRcbDevicePixelRatio();
   const z = rcbCameraCssZoom(camera);
   const inv = 1 / Math.max(0.05, z);
   const rotated = Math.abs(angle) > 0.001;
   const sizeText = `${Math.round(sizeWidth)} × ${Math.round(sizeHeight)}`;
   const [hostEpoch, setHostEpoch] = useState(0);
-  useEffect(() => subscribeShapeHosts(() => setHostEpoch((n) => n + 1)), []);
+  useEffect(
+    () => (nodeId ? subscribeShapeHost(nodeId, () => setHostEpoch((n) => n + 1)) : undefined),
+    [nodeId]
+  );
   // Same lattice as blue control box (host sticky snap) — Redux box alone drifts.
   const live = nodeId ? liveShapeGeomBox(nodeId) : null;
   const plate = live || box;
 
   useEffect(() => {
-    if (!editing) setDraft(name);
+    if (!editing) {
+      lastRenamedRef.current = name;
+    }
   }, [name, editing]);
 
+  const rename = (value: string, options?: { skipHistory?: boolean }) => {
+    if (value === lastRenamedRef.current) return;
+    lastRenamedRef.current = value;
+    const skipHistory = Boolean(options?.skipHistory && wroteDuringEditRef.current);
+    onRename?.(value, { skipHistory });
+    if (options?.skipHistory) wroteDuringEditRef.current = true;
+  };
+
+  const beginRename = () => {
+    if (!onRename) return;
+    renameStartRef.current = name;
+    wroteDuringEditRef.current = false;
+    setEditing(true);
+  };
+
   useLayoutEffect(() => {
+    const wasEditing = wasEditingRef.current;
+    wasEditingRef.current = editing;
     if (!editing) return;
     const el = inputRef.current;
     if (!el) return;
-    el.focus({ preventScroll: true });
-    el.select();
+    if (window.document.activeElement !== el) el.focus({ preventScroll: true });
+    // Select only on edit entry. Name writes remount the HTML host, but the
+    // cursor must remain where the user was typing after that remount.
+    if (!wasEditing) el.select();
   }, [editing]);
 
   useEffect(() => {
@@ -347,8 +381,7 @@ function NodeTitleLabel({
         const el = inputRef.current;
         const value = (el?.value ?? '').trim() || name;
         setEditing(false);
-        setDraft(value);
-        if (value !== name) onRename?.(value);
+        rename(value);
       });
     };
     window.addEventListener('pointerdown', onPointerDown, true);
@@ -359,10 +392,9 @@ function NodeTitleLabel({
     icon || (dataAttr === 'frame-label' ? 'frame' : 'image');
 
   const commit = () => {
-    const next = draft.trim() || name;
+    const next = (inputRef.current?.value ?? '').trim() || name;
     setEditing(false);
-    setDraft(next);
-    if (next !== name) onRename?.(next);
+    rename(next);
   };
 
   if (hidden || labelDragging) return null;
@@ -376,6 +408,13 @@ function NodeTitleLabel({
     e.stopPropagation();
     if (editing) return;
     onSelect?.();
+    // Frame labels also support dragging. Start editing on the second press so
+    // a drag listener cannot consume the browser's later double-click event.
+    if (e.detail === 2) {
+      e.preventDefault();
+      beginRename();
+      return;
+    }
     if (!onMove || e.button !== 0) return;
     labelDragRef.current = {
       originX,
@@ -413,11 +452,27 @@ function NodeTitleLabel({
 
   // Scene rotate about plate center → mid to top-left (scene px) →
   // scale(1/zoom) label with only screen-px gap (no boxSize*zoom CSS).
-  const html = nodeTitleHtmlAnchor(plate, z, angle);
+  const center = rcbSceneToScreen(
+    camera,
+    plate.left + Math.max(1, plate.width) / 2,
+    plate.top + Math.max(1, plate.height) / 2,
+    dpr
+  );
+  // Same scene-to-screen anchor as SelectionToolbarShell. The title is plain
+  // screen-space HTML, so its box dimensions must be zoomed before rotation.
+  const html = {
+    outerLeft: center.x,
+    outerTop: center.y,
+    rotateDeg: rotated ? angle : 0,
+    midLeft: -(Math.max(1, plate.width) * z) / 2,
+    midTop: -(Math.max(1, plate.height) * z) / 2,
+    titleTopPx: -NODE_TITLE_LABEL_GAP_PX,
+    maxWidthPx: Math.max(1, plate.width) * z,
+  };
 
   return (
-    <div
-      key={hostEpoch}
+    <RcbOverlayPortal>
+      <div
       data-rcb-node-title="1"
       className="pointer-events-none absolute z-[999990] overflow-visible"
       style={{
@@ -446,8 +501,7 @@ function NodeTitleLabel({
             top: 0,
             width: 0,
             height: 0,
-            transform: `scale(${html.inv})`,
-            transformOrigin: '0 0',
+          transform: 'none',
           }}
         >
           <div
@@ -457,14 +511,14 @@ function NodeTitleLabel({
             tabIndex={0}
             aria-label={renameAriaLabel || name}
             className={cn(
-              'pointer-events-auto absolute flex min-w-0 items-center justify-start gap-1 overflow-hidden font-medium select-none',
+              'pointer-events-auto absolute flex min-w-0 items-center justify-between gap-1 overflow-hidden font-medium select-none',
               onMove ? 'cursor-grab' : 'cursor-default'
             )}
             style={{
               left: 0,
               top: html.titleTopPx,
               maxWidth: html.maxWidthPx,
-              width: 'max-content',
+              width: html.maxWidthPx,
               height: NODE_TITLE_LABEL_LINE_PX,
               transform: 'translateY(-100%)',
               color: MUTED,
@@ -478,18 +532,14 @@ function NodeTitleLabel({
               e.preventDefault();
               e.stopPropagation();
               onSelect?.();
-              if (e.key === 'Enter' && onRename) {
-                setDraft(name);
-                setEditing(true);
-              }
+              if (e.key === 'Enter') beginRename();
             }}
             onDoubleClick={(e) => {
               if (!onRename) return;
               e.preventDefault();
               e.stopPropagation();
               onSelect?.();
-              setDraft(name);
-              setEditing(true);
+              beginRename();
             }}
           >
             <TitleIcon kind={iconKind} />
@@ -498,7 +548,7 @@ function NodeTitleLabel({
                 ref={inputRef}
                 data-rcb-title-edit="1"
                 data-text-inline-editor
-                value={draft}
+                defaultValue={name}
                 aria-label={renameAriaLabel || name}
                 className="min-w-0 flex-1 appearance-none overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-transparent p-0 font-medium leading-none text-[var(--ink)] shadow-none outline-none ring-0"
                 style={{
@@ -507,7 +557,10 @@ function NodeTitleLabel({
                   height: NODE_TITLE_LABEL_LINE_PX,
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  const trimmed = e.currentTarget.value.trim();
+                  if (trimmed) rename(trimmed, { skipHistory: true });
+                }}
                 onBlur={commit}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -516,7 +569,7 @@ function NodeTitleLabel({
                   }
                   if (e.key === 'Escape') {
                     e.preventDefault();
-                    setDraft(name);
+                    rename(renameStartRef.current, { skipHistory: true });
                     setEditing(false);
                   }
                   e.stopPropagation();
@@ -531,7 +584,8 @@ function NodeTitleLabel({
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </RcbOverlayPortal>
   );
 }
 

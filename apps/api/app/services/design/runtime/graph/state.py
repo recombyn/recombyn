@@ -1600,6 +1600,8 @@ class AgentGraphRunInput:
     t0: float
     settle_hold_fn: Any
     refund_hold_fn: Any
+    # Stable API-assigned id for worker-backed runs; omitted by legacy callers.
+    task_id: str | None = None
     apply_ops: list[dict[str, Any]] | None = None
     proposal_id: str | None = None
     proposal_task_id: str | None = None
@@ -1704,4 +1706,3 @@ class AgentRuntime:
 class GraphState(TypedDict):
     rt: AgentRuntime
     tick: NotRequired[int]
-

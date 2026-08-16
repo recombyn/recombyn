@@ -62,6 +62,7 @@ import {
 import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
 import ToolbarMenuSelect from './ToolbarMenuSelect';
 import BlendModeControl from './BlendModeControl';
+import EffectsControl from './EffectsControl';
 import {
   SEL_ICON_BTN,
   SEL_ICON_BTN_ACTIVE,
@@ -119,6 +120,8 @@ type Props = {
   document: SceneDocument;
   nodeId: string;
   box: SceneBox;
+  /** True node geometry used for W/H; box is only the toolbar placement box. */
+  valueBox?: SceneBox;
   /** Scene pad beyond chrome for outer stroke ink (center stroke half-width). */
   edgePadScene?: number;
   onOpenAgent?: (opts?: { prompt?: string }) => void;
@@ -315,7 +318,7 @@ async function outlineSelectedNode(opts: {
 }
 
 function SelectionContextToolbar(props: Props): ReactNode {
-  const { document, nodeId, box, edgePadScene = 0 } = props;
+  const { document, nodeId, box, valueBox, edgePadScene = 0 } = props;
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const [decorationOpen, setDecorationOpen] = useState(false);
@@ -437,6 +440,13 @@ function SelectionContextToolbar(props: Props): ReactNode {
   };
 
   const showBlend = !(kind === 'image' && isIconImageNode(node));
+  const supportsEffects = !['video', 'audio', 'lottie', 'frame', 'group'].includes(kind);
+  const effectControl = supportsEffects ? (
+    <EffectsControl
+      attrs={node.attrs}
+      onChange={(attrs) => dispatch(patchDocumentNode({ nodeId, patch: { attrs } }))}
+    />
+  ) : null;
   const imageAspectLocked = resolveImageAspectLocked(node, kind);
   const blendControl = showBlend ? (
     <BlendModeControl
@@ -570,6 +580,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
                   ) : null
                 }
               />
+            </>
+          ) : null}
+          {effectControl ? (
+            <>
+              <Sep />
+              {effectControl}
             </>
           ) : null}
           <ImageToolbarMoreDownload
@@ -887,6 +903,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
                   {blendControl}
                 </>
               ) : null}
+              {effectControl ? (
+                <>
+                  <Sep />
+                  {effectControl}
+                </>
+              ) : null}
               <Sep />
               <ExportSelectionPopover nodeIds={[nodeId]} />
             </>
@@ -925,8 +947,21 @@ function SelectionContextToolbar(props: Props): ReactNode {
 
           {kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path' ? (
             <>
-              <ShapeSelectionToolbar nodeId={nodeId} node={node} box={box} hideExport />
+              <ShapeSelectionToolbar
+                nodeId={nodeId}
+                node={node}
+                box={box}
+                valueBox={valueBox}
+                document={document}
+                hideExport
+              />
               {blendControl}
+              {effectControl ? (
+                <>
+                  <Sep />
+                  {effectControl}
+                </>
+              ) : null}
               <Sep />
               <ExportSelectionPopover nodeIds={[nodeId]} />
             </>
@@ -936,6 +971,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
               {blendControl ? (
                 <>
                   {blendControl}
+                  <Sep />
+                </>
+              ) : null}
+              {effectControl ? (
+                <>
+                  {effectControl}
                   <Sep />
                 </>
               ) : null}

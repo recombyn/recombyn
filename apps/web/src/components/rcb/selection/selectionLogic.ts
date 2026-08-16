@@ -785,6 +785,18 @@ export function filterMarqueeContentHits(document: SceneDocument, rawHits: strin
   });
 }
 
+/**
+ * Spatial prefilter for marquee. Empty `[]` means miss (stale index), not "no nodes" —
+ * `??` would keep [] and skip every hit.
+ */
+export function resolveMarqueeCandidates(
+  spatialHits: readonly string[] | null | undefined,
+  allIds: readonly string[]
+): readonly string[] {
+  if (spatialHits && spatialHits.length > 0) return spatialHits;
+  return allIds;
+}
+
 export function commitMarqueeSelection(opts: {
   contentHits: string[];
   frameHits: string[];
@@ -1133,7 +1145,8 @@ export function strokeEndpointBox(
   drag: DragState,
   document: SceneDocument,
   sceneX: number,
-  sceneY: number
+  sceneY: number,
+  shiftKey = false
 ): { next: SceneBox; angle: number; strokeId: string } | null {
   const strokeId = drag.origins.length === 1 ? drag.origins[0].nodeId : '';
   if (!strokeId || !drag.handle) return null;
@@ -1161,7 +1174,14 @@ export function strokeEndpointBox(
   }
 
   if (!isStrokeShapeType(shapeType)) return null;
-  const placed = resizeStrokeByEndpoint(drag.union, drag.angle0 || 0, drag.handle, sceneX, sceneY);
+  const placed = resizeStrokeByEndpoint(
+    drag.union,
+    drag.angle0 || 0,
+    drag.handle,
+    sceneX,
+    sceneY,
+    shiftKey
+  );
   return {
     strokeId,
     angle: placed.angle,
@@ -1489,8 +1509,8 @@ export function buildShapeOutlines(opts: {
     });
   }
 
-  // Single artboard frame: AABB chrome mirroring the SVG frame host
-  // (same method as generators / rects — plate + title are world-layer SVG).
+  // Single artboard frame: AABB chrome from live plate host (same lattice as ink).
+  // Redux frame.x alone drifts vs `__sceneLeft` / sticky transform at high zoom.
   if (
     !opts.inspectDev &&
     !opts.transforming &&
@@ -1501,10 +1521,11 @@ export function buildShapeOutlines(opts: {
     const frames = Array.isArray(opts.document?.frames) ? opts.document.frames : [];
     const frame = frames.find((f: any) => f && String(f.id) === String(fid));
     if (frame) {
-      const left = Number(frame.x) || 0;
-      const top = Number(frame.y) || 0;
-      const width = Math.max(1, Number(frame.width) || 1);
-      const height = Math.max(1, Number(frame.height) || 1);
+      const live = liveShapeGeomBox(String(fid));
+      const left = live?.left ?? (Number(frame.x) || 0);
+      const top = live?.top ?? (Number(frame.y) || 0);
+      const width = live?.width ?? Math.max(1, Number(frame.width) || 1);
+      const height = live?.height ?? Math.max(1, Number(frame.height) || 1);
       out.push({
         id: frameSelId(fid),
         mirrorHostId: String(fid),
@@ -1604,7 +1625,12 @@ export function resolvePaintedControlChrome(
     }
     const live = liveShapeGeomBox(o.nodeId);
     if (!live) return fallback;
-    lives.push(inflateSelectionBox(live, document?.deltaSetLike?.[o.nodeId]));
+    const node = document?.deltaSetLike?.[o.nodeId];
+    const shapeType = String(node?.attrs?.shapeType || '').toLowerCase();
+    const openStroke = shapeType === 'line' || shapeType === 'arrow';
+    // Path control chrome is anchored to the path geometry. Stroke expansion
+    // is visual clearance only and must not move the hit box away from it.
+    lives.push(nodeUsesPathChrome(node) && !openStroke ? { ...live } : inflateSelectionBox(live, node));
   }
   if (lives.length !== origins.length) return fallback;
   const box = origins.length === 1 ? lives[0] : unionOfBoxes(lives);

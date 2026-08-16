@@ -186,13 +186,21 @@ function pathDBoundsFromAbsolutePairs(
 export function pathDBounds(d: string): { minX: number; minY: number; width: number; height: number } | null {
   const raw = String(d || '').trim();
   if (!raw) return null;
+  // Absolute M/L/C/Q/Z: pair AABB is stable. Chromium getBBox inside a 0×0 SVG
+  // often under-reports multi-glyph text outlines → node W/H collapses (e.g. 5×1)
+  // while ink still paints the full path (chrome detaches / looks “乱”).
+  if (!/[mlhvcsqta]/.test(raw)) {
+    const pairs = pathDBoundsFromAbsolutePairs(raw);
+    if (pairs) return pairs;
+  }
   if (typeof document !== 'undefined') {
     try {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('width', '0');
-      svg.setAttribute('height', '0');
+      svg.setAttribute('width', '1');
+      svg.setAttribute('height', '1');
       svg.style.position = 'absolute';
       svg.style.visibility = 'hidden';
+      svg.style.overflow = 'visible';
       const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       el.setAttribute('d', raw);
       svg.appendChild(el);
@@ -220,9 +228,9 @@ export function pathDBounds(d: string): { minX: number; minY: number; width: num
  */
 function translatePathD(d: string, dx: number, dy: number): string | null {
   if (!dx && !dy) return d;
-  // Relative cmds only (lowercase). Do NOT use /i — that also matches absolute M/L/C
-  // and made every stroked outline fail after the SVG-stroke outline rewrite.
-  if (/[mlhvcsqta]/.test(d)) return null;
+  // Relative commands and arc commands cannot be translated by the simple
+  // coordinate-pair replacement below: arc radii / flags are numeric too.
+  if (/[mlhvcsqtaAa]/.test(d)) return null;
   return d.replace(
     /(-?\d*\.?\d+(?:e[-+]?\d+)?)\s*,?\s*(-?\d*\.?\d+(?:e[-+]?\d+)?)/gi,
     (_, a: string, b: string) =>
@@ -941,21 +949,6 @@ export type OutlineBuildOpts = {
   zoom?: number;
 };
 
-/** Map absolute path coordinates (M/L/C/Q/… numeric pairs). */
-function mapAbsolutePathPoints(
-  d: string,
-  fn: (x: number, y: number) => [number, number]
-): string | null {
-  if (/[mlhvcsqta]/.test(d)) return null;
-  return d.replace(
-    /(-?\d*\.?\d+(?:e[-+]?\d+)?)\s*,?\s*(-?\d*\.?\d+(?:e[-+]?\d+)?)/gi,
-    (_, a: string, b: string) => {
-      const [x, y] = fn(parseFloat(a), parseFloat(b));
-      return `${x.toFixed(2)} ${y.toFixed(2)}`;
-    }
-  );
-}
-
 /**
  * Bake node rotation into path so path-edit anchors match the on-canvas silhouette
  * (path-edit chrome is axis-aligned; leaving angle only on attrs looked “水平”).
@@ -972,11 +965,27 @@ function bakeNodeAngleIntoOutline(
   const rad = (angleDeg * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
-  const rotated = mapAbsolutePathPoints(outline.pathD, (x, y) => {
-    const dx = x - cx;
-    const dy = y - cy;
-    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
-  });
+  // A command contains radius and flag fields that are not coordinates. The old
+  // number-pair regex rotated those fields too, corrupting rounded outlines.
+  // Rebuild from the path parser's subpaths so only actual points are transformed.
+  const subpaths = samplePathSubpaths(outline.pathD, 0.5);
+  if (!subpaths.length) return outline;
+  const rotated = subpaths
+    .map((sub) => {
+      if (!sub.pts.length) return '';
+      const points = sub.pts.map(([x, y]) => {
+        const dx = x - cx;
+        const dy = y - cy;
+        return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos] as const;
+      });
+      const [first, ...rest] = points;
+      const part = `M ${first[0].toFixed(2)} ${first[1].toFixed(2)}${rest
+        .map(([x, y]) => ` L ${x.toFixed(2)} ${y.toFixed(2)}`)
+        .join('')}`;
+      return sub.closed ? `${part} Z` : part;
+    })
+    .filter(Boolean)
+    .join(' ');
   if (!rotated) return outline;
   return { ...outline, pathD: rotated, bakeAngle: true };
 }
@@ -1515,9 +1524,12 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   const boxH = Math.max(1, Math.round(Number(node.height) || 1));
   const autoSize = String(node.attrs?.autoSize ?? 'true') !== 'false';
   const pad = 4;
-  // Higher supersample — scale 6 left CJK counters looking like jagged shards.
-  const scale = 12;
-  const fontSize = Math.max(1, Number(style.fontSize) || 14) * scale;
+  // CJK glyphs are dense — scale 12 × per-char contour is multi-second main-thread
+  // work that freezes Outline UI. Keep Latin at 12; CJK at 5 (still multi-ring).
+  const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/.test(plain);
+  const scale = isCjk ? 5 : 12;
+  const fontSizeScene = Math.max(1e-3, Number(style.fontSize) || 14);
+  const fontSize = fontSizeScene * scale;
   const lineHeight = Math.max(0.8, Number(style.lineHeight) || 1.4);
   const lh = lineHeight * fontSize;
   const letterSpacing = (Number(style.letterSpacing) || 0) * scale;
@@ -1526,6 +1538,10 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   // Same CSS face as SVG paint (延用自身) — no substitute stack.
   const family = toFabricFontFamily(style.fontFamily);
   const fontCss = `${style.fontWeight || 400} ${fontSize}px "${family}"`;
+  // Scene epsilon scales with fontSize — fixed 0.18 shredded ~1px high-zoom text.
+  const simplifyEps = Math.max(0.015, Math.min(0.18, fontSizeScene * 0.045));
+  const simplifyCap = Math.max(simplifyEps * 3, simplifyEps + fontSizeScene * 0.08);
+  const simplifyMaxPts = isCjk ? 360 : 720;
 
   const measureCtx = document.createElement('canvas').getContext('2d');
   if (!measureCtx) return null;
@@ -1546,6 +1562,11 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   const originY = !autoSize
     ? textVerticalOriginY(boxH, style.fontSize, lineHeight, Math.max(1, lines.length))
     : 0;
+
+  const pathDecimals =
+    fontSizeScene >= 8 ? 1 : fontSizeScene >= 2 ? 2 : fontSizeScene >= 0.5 ? 3 : 4;
+  const fmtPt = (a: number, b: number) =>
+    `${a.toFixed(pathDecimals)} ${b.toFixed(pathDecimals)}`;
 
   const traceChar = (ch: string, destX: number, destY: number) => {
     if (!ch.trim()) return;
@@ -1583,11 +1604,9 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
         px / scale - pad + destX,
         py / scale - pad + destY,
       ]);
-      const simplified = simplifyClosedPolyline(world, 0.18, 720, 0.75);
+      const simplified = simplifyClosedPolyline(world, simplifyEps, simplifyMaxPts, simplifyCap);
       if (simplified.length < 3) continue;
-      parts.push(
-        `M ${simplified.map(([a, b]) => `${a.toFixed(1)} ${b.toFixed(1)}`).join(' L ')} Z`
-      );
+      parts.push(`M ${simplified.map(([a, b]) => fmtPt(a, b)).join(' L ')} Z`);
     }
   };
 
@@ -1666,8 +1685,14 @@ async function ensureTextFontsLoaded(node: SceneNodeInput): Promise<void> {
     const size = Math.max(1, Number(style.fontSize) || 14);
     const weight = style.fontWeight || 400;
     const css = `${weight} ${size}px "${family}"`;
-    await document.fonts.load(css);
-    await document.fonts.ready;
+    const load = document.fonts.load(css);
+    // Never await unbounded `fonts.ready` — a pending catalog face can stall Outline forever.
+    await Promise.race([
+      load,
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 2500);
+      }),
+    ]);
   } catch {
     /* ignore — canvas still attempts with whatever is available */
   }

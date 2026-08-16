@@ -83,7 +83,7 @@ function heavy(id: string) {
 }
 
 describe('pickFullAndProxyIds', () => {
-  it('demotes idle solid rects to Canvas under budget', () => {
+  it('keeps SVG hosts under budget (idle Canvas does not drop interactive hosts)', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 20; i += 1) nodes[`n${i}`] = rect(`n${i}`);
     const doc = makeDoc(nodes);
@@ -95,11 +95,11 @@ describe('pickFullAndProxyIds', () => {
       zoom: 1,
       moving: false,
     });
-    expect(fullIds).toHaveLength(0);
-    expect(proxyIds).toHaveLength(20);
+    expect(fullIds).toHaveLength(20);
+    expect(proxyIds).toHaveLength(0);
   });
 
-  it('keeps text and pen as SVG hosts under budget (not idle-canvas eligible)', () => {
+  it('keeps text, media, and light pen as SVG hosts under budget', () => {
     const doc = makeDoc({
       t0: textNode('t0'),
       p0: lightPen('p0'),
@@ -116,7 +116,7 @@ describe('pickFullAndProxyIds', () => {
     expect(proxyIds).toEqual([]);
   });
 
-  it('keeps media as SVG hosts when few', () => {
+  it('keeps media and idle rect as SVG hosts when few', () => {
     const nodes: Record<string, any> = {
       i0: imageNode('i0'),
       n0: rect('n0'),
@@ -129,8 +129,8 @@ describe('pickFullAndProxyIds', () => {
       zoom: 1,
       moving: false,
     });
-    expect(fullIds).toEqual(['i0']);
-    expect(proxyIds).toEqual(['n0']);
+    expect(fullIds.sort()).toEqual(['i0', 'n0']);
+    expect(proxyIds).toEqual([]);
   });
 
   it('forceFullSet keeps selected idle rect as SVG under far LOD', () => {
@@ -276,11 +276,22 @@ describe('lodProxyIsStrokeOnly', () => {
 });
 
 describe('canIdlePaintOnCanvas', () => {
-  it('allows solid stroke-free rect/ellipse; rejects stroke, shadow, complex fills, paths, text', () => {
+  it('allows solid center-stroke rect/ellipse/line/light path; rejects shadow, complex fills, heavy path, poly', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
         attrs: { shapeType: 'rect', 'fill-color': '#fff', 'stroke-enabled': false },
+      } as any)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#fff',
+          'border-width': 2,
+          'border-color': '#333',
+        },
       } as any)
     ).toBe(true);
     expect(
@@ -325,7 +336,12 @@ describe('canIdlePaintOnCanvas', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
-        attrs: { shapeType: 'rect', 'fill-color': '#fff', 'border-width': 2 },
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#fff',
+          'border-width': 2,
+          strokeAlign: 'outside',
+        },
       } as any)
     ).toBe(false);
     expect(
@@ -337,9 +353,9 @@ describe('canIdlePaintOnCanvas', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
-        attrs: { shapeType: 'pen', path: 'M0 0 L10 0', 'stroke-enabled': false },
+        attrs: { shapeType: 'pen', path: 'M0 0 L10 0', 'stroke-enabled': true, 'border-width': 2 },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',

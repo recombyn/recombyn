@@ -13,20 +13,10 @@ import {
   useRcbCamera,
   useRcbDevicePixelRatio,
 } from '../camera/context';
-import {
-  cameraPan,
-  cameraZoom,
-  createCameraTransform,
-  worldToScreen,
-} from '../camera/transform';
+import { cameraZoom, createCameraTransform, worldToScreen } from '../camera/transform';
 import { rcbCameraCssZoom } from '../core/math';
 import {
-  hostMirrorSvgProps,
-  sceneSurfaceSvgProps,
-  snapSvgSurfaceBox,
-} from '@/components/rcb/scene/paint/sceneToSvg';
-import {
-  getSceneWorldRoot,
+  getSceneSelectionChromeMount,
   getShapeHost,
   getSharedNodeEls,
   subscribeShapeHosts,
@@ -71,11 +61,8 @@ type SelectionChromeProps = {
 };
 
 /**
- * Selection overlay: AABB box + resize / rotate knobs.
- *
- * AABB chrome paints on the **screen-space** overlay (`[data-rcb-overlay]`) via
- * CameraTransform ? not under world CSS scale, and not mirroring SVG viewBox
- * (ADR 0027). Path / shape-knob chrome may still mirror a host until later slices.
+ * Selection chrome: AABB box + resize / rotate knobs. Paint portals into the
+ * canonical scene SVG camera group; interaction remains geometry-first.
  */
 export const CHROME_STROKE_PX = 1.5;
 /** Painted mid-edge resize knob side length (screen px). */
@@ -406,122 +393,6 @@ export function chromeHitScaleForBox(
   return Math.max(0.35, minScreen / minScreenPx);
 }
 
-/** Scene AABB that covers a (possibly rotated) box plus chrome pad. */
-export function fittedSvgViewport(
-  left: number,
-  top: number,
-  width: number,
-  height: number,
-  angleDeg: number,
-  pad: number
-): { minX: number; minY: number; w: number; h: number } {
-  const rad = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const cx = width / 2;
-  const cy = height / 2;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const [lx, ly] of [
-    [0, 0],
-    [width, 0],
-    [width, height],
-    [0, height],
-  ] as const) {
-    const dx = lx - cx;
-    const dy = ly - cy;
-    const x = left + cx + dx * cos - dy * sin;
-    const y = top + cy + dx * sin + dy * cos;
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
-  }
-  const p = Math.max(0, pad);
-  minX = minX - p;
-  minY = minY - p;
-  return {
-    minX,
-    minY,
-    w: Math.max(1, maxX - minX + p * 2),
-    h: Math.max(1, maxY - minY + p * 2),
-  };
-}
-
-/** fittedSvgViewport + surface box (raw scene). */
-export function fittedSnappedSvgViewport(
-  left: number,
-  top: number,
-  width: number,
-  height: number,
-  angleDeg: number,
-  pad: number,
-  camera?: RcbCamera,
-  dpr?: number
-): { minX: number; minY: number; w: number; h: number } {
-  const raw = fittedSvgViewport(left, top, width, height, angleDeg, pad);
-  const s = snapSvgSurfaceBox(
-    { left: raw.minX, top: raw.minY, width: raw.w, height: raw.h },
-    camera,
-    dpr
-  );
-  return { minX: s.left, minY: s.top, w: s.width, h: s.height };
-}
-
-/**
- * AABB selection chrome SVG surface (legacy world-layer path).
- * Prefer the shared world root (same lattice as shape ink + full viewport).
- * Never inflate a mirrored world surface with handle pads ? that desyncs the
- * blue control box from ink at high zoom.
- *
- * New AABB {@link SelectionChrome} paints on the screen overlay via
- * CameraTransform (ADR 0027). This helper remains for WorldSvgFrame / tests.
- */
-export function selectionChromeSurfaceProps(
-  box: { left: number; top: number; width: number; height: number },
-  angle: number,
-  strokePad: number,
-  camera?: RcbCamera,
-  dpr?: number,
-  _strokeOuterScene = 0
-): {
-  width: number | string;
-  height: number | string;
-  viewBox: string;
-  style: {
-    left: number | string;
-    top: number | string;
-    width: number | string;
-    height: number | string;
-    overflow: 'visible';
-    display: 'block';
-    shapeRendering: 'geometricPrecision';
-  };
-} {
-  const worldRoot = getSceneWorldRoot();
-  const mirrored = worldRoot ? hostMirrorSvgProps(worldRoot) : null;
-  if (mirrored) return mirrored;
-  const vp = fittedSnappedSvgViewport(
-    box.left,
-    box.top,
-    box.width,
-    box.height,
-    angle,
-    // Screen-constant stroke only ? never floor at 1 scene unit (at 8000%
-    // that is a huge pad and reintroduces chrome/ink drift).
-    Math.max(1e-4, strokePad),
-    camera,
-    dpr
-  );
-  return sceneSurfaceSvgProps(
-    { left: vp.minX, top: vp.minY, width: vp.w, height: vp.h },
-    camera,
-    dpr
-  );
-}
-
 /**
  * Paint origin for host chrome ? prefer live `transform="translate(L T)"`,
  * else `__sceneLeft/Top`.
@@ -549,99 +420,22 @@ export function liveHostPaintOrigin(
   return null;
 }
 
-/**
- * Screen-overlay body transform (ADR 0027): paint only — never host SVG hit.
- * `translate(screenOrigin) rotate(angle, w*z/2, h*z/2) scale(z)`.
- * Children stay in scene-local units; stroke/knob sizes use `px / zoom`.
- * Hit uses pickChromeHandleByGeometry + world HTML pads — not SVG pe.
- */
-export function screenChromeBodyTransform(
-  el: SVGElement | null | undefined,
+/** Local chrome transform under the canonical scene camera group. */
+export function sceneChromeBodyTransform(
   box: { left: number; top: number; width: number; height: number },
-  angleDeg: number,
-  camera: RcbCamera,
-  dpr = 1
+  angleDeg: number
 ): string {
-  const cam = createCameraTransform(camera, dpr);
-  const z = cameraZoom(cam);
-  const origin = liveHostPaintOrigin(el) || { left: box.left, top: box.top };
-  const s = worldToScreen(cam, origin.left, origin.top);
-  const w = Math.max(1, box.width);
-  const h = Math.max(1, box.height);
   const angle = Number(angleDeg) || 0;
-  const base = `translate(${s.x} ${s.y})`;
+  const base = `translate(${box.left} ${box.top})`;
   if (Math.abs(angle) > 0.01) {
-    return `${base} rotate(${angle} ${(w * z) / 2} ${(h * z) / 2}) scale(${z})`;
+    return `${base} rotate(${angle} ${Math.max(1, box.width) / 2} ${Math.max(1, box.height) / 2})`;
   }
-  return `${base} scale(${z})`;
-}
-
-/** @deprecated Alias — screen overlay is the chrome paint surface. */
-export function worldChromeBodyTransform(
-  el: SVGElement | null | undefined,
-  box: { left: number; top: number; width: number; height: number },
-  angleDeg: number,
-  camera: RcbCamera = { x: 0, y: 0, zoom: 1 },
-  dpr = 1
-): string {
-  return screenChromeBodyTransform(el, box, angleDeg, camera, dpr);
-}
-
-/** Absolute scene to screen for badges / marquee (no per-node origin). */
-export function screenSceneRootTransform(camera: RcbCamera, dpr = 1): string {
-  const cam = createCameraTransform(camera, dpr);
-  const z = cameraZoom(cam);
-  const pan = cameraPan(cam);
-  return `translate(${pan.x} ${pan.y}) scale(${z})`;
-}
-
-/**
- * Screen-space chrome mount under `[data-rcb-overlay]` (ADR 0027).
- * Not under world CSS / scene SVG — paint via CameraTransform; hit independent.
- */
-export function chromeOverlayLayerRoot(): HTMLElement | null {
-  if (typeof document === 'undefined') return null;
-  const overlay = document.querySelector('[data-rcb-overlay="1"]') as HTMLElement | null;
-  if (!overlay) return null;
-
-  try {
-    document
-      .querySelectorAll(
-        'g[data-rcb-sel-chrome-mount], [data-rcb-world="1"] > div[data-rcb-sel-chrome-layer]'
-      )
-      .forEach((n) => n.remove());
-  } catch {
-    /* ignore */
-  }
-
-  let layer = overlay.querySelector(
-    ':scope > [data-rcb-sel-chrome-layer]'
-  ) as HTMLElement | null;
-  if (!layer) {
-    layer = document.createElement('div');
-    layer.setAttribute('data-rcb-sel-chrome-layer', '1');
-    overlay.appendChild(layer);
-  }
-  layer.className = 'pointer-events-none absolute inset-0 overflow-visible';
-  layer.style.width = '100%';
-  layer.style.height = '100%';
-  layer.style.zIndex = '18';
-  layer.style.pointerEvents = 'none';
-  layer.style.left = '0';
-  layer.style.top = '0';
-  layer.style.right = '0';
-  layer.style.bottom = '0';
-  return layer;
-}
-
-/** @deprecated use {@link chromeOverlayLayerRoot} */
-export function chromeWorldLayerRoot(): HTMLElement | null {
-  return chromeOverlayLayerRoot();
+  return base;
 }
 
 /**
  * Shape-knob SVG shell on the screen overlay (ADR 0027).
- * Paint only (`pe:none`) — SelectionFeature hits via geometry / world pads.
+ * Paint only (`pe:none`) ? SelectionFeature hits via geometry / world pads.
  */
 export function WorldSvgFrame({
   nodeId,
@@ -668,8 +462,6 @@ export function WorldSvgFrame({
   children: ReactNode;
   sceneChildren?: ReactNode;
 }) {
-  const camera = useRcbCamera();
-  const dpr = useRcbDevicePixelRatio();
   const [hostEpoch, setHostEpoch] = useState(0);
   useEffect(() => {
     if (!nodeId) return undefined;
@@ -685,31 +477,33 @@ export function WorldSvgFrame({
     : null;
   const localChrome = Boolean(nodeId);
 
-  const bodyTransform = localChrome
-    ? screenChromeBodyTransform(el, box, angle, camera, dpr)
-    : screenSceneRootTransform(camera, dpr);
-  const sceneRootTransform = screenSceneRootTransform(camera, dpr);
+  const bodyTransform = localChrome ? sceneChromeBodyTransform(box, angle) : undefined;
+  const mount = getSceneSelectionChromeMount();
 
-  return (
-    <RcbOverlayPortal>
-      <svg
-        key={localChrome ? hostEpoch : undefined}
-        data-rcb-screen-chrome="1"
-        data-rcb-world-svg-frame={nodeId || 'scene'}
-        className={`pointer-events-none absolute inset-0 h-full w-full overflow-visible ${zClass}`}
-        style={{ pointerEvents: 'none' }}
-        aria-hidden
-      >
+  useLayoutEffect(() => {
+    if (mount) return undefined;
+    const raf = requestAnimationFrame(() => setHostEpoch((n) => n + 1));
+    return () => cancelAnimationFrame(raf);
+  }, [mount]);
+
+  if (!mount) return null;
+
+  return createPortal(
+    <g
+      key={localChrome ? hostEpoch : undefined}
+      data-rcb-scene-svg-frame={nodeId || 'scene'}
+      data-rcb-chrome-class={zClass}
+      style={{ pointerEvents }}
+      aria-hidden
+    >
+      {bodyTransform ? (
         <g transform={bodyTransform} style={{ pointerEvents: 'none' }}>
           {children}
         </g>
-        {sceneChildren ? (
-          <g transform={sceneRootTransform} style={{ pointerEvents: 'none' }}>
-            {sceneChildren}
-          </g>
-        ) : null}
-      </svg>
-    </RcbOverlayPortal>
+      ) : children}
+      {sceneChildren}
+    </g>,
+    mount
   );
 }
 
@@ -815,6 +609,7 @@ export function chromeHandleHitRadiusScene(
 
 export type ChromeHandlePick =
   | { kind: 'resize'; handle: ResizeHandle; x: number; y: number }
+  | { kind: 'endpoint'; handle: 'w' | 'e'; x: number; y: number }
   | { kind: 'rotate'; corner: 'nw' | 'ne' | 'se' | 'sw'; x: number; y: number };
 
 export type PaintedHitZonePick =
@@ -900,18 +695,18 @@ export function pickChromeHandleByGeometry(
   const local = sceneToLocal(sceneX, sceneY, box, angle);
 
   if (opts.lineMode) {
-    const ends: Array<[ResizeHandle, number, number]> = [
+    const ends: Array<['w' | 'e', number, number]> = [
       ['w', 0, h / 2],
       ['e', w, h / 2],
     ];
-    let best: { handle: ResizeHandle; d2: number } | null = null;
+    let best: { handle: 'w' | 'e'; d2: number } | null = null;
     for (const [handle, lx, ly] of ends) {
       const d2 = (local.x - lx) ** 2 + (local.y - ly) ** 2;
       if (d2 > m.hitR * m.hitR) continue;
       if (!best || d2 < best.d2) best = { handle, d2 };
     }
     if (best) {
-      return { kind: 'resize', handle: best.handle, x: sceneX, y: sceneY };
+      return { kind: 'endpoint', handle: best.handle, x: sceneX, y: sceneY };
     }
     return null;
   }
@@ -1017,6 +812,7 @@ export type SelectionInkPick =
 /**
  * Overlay seats register here; SelectionFeature is the only pointerdown owner.
  * Overlays paint ink + publish start/dblclick/hover ? no parallel capture listeners.
+ * Optional sceneX/Y/half feed {@link setChromeKnobHits} for geometry picks (ADR 0027).
  */
 export type OverlayHandleSeat = {
   /** Matches {@link PaintedHitZonePick}.key (`radius-tr`, `circle-start`, ?). */
@@ -1026,9 +822,26 @@ export type OverlayHandleSeat = {
   onDoubleClick?: (e: MouseEvent) => void;
   onEnter?: () => void;
   onLeave?: () => void;
+  /** Scene center for geometry hit (preferred over DOM stack). */
+  sceneX?: number;
+  sceneY?: number;
+  /** Scene half-extent of square AABB hit. */
+  half?: number;
 };
 
 const overlayHandleSeatsByOwner = new Map<string, OverlayHandleSeat[]>();
+
+function overlayKnobKindFromPickKey(pickKey: string): ChromeKnobKind | null {
+  if (pickKey.startsWith('radius-')) return 'radius';
+  if (
+    pickKey.startsWith('star-') ||
+    pickKey.startsWith('poly-') ||
+    pickKey.startsWith('circle-')
+  ) {
+    return 'shape';
+  }
+  return null;
+}
 
 export function setOverlayHandleSeats(
   ownerId: string,
@@ -1036,9 +849,27 @@ export function setOverlayHandleSeats(
 ): void {
   if (!seats?.length) {
     overlayHandleSeatsByOwner.delete(ownerId);
+    clearChromeKnobHits(ownerId);
     return;
   }
   overlayHandleSeatsByOwner.set(ownerId, seats);
+  const knobs: ChromeKnobHit[] = [];
+  for (const seat of seats) {
+    const kind = overlayKnobKindFromPickKey(seat.pickKey);
+    const half = Number(seat.half);
+    const x = Number(seat.sceneX);
+    const y = Number(seat.sceneY);
+    if (!kind || !(half > 0) || ![x, y].every(Number.isFinite)) continue;
+    knobs.push({
+      ownerId,
+      kind,
+      key: seat.pickKey,
+      x,
+      y,
+      half,
+    });
+  }
+  setChromeKnobHits(ownerId, knobs);
 }
 
 export function findOverlayHandleSeat(pickKey: string): OverlayHandleSeat | null {
@@ -1076,9 +907,10 @@ export function tryOverlayHandleDoubleClick(
 export function syncOverlayHandleHoverAtClient(
   clientX: number,
   clientY: number,
-  target?: EventTarget | null
+  target?: EventTarget | null,
+  scene?: { x: number; y: number } | null
 ): void {
-  const painted = pickOverlayHandleAtClient(clientX, clientY, target ?? null);
+  const painted = pickOverlayHandleAtClient(clientX, clientY, target ?? null, scene);
   for (const seats of overlayHandleSeatsByOwner.values()) {
     for (let i = 0; i < seats.length; i += 1) {
       const seat = seats[i];
@@ -1102,9 +934,9 @@ export function selectionInkFromEventTarget(
 
 /**
  * Single hit path for resize / rotate / radius / shape ink (ADR 0027):
- * 1. Overlay seats (radius / poly / star / circle) ? still from DOM stack
+ * 1. Overlay seats (radius / poly / star / circle) via **scene geometry** registry
  * 2. Chrome resize / rotate ? **scene geometry** (CameraTransform lattice)
- * 3. Legacy DOM chrome attrs only when geometry opts are incomplete
+ * 3. Legacy DOM chrome / overlay attrs only when geometry opts are incomplete
  */
 export function pickSelectionInkAtClient(
   clientX: number,
@@ -1112,7 +944,24 @@ export function pickSelectionInkAtClient(
   target: EventTarget | null | undefined,
   opts?: ChromeHandlePickOpts
 ): SelectionInkPick | null {
-  // 1) Overlay: topmost painted seat under the cursor.
+  let scene = opts?.scene;
+  if (
+    (!scene || ![scene.x, scene.y].every(Number.isFinite)) &&
+    opts?.clientToScene &&
+    [clientX, clientY].every(Number.isFinite)
+  ) {
+    scene = opts.clientToScene(clientX, clientY);
+  }
+
+  // 1) Overlay knobs by scene AABB (same store as path-edit / setOverlayHandleSeats).
+  if (scene && [scene.x, scene.y].every(Number.isFinite)) {
+    const knob = pickChromeKnobHit(scene.x, scene.y);
+    if (knob?.kind === 'radius' || knob?.kind === 'shape') {
+      return { layer: 'overlay', pick: knob };
+    }
+  }
+
+  // 1b) DOM stack fallback when registry has no scene seats (unit tests / incomplete publish).
   if (typeof document !== 'undefined' && [clientX, clientY].every(Number.isFinite)) {
     const stack = document.elementsFromPoint(clientX, clientY);
     for (let i = 0; i < stack.length; i += 1) {
@@ -1127,14 +976,6 @@ export function pickSelectionInkAtClient(
   // 2) Chrome by scene geometry ? not SVG pe / getBoundingClientRect.
   const box = opts?.box;
   const zoom = opts?.zoom;
-  let scene = opts?.scene;
-  if (
-    (!scene || ![scene.x, scene.y].every(Number.isFinite)) &&
-    opts?.clientToScene &&
-    [clientX, clientY].every(Number.isFinite)
-  ) {
-    scene = opts.clientToScene(clientX, clientY);
-  }
   if (
     box &&
     zoom != null &&
@@ -1184,8 +1025,13 @@ export function pickChromeHandleAtClient(
 export function pickOverlayHandleAtClient(
   clientX: number,
   clientY: number,
-  target?: EventTarget | null
+  target?: EventTarget | null,
+  scene?: { x: number; y: number } | null
 ): PaintedHitZonePick | null {
+  if (scene && [scene.x, scene.y].every(Number.isFinite)) {
+    const knob = pickChromeKnobHit(scene.x, scene.y);
+    if (knob?.kind === 'radius' || knob?.kind === 'shape') return knob;
+  }
   if (typeof document !== 'undefined' && [clientX, clientY].every(Number.isFinite)) {
     const stack = document.elementsFromPoint(clientX, clientY);
     for (let i = 0; i < stack.length; i += 1) {
@@ -1208,45 +1054,46 @@ export const RCB_HIT_SCENE_X_ATTR = 'data-rcb-hit-scene-x';
 /** Scene (board) Y. */
 export const RCB_HIT_SCENE_Y_ATTR = 'data-rcb-hit-scene-y';
 /**
- * Imperative HostPathChrome pads only. React {@link ChromeHitPad} portals must
- * never be removed by DOM code ??that races React unmount (`removeChild` crash).
+ * Imperative HostPathChrome / path-edit pads only. React {@link ChromeHitPad}
+ * portals must never be removed by DOM code - that races React unmount
+ * (`removeChild` crash).
  */
 export const RCB_HIT_DOM_ATTR = 'data-rcb-hit-dom';
 export const RCB_HIT_REACT_ATTR = 'data-rcb-hit-react';
-/** HTML hit-pad layer under `[data-rcb-world]` (camera CSS), not the unscaled overlay. */
+/** HTML hit-pad layer under `[data-rcb-overlay]` (screen space, ADR 0027). */
 export const RCB_HIT_LAYER_ATTR = 'data-rcb-hit-pad-layer';
 
 /**
- * Hit pads live under the camera world layer ??same contract as smart guides:
- * `left/top` = scene units; world `scale(zoom)` makes size screen-constant.
- * Never place on the unscaled overlay via `rcbSceneToScreen` (drifts vs sticky lattice).
+ * Hit pads live on the **unscaled** overlay (same surface as selection chrome).
+ * Placement uses CameraTransform `worldToScreen`; size is screen px - no world
+ * `scale(zoom)` and no `1/zoom` counter-size.
  */
-export function chromeHitPadWorldRoot(): HTMLElement | null {
+export function chromeHitPadOverlayRoot(): HTMLElement | null {
   if (typeof document === 'undefined') return null;
-  const world = document.querySelector(
-    '[data-rcb-canvas] [data-rcb-world="1"]'
+  const overlay = document.querySelector(
+    '[data-rcb-canvas] [data-rcb-overlay="1"]'
   ) as HTMLElement | null;
-  if (!world) return null;
-  let layer = world.querySelector(
+  if (!overlay) return null;
+  let layer = overlay.querySelector(
     `:scope > [${RCB_HIT_LAYER_ATTR}]`
   ) as HTMLElement | null;
   if (!layer) {
     layer = document.createElement('div');
     layer.setAttribute(RCB_HIT_LAYER_ATTR, '1');
-    // Same 0?0 shell as sel chrome ??pe:none shell, pe:auto pads.
+    // pe:none shell, pe:auto pads - sibling of sel-chrome-layer under overlay.
     layer.className = 'pointer-events-none absolute left-0 top-0 overflow-visible';
     layer.style.width = '0';
     layer.style.height = '0';
-    layer.style.zIndex = '1000002';
-    layer.style.pointerEvents = 'none';
-    world.appendChild(layer);
+    layer.style.zIndex = '22';
+    overlay.appendChild(layer);
   }
+  layer.style.pointerEvents = 'none';
   return layer;
 }
 
-/** @deprecated use {@link chromeHitPadWorldRoot} */
-export function chromeHitPadOverlayRoot(): HTMLElement | null {
-  return chromeHitPadWorldRoot();
+/** @deprecated use {@link chromeHitPadOverlayRoot} */
+export function chromeHitPadWorldRoot(): HTMLElement | null {
+  return chromeHitPadOverlayRoot();
 }
 
 function paintHitPadLook(
@@ -1271,12 +1118,11 @@ function paintHitPadLook(
 }
 
 /**
- * Place a hit div in **scene** space under the world camera layer.
+ * Place a hit div in screen space under the overlay.
  *
- * Same as smart guides / SVG knobs:
- * - `left/top` = board scene coords (1 CSS px ? 1 scene unit before camera scale)
- * - `width/height` = `sizePx / cssZoom` so after world `scale(zoom)` the disc is `sizePx` screen px
- * - Pan comes from world `translate(cam)` ? do not add cam in JS
+ * - left/top = CameraTransform worldToScreen(scene) (stage-local px)
+ * - width/height = sizePx screen pixels (constant under zoom)
+ * - Scene coords kept on data attrs for sync / registry alignment
  */
 export function placeHitPadAtScene(
   pad: HTMLElement,
@@ -1285,22 +1131,22 @@ export function placeHitPadAtScene(
   sizePx: number,
   camera: RcbCamera,
   root?: HTMLElement | null,
-  _dpr?: number
+  dpr?: number
 ): boolean {
   const layer =
     root ||
     (pad.parentElement as HTMLElement | null) ||
-    chromeHitPadWorldRoot();
+    chromeHitPadOverlayRoot();
   if (!layer) return false;
   if (![sceneX, sceneY].every(Number.isFinite)) return false;
-  const z = rcbCameraCssZoom(camera);
-  const inv = 1 / Math.max(0.05, z);
-  const sceneSize = Math.max(1e-6, Math.max(1, sizePx) * inv);
+  const cam = createCameraTransform(camera, dpr ?? 1);
+  const screen = worldToScreen(cam, sceneX, sceneY);
+  const screenSize = Math.max(1, sizePx);
   pad.style.position = 'absolute';
-  pad.style.left = `${sceneX}px`;
-  pad.style.top = `${sceneY}px`;
-  pad.style.width = `${sceneSize}px`;
-  pad.style.height = `${sceneSize}px`;
+  pad.style.left = `${screen.x}px`;
+  pad.style.top = `${screen.y}px`;
+  pad.style.width = `${screenSize}px`;
+  pad.style.height = `${screenSize}px`;
   pad.style.transform = 'translate(-50%, -50%)';
   pad.setAttribute(RCB_HIT_SIZE_ATTR, String(Math.max(1, sizePx)));
   pad.setAttribute(RCB_HIT_SCENE_X_ATTR, String(sceneX));
@@ -1308,29 +1154,35 @@ export function placeHitPadAtScene(
   return true;
 }
 
-/** Axis-aligned rect in scene space (rotate-L bars). Size is already scene units. */
+/**
+ * Axis-aligned rect: scene to screen via CameraTransform (rotate-L bars).
+ */
 export function placeChromeRectAtScene(
   pad: HTMLElement,
   sceneX: number,
   sceneY: number,
   sceneW: number,
-  sceneH: number
+  sceneH: number,
+  camera: RcbCamera = { x: 0, y: 0, zoom: 1 },
+  dpr = 1
 ): boolean {
   if (![sceneX, sceneY, sceneW, sceneH].every(Number.isFinite)) return false;
+  const cam = createCameraTransform(camera, dpr);
+  const z = cameraZoom(cam);
+  const tl = worldToScreen(cam, sceneX, sceneY);
   pad.style.position = 'absolute';
-  pad.style.left = `${sceneX}px`;
-  pad.style.top = `${sceneY}px`;
-  pad.style.width = `${Math.max(1e-6, sceneW)}px`;
-  pad.style.height = `${Math.max(1e-6, sceneH)}px`;
+  pad.style.left = `${tl.x}px`;
+  pad.style.top = `${tl.y}px`;
+  pad.style.width = `${Math.max(1e-6, sceneW * z)}px`;
+  pad.style.height = `${Math.max(1e-6, sceneH * z)}px`;
   pad.style.transform = 'none';
   pad.setAttribute(RCB_HIT_SCENE_X_ATTR, String(sceneX));
   pad.setAttribute(RCB_HIT_SCENE_Y_ATTR, String(sceneY));
   return true;
 }
 
-/** Drop imperative hit divs for one owner (never touch React portals). */
 export function clearChromeHitPads(ownerId: string) {
-  const layer = chromeHitPadWorldRoot();
+  const layer = chromeHitPadOverlayRoot();
   if (!layer) return;
   layer
     .querySelectorAll(
@@ -1346,14 +1198,14 @@ export function clearChromeHitPads(ownerId: string) {
 }
 
 /**
- * Re-place each div from stored scene coords + current zoom
- * (size = screenPx/zoom under camera scale).
+ * Re-place each div from stored scene coords + current camera
+ * (screen size stays sizePx; left/top via worldToScreen).
  */
 export function syncChromeHitPads(
   camera: RcbCamera,
   opts?: { ownerId?: string; dpr?: number }
 ) {
-  const layer = chromeHitPadWorldRoot();
+  const layer = chromeHitPadOverlayRoot();
   if (!layer) return;
   const ownerId = opts?.ownerId;
   const pads = ownerId
@@ -1373,8 +1225,8 @@ export function syncChromeHitPads(
 }
 
 /**
- * Imperative: one world-layer div for a control at board (scene) coords.
- * Call {@link syncChromeHitPads} after camera zoom updates (size in scene units).
+ * Imperative: one overlay div for a control at board (scene) coords.
+ * Call {@link syncChromeHitPads} after camera updates.
  */
 export function mountChromeHitPad(opts: {
   ownerId: string;
@@ -1393,7 +1245,7 @@ export function mountChromeHitPad(opts: {
   knobDir?: string;
   rotateCorner?: string;
 }): HTMLElement | null {
-  const layer = chromeHitPadWorldRoot();
+  const layer = chromeHitPadOverlayRoot();
   if (!layer) return null;
 
   // Only replace imperative pads ? never React portal nodes.
@@ -1426,7 +1278,7 @@ export function mountChromeHitPad(opts: {
   return pad;
 }
 
-/** Imperative rotate-L bar (scene-unit rect) ? HTML ink + hit. */
+/** Imperative rotate-L bar — screen-space HTML ink + hit. */
 export function mountChromeRectPad(opts: {
   ownerId: string;
   zoneKey: string;
@@ -1437,8 +1289,10 @@ export function mountChromeRectPad(opts: {
   sceneW: number;
   sceneH: number;
   rotateCorner: string;
+  camera: RcbCamera;
+  dpr?: number;
 }): HTMLElement | null {
-  const layer = chromeHitPadWorldRoot();
+  const layer = chromeHitPadOverlayRoot();
   if (!layer) return null;
   layer
     .querySelectorAll(
@@ -1458,18 +1312,23 @@ export function mountChromeRectPad(opts: {
   pad.style.boxSizing = 'border-box';
   pad.style.pointerEvents = 'auto';
   pad.style.zIndex = '1';
-  pad.style.background = opts.color || '#3388ff';
+  // Keep the legacy hit pad transparent; rotation is picked by geometry.
+  pad.style.background = 'transparent';
   pad.style.border = 'none';
   pad.style.borderRadius = '0';
   layer.appendChild(pad);
-  placeChromeRectAtScene(pad, opts.sceneX, opts.sceneY, opts.sceneW, opts.sceneH);
+  placeChromeRectAtScene(
+    pad,
+    opts.sceneX,
+    opts.sceneY,
+    opts.sceneW,
+    opts.sceneH,
+    opts.camera,
+    opts.dpr
+  );
   return pad;
 }
 
-/**
- * React: one world-layer div per control at board (scene) coords.
- * Same {@link placeHitPadAtScene} as HostPathChrome / smart guides.
- */
 export function ChromeHitPad({
   sceneX,
   sceneY,
@@ -1483,11 +1342,11 @@ export function ChromeHitPad({
   onPointerEnter,
   onPointerLeave,
 }: {
-  /** Board / world scene X (same space as SVG chrome + smart guides). */
+  /** Board / world scene X (placed via worldToScreen). */
   sceneX: number;
   /** Board / world scene Y. */
   sceneY: number;
-  /** Screen-px diameter (converted to scene via /cssZoom). */
+  /** Screen-px diameter (constant under zoom). */
   sizePx: number;
   zoneKey: string;
   ownerId?: string;
@@ -1501,12 +1360,12 @@ export function ChromeHitPad({
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
   const padRef = useRef<HTMLDivElement | null>(null);
-  const layer = chromeHitPadWorldRoot();
+  const layer = chromeHitPadOverlayRoot();
 
   useLayoutEffect(() => {
     const sync = () => {
       const p = padRef.current;
-      const root = chromeHitPadWorldRoot();
+      const root = chromeHitPadOverlayRoot();
       if (!p || !root) return;
       placeHitPadAtScene(p, sceneX, sceneY, sizePx, camera, root, dpr);
     };
@@ -1705,10 +1564,13 @@ export function pickChromeKnobHit(
   return best?.pick ?? null;
 }
 
-/** Drop leftover `[data-rcb-hit-pad-layer]` nodes from older sessions. */
+/**
+ * Drop leftover hit-pad layers that are not under the live screen overlay.
+ */
 export function disposeLegacyHitPadLayer(): void {
   if (typeof document === 'undefined') return;
   document.querySelectorAll(`[${RCB_HIT_LAYER_ATTR}]`).forEach((n) => {
+    if (n.closest('[data-rcb-overlay="1"]')) return;
     try {
       n.remove();
     } catch {
@@ -1717,7 +1579,6 @@ export function disposeLegacyHitPadLayer(): void {
   });
 }
 
-/** Resolve hit-zone key from an event target (per-control HTML div). */
 export function hitZoneFromEventTarget(
   target: EventTarget | null
 ): PaintedHitZonePick | null {
@@ -1919,49 +1780,50 @@ function SelectionChrome({
   strokeOuterScene = 0,
 }: SelectionChromeProps) {
   const camera = useRcbCamera();
-  const dpr = useRcbDevicePixelRatio();
-  const cam = createCameraTransform(camera, dpr);
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
+  const inv = 1 / z;
+  const [mountEpoch, setMountEpoch] = useState(0);
+  const mount = getSceneSelectionChromeMount();
 
-  // Screen-space paint on overlay (ADR 0027). Hit is geometry / world pads — pe:none.
+  useLayoutEffect(() => {
+    if (mount) return undefined;
+    const raf = requestAnimationFrame(() => setMountEpoch((n) => n + 1));
+    return () => cancelAnimationFrame(raf);
+  }, [mount, mountEpoch]);
+
+  // Paint in scene units under the same camera group as element ink.
   const left = box.left;
   const top = box.top;
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
   const lineMode = variant === 'line';
 
-  const origin = worldToScreen(cam, left, top);
-  const sw = w * z;
-  const sh = h * z;
-  const stroke = CHROME_STROKE_PX;
-  const handleVis = CHROME_HANDLE_VIS_PX;
-  const lineEpVis = CHROME_LINE_ENDPOINT_VIS_PX;
-  const lineShaftHit = CHROME_LINE_SHAFT_HIT_PX;
-  const metaOffset = 16;
-  const metaFont = 10;
+  const stroke = CHROME_STROKE_PX * inv;
+  const handleVis = CHROME_HANDLE_VIS_PX * inv;
+  const lineEpVis = CHROME_LINE_ENDPOINT_VIS_PX * inv;
+  const lineShaftHit = CHROME_LINE_SHAFT_HIT_PX * inv;
+  const metaOffset = 16 * inv;
+  const metaFont = 10 * inv;
   const halfVis = handleVis / 2;
   const hitScale = chromeHitScaleForBox(w, h, z);
   const hs = Math.max(0.35, hitScale);
-  const lArm = CHROME_CORNER_L_ARM_PX * hs;
-  const lThick = CHROME_CORNER_L_THICK_PX * hs;
-  const strokeOuterScreen = Math.min(
-    CHROME_STROKE_L_CLEAR_MAX_SCREEN_PX,
-    Math.max(0, strokeOuterScene) * z
+  const lArm = CHROME_CORNER_L_ARM_PX * inv * hs;
+  const lThick = CHROME_CORNER_L_THICK_PX * inv * hs;
+  const strokeOuter = Math.min(
+    CHROME_STROKE_L_CLEAR_MAX_SCREEN_PX * inv,
+    Math.max(0, strokeOuterScene)
   );
-  const lClear = halfVis + CHROME_CORNER_L_CLEAR_PX * hs + strokeOuterScreen;
+  const lClear = halfVis + CHROME_CORNER_L_CLEAR_PX * inv * hs + strokeOuter;
   const handleAttrProps = { [handleDataAttr]: handleDataValue };
 
-  const svgBoxTransform =
-    Math.abs(angle) > 0.001
-      ? `translate(${origin.x} ${origin.y}) rotate(${angle} ${sw / 2} ${sh / 2})`
-      : `translate(${origin.x} ${origin.y})`;
+  const svgBoxTransform = sceneChromeBodyTransform(box, angle);
 
   const knobs = selectResizeKnobs({
     lineMode,
     cornerHandlesOnly,
     edgeHandles,
-    w: sw,
-    h: sh,
+    w,
+    h,
   });
   const visualKnobs = selectVisualKnobs(knobs, {
     lineMode,
@@ -1969,30 +1831,25 @@ function SelectionChrome({
     edgeHandles,
   });
 
-  const toScreen = (lx: number, ly: number) => {
-    const p = rotateLocal(lx, ly, sw, sh, angle);
-    return { x: origin.x + p.x, y: origin.y + p.y };
+  const toScenePoint = (lx: number, ly: number) => {
+    const p = rotateLocal(lx, ly, w, h, angle);
+    return { x: left + p.x, y: top + p.y };
   };
 
-  const lineStart = toScreen(0, sh / 2);
-  const lineEnd = toScreen(sw, sh / 2);
+  const lineStart = toScenePoint(0, h / 2);
+  const lineEnd = toScenePoint(w, h / 2);
   const lineLen = Math.hypot(lineEnd.x - lineStart.x, lineEnd.y - lineStart.y) || 1;
   const lineAngleDeg =
     (Math.atan2(lineEnd.y - lineStart.y, lineEnd.x - lineStart.x) * 180) / Math.PI;
 
-  return (
-    <RcbOverlayPortal>
-      <svg
-        data-rcb-sel-chrome="1"
-        data-rcb-screen-chrome="1"
-        className="pointer-events-none absolute inset-0 z-[18] h-full w-full overflow-visible"
-        style={{ pointerEvents: 'none' }}
-        aria-hidden
-      >
+  if (!mount) return null;
+
+  return createPortal(
+      <g data-rcb-sel-chrome="1" style={{ pointerEvents: 'none' }} aria-hidden>
         {metaLabel ? (
           <text
-            x={origin.x + sw / 2}
-            y={origin.y - metaOffset}
+            x={left + w / 2}
+            y={top - metaOffset}
             fill={SEL_BASELINE}
             fontSize={metaFont}
             fontWeight={500}
@@ -2025,8 +1882,8 @@ function SelectionChrome({
                 {...{ [boxDataAttr]: true }}
                 x={0}
                 y={0}
-                width={sw}
-                height={sh}
+                width={w}
+                height={h}
                 fill="transparent"
                 style={{ pointerEvents: 'none' }}
               />
@@ -2035,8 +1892,8 @@ function SelectionChrome({
               <rect
                 x={0}
                 y={0}
-                width={sw}
-                height={sh}
+                width={w}
+                height={h}
                 fill="none"
                 stroke={SEL_BASELINE}
                 strokeWidth={stroke}
@@ -2045,14 +1902,16 @@ function SelectionChrome({
             ) : null}
             {showHandles && showRotate
               ? (['nw', 'ne', 'se', 'sw'] as const).map((dir) => {
-                  const d = cornerLLocalPath(dir, sw, sh, lArm, lThick, lClear);
+                  const d = cornerLLocalPath(dir, w, h, lArm, lThick, lClear);
                   if (!d) return null;
                   return (
                     <path
                       key={`rot-l-${dir}`}
                       data-rcb-sel-rotate-l={dir}
                       d={d}
-                      fill={SEL_BASELINE}
+                      // Rotation is geometry-hit-tested; keep the outer L invisible.
+                      fill="none"
+                      stroke="none"
                       style={{ pointerEvents: 'none' }}
                     />
                   );
@@ -2091,7 +1950,7 @@ function SelectionChrome({
 
         {showHandles && lineMode
           ? knobs.map(([dir, lx, ly]) => {
-              const p = toScreen(lx, ly);
+              const p = toScenePoint(lx, ly);
               return (
                 <g
                   key={`ep-${dir}`}
@@ -2111,8 +1970,8 @@ function SelectionChrome({
               );
             })
           : null}
-      </svg>
-    </RcbOverlayPortal>
+      </g>,
+      mount
   );
 }
 

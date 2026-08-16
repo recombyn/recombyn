@@ -8,19 +8,16 @@ import { useTranslation } from 'react-i18next';
 import { previewSvgNodeEllipseParams } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
 import {
+  clampEllipseArcPercent,
   clampEllipseInnerRatio,
-  ellipseArcAlongFromPointerAngle,
+  advanceEllipseArcAlong,
   ellipseArcAlongRadFromPercent,
-  ellipseArcApplyFullHysteresis,
   ellipseArcEndAngles,
-  ellipseArcLockSign,
   ellipseArcPercentFromAlongRad,
   ellipseArcPercentFromAttrs,
   ellipseInnerRatioFromAttrs,
   ellipseStartDegFromAttrs,
-  snapEllipseArcPercent,
   snapEllipseInnerRatio,
-  wrapAngleDelta,
 } from '@/components/rcb/scene/document/sceneShapes';
 import { patchDocumentNode } from '@/store/modules/editor';
 import {
@@ -31,16 +28,17 @@ import {
 import type { SceneBox } from '../alignGuides';
 import {
   CHROME_HANDLE_VIS_PX,
+  CHROME_RADIUS_HIT_PX,
   CHROME_STROKE_PX,
-  radiusHandleParkScreenPx,
-  radiusParkSceneForBox,
+  chromeHandleHitRadiusScene,
+  chromeHitScaleForBox,
   setOverlayHandleSeats,
   WorldSvgFrame,
   WorldScreenBadge,
 } from '../SelectionChrome';
-import { strokeInnerClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 
-const DRAG_DISTANCE_SQUARED = 16;
+const INNER_DRAG_DISTANCE_SQUARED = 64;
+const INNER_HANDLE_HIT_PX = 14;
 const KNOB_VIS_PX = CHROME_HANDLE_VIS_PX;
 const KNOB_STROKE_PX = CHROME_STROKE_PX;
 
@@ -111,7 +109,7 @@ function commitEllipseParams(opts: {
       patch: {
         attrs: {
           ellipseInnerRatio: snapEllipseInnerRatio(opts.innerRatio),
-          ellipseArcPercent: snapEllipseArcPercent(opts.arcPercent),
+          ellipseArcPercent: clampEllipseArcPercent(opts.arcPercent),
           ellipseStartDeg: opts.startDeg,
         },
       },
@@ -130,16 +128,12 @@ type DragState =
     }
   | {
       mode: 'arc';
-      startPercent: number;
       current: number;
-      /** Locked on first move — one direction; end cannot cross 开始位置. */
-      lockSign: 1 | -1 | null;
-      /** Remaining sweep radians in (0, 2π]; 2π = closed at 开始位置. */
+      /** Preserve an existing partial arc's direction; complete circles open clockwise. */
+      sweepSign: 1 | -1;
+      /** Remaining sweep radians in (0, 2π]; capped at a single full turn. */
       alongRad: number;
-      /** Hysteresis: has left the full-circle band once this gesture. */
-      openedOnce: boolean;
-      /** Hysteresis: currently latched to full (absorb pointer chatter). */
-      heldFull: boolean;
+      lastPointerAngle: number;
       startX: number;
       startY: number;
       moved: boolean;
@@ -198,28 +192,23 @@ function CircleShapeHandlesOverlay({
   const arcPercent = liveArc ?? baseArc;
   const isFull = Math.abs(arcPercent) >= 99.95;
 
-  // Same park model as corner-radius: screen gap + stroke inner (any zoom).
-  // Old `ARC_RIM_INSET_PX / zoom` collapsed onto the rim at high magnification.
-  const rimInset = radiusParkSceneForBox(
-    w,
-    h,
-    z,
-    radiusHandleParkScreenPx(),
-    strokeInnerClearanceScene(node)
-  );
-  const arcSeatR = Math.max(outerR * 0.2, outerR - rimInset);
-  const { a0, a1, mid } = ellipseArcEndAngles(arcPercent, startDeg);
+  // Visual seats belong to the actual geometry edge. Hit slop is handled
+  // separately by chromeHandleHitRadiusScene below; it must not move the
+  // painted controls inward from the outer/inner circle.
+  const arcSeatR = outerR;
+  const { a0, a1 } = ellipseArcEndAngles(arcPercent, startDeg);
   const seatOnRim = (ang: number, r: number) => ({
     x: cx + Math.cos(ang) * (rx / outerR) * r,
     y: cy + Math.sin(ang) * (ry / outerR) * r,
   });
-  // 内半径: solid → center; donut → mid-sweep on the inner rim, then park inward.
+  // Inner radius is anchored opposite the fixed opening start, never at the
+  // changing arc midpoint. The knob remains on the same inner-ring edge while
+  // the user changes the opening sweep.
   const innerSeatR =
     innerRatio > 1e-4 ? Math.max(2 * k, outerR * innerRatio) : 0;
   let innerLocal = { x: cx, y: cy };
   if (innerRatio > 1e-4) {
-    const parkedInnerR = Math.max(0, innerSeatR - rimInset);
-    innerLocal = seatOnRim(mid, parkedInnerR);
+    innerLocal = seatOnRim(a0 + Math.PI, innerSeatR);
   }
   // Full: one 周弧度 knob where ends coincide (at 开始位置).
   // Partial: fixed 开始位置 at a0 + movable 弧度 at a1.
@@ -257,7 +246,7 @@ function CircleShapeHandlesOverlay({
       // Arc follows the pointer immediately; inner keeps a tiny slop before drag.
       if (d.mode === 'inner') {
         const distSq = (e.clientX - d.startX) ** 2 + (e.clientY - d.startY) ** 2;
-        if (!d.moved && distSq <= DRAG_DISTANCE_SQUARED) return;
+        if (!d.moved && distSq <= INNER_DRAG_DISTANCE_SQUARED) return;
       }
       d.moved = true;
 
@@ -277,29 +266,16 @@ function CircleShapeHandlesOverlay({
         return;
       }
 
-      // Arc: end handle tracks the pointer angle (not Δθ accumulation).
+      // Arc uses angle movement, not an absolute angle: passing the fixed start
+      // ray clamps at a full turn instead of re-opening on the opposite side.
       const pointerAngle = Math.atan2(local.y - cy, local.x - cx);
-      const startRad = (startDeg * Math.PI) / 180;
-      const delta = wrapAngleDelta(pointerAngle - startRad);
-      if (d.lockSign == null) {
-        d.lockSign = ellipseArcLockSign(d.startPercent, delta);
-      }
-
-      const prevAlong = d.alongRad;
-      const mapped = ellipseArcAlongFromPointerAngle(
-        pointerAngle,
-        startRad,
-        d.lockSign,
-        prevAlong
+      d.alongRad = advanceEllipseArcAlong(
+        d.alongRad,
+        pointerAngle - d.lastPointerAngle,
+        d.sweepSign
       );
-      const hyst = ellipseArcApplyFullHysteresis(mapped, {
-        openedOnce: d.openedOnce,
-        heldFull: d.heldFull,
-      });
-      d.openedOnce = hyst.openedOnce;
-      d.heldFull = hyst.heldFull;
-      d.alongRad = hyst.along;
-      const next = ellipseArcPercentFromAlongRad(d.alongRad, d.lockSign);
+      d.lastPointerAngle = pointerAngle;
+      const next = ellipseArcPercentFromAlongRad(d.alongRad, d.sweepSign);
       d.current = next;
       setDragValue(Math.round(next * 10) / 10);
       setLiveArc(next);
@@ -439,15 +415,14 @@ function CircleShapeHandlesOverlay({
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    const sc = toScene(e.clientX, e.clientY);
+    const local = scenePointToLocal(sc.x, sc.y, box, angle);
     dragRef.current = {
       mode: 'arc',
-      startPercent: baseArc,
       current: baseArc,
-      lockSign: Math.abs(baseArc) >= 99.95 ? null : baseArc < 0 ? -1 : 1,
+      sweepSign: Math.abs(baseArc) >= 99.95 ? 1 : baseArc < 0 ? -1 : 1,
       alongRad: ellipseArcAlongRadFromPercent(baseArc),
-      // From full: follow pointer until clearly open, then enable close-snap hysteresis.
-      openedOnce: Math.abs(baseArc) < 99.95,
-      heldFull: false,
+      lastPointerAngle: Math.atan2(local.y - cy, local.x - cx),
       startX: e.clientX,
       startY: e.clientY,
       moved: false,
@@ -458,12 +433,12 @@ function CircleShapeHandlesOverlay({
     setLiveArc(baseArc);
   };
 
-  /** Double-click 弧度 → full circle (keep prior CW/CCW sign). */
+  /** Double-click 弧度 → full circle with the canonical clockwise opening direction. */
   const resetArcFull = (e: MouseEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const full = baseArc < 0 ? -100 : 100;
+    const full = 100;
     dragRef.current = null;
     setActiveKey(null);
     setDragValue(null);
@@ -552,6 +527,12 @@ function CircleShapeHandlesOverlay({
     );
   }
 
+  const hitHalf = chromeHandleHitRadiusScene(
+    z,
+    CHROME_RADIUS_HIT_PX,
+    chromeHitScaleForBox(w, h, z)
+  );
+
   if (interactive && knobs.length > 0) {
     setOverlayHandleSeats(
       seatOwnerId,
@@ -562,6 +543,16 @@ function CircleShapeHandlesOverlay({
         onDoubleClick: knob.onDoubleClick,
         onEnter: knob.onEnter,
         onLeave: knob.onLeave,
+        sceneX: knob.sceneX,
+        sceneY: knob.sceneY,
+        half:
+          knob.key === 'inner'
+            ? chromeHandleHitRadiusScene(
+                z,
+                INNER_HANDLE_HIT_PX,
+                chromeHitScaleForBox(w, h, z)
+              )
+            : hitHalf,
       }))
     );
   } else {

@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore, memo } from 'react';
+import { useMemo, useRef, useState, useSyncExternalStore, memo } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
@@ -22,6 +22,8 @@ import {
   IconCornerRadius,
   StrokeColorSwatch,
 } from '@/components/rcb/selection/chrome/StyleToolbarIcons';
+import StrokeStylePicker from '@/components/editor/nodes/ShapeNode/StrokeStylePicker';
+import { parseStrokeStyle } from '@/components/rcb/scene/document/sceneStrokeStyle';
 import AspectRatioPresetMenu, {
   ELEMENT_ASPECT_PRESETS,
 } from '@/components/rcb/selection/chrome/AspectRatioPresetMenu';
@@ -45,11 +47,15 @@ import {
   subscribeLiveCornerRadiusPreview,
 } from '@/components/rcb/scene/document/sceneRadii';
 import {
+  clampStarInnerRatio,
   clampShapeSides,
   DEFAULT_SHAPE_SIDES,
   MAX_SHAPE_SIDES,
   MIN_SHAPE_SIDES,
   sidesFromAttrs,
+  starInnerRatioFromAttrs,
+  strokeEndpointsFromBox,
+  strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
   buildOutlinePathAsync,
@@ -57,9 +63,15 @@ import {
   outlineNodePatch,
   requestEnterPathEdit,
 } from '@/components/rcb/scene/paint/outlineToPath';
+import {
+  nodeLeftTop,
+  previewSvgNodeGeometry,
+} from '@/components/rcb/scene/paint/sceneToSvg';
+import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
+import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import { TbVectorBezier } from 'react-icons/tb';
 import { message } from '@/components/base';
-import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 function readAspectLocked(attrs: Record<string, unknown> | undefined): boolean {
   const raw = attrs?.lockAspect;
@@ -78,23 +90,67 @@ type SceneBox = { left: number; top: number; width: number; height: number };
 /** Stored before first ratio preset so 「自由」 can restore. */
 const ASPECT_ORIG_W = 'aspect-original-width';
 const ASPECT_ORIG_H = 'aspect-original-height';
+type StrokeLengthAnchor = { x: number; y: number; angle: number };
+// Selection chrome may remount while an extreme-length stroke leaves the viewport.
+// Keep the active W-edit anchor outside that transient React subtree.
+const strokeLengthAnchors = new Map<string, StrokeLengthAnchor>();
+type BoxSizeAnchor = { x: number; y: number; angle: number };
+const boxSizeAnchors = new Map<string, BoxSizeAnchor>();
+
+/** Actual scene position of a box's local top-left under rotate-about-center. */
+function rotatedTopLeft(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  angleDeg: number
+) {
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: left + w / 2 - (w / 2) * cos + (h / 2) * sin,
+    y: top + h / 2 - (w / 2) * sin - (h / 2) * cos,
+  };
+}
+
+/** Solve the unrotated box origin while keeping its local top-left in place. */
+function originFromRotatedTopLeft(
+  anchor: { x: number; y: number },
+  width: number,
+  height: number,
+  angleDeg: number
+) {
+  const offset = rotatedTopLeft(0, 0, width, height, angleDeg);
+  return { left: anchor.x - offset.x, top: anchor.y - offset.y };
+}
 
 /** Single-shape floating bar: fill / stroke · corner radius · W·H · ratio · download. */
 function ShapeSelectionToolbar({
   nodeId,
   node,
   box,
+  valueBox,
+  document,
   hideExport = false,
 }: {
   nodeId: string;
   node: SceneNodeInput;
   box: SceneBox;
+  valueBox?: SceneBox;
+  document: SceneDocument;
   /** When true, parent renders Export after blend (unified toolbar order). */
   hideExport?: boolean;
 }) {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const [ratioOpen, setRatioOpen] = useState(false);
+  // W is applied on every keystroke. Keep the original shaft start for the
+  // entire edit session so intermediate values cannot move the fixed endpoint.
+  const strokeLengthAnchorRef = useRef<StrokeLengthAnchor | null>(null);
+  const boxSizeAnchorRef = useRef<BoxSizeAnchor | null>(null);
   const cornerRadius = supportsCornerRadius(node);
   const canFill = supportsFill(node);
   const canStroke = supportsStroke(node);
@@ -104,11 +160,25 @@ function ShapeSelectionToolbar({
   const sidesLabel = shapeType === 'star' ? '角数' : '边数';
   const sidesPrefix = shapeType === 'star' ? '角' : '边';
   const sides = sidesFromAttrs(node?.attrs);
+  const showStarInnerRadius = shapeType === 'star';
+  const starInnerRadiusPct = Math.round(starInnerRatioFromAttrs(node?.attrs) * 100);
   const aspectLocked = readAspectLocked(node?.attrs);
+  const isOpenStroke = shapeType === 'line' || shapeType === 'arrow';
+  const isFreehandStroke = shapeType === 'pen' || shapeType === 'pencil';
+  const showSizeControls = !isFreehandStroke;
+  const sizeBox = valueBox || box;
+  const strokeWidth = Math.max(
+    1,
+    Math.round(
+      Number(
+        node?.attrs?.['border-width'] ?? node?.attrs?.borderWidth ?? node?.attrs?.strokeWidth ?? 2
+      ) || 2
+    )
+  );
 
   const activeRatioId = useMemo(
-    () => matchAspectPresetKey(box.width, box.height, ELEMENT_ASPECT_PRESETS),
-    [box.width, box.height]
+    () => matchAspectPresetKey(sizeBox.width, sizeBox.height, ELEMENT_ASPECT_PRESETS),
+    [sizeBox.width, sizeBox.height]
   );
 
   const fillValue: FillPanelValue = {
@@ -127,6 +197,7 @@ function ShapeSelectionToolbar({
     boolEffectAttr(node?.attrs?.['stroke-enabled'], true) &&
     boolEffectAttr(node?.attrs?.['stroke-visible'], true);
   const strokeColor = String(node?.attrs?.['border-color'] || node?.attrs?.stroke || '#333333');
+  const strokeStyle = parseStrokeStyle(node?.attrs?.strokeStyle);
   const liveCornerRadius = useSyncExternalStore(
     subscribeLiveCornerRadiusPreview,
     () => getLiveCornerRadiusPreview(nodeId),
@@ -149,15 +220,146 @@ function ShapeSelectionToolbar({
     );
   };
 
-  const patchSize = (width: number, height: number) => {
+  const captureStrokeLengthAnchor = () => {
+    if (!isOpenStroke) return;
+    const { left, top } = nodeLeftTop(document, node);
+    const angle = Number(node.attrs?.angle) || 0;
+    const endpoints = strokeEndpointsFromBox(
+      {
+        left,
+        top,
+        width: Math.max(1, Number(node.width) || 1),
+        height: Math.max(1, Number(node.height) || 1),
+      },
+      angle
+    );
+    const anchor = { x: endpoints.x0, y: endpoints.y0, angle };
+    strokeLengthAnchorRef.current = anchor;
+    strokeLengthAnchors.set(nodeId, anchor);
+  };
+
+  const clearStrokeLengthAnchor = () => {
+    strokeLengthAnchorRef.current = null;
+    strokeLengthAnchors.delete(nodeId);
+  };
+
+  const captureBoxSizeAnchor = () => {
+    if (isOpenStroke) return;
+    const angle = Number(node.attrs?.angle) || 0;
+    const { left, top } = nodeLeftTop(document, node);
+    const anchor = rotatedTopLeft(
+      left,
+      top,
+      Math.max(1, Number(node.width) || 1),
+      Math.max(1, Number(node.height) || 1),
+      angle
+    );
+    const value = { ...anchor, angle };
+    boxSizeAnchorRef.current = value;
+    boxSizeAnchors.set(nodeId, value);
+  };
+
+  const clearBoxSizeAnchor = () => {
+    boxSizeAnchorRef.current = null;
+    boxSizeAnchors.delete(nodeId);
+  };
+
+  /**
+   * Size fields are a direct geometry edit, not a resize gesture. Apply the exact
+   * same scene box to the mounted SVG before Redux publishes the document box.
+   * This keeps the visual top-left and persisted top-left identical.
+   */
+  const commitBoxGeometry = (
+    nextBox: SceneBox,
+    patch: Record<string, unknown>
+  ) => {
+    const nodeEls = getSharedNodeEls();
+    const previewed = Boolean(
+      nodeEls &&
+        previewSvgNodeGeometry(nodeEls, nodeId, nextBox)
+    );
     dispatch(
       patchDocumentNode({
         nodeId,
-        patch: {
-          width: Math.max(1, Math.round(width)),
-          height: Math.max(1, Math.round(height)),
-        },
+        patch,
+        // A live host already has the final geometry. Recreating it introduces a
+        // stale intermediate frame where SVG and selection chrome disagree.
+        skipHostReload: previewed,
       })
+    );
+  };
+
+  const patchSize = (
+    width: number,
+    height: number,
+    extraPatch: Record<string, unknown> = {}
+  ) => {
+    if (isOpenStroke) {
+      const currentWidth = Math.max(1, Number(node.width) || 1);
+      const currentHeight = Math.max(1, Number(node.height) || 1);
+      const angle = Number(node.attrs?.angle) || 0;
+      const { left, top } = nodeLeftTop(document, node);
+      const endpoints = strokeEndpointsFromBox(
+        {
+          left,
+          top,
+          width: currentWidth,
+          height: currentHeight,
+        },
+        angle
+      );
+      const anchor = strokeLengthAnchorRef.current || strokeLengthAnchors.get(nodeId);
+      const fixedStart = anchor && anchor.angle === angle
+        ? anchor
+        : { x: endpoints.x0, y: endpoints.y0, angle };
+      const rad = (fixedStart.angle * Math.PI) / 180;
+      const nextLength = Math.max(1, Math.round(width));
+      const lengthChanged = nextLength !== currentWidth;
+      // Preserve the local start endpoint while the segment's center moves with its length.
+      const next = strokeNodeFromEndpoints({
+        x0: fixedStart.x,
+        y0: fixedStart.y,
+        x1: fixedStart.x + Math.cos(rad) * nextLength,
+        y1: fixedStart.y + Math.sin(rad) * nextLength,
+      });
+      const nextOrigin = sceneToDocumentCoords(document, next.x, next.y);
+      commitBoxGeometry(
+        { left: next.x, top: next.y, width: next.width, height: next.height },
+      {
+          ...extraPatch,
+          ...(lengthChanged ? { x: nextOrigin.x, y: nextOrigin.y, width: next.width } : {}),
+          // Lines are defined by length + rotation. Their visual thickness is stroke width.
+          height: next.height,
+          attrs: {
+            ...(lengthChanged ? { angle } : {}),
+            'border-width': Math.max(1, Math.round(height)),
+            ...(shapeType === 'arrow'
+              ? { 'arrow-head-size': Math.max(14, Math.round(height * 1.25)) }
+              : {}),
+          },
+        }
+      );
+      return;
+    }
+    const nextWidth = Math.max(1, Math.round(width));
+    const nextHeight = Math.max(1, Math.round(height));
+    const angle = Number(node.attrs?.angle) || 0;
+    const { left, top } = nodeLeftTop(document, node);
+    const oldWidth = Math.max(1, Number(node.width) || 1);
+    const oldHeight = Math.max(1, Number(node.height) || 1);
+    const anchor = boxSizeAnchorRef.current || boxSizeAnchors.get(nodeId) ||
+      rotatedTopLeft(left, top, oldWidth, oldHeight, angle);
+    const nextOrigin = originFromRotatedTopLeft(anchor, nextWidth, nextHeight, angle);
+    const documentOrigin = sceneToDocumentCoords(document, nextOrigin.left, nextOrigin.top);
+    commitBoxGeometry(
+      { left: nextOrigin.left, top: nextOrigin.top, width: nextWidth, height: nextHeight },
+      {
+        ...extraPatch,
+        x: documentOrigin.x,
+        y: documentOrigin.y,
+        width: nextWidth,
+        height: nextHeight,
+      }
     );
   };
 
@@ -166,20 +368,32 @@ function ShapeSelectionToolbar({
     if (!trimmed) return;
     const n = Math.round(Number(trimmed));
     if (!Number.isFinite(n) || n < 1) return;
-    if (axis === 'w' && n === Math.round(box.width)) return;
-    if (axis === 'h' && n === Math.round(box.height)) return;
+    if (isOpenStroke) {
+      if (axis === 'w') {
+        if (n !== Math.round(sizeBox.width)) patchSize(n, strokeWidth);
+      } else if (n !== strokeWidth) {
+        patchSize(Math.round(sizeBox.width), n);
+      }
+      return;
+    }
+    if (axis === 'w' && n === Math.round(sizeBox.width)) return;
+    if (axis === 'h' && n === Math.round(sizeBox.height)) return;
     if (aspectLocked) {
-      const ratio = box.width / Math.max(1, box.height);
+      const ratio = sizeBox.width / Math.max(1, sizeBox.height);
       if (axis === 'w') patchSize(n, Math.max(1, Math.round(n / ratio)));
       else patchSize(Math.max(1, Math.round(n * ratio)), n);
       return;
     }
-    if (axis === 'w') patchSize(n, Math.round(box.height));
-    else patchSize(Math.round(box.width), n);
+    if (axis === 'w') patchSize(n, Math.round(sizeBox.height));
+    else patchSize(Math.round(sizeBox.width), n);
   };
 
   const applySides = (n: number) => {
     patchAttrs({ sides: clampShapeSides(n, DEFAULT_SHAPE_SIDES) });
+  };
+
+  const applyStarInnerRadius = (pct: number) => {
+    patchAttrs({ starInnerRatio: clampStarInnerRatio(pct / 100) });
   };
 
   const applyAspectPreset = (preset: (typeof ELEMENT_ASPECT_PRESETS)[number]) => {
@@ -192,24 +406,21 @@ function ShapeSelectionToolbar({
     const hasOrig =
       Number(node?.attrs?.[ASPECT_ORIG_W]) > 0 && Number(node?.attrs?.[ASPECT_ORIG_H]) > 0;
     const next = sizeFromAspectPreset(box, preset.w, preset.h);
-    dispatch(
-      patchDocumentNode({
-        nodeId,
-        patch: {
-          width: Math.max(1, Math.round(next.width)),
-          height: Math.max(1, Math.round(next.height)),
-          attrs: {
-            ...(shapeType != null ? { shapeType } : {}),
-            lockAspect: 'true',
-            ...(!hasOrig
-              ? {
-                  [ASPECT_ORIG_W]: Math.round(box.width),
-                  [ASPECT_ORIG_H]: Math.round(box.height),
-                }
-              : {}),
-          },
+    patchSize(
+      Math.max(1, Math.round(next.width)),
+      Math.max(1, Math.round(next.height)),
+      {
+        attrs: {
+          ...(shapeType != null ? { shapeType } : {}),
+          lockAspect: 'true',
+          ...(!hasOrig
+            ? {
+                [ASPECT_ORIG_W]: Math.round(sizeBox.width),
+                [ASPECT_ORIG_H]: Math.round(sizeBox.height),
+              }
+            : {}),
         },
-      })
+      }
     );
   };
 
@@ -278,6 +489,12 @@ function ShapeSelectionToolbar({
           </button>
         </Tooltip>
       ) : null}
+      {isOpenStroke ? (
+        <StrokeStylePicker
+          value={strokeStyle}
+          onChange={(next) => patchAttrs({ strokeStyle: next })}
+        />
+      ) : null}
       {cornerRadius ? (
         <Tooltip tip={'圆角'} placement="top">
           <button
@@ -304,7 +521,19 @@ function ShapeSelectionToolbar({
         />
       ) : null}
 
-      {showAspectPresets ? (
+      {showStarInnerRadius ? (
+        <ToolbarValueSlider
+          prefix="IR"
+          value={starInnerRadiusPct}
+          min={8}
+          max={92}
+          onChange={applyStarInnerRadius}
+          title="Inner radius"
+          panelLabel="Inner radius"
+        />
+      ) : null}
+
+      {showAspectPresets && showSizeControls && !isOpenStroke ? (
         <AspectRatioPresetMenu
           open={ratioOpen}
           onOpenChange={setRatioOpen}
@@ -313,63 +542,92 @@ function ShapeSelectionToolbar({
         />
       ) : null}
 
-      <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
-        <span className="text-[var(--muted)]">W</span>
-        <input
-          className={SEL_SIZE_INPUT}
-          defaultValue={Math.round(box.width)}
-          key={`w-${Math.round(box.width)}`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onBlur={(e) => setSize('w', e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') setSize('w', (e.target as HTMLInputElement).value);
-          }}
-        />
-      </label>
-      <Tooltip
-        tip={
-          aspectLocked
-            ? t('editor.imageToolbar.unlockAspect')
-            : t('editor.imageToolbar.lockAspect')
-        }
-        placement="top"
-      >
-        <button
-          type="button"
-          aria-label={
+      {showSizeControls ? (
+        <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
+          <span className="text-[var(--muted)]">W</span>
+          <input
+            className={SEL_SIZE_INPUT}
+            defaultValue={Math.round(sizeBox.width)}
+            key={`w-${nodeId}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onFocus={() => {
+              captureStrokeLengthAnchor();
+              captureBoxSizeAnchor();
+            }}
+            onChange={(e) => setSize('w', e.target.value)}
+            onBlur={(e) => {
+              setSize('w', e.target.value);
+              clearStrokeLengthAnchor();
+              clearBoxSizeAnchor();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                setSize('w', (e.target as HTMLInputElement).value);
+                clearStrokeLengthAnchor();
+                clearBoxSizeAnchor();
+              }
+            }}
+          />
+        </label>
+      ) : null}
+      {showSizeControls && !isOpenStroke ? (
+        <Tooltip
+          tip={
             aspectLocked
               ? t('editor.imageToolbar.unlockAspect')
               : t('editor.imageToolbar.lockAspect')
           }
-          aria-pressed={aspectLocked}
-          className={cn(
-            'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
-            aspectLocked && 'bg-[var(--accent-soft)] text-[var(--ink)]'
-          )}
-          onClick={() =>
-            patchAttrs({ lockAspect: aspectLocked ? 'false' : 'true' })
-          }
+          placement="top"
         >
-          {aspectLocked ? (
-            <Icon name="editor-link" width={14} height={14} />
-          ) : (
-            <Icon name="editor-unlink" width={14} height={14} />
-          )}
-        </button>
-      </Tooltip>
-      <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
-        <span className="text-[var(--muted)]">H</span>
-        <input
-          className={SEL_SIZE_INPUT}
-          defaultValue={Math.round(box.height)}
-          key={`h-${Math.round(box.height)}`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onBlur={(e) => setSize('h', e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') setSize('h', (e.target as HTMLInputElement).value);
-          }}
-        />
-      </label>
+          <button
+            type="button"
+            aria-label={
+              aspectLocked
+                ? t('editor.imageToolbar.unlockAspect')
+                : t('editor.imageToolbar.lockAspect')
+            }
+            aria-pressed={aspectLocked}
+            className={cn(
+              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]',
+              aspectLocked && 'bg-[var(--accent-soft)] text-[var(--ink)]'
+            )}
+            onClick={() =>
+              patchAttrs({ lockAspect: aspectLocked ? 'false' : 'true' })
+            }
+          >
+            {aspectLocked ? (
+              <Icon name="editor-link" width={14} height={14} />
+            ) : (
+              <Icon name="editor-unlink" width={14} height={14} />
+            )}
+          </button>
+        </Tooltip>
+      ) : null}
+      {showSizeControls ? (
+        <Tooltip tip={isOpenStroke ? '描边宽度' : '高度'} placement="top">
+          <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
+            <span className="text-[var(--muted)]">H</span>
+            <input
+              className={SEL_SIZE_INPUT}
+              defaultValue={isOpenStroke ? strokeWidth : Math.round(sizeBox.height)}
+              key={`h-${nodeId}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onFocus={captureBoxSizeAnchor}
+              onChange={(e) => setSize('h', e.target.value)}
+              onBlur={(e) => {
+                setSize('h', e.target.value);
+                clearBoxSizeAnchor();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setSize('h', (e.target as HTMLInputElement).value);
+                  clearBoxSizeAnchor();
+                }
+              }}
+            />
+          </label>
+        </Tooltip>
+      ) : null}
 
       {showOutline ? (
         <Tooltip tip="Outline" placement="top">
