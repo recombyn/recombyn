@@ -9,6 +9,51 @@ from typing import Any
 from sqlalchemy import case, delete, or_, text, update as sa_update
 from sqlmodel import Session, col, func, select
 
+from app.models import (
+    AgentEpisode,
+    AgentKgTriple,
+    AgentLongMemory,
+    AgentSessionSnapshot,
+    AppMigration,
+    Asset,
+    AuthSession,
+    CardKey,
+    ChatMessage,
+    ChatSession,
+    DesignCanvasTool,
+    DesignColdBlob,
+    DesignDict,
+    DesignExecuteFlow,
+    DesignGlobalRule,
+    DesignLayerLock,
+    DesignOptimizePatch,
+    DesignPromptPack,
+    DesignSkill,
+    DesignSkillGroup,
+    DesignSkillRevision,
+    DesignStageReview,
+    DesignSystemPrompt,
+    DesignTask,
+    DesignTokenPack,
+    DesignUserSkillPref,
+    DocumentShare,
+    EmailActivateToken,
+    EmailCode,
+    EmailTicket,
+    Font,
+    LlmModel,
+    LlmModelRemoved,
+    ModelUsage,
+    Notice,
+    PlazaLike,
+    PlazaSubmission,
+    Project,
+    User,
+    UserBalance,
+    UserByokProvider,
+    WalletLedger,
+)
+
 
 def get_user_by_email(*, session: Session, email: str) -> User | None:
     email_n = (email or "").strip().lower()

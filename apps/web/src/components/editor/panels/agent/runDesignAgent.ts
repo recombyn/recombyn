@@ -538,9 +538,9 @@ export function frameSizeFromDoc(
   frameId: string | null | undefined
 ): { width: number; height: number } | null {
   if (!frameId) return null;
-  const frame = (Array.isArray(getDocument()?.frames) ? getDocument()?.frames : []).find(
-    (item) => item?.id === frameId
-  );
+  const doc = getDocument();
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  const frame = frames.find((item) => item?.id === frameId);
   const width = Math.round(Number(frame?.width) || 0);
   const height = Math.round(Number(frame?.height) || 0);
   return width >= 64 && height >= 64 ? { width, height } : null;
