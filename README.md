@@ -23,7 +23,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** is an **AI-native infinite vector canvas**. From web canvas to desktop app, Design Agent, backend, live collab, private deploy, and automated tests — a commercial-grade full-loop product.
+**Recombyn** is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
 
 Built-in Design Agent (LangGraph): natural language creates layers, draws shapes, restyles, and typesets. Ships with Skills out of the box; you can also add custom Skills / AgentProfile (YAML) / prompt packs for posters, dashboards, landing pages, and more — then keep editing at vector precision.
 
