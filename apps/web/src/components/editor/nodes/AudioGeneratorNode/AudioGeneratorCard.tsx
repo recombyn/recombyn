@@ -51,14 +51,14 @@ import AgentComposerInput, {
 import {
   ComposerAttachmentChip,
   composerAttachActionClass,
-} from '@/components/editor/panels/agent/AgentComposerShell';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import MentionAttachPanel, {
   type MentionAttachItem,
-} from '@/components/editor/panels/agent/MentionAttachPanel';
+} from '@/components/editor/panels/agent/composer/MentionAttachPanel';
 import type { UserAsset } from '@/models/assets';
 import ModelPickerPanel, {
   ModelBrandIcon,
-} from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import {
   clearImageProcessAttrs
 } from '@/components/rcb/scene/document/mediaLifecycle';

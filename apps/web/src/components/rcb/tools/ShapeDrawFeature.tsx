@@ -1,11 +1,14 @@
 import {
+  RcbOverlayPortal,
   useRcbCamera,
+  useRcbDevicePixelRatio,
   useRcbScreenToScene,
   useRcbViewportEl,
 } from '../camera/context';
 import {
   rcbResolveViewportEl,
   rcbViewportMetrics,
+  rcbSceneToScreen,
 } from '../core/math';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
@@ -119,13 +122,9 @@ export function resolveClosedDrawBoxes(
 
   let visual: DrawBox;
   if (useGrid && gridSize > 0) {
-    const g = snapBoxEdgesToGrid(box, gridSize, 1);
-    visual = {
-      left: snapCoordToGrid(g.left, gridSize),
-      top: snapCoordToGrid(g.top, gridSize),
-      width: Math.max(gridSize, snapCoordToGrid(g.width, gridSize)),
-      height: Math.max(gridSize, snapCoordToGrid(g.height, gridSize)),
-    };
+    // Edge-snap only — never snap width/height as independent coords (that
+    // drifts the rect off the lattice so ink sits between grid lines).
+    visual = snapBoxEdgesToGrid(box, gridSize, 1);
   } else {
     visual = {
       left: Math.round(box.left),
@@ -135,9 +134,22 @@ export function resolveClosedDrawBoxes(
     };
   }
 
+  // Expand to min size on the same lattice (right/bottom stay on gℤ when grid on).
   const minSide = Math.max(1, Math.ceil(outset * 2) + (useGrid && gridSize > 0 ? gridSize : 1));
-  if (visual.width < minSide) visual = { ...visual, width: minSide };
-  if (visual.height < minSide) visual = { ...visual, height: minSide };
+  if (visual.width < minSide) {
+    const right =
+      useGrid && gridSize > 0
+        ? snapCoordToGrid(visual.left + minSide, gridSize)
+        : visual.left + minSide;
+    visual = { ...visual, width: Math.max(minSide, right - visual.left) };
+  }
+  if (visual.height < minSide) {
+    const bottom =
+      useGrid && gridSize > 0
+        ? snapCoordToGrid(visual.top + minSide, gridSize)
+        : visual.top + minSide;
+    visual = { ...visual, height: Math.max(minSide, bottom - visual.top) };
+  }
 
   if (!(outset > 0)) return { visual, geom: visual, outset: 0 };
   const geom: DrawBox = {
@@ -384,6 +396,7 @@ function ShapeDrawFeature({
   }, [enabled, paperEl, stageEl, viewportEl]);
 
   const camera = useRcbCamera();
+  const dpr = useRcbDevicePixelRatio();
   const z = Math.max(0.05, camera.zoom || 1);
   const inv = 1 / z;
   const kind = shapeKind || 'rect';
@@ -470,26 +483,29 @@ function ShapeDrawFeature({
     previewSvg = previewMount ? createPortal(boxPreview, previewMount) : null;
   }
 
-  const labelFont = 10 * inv;
-  const labelGap = 14 * inv;
+  const labelFont = 10;
+  const labelGap = 14;
+  const labelScreen = rcbSceneToScreen(camera, labelX, labelY, dpr);
 
   return (
     <>
       {previewSvg}
       {sizeLabel ? (
-        <div
-          data-shape-draw-preview-label
-          className="pointer-events-none absolute z-20 whitespace-nowrap font-medium text-[var(--muted)]"
-          style={{
-            left: labelX,
-            top: labelY - labelGap,
-            fontSize: labelFont,
-            lineHeight: 1.2,
-            transform: 'translate(-50%, -100%)',
-          }}
-        >
-          {sizeLabel}
-        </div>
+        <RcbOverlayPortal>
+          <div
+            data-shape-draw-preview-label
+            className="pointer-events-none absolute z-20 whitespace-nowrap font-medium text-[var(--muted)]"
+            style={{
+              left: labelScreen.x,
+              top: labelScreen.y - labelGap,
+              fontSize: labelFont,
+              lineHeight: 1.2,
+              transform: 'translate(-50%, -100%)',
+            }}
+          >
+            {sizeLabel}
+          </div>
+        </RcbOverlayPortal>
       ) : null}
     </>
   );

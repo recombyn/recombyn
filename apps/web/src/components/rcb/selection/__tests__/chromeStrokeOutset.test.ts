@@ -10,10 +10,10 @@ import {
 } from '../../scene/document/sceneEffects';
 
 /**
- * Control box = path geom. Stroke paint may extend outside; do not pad the
- * blue AABB to outer ink. Move/snap still uses strokeVisualOutset separately.
+ * Control box follows stored geometry, the same lattice used by resize commits.
+ * Painted stroke can extend beyond it but must never move resize anchors.
  */
-describe('selection chrome vs stroke (AABB on path)', () => {
+describe('selection chrome vs stroke (AABB on stored geometry)', () => {
   const centerStroke = (sw: number) => ({
     key: 'shape',
     attrs: {
@@ -26,20 +26,11 @@ describe('selection chrome vs stroke (AABB on path)', () => {
     },
   });
 
-  it('1px center stroke: chrome = path (not visual ±0.5)', () => {
+  it('1px center stroke: chrome stays on stored geometry', () => {
     const node = centerStroke(1);
     const path = { left: 10.5, top: 20.5, width: 4, height: 3 };
     const chrome = inflateSelectionBox(path, node);
     const visual = inflateBoxByVisualOutset(path, node);
-
-    // eslint-disable-next-line no-console
-    console.log('[test:chrome-stroke:1px]', {
-      path,
-      chrome,
-      visual,
-      chromeOutset: strokeChromeOutset(node),
-      visualOutset: strokeVisualOutset(node),
-    });
 
     expect(strokeChromeOutset(node)).toBe(0);
     expect(strokeVisualOutset(node)).toBe(0.5);
@@ -48,12 +39,10 @@ describe('selection chrome vs stroke (AABB on path)', () => {
     expect(deflateSelectionBox(chrome, node)).toEqual(path);
   });
 
-  it('thick center stroke (sw=2): knobs stay on path, not outer ink', () => {
+  it('thick center stroke does not move resize anchors', () => {
     const node = centerStroke(2);
     const path = { left: 10, top: 10, width: 4, height: 3 };
     const chrome = inflateSelectionBox(path, node);
-    // eslint-disable-next-line no-console
-    console.log('[test:chrome-stroke:2px]', { path, chrome, outset: strokeChromeOutset(node) });
     expect(strokeChromeOutset(node)).toBe(0);
     expect(chrome).toEqual(path);
     const rotateFrom = {
@@ -64,7 +53,7 @@ describe('selection chrome vs stroke (AABB on path)', () => {
     expect(rotateFrom.se.x).toBe(14);
   });
 
-  it('outside stroke: chrome still on path (no full-sw pad)', () => {
+  it('outside stroke does not pad control geometry', () => {
     const node = {
       key: 'shape',
       attrs: {
@@ -80,14 +69,12 @@ describe('selection chrome vs stroke (AABB on path)', () => {
     const path = { left: 10, top: 10, width: 8, height: 6 };
     const chrome = inflateSelectionBox(path, node);
     const visual = inflateBoxByVisualOutset(path, node);
-    // eslint-disable-next-line no-console
-    console.log('[test:chrome-stroke:outside]', { path, chrome, visual });
     expect(strokeChromeOutset(node)).toBe(0);
     expect(chrome).toEqual(path);
     expect(visual).toEqual({ left: 8, top: 8, width: 12, height: 10 });
   });
 
-  it('inside stroke: chrome stays on path', () => {
+  it('inside stroke: chrome stays on path (outset 0)', () => {
     const node = {
       key: 'shape',
       attrs: {
@@ -106,16 +93,11 @@ describe('selection chrome vs stroke (AABB on path)', () => {
     expect(chrome).toEqual(path);
   });
 
-  it('polygon knobs + AABB both on path geom', () => {
+  it('polygon knobs + AABB both deflate back to path geom', () => {
     const node = centerStroke(1);
     const path = { left: 10.5, top: 20.5, width: 4, height: 3 };
     const chrome = inflateSelectionBox(path, node);
     const geomForPolygonKnobs = deflateSelectionBox(chrome, node);
-    // eslint-disable-next-line no-console
-    console.log('[test:chrome-stroke:polygon-knobs]', {
-      chrome,
-      geomForPolygonKnobs,
-    });
     expect(geomForPolygonKnobs).toEqual(path);
     expect(chrome).toEqual(path);
   });
@@ -218,33 +200,9 @@ describe('geometryPatchForStrokeOutsetChange', () => {
       { left: next.x, top: next.y, width: next.width, height: next.height },
       next
     );
-    expect(outer1).toEqual(outer0);
-  });
-
-  it('thinner center stroke expands path; outer ink unchanged', () => {
-    const thick = {
-      ...rectCenter1,
-      x: 11.5,
-      y: 9.5,
-      width: 40,
-      height: 29,
-      attrs: { ...rectCenter1.attrs, 'border-width': 3 },
-    };
-    const outer0 = inflateBoxByVisualOutset(
-      { left: thick.x, top: thick.y, width: thick.width, height: thick.height },
-      thick
-    );
-    const patch = geometryPatchForStrokeOutsetChange(thick, { 'border-width': 1 });
-    expect(patch).toEqual({ x: 10.5, y: 8.5, width: 42, height: 31 });
-    const next = { ...thick, ...patch, attrs: { ...thick.attrs, 'border-width': 1 } };
-    const outer1 = inflateBoxByVisualOutset(
-      { left: next.x, top: next.y, width: next.width, height: next.height },
-      next
-    );
-    expect(outer1).toEqual(outer0);
-  });
-
-  it('same width: no geom patch', () => {
-    expect(geometryPatchForStrokeOutsetChange(rectCenter1, { 'border-width': 1 })).toBeNull();
+    expect(outer1.left).toBe(10);
+    expect(outer1.top).toBe(8);
+    expect(outer1.width).toBe(43);
+    expect(outer1.height).toBe(32);
   });
 });

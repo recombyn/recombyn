@@ -37,15 +37,33 @@ import { PIXEL_GRID_MIN_ZOOM } from '@/components/rcb/selection/alignGuides';
 function emptyDoc(): SceneDocument {
   return {
     deltaSetLike: {
-      ROOT: { id: 'ROOT', key: 'group', children: [] },
+      ROOT: {
+        id: 'ROOT',
+        key: 'group',
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        attrs: {},
+        children: [],
+      },
     },
-  } as SceneDocument;
+  };
 }
 
 function rectDoc(): SceneDocument {
   return {
     deltaSetLike: {
-      ROOT: { id: 'ROOT', key: 'group', children: ['n1'] },
+      ROOT: {
+        id: 'ROOT',
+        key: 'group',
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        attrs: {},
+        children: ['n1'],
+      },
       n1: {
         id: 'n1',
         key: 'shape',
@@ -54,9 +72,10 @@ function rectDoc(): SceneDocument {
         width: 100,
         height: 50,
         attrs: { shapeType: 'rect', fill: '#fff' },
+        children: [],
       },
     },
-  } as SceneDocument;
+  };
 }
 
 function mockCtx(ops: string[]) {
@@ -168,7 +187,8 @@ describe('createSvgSceneRenderer', () => {
     expect(renderer.hitTest({ x: 30, y: 40 })).toBe('n1');
     expect(renderer.hitTest({ x: -100, y: -100 })).toBeNull();
     renderer.dispose();
-    expect(renderer.hitTest({ x: 30, y: 40 })).toBeNull();
+    // Hit stays valid after dispose — bridge may briefly retain this instance.
+    expect(renderer.hitTest({ x: 30, y: 40 })).toBe('n1');
   });
 
   it('createSceneRenderer defaults to svg', () => {
@@ -516,7 +536,7 @@ describe('LOD path / text / shape paint', () => {
     ).toBeNull();
   });
 
-  it('canIdlePaintOnCanvas allows solid stroke-free rect/ellipse; rejects complex fills and stroke', () => {
+  it('canIdlePaintOnCanvas allows solid center-stroke rect/ellipse/line/light path; rejects complex fills and non-center stroke', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -524,6 +544,39 @@ describe('LOD path / text / shape paint', () => {
           shapeType: 'rect',
           'fill-color': '#fff',
           'stroke-enabled': false,
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#fff',
+          'border-width': 1,
+          'border-color': '#333',
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'line',
+          path: 'M0 0 L40 0',
+          'border-width': 2,
+          'border-color': '#000',
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'pen',
+          path: 'M0 0 L10 10 L20 0',
+          'border-width': 2,
+          'stroke-enabled': true,
         },
       } as SceneNodeInput)
     ).toBe(true);
@@ -598,7 +651,24 @@ describe('LOD path / text / shape paint', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
-        attrs: { shapeType: 'rect', 'fill-color': '#fff', 'border-width': 1 },
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#fff',
+          'border-width': 2,
+          strokeAlign: 'outside',
+        },
+      } as SceneNodeInput)
+    ).toBe(false);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: { shapeType: 'rect', 'inner-shadow-enabled': true },
+      } as SceneNodeInput)
+    ).toBe(false);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: { shapeType: 'rect', 'backdrop-blur-enabled': true },
       } as SceneNodeInput)
     ).toBe(false);
   });
@@ -698,7 +768,16 @@ describe('LOD path / text / shape paint', () => {
     vi.spyOn(canvas, 'getContext').mockReturnValue(mockCtx(ops) as unknown as CanvasRenderingContext2D);
     const doc = {
       deltaSetLike: {
-        ROOT: { id: 'ROOT', key: 'group', children: ['p1'] },
+        ROOT: {
+          id: 'ROOT',
+          key: 'group',
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          attrs: {},
+          children: ['p1'],
+        },
         p1: {
           id: 'p1',
           key: 'shape',
@@ -707,9 +786,10 @@ describe('LOD path / text / shape paint', () => {
           width: 50,
           height: 20,
           attrs: { shapeType: 'pen', path: 'M0 10 L50 10', stroke: '#000' },
+          children: [],
         },
       },
-    } as SceneDocument;
+    };
     const spatial = new SceneSpatialRuntime(64);
     const renderer = createCanvasSceneRenderer({
       canvas,

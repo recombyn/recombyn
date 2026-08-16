@@ -34,7 +34,10 @@ import { strokeInnerClearanceScene } from '@/components/rcb/scene/document/scene
 import type { SceneBox } from '../alignGuides';
 import {
   CHROME_HANDLE_VIS_PX,
+  CHROME_RADIUS_HIT_PX,
   CHROME_STROKE_PX,
+  chromeHandleHitRadiusScene,
+  chromeHitScaleForBox,
   radiusHandleParkScreenPx,
   radiusParkSceneForBox,
   setOverlayHandleSeats,
@@ -105,49 +108,35 @@ function uniformRadii(r: number): CornerRadii {
   return { tl: v, tr: v, br: v, bl: v };
 }
 
-/** Rightmost outer tip (even indices) — sides knob sits on the tip, not the AABB edge. */
-function rightmostOuterTip(pts: Array<[number, number]>): { x: number; y: number } {
-  let best = pts[0];
-  for (let i = 0; i < pts.length; i += 2) {
-    const p = pts[i];
-    if (p[0] > best[0] + 1e-6 || (Math.abs(p[0] - best[0]) <= 1e-6 && p[1] < best[1])) {
-      best = p;
-    }
-  }
-  return { x: best[0], y: best[1] };
-}
-
-function starSites(width: number, height: number, sides: number, innerRatio: number) {
+export function starHandleSites(
+  width: number,
+  height: number,
+  sides: number,
+  innerRatio: number
+) {
   const pts = shapeVertexPoints('star', width, height, sides, innerRatio);
-  if (pts.length < 2) return null;
+  if (pts.length < 3) return null;
   const cx = width / 2;
   const cy = height / 2;
   const top = pts[0];
-  const valley = pts[1];
+  const inner = pts[1];
+  const outer = pts[2];
   let ix = cx - top[0];
   let iy = cy - top[1];
   const len = Math.hypot(ix, iy) || 1;
   ix /= len;
   iy /= len;
-  let vix = cx - valley[0];
-  let viy = cy - valley[1];
-  const vlen = Math.hypot(vix, viy) || 1;
-  vix /= vlen;
-  viy /= vlen;
   const outerDist = Math.hypot(top[0] - cx, top[1] - cy) || 1;
-  const tip = rightmostOuterTip(pts);
-  let tix = cx - tip.x;
-  let tiy = cy - tip.y;
-  const tlen = Math.hypot(tix, tiy) || 1;
-  tix /= tlen;
-  tiy /= tlen;
   return {
     pts,
     cx,
     cy,
     top: { x: top[0], y: top[1], ix, iy },
-    valley: { x: valley[0], y: valley[1], ix: vix, iy: viy },
-    tip: { x: tip.x, y: tip.y, ix: tix, iy: tiy },
+    // First valley is exactly on the inner-radius circle. The handle must
+    // follow this boundary, not a fixed control-box coordinate.
+    inner: { x: inner[0], y: inner[1] },
+    // Point count belongs to the adjacent outer star corner.
+    outer: { x: outer[0], y: outer[1] },
     outerDist,
   };
 }
@@ -262,7 +251,7 @@ function StarShapeHandlesOverlay({
   );
   const radius = dragValue != null && activeKey === 'radius' ? dragValue : baseR;
 
-  const sites = starSites(w, h, sides, innerRatio);
+  const sites = starHandleSites(w, h, sides, innerRatio);
   // Seat tracks R along the tip→center bisector (same contract as rect R-dots).
   // A fixed park inset left the knob glued to the sharp tip while the rounded
   // silhouette pulled inward — looked like “controls stuck at the old place”.
@@ -279,22 +268,17 @@ function StarShapeHandlesOverlay({
   };
 
   let radiusLocal = { x: w / 2, y: insetFor(radius) };
-  let innerLocal = { x: w * 0.65, y: h * 0.35 };
-  let sidesLocal = { x: w, y: h / 2 };
+  // Inner radius and point count both belong to explicit star vertices: the
+  // right-top valley and the adjacent right outer corner, respectively.
+  let innerLocal = { x: w * 0.58, y: h * 0.325 };
+  let sidesLocal = { x: w - parkScene, y: h * 0.325 };
   if (sites) {
     radiusLocal = {
       x: sites.top.x + sites.top.ix * insetFor(radius),
       y: sites.top.y + sites.top.iy * insetFor(radius),
     };
-    // Inner / sides sit on vertices — park toward center past stroke (any zoom).
-    innerLocal = {
-      x: sites.valley.x + sites.valley.ix * parkScene,
-      y: sites.valley.y + sites.valley.iy * parkScene,
-    };
-    sidesLocal = {
-      x: sites.tip.x + sites.tip.ix * parkScene,
-      y: sites.tip.y + sites.tip.iy * parkScene,
-    };
+    innerLocal = sites.inner;
+    sidesLocal = sites.outer;
   }
 
   const radiusPos = localPointToScene(radiusLocal.x, radiusLocal.y, box, angle);
@@ -562,10 +546,22 @@ function StarShapeHandlesOverlay({
       ]
     : [];
 
+  const hitHalf = chromeHandleHitRadiusScene(
+    z,
+    CHROME_RADIUS_HIT_PX,
+    chromeHitScaleForBox(w, h, z)
+  );
+
   if (Boolean(sites) && interactive && knobs.length > 0) {
     setOverlayHandleSeats(
       seatOwnerId,
-      knobs.map((knob) => ({ pickKey: `star-${knob.key}`, start: knob.onDown }))
+      knobs.map((knob) => ({
+        pickKey: `star-${knob.key}`,
+        start: knob.onDown,
+        sceneX: knob.sceneX,
+        sceneY: knob.sceneY,
+        half: hitHalf,
+      }))
     );
   } else {
     setOverlayHandleSeats(seatOwnerId, null);

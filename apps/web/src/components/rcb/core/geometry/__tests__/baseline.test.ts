@@ -62,97 +62,35 @@ describe('PathBuilder', () => {
   });
 });
 
-describe('ellipseArcApplyFullHysteresis', () => {
-  it('avoids chatter when closing and reopening near full', async () => {
-    const {
-      ellipseArcApplyFullHysteresis,
-      ELLIPSE_ARC_SNAP_FULL_PCT,
-      ELLIPSE_ARC_UNSNAP_FULL_PCT,
-    } = await import('@/components/rcb/scene/document/sceneShapes');
-    const twoPi = Math.PI * 2;
-    const snapIn = (ELLIPSE_ARC_SNAP_FULL_PCT / 100) * twoPi;
-    const snapOut = (ELLIPSE_ARC_UNSNAP_FULL_PCT / 100) * twoPi;
-
-    // First open from full: no snap yet.
-    let s = ellipseArcApplyFullHysteresis(twoPi - snapIn * 0.5, {
-      openedOnce: false,
-      heldFull: false,
-    });
-    expect(s.openedOnce).toBe(false);
-    expect(s.along).toBeLessThan(twoPi);
-
-    // Past unsnap → armed.
-    s = ellipseArcApplyFullHysteresis(twoPi - snapOut - 0.01, {
-      openedOnce: false,
-      heldFull: false,
-    });
-    expect(s.openedOnce).toBe(true);
-
-    // Close into snap band → latch full.
-    s = ellipseArcApplyFullHysteresis(twoPi - snapIn * 0.5, {
-      openedOnce: true,
-      heldFull: false,
-    });
-    expect(s.heldFull).toBe(true);
-    expect(s.along).toBeCloseTo(twoPi, 5);
-
-    // Still inside unsnap band → stay latched (no jitter).
-    s = ellipseArcApplyFullHysteresis(twoPi - snapOut * 0.5, {
-      openedOnce: true,
-      heldFull: true,
-    });
-    expect(s.heldFull).toBe(true);
-    expect(s.along).toBeCloseTo(twoPi, 5);
-
-    // Past unsnap → release and follow.
-    s = ellipseArcApplyFullHysteresis(twoPi - snapOut - 0.05, {
-      openedOnce: true,
-      heldFull: true,
-    });
-    expect(s.heldFull).toBe(false);
-    expect(s.along).toBeLessThan(twoPi);
-  });
-});
-
-describe('ellipseArcAlongFromPointerAngle', () => {
-  it('puts the end under the pointer and clamps past 开始位置', async () => {
-    const {
-      ellipseArcAlongFromPointerAngle,
-      ellipseArcEndAngles,
-      ellipseArcPercentFromAlongRad,
-    } = await import('@/components/rcb/scene/document/sceneShapes');
-    const start = Math.PI / 2; // south
-    const twoPi = Math.PI * 2;
-    // CW of south with + lock → near-full; end ≈ pointer.
-    const ptr = start - 0.2;
-    const along = ellipseArcAlongFromPointerAngle(ptr, start, 1, twoPi);
-    expect(along).toBeGreaterThan(twoPi * 0.9);
-    const pct = ellipseArcPercentFromAlongRad(along, 1);
-    const { a1 } = ellipseArcEndAngles(pct, 90);
-    let d = a1 - ptr;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    expect(Math.abs(d)).toBeLessThan(0.05);
-    // Crossing start from near-full stays full.
-    expect(ellipseArcAlongFromPointerAngle(start + 0.2, start, 1, along)).toBeCloseTo(
-      twoPi,
-      5
+describe('advanceEllipseArcAlong', () => {
+  it('uses one continuous direction and never wraps a full circle to the other opening side', async () => {
+    const { advanceEllipseArcAlong, ellipseArcPercentFromAlongRad } = await import(
+      '@/components/rcb/scene/document/sceneShapes'
     );
+    const twoPi = Math.PI * 2;
+    const almostFull = twoPi - 0.08;
+    const closed = advanceEllipseArcAlong(almostFull, 0.2, 1);
+    expect(closed).toBeCloseTo(twoPi, 5);
+
+    // Continuing through the fixed start ray stays closed rather than reopening on the other side.
+    expect(advanceEllipseArcAlong(closed, 0.5, 1)).toBeCloseTo(twoPi, 5);
+    // Reversing the drag moves back along the same opening direction.
+    const reopened = advanceEllipseArcAlong(closed, -0.3, 1);
+    expect(ellipseArcPercentFromAlongRad(reopened, 1)).toBeCloseTo(95.2, 1);
   });
 
-  it('maps short vs long sides for a locked sign', async () => {
-    const {
-      ellipseArcAlongFromPointerAngle,
-      ellipseArcPercentFromAlongRad,
-    } = await import('@/components/rcb/scene/document/sceneShapes');
-    const start = Math.PI / 2;
-    const twoPi = Math.PI * 2;
-    // Start south; slightly CW → short remaining for − lock.
-    const shortAlong = ellipseArcAlongFromPointerAngle(start - 0.15, start, -1, 0.2);
-    expect(ellipseArcPercentFromAlongRad(shortAlong, -1)).toBeGreaterThan(-20);
-    // Slightly CCW → near-full for − lock.
-    const longAlong = ellipseArcAlongFromPointerAngle(start + 0.15, start, -1, twoPi);
-    expect(Math.abs(ellipseArcPercentFromAlongRad(longAlong, -1))).toBeGreaterThan(90);
+  it('allows a zero-degree arc without retaining a minimum wedge', () => {
+    const d = PathBuilder.ellipseVariant(100, 100, { innerRatio: 0.4, arcPercent: 0 }).toD();
+    expect(d).toContain('A 50 50 0 0 1');
+    expect(d).toContain('A 20 20 0 0 0');
+  });
+
+  it('preserves a legacy reverse arc direction without selecting a new direction mid-drag', async () => {
+    const { advanceEllipseArcAlong, ellipseArcPercentFromAlongRad } = await import(
+      '@/components/rcb/scene/document/sceneShapes'
+    );
+    const along = advanceEllipseArcAlong(Math.PI, -0.4, -1);
+    expect(ellipseArcPercentFromAlongRad(along, -1)).toBeLessThan(-50);
   });
 });
 
@@ -165,23 +103,45 @@ describe('ellipseArcPercentFromAlongRad', () => {
     expect(ellipseArcPercentFromAlongRad(half, -1)).toBeCloseTo(-50, 5);
     expect(ellipseArcAlongRadFromPercent(100)).toBeCloseTo(Math.PI * 2, 5);
     expect(ellipseArcPercentFromAlongRad(Math.PI * 2, -1)).toBe(-100);
+    expect(ellipseArcPercentFromAlongRad(0, 1)).toBe(0);
+    expect(ellipseArcAlongRadFromPercent(0)).toBe(0);
   });
 });
 
-describe('snapEllipseArcPercent / snapEllipseInnerRatio', () => {
-  it('snaps near-full arc and near-zero hole', async () => {
-    const { snapEllipseArcPercent, snapEllipseInnerRatio } = await import(
+describe('snapEllipseInnerRatio', () => {
+  it('snaps a near-zero hole', async () => {
+    const { snapEllipseInnerRatio } = await import(
       '@/components/rcb/scene/document/sceneShapes'
     );
-    expect(snapEllipseArcPercent(97.5)).toBe(100);
-    expect(snapEllipseArcPercent(-95)).toBe(-100);
-    expect(snapEllipseArcPercent(80)).toBe(80);
     expect(snapEllipseInnerRatio(0.02)).toBe(0);
     expect(snapEllipseInnerRatio(0.1)).toBe(0);
     expect(snapEllipseInnerRatio(0.4)).toBeCloseTo(0.4);
     // Near-center in screen px also snaps (zoom=1 → sceneDist ≤ 18).
     expect(snapEllipseInnerRatio(0.2, { sceneDist: 10, zoom: 1 })).toBe(0);
     expect(snapEllipseInnerRatio(0.2, { sceneDist: 40, zoom: 1 })).toBeCloseTo(0.2);
+  });
+});
+
+describe('node effects', () => {
+  it('resolves inner shadow and backdrop blur only when enabled', async () => {
+    const { resolveBackdropBlur, resolveInnerShadow } = await import(
+      '@/components/rcb/scene/document/sceneEffects'
+    );
+    const node = {
+      key: 'shape',
+      attrs: {
+        'inner-shadow-enabled': true,
+        'inner-shadow-x': -2,
+        'inner-shadow-y': 3,
+        'inner-shadow-blur': 9,
+        'backdrop-blur-enabled': true,
+        'backdrop-blur-amount': 18,
+        'backdrop-blur-brightness': 115,
+      },
+    };
+    expect(resolveInnerShadow(node)).toMatchObject({ offsetX: -2, offsetY: 3, blur: 9 });
+    expect(resolveBackdropBlur(node)).toEqual({ blur: 18, brightness: 115 });
+    expect(resolveBackdropBlur({ key: 'shape', attrs: {} })).toBeNull();
   });
 });
 

@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { HiChevronDown, HiOutlineInformationCircle } from 'react-icons/hi2';
 import type { DirectoryUser, ShareDto, SharePermission } from '@/models/shares';
 import { Dialog, Dropdown, Switch, message } from '@/components/base';
-import { BrandWordmarkLoader } from '@/components/base/AppLogo';
+import LoadingDots from '@/components/base/LoadingDots';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { PlazaPublishForm } from '@/components/templates/PlazaPublishDialog';
 import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
@@ -710,7 +710,7 @@ function ShareDialog({ open, onClose }: Props) {
                 {(searching || searchHits.length > 0) && inviteQuery.trim() && !selectedInvite ? (
                   <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-48 overflow-auto rounded-lg border border-[var(--line)] bg-[var(--surface)] py-1 shadow-lg">
                     {searching && !searchHits.length ? (
-                      <BrandWordmarkLoader
+                      <LoadingDots
                         label={t('common.loading')}
                         className="px-3 py-4"
                       />

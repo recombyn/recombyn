@@ -66,6 +66,19 @@ import { deflateSelectionBox, inflateSelectionBox, strokeOuterClearanceScene } f
 import { isEditablePathNode } from '@/components/rcb/scene/paint/outlineToPath';
 import { patchDocumentNode, setDevHoverNodeId } from '@/store/modules/editor';
 import type { TextResizeMode } from '@/components/rcb/scene/paint/svgToScene';
+
+function setEndpointHover(handle: 'w' | 'e' | null) {
+  if (typeof window === 'undefined') return;
+  const root = window.document;
+  root.querySelectorAll('[data-rcb-endpoint-hover="1"]').forEach((el) =>
+    el.removeAttribute('data-rcb-endpoint-hover')
+  );
+  if (!handle) return;
+  root.querySelectorAll(`[data-rcb-sel-endpoint="${handle}"]`).forEach((el) => {
+    const halo = el.parentElement?.querySelector('.sel-ep-halo');
+    halo?.setAttribute('data-rcb-endpoint-hover', '1');
+  });
+}
 import {
   ShapeOutlineSvg,
   liveShapeGeomBox,
@@ -112,6 +125,7 @@ import {
   isRecentNodeDoubleTap,
   buildMoveOriginsForHit,
   filterMarqueeContentHits,
+  resolveMarqueeCandidates,
   commitMarqueeSelection,
   visualGuideBoxForNode,
   computeMovedUnion,
@@ -530,7 +544,11 @@ function SelectionFeature({
     // After draw/remount, prefer live host geom so picks match HostPathChrome paint
     // (Redux AABB alone drifts under sticky lattice at high zoom).
     const origins = baseOrigins.map((o) => {
-      if (parseFrameSelId(o.nodeId)) return o;
+      const frameId = parseFrameSelId(o.nodeId);
+      if (frameId) {
+        const live = liveShapeGeomBox(frameId);
+        return live ? { nodeId: o.nodeId, box: live } : o;
+      }
       const live = liveShapeGeomBox(o.nodeId);
       if (!live) return o;
       const node = document?.deltaSetLike?.[o.nodeId];
@@ -622,11 +640,13 @@ function SelectionFeature({
     let pending: PointerEvent | null = null;
 
     const runHoverHit = (e: PointerEvent) => {
+      setEndpointHover(null);
       if (dragRef.current) {
         applyHover(null);
         return;
       }
-      syncOverlayHandleHoverAtClient(e.clientX, e.clientY, e.target);
+      const hoverScene = toScene(e.clientX, e.clientY);
+      syncOverlayHandleHoverAtClient(e.clientX, e.clientY, e.target, hoverScene);
       const target = e.target as HTMLElement | null;
       const variantsHost = target?.closest?.(
         '[data-image-variants-bar]'
@@ -666,8 +686,15 @@ function SelectionFeature({
               ...pickOptsEarly,
               box: painted.box,
               angle: painted.angle,
+              scene: toScene(e.clientX, e.clientY),
             }
           );
+          if (paint?.kind === 'endpoint') {
+            setEndpointHover(paint.handle);
+            hitEl.style.cursor = 'default';
+            applyHover(null);
+            return;
+          }
           if (paint?.kind === 'resize') {
             hitEl.style.cursor = cursorForResize(paint.handle, painted.angle);
             applyHover(null);
@@ -710,6 +737,12 @@ function SelectionFeature({
           angle: painted.angle,
           scene: p,
         });
+        if (pick?.kind === 'endpoint') {
+          setEndpointHover(pick.handle);
+          hitEl.style.cursor = 'default';
+          applyHover(null);
+          return;
+        }
         if (pick?.kind === 'resize') {
           hitEl.style.cursor = cursorForResize(pick.handle, painted.angle);
           applyHover(null);
@@ -723,7 +756,7 @@ function SelectionFeature({
           applyHover(null);
           return;
         }
-        const knob = pickOverlayHandleAtClient(e.clientX, e.clientY, e.target);
+        const knob = pickOverlayHandleAtClient(e.clientX, e.clientY, e.target, p);
         if (knob?.kind === 'radius' || knob?.kind === 'shape') {
           hitEl.style.cursor = 'pointer';
           applyHover(null);
@@ -969,7 +1002,11 @@ function SelectionFeature({
         return;
       }
 
-      if (chromePick?.kind === 'resize' && liveUnionNow && liveOriginsNow?.length) {
+      if (
+        (chromePick?.kind === 'resize' || chromePick?.kind === 'endpoint') &&
+        liveUnionNow &&
+        liveOriginsNow?.length
+      ) {
         if (readOnly || lockedSelection) return;
         e.preventDefault();
         e.stopPropagation();
@@ -1361,7 +1398,7 @@ function SelectionFeature({
         // Soft-click on a handle must not resize: at 3% zoom, 2px jitter → 60+
         // scene units and snap threshold is huge (8/zoom), so the box jumps.
         if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
-        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y);
+        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y, e.shiftKey);
         if (stroke) {
           queuePreview({
             union: stroke.next,
@@ -1541,7 +1578,7 @@ function SelectionFeature({
         // Pad spatial prefilter the same as fine hit — tiny nodes near the brush edge.
         const queryPad = marqueeHitPadScene(zoom) + MARQUEE_MIN_HIT_SCREEN_PX / Math.max(0.05, zoom);
         const queryBox = expandSceneBox(box, queryPad);
-        const candidates = queryIdsInRect?.(queryBox) ?? listNodeIds();
+        const candidates = resolveMarqueeCandidates(queryIdsInRect?.(queryBox), listNodeIds());
         const rawHits = candidates.filter((id) =>
           nodeHitsMarquee(sceneDoc, id, box, getNodeBox, toScene, zoom)
         );
@@ -1689,7 +1726,7 @@ function SelectionFeature({
           endTransform();
           return;
         }
-        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y);
+        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y, shiftKey);
         if (stroke) {
           setLiveUnion(stroke.next);
           setLiveOrigins([{ nodeId: stroke.strokeId, box: stroke.next }]);
@@ -1789,13 +1826,13 @@ function SelectionFeature({
       if (target?.closest?.('[data-sel-toolbar],[data-frame-toolbar],[data-text-inline-editor]')) {
         return;
       }
-      const overlayPick = pickOverlayHandleAtClient(e.clientX, e.clientY, e.target);
+      const p = toScene(e.clientX, e.clientY);
+      const overlayPick = pickOverlayHandleAtClient(e.clientX, e.clientY, e.target, p);
       if (overlayPick && tryOverlayHandleDoubleClick(overlayPick, e)) {
         e.preventDefault();
         e.stopPropagation();
         return;
       }
-      const p = toScene(e.clientX, e.clientY);
       let hit = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
       // Selection chrome covers the glyph — fall back to the single selected node.
       if (!hit && target?.closest?.('[data-sel-box]')) {
@@ -1821,11 +1858,14 @@ function SelectionFeature({
       }
     };
 
-    // Capture: world HTML pads (radius / poly) sit above resize and call
-    // stopPropagation — bubble-only never sees corner resize at high zoom.
-    // Chrome also lives under the unscaled overlay for some hosts.
+    // Single stage capture entry (ADR 0027). Overlay is usually under hitEl
+    // ([data-rcb-canvas]); only attach a second listener when it is not.
     hitEl.addEventListener('pointerdown', onDown, true);
-    overlayRoot?.addEventListener('pointerdown', onDown, true);
+    const overlayNeedsOwn =
+      Boolean(overlayRoot) && overlayRoot !== hitEl && !hitEl.contains(overlayRoot!);
+    if (overlayNeedsOwn) {
+      overlayRoot!.addEventListener('pointerdown', onDown, true);
+    }
     const onWindowPaintChromeDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       const node = e.target as Node | null;
@@ -1863,7 +1903,9 @@ function SelectionFeature({
     };
     window.addEventListener('pointerdown', onWindowPaintChromeDown, true);
     hitEl.addEventListener('dblclick', onDblClick);
-    overlayRoot?.addEventListener('dblclick', onDblClick);
+    if (overlayNeedsOwn) {
+      overlayRoot!.addEventListener('dblclick', onDblClick);
+    }
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
@@ -1871,10 +1913,12 @@ function SelectionFeature({
       previewCoalesce.cancel();
       clearNodeTransformPreviews();
       hitEl.removeEventListener('pointerdown', onDown, true);
-      overlayRoot?.removeEventListener('pointerdown', onDown, true);
+      if (overlayNeedsOwn) {
+        overlayRoot!.removeEventListener('pointerdown', onDown, true);
+        overlayRoot!.removeEventListener('dblclick', onDblClick);
+      }
       window.removeEventListener('pointerdown', onWindowPaintChromeDown, true);
       hitEl.removeEventListener('dblclick', onDblClick);
-      overlayRoot?.removeEventListener('dblclick', onDblClick);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
@@ -2130,6 +2174,10 @@ function SelectionFeature({
     chromeUnion && singleNodeData
       ? deflateSelectionBox(chromeUnion, singleNodeData)
       : chromeUnion;
+  // Path control chrome follows the path geometry itself. Stroke expansion is
+  // used for spacing/toolbar clearance, never as the control-box position.
+  const selectionChromeBox =
+    hostInjectedSelection && !lineChrome ? chromeGeomBox || chromeUnion : chromeUnion;
 
   const hoverImageVariantsId = resolveHoverImageVariantsId({
     inspectDev,
@@ -2146,8 +2194,9 @@ function SelectionFeature({
 
   if (!enabled) return null;
 
-  // Path chrome already covers single vector selection (and inspect path ink).
-  const skipWorldSelectionChrome = hostInjectedSelection;
+  // HostPathChrome owns the precise open-stroke endpoints for lines/arrows.
+  // Other path shapes use the shared SelectionChrome for their box/handles.
+  const skipWorldSelectionChrome = hostInjectedSelection && lineChrome;
 
   return (
     <>
@@ -2161,13 +2210,13 @@ function SelectionFeature({
 
       {/* World SelectionChrome — path single/multi use host-mirrored chrome instead.
           Multi non-path keeps chrome while rotating so the control box can tilt. */}
-      {chromeUnion &&
+      {selectionChromeBox &&
       !suppressChrome &&
       selectionCount > 0 &&
       !skipWorldSelectionChrome &&
       (!transforming || !single) ? (
         <SelectionChrome
-          box={chromeUnion}
+          box={selectionChromeBox}
           angle={chromeAngle}
           showHandles={!inspectDev && !readOnly && !selectedIsMediaGen && !transforming}
           cornerHandlesOnly={!single}
@@ -2286,6 +2335,16 @@ function SelectionFeature({
             lineChrome,
             node: singleNodeData,
           })}
+          valueBox={
+            singleNodeData
+              ? {
+                  left: Number(singleNodeData.x) || 0,
+                  top: Number(singleNodeData.y) || 0,
+                  width: Math.max(1, Number(singleNodeData.width) || 1),
+                  height: Math.max(1, Number(singleNodeData.height) || 1),
+                }
+              : undefined
+          }
           edgePadScene={strokeUiPadScreen}
           onOpenAgent={onOpenAgent}
         />
@@ -2331,11 +2390,14 @@ function SelectionFeature({
             }).icon
           }
           dataProps={{ 'data-scene-node-id': singleId }}
-          onRename={(name) =>
+          onRename={(name, options) =>
             dispatch(
               patchDocumentNode({
                 nodeId: singleId,
                 patch: { attrs: { name } },
+                skipHistory: options?.skipHistory,
+                // A title is chrome metadata; the media SVG pixels do not change.
+                skipHostReload: true,
               })
             )
           }
@@ -2407,4 +2469,3 @@ function SelectionFeature({
 }
 
 export default memo(SelectionFeature);
-

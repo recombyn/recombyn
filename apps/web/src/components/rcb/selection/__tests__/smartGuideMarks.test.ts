@@ -110,7 +110,7 @@ describe('smart guide marks (corners + edge mids, continuous line)', () => {
 });
 
 describe('snap tip lattice (1px mouse bias)', () => {
-  it('snapped tip lands on nearest corner or edge mid (no free float)', async () => {
+  it('snapped tip lands on nearest cell perimeter target', async () => {
     const { snapPenAnchorPoint } = await import('../../tools/PenDrawFeature');
     const raw = { x: 14.6, y: 11.4 };
     const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);
@@ -124,7 +124,7 @@ describe('snap tip lattice (1px mouse bias)', () => {
     expect(tip).toEqual(raw);
   });
 
-  it('when pointer already on edge mid, tip equals pointer', async () => {
+  it('edge midpoint remains an exact target', async () => {
     const { snapPenAnchorPoint } = await import('../../tools/PenDrawFeature');
     const raw = { x: 14, y: 11.5 };
     const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);

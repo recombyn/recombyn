@@ -19,7 +19,7 @@ import {
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  STROKE_HIT,
+  STROKE_GEOMETRY_HEIGHT,
   strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
@@ -59,6 +59,7 @@ import {
 import { parseFrameSelId } from '@/components/rcb/selection/frameSelectionIds';
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 import type { createDragWriteCoalescer } from './dragWriteCoalescer';
+import type { ArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   patchDocumentNode,
   pushEditorHistory,
@@ -160,7 +161,7 @@ export function toGeometryPatches(doc: SceneDocument | null | undefined, patches
   });
 }
 
-/** Line/arrow keep a fixed hit height — length changes via width only. */
+/** Line/arrow keep a 1px geometry height — hit tolerance is handled separately. */
 export function normalizeGeomPatches(doc: SceneDocument | null | undefined, patches: GeomPatch[]): GeomPatch[] {
   return patches.map((p) => {
     const t = String(doc?.deltaSetLike?.[p.nodeId]?.attrs?.shapeType || '');
@@ -168,8 +169,8 @@ export function normalizeGeomPatches(doc: SceneDocument | null | undefined, patc
     const midY = p.top + p.height / 2;
     return {
       ...p,
-      height: STROKE_HIT,
-      top: midY - STROKE_HIT / 2,
+      height: STROKE_GEOMETRY_HEIGHT,
+      top: midY - STROKE_GEOMETRY_HEIGHT / 2,
       width: Math.max(1, p.width),
     };
   });
@@ -202,8 +203,8 @@ export type CanvasSessionDeps = {
   setEditingTextId: (id: string | null) => void;
   measureViewport: () => DOMRect | null;
   getDragWriteCoalescer: () => DragWriteCoalescer;
-  getFrameGeomHistoryPushed: () => boolean;
-  setFrameGeomHistoryPushed: (next: boolean) => void;
+  previewFrameGeometry: (frames: ArtboardFrameGeometry[]) => void;
+  clearFrameGeometryPreview: () => void;
   publishVideoLiveGeom: (next: Record<string, VideoGeomOverride> | null) => void;
   clearVideoLiveGeom: () => void;
 };
@@ -427,15 +428,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       }
     }
     if (!frames.length) return { nodePatches, frames };
-    // Live preview only — commit merges frames into the document object below.
+    // Live paint is imperative, just like node SVG geometry. Redux only receives
+    // the final document on commit so frame and content cannot alternate frames.
     if (opts?.preview) {
-      // Push pre-gesture doc before the first Redux frame write (same as title-bar
-      // onFrameMoveStart). Nodes are still pre-gesture in Redux during preview.
-      if (!deps.getFrameGeomHistoryPushed()) {
-        deps.dispatch(pushEditorHistory());
-        deps.setFrameGeomHistoryPushed(true);
-      }
-      deps.getDragWriteCoalescer().queueFrames(frames);
+      deps.previewFrameGeometry(frames);
     }
     return { nodePatches, frames };
   };
@@ -444,7 +440,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     patches: GeomPatch[],
     options?: { textResizeMode?: 'scale' | 'wrap'; skipHistory?: boolean }
   ) => {
-    // Drop coalesced frame previews — commit writes the final document once.
+    // Drop coalesced media previews — frame paint is committed below.
     deps.getDragWriteCoalescer().cancel();
     const doc = deps.getDocument();
     const board = deps.getBoard();
@@ -513,15 +509,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       };
     }
     deps.setDocumentLocal(next);
-    // Node-only preview leaves Redux pristine; frame preview already pushed history.
-    if (!options?.skipHistory && !deps.getFrameGeomHistoryPushed()) {
+    if (!options?.skipHistory) {
       deps.dispatch(pushEditorHistory());
     }
-    deps.setFrameGeomHistoryPushed(false);
     deps.dispatch(setDocumentFromCanvas(next));
     // Same React turn as Redux doc — HTML plates must not fall back to stale
     // coords between commit and onTransformingChange(false).
     deps.clearVideoLiveGeom();
+    deps.clearFrameGeometryPreview();
     clearNodeTransformPreviews();
   };
 

@@ -449,7 +449,9 @@ export function collectSmartGuidesAt(
 }
 
 /**
- * Drag indicators: align lines when edges/centers are within `eps`.
+ * Drag indicators: alignment lines plus nearest clear gaps. Gap guides render
+ * as arrowed distance measures, so edit-mode movement gets the same feedback
+ * as inspect/preview without an additional measurement path.
  * Prefer {@link snapTranslateToPeers} while moving (吸附 + guides together).
  */
 export function collectMoveSnapIndicators(
@@ -458,12 +460,13 @@ export function collectMoveSnapIndicators(
   eps: number = GUIDE_COINCIDE_EPS
 ): SmartGuideLine[] {
   const coincide = Math.max(GUIDE_COINCIDE_EPS, Number(eps) || 0);
-  return collectAlignGuides(box, targets, coincide).map((g) => ({
+  const aligns = collectAlignGuides(box, targets, coincide).map((g) => ({
     ...g,
     marks: g.marks?.length
       ? g.marks
       : marksAlongGuide(box, targets, g.axis, g.at, coincide),
   }));
+  return [...aligns, ...collectGapGuides(box, targets)];
 }
 
 type SnapPoint = {
@@ -500,7 +503,9 @@ function roundSnapDist(n: number): number {
  * **自动吸附**: nearest peer snap-points within `threshold` nudge the box;
  * then paint exact guides.
  *
- * Frames only participate as mid↔mid (avoid edge↔plate-center “假墙”).
+ * Frames and peer nodes share the same corner, edge, and center candidates.
+ * Frame edges prefer their matching edge over an equally-close center point,
+ * so content snaps flush to an artboard boundary.
  */
 export function snapTranslateToPeers(
   box: SceneBox,
@@ -529,34 +534,55 @@ export function snapTranslateToPeers(
   let minOffsetY = thr;
   let nudgeX = 0;
   let nudgeY = 0;
+  let exactRoleX = false;
+  let exactRoleY = false;
 
-  const considerX = (selfX: number, otherX: number) => {
+  const considerX = (self: SnapPoint, other: OtherPt, preferExactRole: boolean) => {
+    const selfX = self.x;
+    const otherX = other.x;
     const offsetX = Math.abs(selfX - otherX);
     if (offsetX > minOffsetX + 1e-9) return;
-    if (offsetX < minOffsetX - 1e-9 || !(Math.abs(nudgeX) > 1e-9)) {
+    const exactRole = preferExactRole && self.roleX === other.roleX;
+    if (
+      offsetX < minOffsetX - 1e-9 ||
+      (Math.abs(offsetX - minOffsetX) <= 1e-9 && exactRole && !exactRoleX) ||
+      !(Math.abs(nudgeX) > 1e-9)
+    ) {
       minOffsetX = offsetX;
       nudgeX = otherX - selfX;
+      exactRoleX = exactRole;
     }
   };
-  const considerY = (selfY: number, otherY: number) => {
+  const considerY = (self: SnapPoint, other: OtherPt, preferExactRole: boolean) => {
+    const selfY = self.y;
+    const otherY = other.y;
     const offsetY = Math.abs(selfY - otherY);
     if (offsetY > minOffsetY + 1e-9) return;
-    if (offsetY < minOffsetY - 1e-9 || !(Math.abs(nudgeY) > 1e-9)) {
+    const exactRole = preferExactRole && self.roleY === other.roleY;
+    if (
+      offsetY < minOffsetY - 1e-9 ||
+      (Math.abs(offsetY - minOffsetY) <= 1e-9 && exactRole && !exactRoleY) ||
+      !(Math.abs(nudgeY) > 1e-9)
+    ) {
       minOffsetY = offsetY;
       nudgeY = otherY - selfY;
+      exactRoleY = exactRole;
     }
   };
 
   for (const self of selectionPts) {
     for (const other of otherPts) {
-      // Artboard/frame: only center↔center (avoid edge↔plate-center false wall).
       if (other.guideKind === 'frame') {
-        if (self.roleX === 'mid' && other.roleX === 'mid') considerX(self.x, other.x);
-        if (self.roleY === 'mid' && other.roleY === 'mid') considerY(self.y, other.y);
+        if ((self.roleX === 'mid') === (other.roleX === 'mid')) {
+          considerX(self, other, true);
+        }
+        if ((self.roleY === 'mid') === (other.roleY === 'mid')) {
+          considerY(self, other, true);
+        }
         continue;
       }
-      considerX(self.x, other.x);
-      considerY(self.y, other.y);
+      considerX(self, other, false);
+      considerY(self, other, false);
     }
   }
 

@@ -11,7 +11,7 @@ import {
 } from '@/components/editor/panels/agent/llmModelMeta';
 import { isCustomModelId } from '@/components/editor/panels/agent/customLlmProviders';
 import { cn } from '@/utils/classnames';
-import { BrandWordmarkLoader } from '@/components/base/AppLogo';
+import LoadingDots from '@/components/base/LoadingDots';
 import { FREE_IMAGE_MODEL_ID } from '@/utils/wallet';
 // Lobe Icons — https://icons.lobehub.com (static SVG, no antd peers)
 import deepseek from '@lobehub/icons-static-svg/icons/deepseek-color.svg?url';
@@ -784,7 +784,7 @@ function ModelPickerPanel({
           <p className="mt-1">{t('agent.apiDownHint')}</p>
         </div>
       ) : catalogLoading ? (
-        <BrandWordmarkLoader
+        <LoadingDots
           label={t('home.composerModelsLoading')}
           className="px-2 py-8"
         />

@@ -242,6 +242,7 @@ async def run_design_job(
     paint_mode: str | None = None,
     locale: str | None = None,
     design_intensity: str | None = None,
+    task_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """LangGraph agent loop. Chat vs design from model intent / ops."""
     del is_premium  # reserved
@@ -429,6 +430,7 @@ async def run_design_job(
                     reserve_hold_fn=_reserve_design_hold,
                     settle_hold_fn=_settle_hold,
                     refund_hold_fn=_refund_hold,
+                    task_id=task_id,
                     apply_ops=apply_ops,
                     proposal_id=proposal_id,
                     proposal_task_id=proposal_task_id,
@@ -531,10 +533,62 @@ async def run_design_job(
             pid=pid,
             decision=decision,
             t0=t0,
+            task_id=task_id,
         ):
             yield ev
         return
     yield {"type": "error", "code": "invalid_run_mode", "message": "invalid_run_mode"}
+
+
+async def run_design_job_from_snapshot(
+    *,
+    user_id: str,
+    snapshot: dict[str, Any],
+    task_id: str | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Execute the versioned request DTO shared by HTTP and Celery adapters."""
+    if int(snapshot.get("version") or 0) != 2:
+        yield {"type": "error", "code": "snapshot_unavailable", "message": "snapshot_unavailable"}
+        return
+
+    def value(name: str, expected: type) -> Any:
+        item = snapshot.get(name)
+        return item if isinstance(item, expected) else None
+
+    async for event in run_design_job(
+        user_id=user_id,
+        run_mode=str(snapshot.get("mode") or "agent"),
+        prompt=str(snapshot.get("prompt") or ""),
+        scene=value("scene", str),
+        style_group_id=value("style_group_id", int),
+        user_selected_model=str(snapshot.get("user_selected_model") or "auto"),
+        canvas_id=value("canvas_id", str),
+        canvas_size=value("canvas_size", str),
+        ref_image_sizes=value("ref_image_sizes", list),
+        target_layer_id=value("target_layer_id", str),
+        layer_ids=value("layer_ids", list),
+        current_svg=value("current_svg", str),
+        scene_nodes=value("scene_nodes", list),
+        scene_frames=value("scene_frames", list),
+        spatial_summary=value("spatial_summary", dict),
+        focus_frame_id=value("focus_frame_id", str),
+        images=value("images", list),
+        session_id=value("session_id", str),
+        project_id=value("project_id", str),
+        memory=value("memory", dict),
+        route_overrides=value("route_overrides", dict),
+        apply_ops=value("apply_ops", list),
+        proposal_id=value("proposal_id", str),
+        proposal_task_id=value("proposal_task_id", str),
+        interaction_mode=value("interaction_mode", str),
+        client_country=value("client_country", str),
+        skill_refs=value("skill_refs", list),
+        paint_mode=value("paint_mode", str),
+        locale=value("locale", str),
+        design_intensity=value("design_intensity", str),
+        task_id=task_id,
+    ):
+        yield event
 
 
 async def _run_partial(
@@ -556,6 +610,7 @@ async def _run_partial(
     pid: str,
     decision: DesignRunDecision,
     t0: float,
+    task_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     hold_need = _authorize_need("partial", model=user_selected_model, rules=rules)
     bal = get_user_tokens(user_id)
@@ -585,7 +640,7 @@ async def _run_partial(
         user_selected_model = "auto"
 
 
-    task_id = str(uuid.uuid4())
+    task_id = str(task_id or uuid.uuid4())
     scene_key = _scene_key(scene) or str(rules.get("canvas.default_scene") or "").strip()
     w, h = _parse_size(canvas_size, scene_key, rules)
     if w <= 0 or h <= 0:

@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import {
   RcbSpatialIndex,
   SceneSpatialRuntime,
   boxesIntersect,
   buildIdRankMap,
+  getSharedSceneSpatialRuntime,
+  setSharedSceneSpatialRuntime,
   sortIdsByRank,
 } from '../spatialIndex';
 
@@ -108,20 +110,34 @@ describe('SceneSpatialRuntime', () => {
     expect(runtime.index.searchPoint(100, 20)).toEqual([]);
   });
 
-  it('hitCandidateIds sorts spatial hits top-first without full-list filter', () => {
+  it('hitCandidateIds falls back to allIds when warm pad misses', () => {
     const runtime = new SceneSpatialRuntime(100);
     const children = Array.from({ length: 60 }, (_, i) => `n${i}`);
     const doc = makeDoc(children);
     runtime.sync({ document: doc, childrenIds: children, reloadToken: 1 });
+    // Far from every AABB — previously returned [] and clicks died.
     const order = runtime.hitCandidateIds({
-      x: 20,
-      y: 20,
-      pad: 30,
+      x: 50_000,
+      y: 50_000,
+      pad: 1,
       allIds: children,
     });
-    expect(order.length).toBeGreaterThan(0);
-    expect(order.length).toBeLessThan(children.length);
-    // Top-most among nearby should come first (higher child index near x=20 is n0 only).
-    expect(order[0]).toBe('n0');
+    expect(order.length).toBe(children.length);
+    expect(order[0]).toBe(children[children.length - 1]);
+  });
+});
+
+describe('shared SceneSpatialRuntime', () => {
+  afterEach(() => {
+    setSharedSceneSpatialRuntime(null);
+  });
+
+  it('publishes and clears the product runtime for stage underlay consumers', () => {
+    const runtime = new SceneSpatialRuntime(256);
+    expect(getSharedSceneSpatialRuntime()).toBeNull();
+    setSharedSceneSpatialRuntime(runtime);
+    expect(getSharedSceneSpatialRuntime()).toBe(runtime);
+    setSharedSceneSpatialRuntime(null);
+    expect(getSharedSceneSpatialRuntime()).toBeNull();
   });
 });

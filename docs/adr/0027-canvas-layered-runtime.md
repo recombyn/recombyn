@@ -16,32 +16,30 @@ SVG remains fine for export and moderate static paint. It must not remain the in
 
 ## Decision
 
-Treat the editor runtime as four facts:
+Treat the editor runtime as four facts (**this is the product architecture — do not invent a parallel one mid-fix**):
 
 1. **`SceneDocument`** — unique document source of truth (Redux / collab patches write here).
 2. **`CameraTransform`** — single pan/zoom matrix; only `worldToScreen` / `screenToWorld` / `screenDeltaToWorldDelta` on hot paths. No DOM “correction” of coordinates during gestures.
-3. **Layered render** — ordinary ink → Canvas2D then WebGL; media / editing text → sparse DOM overlay; selection / guides / marquee → **screen-space** chrome overlay (not under world `scale`).
+3. **Layered render** — current committed ink remains in per-node SVG hosts; Canvas2D is used for the grid and eligible LOD proxies. Media `foreignObject`, selection, guides, and drawing previews share the SVG camera group; only true screen UI stays in the HTML overlay. WebGL is a future backend, not part of the current runtime.
 4. **Independent hit** — root pointer capture → chrome hit → spatial index coarse → precise geometry. `sceneToSvg` stays an **export / compat** path, not the live paint core.
 
-### Delivery roadmap
+SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`.
 
-| Status | Goal |
-|--------|------|
-| Done | CameraTransform API; screen-space selection chrome; RAF preview / commit on up; geometry-first chrome hit |
-| Done | `SceneRenderer` (`svg` adapter + `canvas2d` underlay) |
-| Done | Live ink on Canvas2D underlay: grid (DPR stroke snap), idle solid rect/ellipse (no stroke/shadow) |
-| Done | `TransformPreview` store + `effectivePaintBox` — Canvas underlay follows gesture geometry; selected/editing ids `forceFull` SVG |
-| Done | Context menu uses same `screenToScene` as selection + SVG host id fallback |
-| Done | Overlay / collab / fly-to-chat screen mapping pass DPR; path-edit knobs hit at selection-chrome size |
-| In progress | SVG remains for media / stroke / complex fills / editors; migrate chrome hit fully off DOM |
-| Next | Canvas2D → WebGL behind the same renderer interface (atlas, dirty regions, batching) |
+### Delivery roadmap (phased — no rewrite)
+
+| Phase | Status | Goal |
+|-------|--------|------|
+| 1 | Done (core) | CameraTransform API; ink and selection chrome share the same SVG root and camera `<g>`; geometry-first chrome hit; shared spatial; union AABB chrome. Follow-up conversion and browser regression work remains tracked in [canvas-lattice-conversion-fix-plan.md](../canvas-lattice-conversion-fix-plan.md). |
+| 2 | In progress | `SceneRenderer` (`svg` adapter + `canvas2d` underlay); idle Canvas ink (`canIdlePaintOnCanvas`) |
+| 3 | In progress | Migrate hot nodes off SVG hosts (grid/guides/chrome → shapes/images → paths → idle text); media stays DOM when active |
+| 4 | Next | Canvas2D → WebGL (atlas, dirty regions, batching) behind the same renderer interface |
 
 ### Acceptance targets
 
 - 10k light nodes pan at stable 60 FPS
 - Pointer-move → paint P95 &lt; 16ms; single-point hit P95 &lt; 1ms
 - Non-media DOM node count in the low hundreds
-- Zoom 5%–10_000%: content / hit / chrome error ≤ 1 screen px
+- Zoom 5%–10_000%: element/control geometry transform error = 0
 - Drag does not dispatch full Redux scene updates
 - Export and screen share one `SceneDocument`, without depending on live DOM ink
 
@@ -49,8 +47,10 @@ Treat the editor runtime as four facts:
 
 ### Positive
 
-- Chrome handle size stays constant in screen px without `1/zoom` or viewBox twins.
+- Chrome handle size stays constant in screen px via scene sizing (`px / zoom`); no second camera/viewBox mirror is used for chrome.
 - Hit and paint share one coordinate pipeline; fewer SVG lattice races.
+- Direct size fields preview and persist one identical scene box, so resize chrome cannot visibly interpolate through a different anchor.
+- Host lifecycle notifications can be scoped to an individual node, preventing unrelated title chrome from rerendering during a mount or paint refresh.
 - Can replace paint backend without rewriting selection / tools.
 
 ### Negative / trade-offs
@@ -67,6 +67,9 @@ Treat the editor runtime as four facts:
 ## References
 
 - [docs/canvas-architecture.md](../canvas-architecture.md)
+- [docs/canvas-lattice-conversion-fix-plan.md](../canvas-lattice-conversion-fix-plan.md)
+- [ADR 0027 附录 A：统一命中 / CameraTransform / 压测约束](./0027-appendix-unified-hit-camera-stress.md)
+- [docs/canvas-unified-pipeline-checklist.md](../canvas-unified-pipeline-checklist.md)
 - `apps/web/src/components/rcb/camera/transform.ts`
 - `apps/web/src/components/rcb/render/sceneRenderer.ts`
 - `apps/web/src/components/rcb/core/spatialIndex.ts`

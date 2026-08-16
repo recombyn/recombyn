@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BrandWordmarkLoader } from '@/components/base/AppLogo';
+import LoadingDots from '@/components/base/LoadingDots';
 import { cn } from '@/utils/classnames';
 
 /** Walk up to the nearest overflow scroll container (Home / Me nested panels). */
@@ -18,7 +18,7 @@ export function nearestScrollRoot(el: HTMLElement | null): Element | null {
 
 type ScrollLoadMoreOptions = {
   hasMore: boolean;
-  /** Initial / blocking load — do not fire load-more. */
+  /** Initial / blocking load �?do not fire load-more. */
   loading?: boolean;
   loadingMore?: boolean;
   onLoadMore: () => void;
@@ -65,7 +65,7 @@ type ScrollLoadFooterProps = {
   className?: string;
 };
 
-/** Bottom sentinel — brand wordmark while the next page is fetching. */
+/** Bottom sentinel � three-dot pulse while the next page is fetching. */
 function ScrollLoadFooter({
   sentinelRef,
   hasMore,
@@ -82,7 +82,7 @@ function ScrollLoadFooter({
       aria-hidden={!loadingMore}
     >
       {loadingMore ? (
-        <BrandWordmarkLoader label={t('common.loading')} />
+        <LoadingDots label={t('common.loading')} />
       ) : null}
     </div>
   );
@@ -103,7 +103,7 @@ type InfiniteScrollSectionProps = {
 };
 
 /**
- * Shared list shell: initial skeleton → empty → grid + scroll-load footer.
+ * Shared list shell: initial skeleton �?empty �?grid + scroll-load footer.
  * Used by Home plaza, Projects, and Me.
  */
 function InfiniteScrollSection({
@@ -164,7 +164,7 @@ function SkeletonGrid({ count, className, children }: SkeletonGridProps) {
   );
 }
 
-/** Default skeleton card count — ~2 rows on a 5-column home grid. */
+/** Default skeleton card count �?~2 rows on a 5-column home grid. */
 export const GRID_SKELETON_COUNT = 10;
 
 const MemoizedScrollLoadFooter = memo(ScrollLoadFooter);

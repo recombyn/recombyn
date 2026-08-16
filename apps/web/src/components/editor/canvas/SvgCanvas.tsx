@@ -47,7 +47,11 @@ import { runCanvasCtxAction } from './runCanvasCtxAction';
 import {
   setSceneHitTestBridge,
 } from '@/components/rcb/scene/document/sceneHitBridge';
-import { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
+import {
+  SceneSpatialRuntime,
+  getSharedSceneSpatialRuntime,
+  setSharedSceneSpatialRuntime,
+} from '@/components/rcb/core/spatialIndex';
 import {
   createSvgSceneRenderer,
   type SceneRenderer,
@@ -61,6 +65,7 @@ import {
   rcbScreenToScene,
   type SvgBoardHandle,
 } from '@/components/rcb';
+import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   abortNodeUpload,
   beginNodeUpload,
@@ -85,7 +90,6 @@ import {
   setActiveFrameId,
   setSelectedFrameIds,
   setMixedSelection,
-  updateArtboardFrames,
   setActiveTool,
   setDocument,
   setDocumentFromCanvas,
@@ -133,7 +137,7 @@ import {
 import {
   noteCanvasFlyOrigin,
   resolveAttachPayloadFlyOrigin,
-} from '@/components/editor/panels/agent/flyToChat';
+} from '@/components/editor/panels/agent/composer/flyToChat';
 import {
   useCanvasClipboard,
   type CanvasClipboardApi,
@@ -202,6 +206,8 @@ type SvgCanvasProps = {
   onZoomOut?: () => void;
   onLoadStart?: () => void;
   onReady?: () => void;
+  /** Notify the parent world while selection move / resize / rotate is active. */
+  onTransformingChange?: (transforming: boolean) => void;
   /** Open the editor AI agent dock (selection contextual bar). */
   onOpenAgent?: (opts?: { prompt?: string }) => void;
   /** Right-click 銆屾坊鍔犲埌 Chat銆嶁€?one node id, `frame:id`, or multiple selected ids as one group. */
@@ -284,6 +290,7 @@ function SvgCanvas({
   onZoomIn,
   onZoomOut,
   onReady,
+  onTransformingChange,
   onOpenAgent,
   onAddToChat,
   embedded = false,
@@ -411,37 +418,20 @@ function SvgCanvas({
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   /** Double-click pen path → anchor / handle edit. */
   const [editingPenId, setEditingPenId] = useState<string | null>(null);
-  const [pathEditSubtool, setPathEditSubtool] = useState<'select' | 'pen' | 'curve'>('select');
+  const [pathEditSubtool, setPathEditSubtool] = useState<'select' | 'pen' | 'add-anchor' | 'curve'>('select');
   /** After inline text commit, blank-canvas pointerup must not clear selection. */
   const keepSelectAfterTextEditRef = useRef<string | null>(null);
-  /**
-   * Mixed selection drag live-updates Redux frames (skipHistory) so artboard HTML
-   * moves with the chrome. Snapshot history once before the first frame write so
-   * commit does not push a half-new doc (new frames + old nodes).
-   */
-  const frameGeomHistoryPushedRef = useRef(false);
+  /** Frames painted directly during a mixed transform; restored on cancellation. */
+  const frameGeometryPreviewIdsRef = useRef(new Set<string>());
   const [geometryTransforming, setGeometryTransforming] = useState(false);
   /** Live video plate boxes while dragging — Redux only commits on gesture end. */
   const [videoLiveGeom, setVideoLiveGeom] = useState<Record<string, VideoGeomOverride> | null>(
     null
   );
-  const dispatchRef = useRef(dispatch);
-  dispatchRef.current = dispatch;
   const setVideoLiveGeomRef = useRef(setVideoLiveGeom);
   setVideoLiveGeomRef.current = setVideoLiveGeom;
   const dragWriteCoalesceRef = useRef(
-    createDragWriteCoalescer(({ frames, videoGeom }) => {
-      if (frames.length) {
-        dispatchRef.current(
-          updateArtboardFrames({
-            skipHistory: true,
-            patches: frames.map((fp) => ({
-              id: fp.id,
-              patch: { x: fp.x, y: fp.y, width: fp.width, height: fp.height },
-            })),
-          })
-        );
-      }
+    createDragWriteCoalescer(({ videoGeom }) => {
       if (videoGeom !== undefined) setVideoLiveGeomRef.current(videoGeom);
     })
   );
@@ -453,15 +443,27 @@ function SvgCanvas({
   );
   const overlayRoot = useRcbOverlayRoot();
 
+  const clearFrameGeometryPreview = useCallback(() => {
+    const liveDoc = documentRef.current;
+    const frames = Array.isArray(liveDoc?.frames) ? liveDoc.frames : [];
+    frameGeometryPreviewIdsRef.current.forEach((id) => {
+      const frame = frames.find((item: any) => String(item?.id) === id);
+      if (frame) previewArtboardFrameGeometry(frame);
+    });
+    frameGeometryPreviewIdsRef.current.clear();
+  }, []);
+
   const onGeometryTransformingChange = useCallback((next: boolean) => {
     setGeometryTransforming(next);
+    onTransformingChange?.(next);
     if (!next) {
       dragWriteCoalesceRef.current.cancel();
       // Clear live geom with the Redux document write in onGeometryCommit when
       // possible. Soft-click / cancelled transforms still need a clear here.
       setVideoLiveGeom(null);
+      clearFrameGeometryPreview();
     }
-  }, []);
+  }, [clearFrameGeometryPreview, onTransformingChange]);
   documentRef.current = document;
   selectedIdsRef.current = ctxMenuSeedNodeIds(selectedNodeIds || [], selectedNodeId);
   activeFrameIdRef.current = activeFrameId;
@@ -627,8 +629,17 @@ function SvgCanvas({
   /**
    * Spatial index — owned by SceneSpatialRuntime (reload / membership / patch).
    * Never rebuild every AABB because size drifted by 1.
+   * Published via setSharedSceneSpatialRuntime for stage underlay consumers.
    */
   const spatialRuntimeRef = useRef(new SceneSpatialRuntime(256));
+  useEffect(() => {
+    setSharedSceneSpatialRuntime(spatialRuntimeRef.current);
+    return () => {
+      if (getSharedSceneSpatialRuntime() === spatialRuntimeRef.current) {
+        setSharedSceneSpatialRuntime(null);
+      }
+    };
+  }, []);
   const session = useMemo(
     () =>
       createCanvasSession({
@@ -647,10 +658,14 @@ function SvgCanvas({
           paperElRef.current?.parentElement?.getBoundingClientRect() ||
           null,
         getDragWriteCoalescer: () => dragWriteCoalesceRef.current,
-        getFrameGeomHistoryPushed: () => frameGeomHistoryPushedRef.current,
-        setFrameGeomHistoryPushed: (next) => {
-          frameGeomHistoryPushedRef.current = next;
+        previewFrameGeometry: (frames) => {
+          frames.forEach((frame) => {
+            if (previewArtboardFrameGeometry(frame)) {
+              frameGeometryPreviewIdsRef.current.add(String(frame.id));
+            }
+          });
         },
+        clearFrameGeometryPreview,
         publishVideoLiveGeom: (next) => {
           dragWriteCoalesceRef.current.queueVideoGeom(next);
         },
@@ -658,7 +673,7 @@ function SvgCanvas({
           setVideoLiveGeomRef.current(null);
         },
       }),
-    [dispatch]
+    [dispatch, clearFrameGeometryPreview]
   );
   const {
     listNodeIds,
@@ -678,6 +693,7 @@ function SvgCanvas({
 
   /**
    * ADR 0027 SceneRenderer — svg adapter owns hit; paint still via shape hosts.
+   * Precise hit is Path2D / AABB only (no live SVG DOM lattice).
    * canvasSession.hitTest uses the same spatial helper for non-UI callers.
    */
   const sceneRenderer = useMemo(
@@ -688,7 +704,6 @@ function SvgCanvas({
         getZoom: () => cameraZoomRef.current,
         listNodeIds,
         getNodeBox,
-        getNodeEls: () => boardRefHolder.current.current?.nodeEls ?? null,
       }),
     [listNodeIds, getNodeBox]
   );
@@ -1155,6 +1170,9 @@ function SvgCanvas({
       if (meta?.brushHardness != null && Number.isFinite(meta.brushHardness)) {
         (node.attrs as Record<string, unknown>).brushHardness = meta.brushHardness;
       }
+      if (meta?.brushStampSrc) {
+        (node.attrs as Record<string, unknown>).brushStampSrc = meta.brushStampSrc;
+      }
       (node.attrs as Record<string, unknown>).pressureEnabled = pencilPressureEnabled;
       const next = addNodeToDocument(doc, id, node);
       documentRef.current = next;
@@ -1163,6 +1181,7 @@ function SvgCanvas({
       // Stay in pencil mode for continuous strokes; do not auto-select.
       dispatch(setSelectedNodeIds([]));
       dispatch(setSelectedNodeId(null));
+      return id;
     },
     [dispatch, readOnly, penStrokeColor, penStrokeWidth, pencilBrushId, penStrokeOpacity, pencilPressureEnabled]
   );
@@ -1998,6 +2017,7 @@ function SvgCanvas({
     const onSub = (e: Event) => {
       const s = (e as CustomEvent).detail?.subtool;
       if (s === 'pen') setPathEditSubtool('pen');
+      else if (s === 'add-anchor') setPathEditSubtool('add-anchor');
       else if (s === 'curve') setPathEditSubtool('curve');
       else setPathEditSubtool('select');
     };
@@ -2081,6 +2101,9 @@ function SvgCanvas({
             geometryOverrides={videoLiveGeom as Record<string, AudioGeomOverride> | null}
           />
         ) : null}
+        {/* Upload / process status is content chrome, not selection chrome. Render its
+            portal before selection so the selected outline and its controls stay on top. */}
+        <ImageProcessOverlay document={document} geometryOverrides={videoLiveGeom} />
         {/* Scene-space HTML overlays (selection / draw previews). Origin matches SVG. */}
         {/* Above frame/node stackOrder so preview select/hover strokes aren't covered. */}
         {/* Above HostPathChrome (z=1e6) so poly/star/radius knobs receive hits
@@ -2135,7 +2158,6 @@ function SvgCanvas({
             }
             onTransformingChange={onGeometryTransformingChange}
           />
-          <ImageProcessOverlay document={document} geometryOverrides={videoLiveGeom} />
           {!omitNonExportable ? (
             <>
               <ImageGeneratorOverlay
@@ -2248,14 +2270,17 @@ function SvgCanvas({
               paperEl={paperEl}
               stageEl={stageEl}
               drawNewShapeMode={pathEditSubtool === 'pen'}
+              insertAnchorMode={pathEditSubtool === 'add-anchor'}
               convertPointMode={pathEditSubtool === 'curve'}
               newStrokeColor={penStrokeColor}
-              newStrokeWidth={penStrokeWidth}
+              // Path-edit Pen adds geometry to the existing path; it is not
+              // the freehand drawing tool and must not inherit its width.
+              newStrokeWidth={2}
               gridSnap
               gridSize={getDocumentGridSize(document)}
               onCommitNewShape={({ pathD, box, closed }) => {
                 if (!editingPenId) return;
-                onPathEditUnionNewShape(editingPenId, { pathD, box, closed }, penStrokeWidth);
+                onPathEditUnionNewShape(editingPenId, { pathD, box, closed }, 2);
               }}
               onCommit={onPenPathEditCommit}
               onExit={() => setEditingPenId(null)}

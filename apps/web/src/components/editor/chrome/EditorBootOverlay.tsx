@@ -1,6 +1,7 @@
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BrandWordmarkLoader } from '@/components/base/AppLogo';
+import { dismissHtmlBootSplash } from '@/components/base/AppLogo';
+import ProgressBar from '@/components/base/progress';
 import { cn } from '@/utils/classnames';
 
 type Props = {
@@ -8,10 +9,16 @@ type Props = {
   exiting?: boolean;
 };
 
-/** Boot loader only — no skeleton chrome. Fixed so flex dock resize cannot shift the mark. */
+const BOOT_BAR_WIDTH = 'min(220px, 56vw)';
+
+/** Boot loader — fixed-width centered % bar (not brand wordmark). */
 function EditorBootOverlay({ progress, exiting = false }: Props) {
   const { t } = useTranslation();
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
+
+  useEffect(() => {
+    dismissHtmlBootSplash();
+  }, []);
 
   return (
     <div
@@ -26,7 +33,19 @@ function EditorBootOverlay({ progress, exiting = false }: Props) {
       aria-valuemax={100}
       aria-valuenow={pct}
     >
-      <BrandWordmarkLoader size="lg" />
+      <div
+        className="flex flex-col items-center gap-3"
+        style={{ width: BOOT_BAR_WIDTH }}
+      >
+        <ProgressBar
+          percent={pct}
+          active
+          height={6}
+          format={false}
+          aria-label={t('editor.initializing')}
+        />
+        <span className="text-[12px] tabular-nums text-[var(--muted)]">{pct}%</span>
+      </div>
     </div>
   );
 }

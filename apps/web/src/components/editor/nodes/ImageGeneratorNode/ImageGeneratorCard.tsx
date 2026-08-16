@@ -42,16 +42,16 @@ import AgentComposerInput, {
 import {
   ComposerAttachmentChip,
   composerAttachActionClass,
-} from '@/components/editor/panels/agent/AgentComposerShell';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import {
   noteCanvasFlyLand,
   playFlyChipToChat,
   resolveAttachFlyLabel,
   resolveNextFlyOrigin,
-} from '@/components/editor/panels/agent/flyToChat';
+} from '@/components/editor/panels/agent/composer/flyToChat';
 import MentionAttachPanel, {
   type MentionAttachItem,
-} from '@/components/editor/panels/agent/MentionAttachPanel';
+} from '@/components/editor/panels/agent/composer/MentionAttachPanel';
 import type { UserAsset } from '@/models/assets';
 import ImageAspectRatioPicker, {
   DEFAULT_IMAGE_COUNT,
@@ -60,10 +60,10 @@ import ImageAspectRatioPicker, {
   DEFAULT_IMAGE_RESOLUTION,
   modelImageLimits,
   resolveImagePixelSize,
-} from '@/components/editor/panels/agent/ImageAspectRatioPicker';
+} from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   ModelBrandIcon,
-} from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { modelIsImageGenerator, buildByokAwareModelList, cloudImageFallbackId } from '@/components/editor/panels/agent/llmModelMeta';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import {

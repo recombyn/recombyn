@@ -2,23 +2,20 @@
 import {
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
   memo,
 } from 'react';
-import { useRcbCamera, useRcbDevicePixelRatio } from '../camera/context';
+import { createPortal } from 'react-dom';
+import { useRcbCamera } from '../camera/context';
 import { rcbCameraCssZoom } from '../core/math';
-import {
-  createSvgBoard,
-  seedInfiniteSvgViewport,
-  snapInfiniteSvgViewportToCamera,
-} from '@/components/rcb/scene/paint/sceneToSvg';
+import { createSvgBoard } from '@/components/rcb/scene/paint/sceneToSvg';
 import { append, setAttrs, setFill, setStroke, svgEl } from '@/components/rcb/scene/paint/svgDom';
 import {
+  getShapeHost,
   getSceneShapesMount,
+  getSceneSelectionChromeMount,
   getSceneWorldEpoch,
   getSceneWorldRoot,
   registerShapeHost,
@@ -54,6 +51,36 @@ type HtmlArtboardFrameProps = {
   aiGenerating?: boolean;
   aiProcessLabel?: string;
 };
+
+export type ArtboardFrameGeometry = Pick<ArtboardFrame, 'id' | 'x' | 'y' | 'width' | 'height'>;
+
+/**
+ * Drag-time frame paint follows the same immediate SVG path as scene nodes.
+ * React receives the final document position on pointer-up; repainting through
+ * Redux during the drag puts frame paint one animation frame behind its nodes.
+ */
+export function previewArtboardFrameGeometry(frame: ArtboardFrameGeometry): boolean {
+  const el = getShapeHost(String(frame.id))?.el as SVGGElement | null | undefined;
+  if (!el) return false;
+  const x = Number(frame.x) || 0;
+  const y = Number(frame.y) || 0;
+  const width = Math.max(1, Number(frame.width) || 1);
+  const height = Math.max(1, Number(frame.height) || 1);
+  setAttrs(el, { transform: `translate(${x} ${y})` });
+  const host = el as typeof el & {
+    __sceneLeft?: number;
+    __sceneTop?: number;
+    sceneWidth?: number;
+    sceneHeight?: number;
+  };
+  host.__sceneLeft = x;
+  host.__sceneTop = y;
+  host.sceneWidth = width;
+  host.sceneHeight = height;
+  const plate = el.querySelector<SVGRectElement>('rect[data-baseline="1"]');
+  if (plate) setAttrs(plate, { width, height });
+  return true;
+}
 
 function paintFramePlate(
   layer: SVGGElement,
@@ -137,7 +164,6 @@ function HtmlArtboardFrame({
   aiProcessLabel,
 }: HtmlArtboardFrameProps): ReactNode {
   const camera = useRcbCamera();
-  const dpr = useRcbDevicePixelRatio();
   const z = rcbCameraCssZoom(camera);
   const inv = 1 / z;
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -161,53 +187,14 @@ function HtmlArtboardFrame({
     []
   );
 
-  // World-layer process chrome (same lattice as the plate / control box).
-  const processOverlayStyle = useMemo(
-    (): CSSProperties => ({
-      position: 'absolute',
-      left: frame.x,
-      top: frame.y,
-      width: frame.width,
-      height: frame.height,
-    }),
-    [frame.x, frame.y, frame.width, frame.height]
-  );
-
-  const processPillStyle = useMemo(
-    (): CSSProperties => ({
-      position: 'absolute',
-      left: frame.x + frame.width / 2,
-      top: frame.y + frame.height - 14 * inv,
-      transform: `translate(-50%, -100%) scale(${inv})`,
-      transformOrigin: 'center bottom',
-    }),
-    [frame.x, frame.y, frame.width, frame.height, inv]
-  );
-
-  // Remount only when plate geometry/fill changes. Do NOT remount on select /
-  // zoom / zIndex — createSvgBoard appends at mount end, so a remount paints the
-  // white plate over siblings (stuck when stackOrder is equal or sync races).
-  const paintKey = [
-    frame.id,
-    frame.x,
-    frame.y,
-    frame.width,
-    frame.height,
-    frame.backgroundColor,
-    generating ? 1 : 0,
-  ].join('|');
-
   useLayoutEffect(() => {
     if (layer !== 'body') return undefined;
     const host = hostRef.current;
     if (!host) return undefined;
 
-    const x = Number(frame.x) || 0;
-    const y = Number(frame.y) || 0;
-    const w = Math.max(1, Number(frame.width) || 1);
-    const h = Math.max(1, Number(frame.height) || 1);
     const worldRoot = getSceneWorldRoot();
     const shapesMount = getSceneShapesMount();
+    if (!worldRoot || !shapesMount) return undefined;
     const { root, layer: sceneLayer, shared } = createSvgBoard(host, 1, 1, {
       infinite: true,
       sharedRoot: worldRoot,
@@ -219,11 +206,6 @@ function HtmlArtboardFrame({
     sceneLayer.removeAttribute('data-rcb-shape-layer');
     sceneLayer.setAttribute('data-rcb-frame-layer', frame.id);
     sceneLayer.setAttribute('data-z', String(zIndex));
-    if (!shared) {
-      seedInfiniteSvgViewport(root, { left: x, top: y, width: w, height: h });
-      setAttrs(root, { 'data-frame-id': frame.id, 'data-rcb-frame-svg': '1' });
-      snapInfiniteSvgViewportToCamera(root, camera, dpr);
-    }
     const el = paintFramePlate(sceneLayer, frame, selected, generating, z);
     registerShapeHost({ nodeId: frame.id, root, layer: sceneLayer, el, kind: 'svg' });
     updateShapeHostElement(frame.id, el);
@@ -235,16 +217,14 @@ function HtmlArtboardFrame({
     return () => {
       unregisterShapeHost(frame.id);
       try {
-        if (shared) sceneLayer.remove();
-        else root.remove();
+        sceneLayer.remove();
       } catch {
         /* ignore */
       }
-      if (!shared) host.innerHTML = '';
       layerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layer, paintKey, worldEpoch]);
+  }, [layer, frame.id, worldEpoch]);
 
   // Selection / zoom hairline: repaint plate in place (do not remount the layer g).
   useLayoutEffect(() => {
@@ -253,7 +233,7 @@ function HtmlArtboardFrame({
     if (!sceneLayer) return;
     const el = paintFramePlate(sceneLayer, frame, selected, generating, z);
     updateShapeHostElement(frame.id, el);
-  }, [layer, selected, generating, z, paintKey, frame]);
+  }, [layer, selected, generating, z, frame]);
 
   // Same as RcbShapeHost: update data-z + reorder without remounting the plate.
   useLayoutEffect(() => {
@@ -298,24 +278,45 @@ function HtmlArtboardFrame({
   // Above SvgCanvas so paint/review/retry stays covered until the AI overlay clears.
   if (layer === 'process') {
     if (!generating) return null;
-    return (
-      <>
-        <div
-          data-artboard-process-shimmer
-          data-frame-id={frame.id}
-          className="rcb-artboard-process-shimmer pointer-events-none absolute z-[40] overflow-hidden"
-          style={processOverlayStyle}
-          aria-hidden
-        />
-        <div
-          data-artboard-process-label
-          data-frame-id={frame.id}
-          className="pointer-events-none absolute z-[41] whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 py-1 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
-          style={processPillStyle}
+    const mount = getSceneSelectionChromeMount();
+    if (!mount) return null;
+    const pillWidth = 220;
+    const pillHeight = 28;
+    return createPortal(
+      <g data-artboard-process-layer={frame.id} pointerEvents="none">
+        <foreignObject
+          x={frame.x}
+          y={frame.y}
+          width={frame.width}
+          height={frame.height}
+          pointerEvents="none"
         >
-          {processLabel}
-        </div>
-      </>
+          <div
+            data-artboard-process-shimmer
+            data-frame-id={frame.id}
+            className="rcb-artboard-process-shimmer h-full w-full overflow-hidden"
+            aria-hidden
+          />
+        </foreignObject>
+        <foreignObject
+          x={frame.x + frame.width / 2 - (pillWidth * inv) / 2}
+          y={frame.y + frame.height - (pillHeight + 14) * inv}
+          width={pillWidth * inv}
+          height={pillHeight * inv}
+          pointerEvents="none"
+          overflow="visible"
+        >
+          <div
+            data-artboard-process-label
+            data-frame-id={frame.id}
+            className="flex h-7 w-[220px] items-center justify-center whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
+            style={{ transform: `scale(${inv})`, transformOrigin: 'left top' }}
+          >
+            {processLabel}
+          </div>
+        </foreignObject>
+      </g>,
+      mount
     );
   }
 

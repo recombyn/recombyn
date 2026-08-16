@@ -18,7 +18,16 @@ import {
   type FillImageFit,
   type SvgPaint,
 } from '../document/sceneFill';
-import { resolveShadow, type ShadowSpec } from '../document/sceneEffects';
+import {
+  resolveBackdropBlur,
+  resolveInnerShadow,
+  resolveObjectBlur,
+  resolveShadow,
+  type BackdropBlurSpec,
+  type InnerShadowSpec,
+  type ObjectBlurSpec,
+  type ShadowSpec,
+} from '../document/sceneEffects';
 
 let paintSeq = 0;
 
@@ -139,16 +148,122 @@ export function applySvgFill(
   setFill(el, urlRef(id));
 }
 
-export function applySvgShadow(el: SVGElement, shadow: ShadowSpec) {
-  if (!shadow) {
-    setStyles(el, { filter: null });
-    return;
-  }
-  setStyles(el, {
-    filter: `drop-shadow(${shadow.offsetX}px ${shadow.offsetY}px ${shadow.blur}px ${shadow.color})`,
+export function applyNodeEffects(_svg: SVGSVGElement, el: SVGElement, node: SceneNodeInput) {
+  applySvgEffects(_svg, el, {
+    shadow: resolveShadow(node),
+    innerShadow: resolveInnerShadow(node),
+    object: resolveObjectBlur(node),
+    backdrop: resolveBackdropBlur(node),
   });
 }
 
-export function applyNodeShadow(_svg: SVGSVGElement, el: SVGElement, node: SceneNodeInput) {
-  applySvgShadow(el, resolveShadow(node));
+function applySvgEffects(
+  svg: SVGSVGElement,
+  el: SVGElement,
+  effects: {
+    shadow: ShadowSpec;
+    innerShadow: InnerShadowSpec;
+    object: ObjectBlurSpec;
+    backdrop: BackdropBlurSpec;
+  }
+) {
+  const { shadow, innerShadow, object, backdrop } = effects;
+  if (!shadow && !innerShadow && !object && !backdrop) {
+    setStyles(el, { filter: null, 'backdrop-filter': null, '-webkit-backdrop-filter': null });
+    return;
+  }
+
+  // `BackgroundImage` in SVG filters is deprecated and is disabled by modern
+  // browsers in many nested/shared SVG setups. CSS backdrop-filter is the
+  // primary interactive path; the SVG branch below remains for exported SVGs.
+  const backdropFilter = backdrop
+    ? `blur(${backdrop.blur}px) brightness(${backdrop.brightness}%)`
+    : null;
+  setStyles(el, {
+    'backdrop-filter': backdropFilter,
+    '-webkit-backdrop-filter': backdropFilter,
+    // Give Chromium a compositing surface for backdrop-filter without
+    // changing the node's visible fill or opacity.
+    'background-color': backdrop ? 'rgba(255,255,255,0.001)' : null,
+  });
+
+  // BackgroundImage is not implemented consistently for live SVG filters.
+  // Keep backdrop blur on the CSS backdrop-filter path; only build an SVG
+  // filter when a source-alpha effect actually needs one.
+  if (!shadow && !innerShadow && !object) {
+    setStyles(el, { filter: null });
+    return;
+  }
+
+  const id = nextPaintId('effect');
+  const filter = svgEl('filter', {
+    id,
+    x: '-50%',
+    y: '-50%',
+    width: '200%',
+    height: '200%',
+    'color-interpolation-filters': 'sRGB',
+  });
+  const underlayResults: string[] = [];
+  if (object && object.blur > 0) {
+    filter.appendChild(
+      svgEl('feGaussianBlur', {
+        in: 'SourceGraphic',
+        stdDeviation: object.blur / 2,
+        result: 'objectBlur',
+      })
+    );
+    underlayResults.push('objectBlur');
+  }
+  if (shadow) {
+    filter.appendChild(
+      svgEl('feDropShadow', {
+        in: 'SourceAlpha',
+        dx: shadow.offsetX,
+        dy: shadow.offsetY,
+        stdDeviation: shadow.blur / 2,
+        'flood-color': shadow.color,
+        result: 'dropShadow',
+      })
+    );
+    underlayResults.push('dropShadow');
+  }
+  if (innerShadow) {
+    filter.appendChild(
+      svgEl('feGaussianBlur', {
+        in: 'SourceAlpha',
+        stdDeviation: innerShadow.blur / 2,
+        result: 'innerBlur',
+      })
+    );
+    filter.appendChild(
+      svgEl('feOffset', {
+        in: 'innerBlur',
+        dx: innerShadow.offsetX,
+        dy: innerShadow.offsetY,
+        result: 'innerOffset',
+      })
+    );
+    filter.appendChild(
+      svgEl('feComposite', {
+        in: 'innerOffset',
+        in2: 'SourceAlpha',
+        operator: 'in',
+        result: 'innerCut',
+      })
+    );
+    filter.appendChild(svgEl('feFlood', { 'flood-color': innerShadow.color, result: 'innerColor' }));
+    filter.appendChild(
+      svgEl('feComposite', { in: 'innerColor', in2: 'innerCut', operator: 'in', result: 'innerShadow' })
+    );
+  }
+  const merge = svgEl('feMerge');
+  for (const result of underlayResults) merge.appendChild(svgEl('feMergeNode', { in: result }));
+  merge.appendChild(
+    svgEl('feMergeNode', { in: object && object.blur > 0 ? 'objectBlur' : 'SourceGraphic' })
+  );
+  if (innerShadow) merge.appendChild(svgEl('feMergeNode', { in: 'innerShadow' }));
+  filter.appendChild(merge);
+  ensureDefs(svg).appendChild(filter);
+  setStyles(el, { filter: urlRef(id) });
 }

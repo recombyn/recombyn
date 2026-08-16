@@ -143,10 +143,10 @@ export function strokeOuterClearanceScene(node: SceneNodeInput): number {
 }
 
 /**
- * How far selection chrome sits outside the geometric box (≥ 0).
- * Control box = **vector path** (geometry AABB). Stroke align is paint-only —
- * do not pad the blue box to outer ink. Move/snap still uses visual outer via
- * `strokeVisualOutset` / `inflateBoxByVisualOutset`.
+ * Selection and resize own the stored node geometry, not painted stroke ink.
+ * This keeps every control edge on the same grid lattice as x/y/width/height;
+ * visual stroke extent remains available through `strokeVisualOutset` for paint
+ * and hit testing.
  */
 export function strokeChromeOutset(_node: SceneNodeInput): number {
   return 0;
@@ -170,8 +170,7 @@ export function strokeIndicatorOutset(node: SceneNodeInput): number {
 }
 
 /**
- * Align / snap / spacing boxes — **vector path only**.
- * Guides / snap use visual outer separately; selection chrome stays on path.
+ * Align / snap / spacing boxes — path geom for guides; chrome uses visual outer.
  */
 export type StrokeBandFace = 'inner' | 'path' | 'outer';
 
@@ -180,8 +179,7 @@ export type StrokeBandBox<T extends { left: number; top: number; width: number; 
 
 export function strokeBandGuideBoxes<
   T extends { left: number; top: number; width: number; height: number },
->(geom: T, node: SceneNodeInput): StrokeBandBox<T>[] {
-  void node;
+>(geom: T, _node: SceneNodeInput): StrokeBandBox<T>[] {
   return [{ ...geom, face: 'path' }];
 }
 
@@ -199,7 +197,7 @@ function padBox<T extends { left: number; top: number; width: number; height: nu
   };
 }
 
-/** Selection chrome AABB from geometry (path only — chrome outset is 0). */
+/** Selection chrome AABB from geometry (padded to visual outer when stroked). */
 export function inflateBoxByStrokeOutset<
   T extends { left: number; top: number; width: number; height: number },
 >(box: T, node: SceneNodeInput): T {
@@ -418,6 +416,15 @@ export type ShadowSpec = {
   offsetY: number;
 } | null;
 
+export type InnerShadowSpec = ShadowSpec;
+
+export type BackdropBlurSpec = {
+  blur: number;
+  brightness: number;
+} | null;
+
+export type ObjectBlurSpec = { blur: number } | null;
+
 export function resolveShadow(node: SceneNodeInput): ShadowSpec {
   const attrs = node?.attrs || {};
   if (!boolEffectAttr(attrs['shadow-enabled'], false) || !boolEffectAttr(attrs['shadow-visible'], true)) {
@@ -429,4 +436,36 @@ export function resolveShadow(node: SceneNodeInput): ShadowSpec {
     offsetX: Number(attrs['shadow-x'] ?? 0),
     offsetY: Number(attrs['shadow-y'] ?? 2),
   };
+}
+
+export function resolveInnerShadow(node: SceneNodeInput): InnerShadowSpec {
+  const attrs = node?.attrs || {};
+  if (
+    !boolEffectAttr(attrs['inner-shadow-enabled'], false) ||
+    !boolEffectAttr(attrs['inner-shadow-visible'], true)
+  ) {
+    return null;
+  }
+  return {
+    color: String(attrs['inner-shadow-color'] || 'rgba(0,0,0,0.25)'),
+    blur: Math.max(0, Number(attrs['inner-shadow-blur'] ?? 4)),
+    offsetX: Number(attrs['inner-shadow-x'] ?? 0),
+    offsetY: Number(attrs['inner-shadow-y'] ?? 2),
+  };
+}
+
+export function resolveBackdropBlur(node: SceneNodeInput): BackdropBlurSpec {
+  const attrs = node?.attrs || {};
+  if (!boolEffectAttr(attrs['backdrop-blur-enabled'], false)) return null;
+  return {
+    blur: Math.max(0, Number(attrs['backdrop-blur-amount'] ?? 12)),
+    brightness: Math.max(0, Number(attrs['backdrop-blur-brightness'] ?? 100)),
+  };
+}
+
+/** Blur the selected object's own pixels (distinct from backdrop blur). */
+export function resolveObjectBlur(node: SceneNodeInput): ObjectBlurSpec {
+  const attrs = node?.attrs || {};
+  if (!boolEffectAttr(attrs['blur-enabled'], false)) return null;
+  return { blur: Math.max(0, Number(attrs['blur-amount'] ?? 12)) };
 }

@@ -66,4 +66,38 @@ describe('hitTestSceneAtPoint', () => {
       })
     ).toBeNull();
   });
+
+  it('does not use nodeEls SVG DOM unless allowSvgDomHit is true', () => {
+    const doc = {
+      deltaSetLike: {
+        ROOT: { children: ['p'] },
+        p: {
+          id: 'p',
+          key: 'shape',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          // Empty path — Path2D miss; DOM would be the only way to hit if enabled.
+          attrs: { shapeType: 'path', path: '', 'fill-enabled': 'false', borderWidth: 2 },
+        },
+      },
+    } as unknown as SceneDocument;
+    const getNodeBox = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    const fakeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const nodeEls = new Map<string, Element>([['p', fakeSvg]]);
+    expect(
+      hitTestSceneAtPoint({
+        document: doc,
+        order: ['p'],
+        x: 10,
+        y: 10,
+        zoom: 1,
+        screen: { clientX: 10, clientY: 10 },
+        getNodeBox,
+        nodeEls,
+        allowSvgDomHit: false,
+      })
+    ).toBeNull();
+  });
 });

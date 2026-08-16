@@ -51,7 +51,7 @@ import type { RootState } from '@/store';
 import { cloneDocument } from '@/store/modules/editorHistory';
 import MentionAttachPanel, {
   type MentionAttachItem,
-} from '@/components/editor/panels/agent/MentionAttachPanel';
+} from '@/components/editor/panels/agent/composer/MentionAttachPanel';
 import type { UserAsset } from '@/models/assets';
 import { getToken } from '@/utils/token';
 import {
@@ -78,8 +78,8 @@ import { pauseDesignRun, fetchDesignRunStatus, type DesignSkillCard, type Design
 import AgentDockHeader, {
   type AgentEngineMode,
   type CodingCliOption,
-} from '@/components/editor/panels/agent/AgentDockHeader';
-import AgentDockFloatingPanels from '@/components/editor/panels/agent/AgentDockFloatingPanels';
+} from '@/components/editor/panels/agent/dock/AgentDockHeader';
+import AgentDockFloatingPanels from '@/components/editor/panels/agent/dock/AgentDockFloatingPanels';
 import {
   applyCanvasAttachPayload,
   canvasAttachToken,
@@ -89,7 +89,7 @@ import {
   playFlyChipToChat,
   resolveAttachFlyLabel,
   resolveNextFlyOrigin,
-} from '@/components/editor/panels/agent/flyToChat';
+} from '@/components/editor/panels/agent/composer/flyToChat';
 import {
   buildCodingCliEnrichedPrompt,
   buildCodingCliWorkspaceFiles,
@@ -130,9 +130,9 @@ import {
   type MemoryPatch,
   type TaskState,
 } from '@/components/editor/panels/agent/agentMemory';
-import AgentMessageList from '@/components/editor/panels/agent/AgentMessageList';
-import AgentDockComposerFooter from '@/components/editor/panels/agent/AgentDockComposerFooter';
-import AgentDockResizeHandle from '@/components/editor/panels/agent/AgentDockResizeHandle';
+import AgentMessageList from '@/components/editor/panels/agent/messages/AgentMessageList';
+import AgentDockComposerFooter from '@/components/editor/panels/agent/dock/AgentDockComposerFooter';
+import AgentDockResizeHandle from '@/components/editor/panels/agent/dock/AgentDockResizeHandle';
 import {
   type AskChoicePick,
   type ChatUiMessage,
@@ -143,14 +143,14 @@ import {
   formatActivityLabel,
   localizeExploreItem,
   normalizeActivityStatus,
-} from '@/components/editor/panels/agent/ChatTurnList';
+} from '@/components/editor/panels/agent/messages/ChatTurnList';
 import type { VirtualListHandle } from '@/components/base/VirtualList';
 import AgentComposerShell, {
   type ComposerInteractionMode,
   type ComposerRunMode,
   type ImageModeComposerControls,
   type VideoModeComposerControls,
-} from '@/components/editor/panels/agent/AgentComposerShell';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import { normalizeCanvasSizeChip } from '@/components/editor/chrome/SizePresetPanel';
 import {
   customProvidersAsModels,
@@ -163,7 +163,7 @@ import {
   loadAgentRoutePrefs,
   loadDesignIntensity,
 } from '@/components/editor/panels/agent/agentRoutePrefs';
-import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/AgentRoutePrefsEditor';
+import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/models/AgentRoutePrefsEditor';
 import { setAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
 import {
@@ -172,12 +172,12 @@ import {
   DEFAULT_IMAGE_QUALITY,
   DEFAULT_IMAGE_RESOLUTION,
   modelImageLimits,
-} from '@/components/editor/panels/agent/ImageAspectRatioPicker';
+} from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   AUTO_MODEL,
   ModelBrandIcon,
   modelDescription,
-} from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { cn } from '@/utils/classnames';
 import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
 import { useWalletSnapshot } from '@/service/wallet';
@@ -1304,6 +1304,51 @@ function AgentDock({
     setMentionQuery('');
   };
 
+  const handleSessionControl = (action: string) => {
+    if (action === 'clear_context') {
+      abortRef.current?.abort();
+      setSending(false);
+      dispatch(setAgentBusy(false));
+      // Keep the intent-LLM reply that just streamed; drop the rest of the thread.
+      window.setTimeout(() => {
+        let tip = '';
+        setMessages((prev) => {
+          tip = String(
+            [...prev].reverse().find((m) => m.role === 'assistant')?.content || ''
+          ).trim();
+          return prev;
+        });
+        resetChatSession();
+        setInput('');
+        setEditDraft('');
+        setEditingUserId(null);
+        setContextChips([]);
+        pinnedContextKeysRef.current.clear();
+        setPendingReview(null);
+        contextDismissedKeyRef.current = null;
+        setHistoryOpen(false);
+        setModelPanelOpen(false);
+        setMentionPanelOpen(false);
+        setMentionQuery('');
+        if (tip) {
+          setMessages([
+            {
+              id: `sess-clear-${Date.now()}`,
+              role: 'assistant',
+              content: tip,
+            },
+          ]);
+        }
+      }, 80);
+      return;
+    }
+    if (action === 'stop') {
+      abortRef.current?.abort();
+      setSending(false);
+      dispatch(setAgentBusy(false));
+    }
+  };
+
   useEffect(
     () => () => {
       if (newChatTipTimer.current) window.clearTimeout(newChatTipTimer.current);
@@ -1909,13 +1954,13 @@ function AgentDock({
         const taskId = tid || m.designTaskId;
         if (taskId) {
           return finishAssistantPatch(m, {
-            content: m.content?.trim() ? m.content : t('agent.pausedHint'),
+            content: (m.content || '').trim(),
             designTaskId: taskId,
             canResume: true,
           });
         }
         return finishAssistantPatch(m, {
-          content: m.content?.trim() ? m.content : t('agent.stopped'),
+          content: (m.content || '').trim(),
           canResume: false,
         });
       })
@@ -1979,6 +2024,7 @@ function AgentDock({
       store,
       finishAssistantPatch,
       mutable: designMutable,
+      onSessionControl: handleSessionControl,
     });
 
     try {
@@ -2018,7 +2064,7 @@ function AgentDock({
           prev.map((m) =>
             m.id === target.id && m.streaming
               ? finishAssistantPatch(m, {
-                  content: m.content?.trim() ? m.content : t('agent.pausedHint'),
+                  content: (m.content || '').trim(),
                   designTaskId: taskId,
                   canResume: true,
                 })
@@ -2083,7 +2129,14 @@ function AgentDock({
     const options = typeof opts === 'string' ? { text: opts } : opts || {};
     const text = (options.text ?? input).trim();
     const hasChips = contextChipsRef.current.length > 0;
-    if ((!text && !options.applyOps?.length && !hasChips) || sending) return;
+    if (!text && !options.applyOps?.length && !hasChips) return;
+    // New turn while busy: abort prior run, then let intent LLM classify
+    // (including session_action clear/stop).
+    if (sending) {
+      abortRef.current?.abort();
+      setSending(false);
+      dispatch(setAgentBusy(false));
+    }
 
     // Typed confirm/revise/dismiss: attach proposal ids; intent LLM judges.
     // Chip Confirm still passes applyOps (fast path).
@@ -2473,7 +2526,7 @@ function AgentDock({
               (m) => m.id === assistantId && Boolean(m.streaming),
               (m) =>
                 finishAssistantPatch(m, {
-                  content: m.content?.trim() ? m.content : t('agent.stopped'),
+                  content: (m.content || '').trim(),
                   images: urls.length ? urls : m.images?.filter(Boolean),
                   imagePendingCount: undefined,
                   imageAspectRatio: aspect,
@@ -2666,6 +2719,7 @@ function AgentDock({
         store,
         finishAssistantPatch,
         mutable: designMutable,
+        onSessionControl: handleSessionControl,
       });
 
       // P0: lean scene + memory; skip canvas screenshot preview.
@@ -2755,13 +2809,13 @@ function AgentDock({
           if (m.id !== assistantId || !m.streaming) return m;
           if (tid || m.designTaskId || pauseRequestedRef.current) {
             return finishAssistantPatch(m, {
-              content: m.content?.trim() ? m.content : t('agent.pausedHint'),
+              content: (m.content || '').trim(),
               designTaskId: tid || m.designTaskId,
               canResume: Boolean(tid || m.designTaskId),
             });
           }
           return finishAssistantPatch(m, {
-            content: m.content?.trim() ? m.content : t('agent.stopped'),
+            content: (m.content || '').trim(),
           });
         })
       );

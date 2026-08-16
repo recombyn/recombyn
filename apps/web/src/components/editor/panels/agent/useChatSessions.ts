@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChatSessionMessageDto } from '@/models/chatSessions';
 import { apiClient, apiQuery } from '@/service/client';
 import type { TaskState } from '@/components/editor/panels/agent/agentMemory';
-import type { ChatUiMessage } from '@/components/editor/panels/agent/ChatTurnList';
+import type { ChatUiMessage } from '@/components/editor/panels/agent/messages/ChatTurnList';
 import { getToken } from '@/utils/token';
 
 export type ChatSessionMessage = {

@@ -49,6 +49,7 @@ export function hasNodeTransformPreviews(): boolean {
 /** Merge geometry patches into the live preview map (pointermove / rAF). */
 export function setNodeTransformPreviews(patches: readonly NodeTransformPreviewPatch[]): void {
   if (!patches.length) return;
+  let changed = false;
   for (const p of patches) {
     const id = String(p.nodeId || '');
     if (!id) continue;
@@ -60,9 +61,23 @@ export function setNodeTransformPreviews(patches: readonly NodeTransformPreviewP
       height: Math.max(1, Number(p.height) || 1),
       angle: p.angle !== undefined ? Number(p.angle) : prev?.angle,
     };
+    if (
+      prev &&
+      prev.left === next.left &&
+      prev.top === next.top &&
+      prev.width === next.width &&
+      prev.height === next.height &&
+      prev.angle === next.angle
+    ) {
+      continue;
+    }
     byId.set(id, next);
+    changed = true;
   }
-  notify();
+  // Pointer events may be more frequent than the visual scene coordinate
+  // changes (especially with snapped moves). Do not repaint the shared canvas
+  // or wake unrelated SVG hosts for an identical preview frame.
+  if (changed) notify();
 }
 
 /** Angle-only preview (keeps last box, or no-op box until geometry arrives). */

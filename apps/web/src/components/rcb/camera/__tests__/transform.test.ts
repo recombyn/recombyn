@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cameraPan,
+  cameraSvgTransform,
   cameraZoom,
   createCameraTransform,
   screenDeltaToWorldDelta,
@@ -21,6 +22,11 @@ describe('CameraTransform', () => {
     const p = worldToScreen(t, 50, 80);
     expect(p.x).toBeCloseTo(50 * cameraZoom(t) + pan.x, 5);
     expect(p.y).toBeCloseTo(80 * cameraZoom(t) + pan.y, 5);
+  });
+
+  it('builds the shared SVG camera matrix from the canonical pan and zoom', () => {
+    const t = createCameraTransform({ x: 100.4, y: -40.7, zoom: 0.18 }, 1);
+    expect(cameraSvgTransform(t)).toBe('translate(100 -41) scale(0.18)');
   });
 
   it('stageLocalToWorld is the inverse of worldToScreen', () => {

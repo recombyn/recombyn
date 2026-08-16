@@ -9,14 +9,11 @@ import {
   useFloating,
   useInteractions,
 } from '@floating-ui/react';
+import { HiOutlineChevronDown } from 'react-icons/hi2';
 import { useTranslation } from 'react-i18next';
 import Tooltip from '@/components/base/tooltip';
 import { DropdownPanel, DropdownPanelItem } from '@/components/base';
 import { cn } from '@/utils/classnames';
-import {
-  SEL_ICON_BTN,
-  SEL_ICON_BTN_ACTIVE,
-} from '@/components/rcb/selection/chrome/ToolbarValueSlider';
 import {
   STROKE_STYLES,
   parseStrokeStyle,
@@ -98,12 +95,16 @@ function StrokeStylePicker({
           ref={refs.setReference}
           aria-label={strokeStyleLabel(current, t)}
           aria-expanded={open}
-          className={cn(SEL_ICON_BTN, open && SEL_ICON_BTN_ACTIVE)}
+          className={cn(
+            'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[4px] px-2 text-[12px] text-[var(--ink)] transition-colors hover:text-[var(--ink)]'
+          )}
           {...getReferenceProps({
             onClick: () => setOpen((v) => !v),
           })}
         >
+          <span className="whitespace-nowrap">{strokeStyleLabel(current, t)}</span>
           <StrokeStyleIcon style={current} active />
+          <HiOutlineChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
         </button>
       </Tooltip>
 

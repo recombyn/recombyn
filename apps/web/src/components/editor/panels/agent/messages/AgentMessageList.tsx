@@ -10,7 +10,7 @@ import ChatTurnList, {
   type AskChoicePick,
   type ChatTurn,
   type ChatUiMessage,
-} from '@/components/editor/panels/agent/ChatTurnList';
+} from '@/components/editor/panels/agent/messages/ChatTurnList';
 import { cn } from '@/utils/classnames';
 
 export type AgentChatSessionRow = {

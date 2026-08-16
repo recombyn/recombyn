@@ -21,6 +21,7 @@ from app.services.design.runtime.models_route import (
     normalize_intent_decision,
     normalize_paint_lane,
     normalize_proposal_action,
+    normalize_session_action,
     normalize_user_intent,
     paint_ops_intent,
 )
@@ -109,8 +110,14 @@ async def _node_intent_classify(state: GraphState) -> Command:
     action = normalize_proposal_action(
         decision.proposal_action, has_pending=bool(pending)
     )
+    session_action = normalize_session_action(
+        getattr(decision, "session_action", None)
+    )
     reply = (decision.reply or "").strip()
-    if intent == "chat" and not reply and action != "apply":
+    if session_action:
+        intent = "chat"
+        paint_lane = ""
+    elif intent == "chat" and not reply and action != "apply":
         reply = _chat_fallback_text(rt)
     rt.classified_intent = intent
     rt.classified_paint_lane = paint_lane
@@ -121,16 +128,24 @@ async def _node_intent_classify(state: GraphState) -> Command:
     rt.flags["intent"] = intent
     rt.flags["gate_intent"] = intent
     rt.flags["paint_lane"] = paint_lane
+    if session_action:
+        rt.flags["session_action"] = session_action
     st.push_log(
         phase="intent_classify",
         intent=intent,
         paint_lane=paint_lane or None,
         proposal_action=action or None,
-        reply=(reply[:500] if intent == "chat" or action == "dismiss" else None),
+        session_action=session_action or None,
+        reply=(
+            reply[:500]
+            if intent == "chat" or action == "dismiss" or session_action
+            else None
+        ),
         summary=(
             f"intent={intent}"
             + (f"/{paint_lane}" if paint_lane else "")
             + (f" · proposal={action}" if action else "")
+            + (f" · session={session_action}" if session_action else "")
             + (f" · {(decision.rationale or '')[:80]}" if decision.rationale else "")
         ),
         duration_ms=intent_ms,
@@ -140,9 +155,10 @@ async def _node_intent_classify(state: GraphState) -> Command:
                     "intent": intent,
                     "paint_lane": paint_lane,
                     "proposal_action": action,
+                    "session_action": session_action,
                     "rationale": (decision.rationale or "")[:400],
                     "reply": reply[:400]
-                    if intent == "chat" or action == "dismiss"
+                    if intent == "chat" or action == "dismiss" or session_action
                     else "",
                 },
                 ensure_ascii=False,
@@ -181,6 +197,13 @@ async def _node_intent_classify(state: GraphState) -> Command:
     # revise / no action — continue normal gate; drop pending so this run won't re-apply.
     if pending:
         _drop_pending(rt)
+
+    if session_action:
+        if reply:
+            st.reply = reply
+            _emit({"type": "token", "text": reply})
+        _emit({"type": "session_control", "action": session_action})
+        return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     if intent == "chat":
         if reply:

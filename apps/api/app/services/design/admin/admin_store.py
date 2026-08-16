@@ -14,6 +14,7 @@ import time
 import uuid
 from typing import Any
 
+from app.repositories import design_tasks
 from app.services.design.readpath.catalog import ensure_design_catalog, get_skill
 
 _log = logging.getLogger("design.admin_store")
@@ -3215,7 +3216,7 @@ def get_decision_log(task_id: str) -> dict[str, Any] | None:
     if not tid:
         return None
     with Session(engine) as session:
-        r = crud.get_design_task(session=session, task_id=tid)
+        r = design_tasks.get_design_task(session=session, task_id=tid)
     if r is None:
         return None
     meta_raw = r.meta_json

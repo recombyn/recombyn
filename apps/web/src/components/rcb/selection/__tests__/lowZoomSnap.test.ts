@@ -39,7 +39,7 @@ describe('smartSnapThreshold @ all canvas zooms (guide proximity, no magnets)', 
   });
 
   it.each([0.13, 0.25, 0.31, 0.5, 1])(
-    'inspect helper may show gap badge when not edge-aligned at zoom %s',
+    'move and inspect show gap badges when elements are separated at zoom %s',
     (zoom) => {
       const left = { left: 0, top: 0, width: 100, height: 80 };
       const right = { left: 140, top: 10, width: 100, height: 80 };
@@ -49,7 +49,7 @@ describe('smartSnapThreshold @ all canvas zooms (guide proximity, no magnets)', 
       expect(gaps.some((g) => g.kind === 'gap' && g.dist === 40)).toBe(true);
       expect(guides.some((g) => g.kind === 'align')).toBe(false);
       const moveIndicators = collectMoveSnapIndicators(right, [left], GUIDE_COINCIDE_EPS);
-      expect(moveIndicators.some((g) => g.kind === 'gap')).toBe(false);
+      expect(moveIndicators.some((g) => g.kind === 'gap' && g.dist === 40)).toBe(true);
       void zoom;
     }
   );

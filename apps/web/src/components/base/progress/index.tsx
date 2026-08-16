@@ -2,6 +2,45 @@ import { memo, type CSSProperties, ReactNode } from 'react';
 import { cn } from '@/utils/classnames';
 import './style.css';
 
+declare global {
+  interface Window {
+    __recombynBootPct?: number;
+  }
+}
+
+/** Module + window high-water mark so HTML → Suspense → Editor never jumps backward. */
+let bootHighWater = 0;
+
+function clampBootPct(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/** Current boot percent (never below the highest value already shown). */
+export function readBootProgress(): number {
+  const fromWin =
+    typeof window !== 'undefined' ? clampBootPct(Number(window.__recombynBootPct) || 0) : 0;
+  return Math.max(bootHighWater, fromWin);
+}
+
+/** Raise boot percent only (ignores lower values). Returns the new high-water mark. */
+export function advanceBootProgress(next: number): number {
+  const n = clampBootPct(next);
+  bootHighWater = Math.max(bootHighWater, n);
+  if (typeof window !== 'undefined') {
+    window.__recombynBootPct = Math.max(Number(window.__recombynBootPct) || 0, bootHighWater);
+  }
+  return bootHighWater;
+}
+
+/** Call when the boot overlay fully dismisses so the next visit can start fresh. */
+export function resetBootProgress() {
+  bootHighWater = 0;
+  if (typeof window !== 'undefined') {
+    window.__recombynBootPct = 0;
+  }
+}
+
 export type ProgressBarProps = {
   /** 0–100 */
   percent: number;

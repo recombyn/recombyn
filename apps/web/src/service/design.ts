@@ -76,6 +76,7 @@ export type DesignJobEvent =
   | { type: 'thinking'; text: string; replace?: boolean }
   | { type: 'token'; text?: string; code?: string; params?: Record<string, string> }
   | { type: 'chat_done' }
+  | { type: 'session_control'; action: 'clear_context' | 'stop' | string }
   | {
       type: 'skill_start';
       index: number;
@@ -167,6 +168,8 @@ export type DesignJobEvent =
       index?: number;
       skill_name?: string;
       svg_patch?: DesignSvgPatch;
+      /** Durable Worker outbox sequence; ACK only after SVG is applied. */
+      command_seq?: number;
     }
   | {
       type: 'decision';
@@ -233,6 +236,8 @@ export type DesignJobEvent =
       transaction_phase?: string;
       chunk_index?: number;
       chunk_total?: number;
+      /** Durable Worker outbox sequence; ACK only after successful canvas apply. */
+      command_seq?: number;
     }
   | {
       type: 'transaction.begin';
@@ -577,6 +582,53 @@ export const fetchDesignRunStatus = (taskId: string, signal?: AbortSignal) =>
     { params: { task_id: taskId } },
     { signal: abortAfter(15_000, signal) }
   ) as Promise<DesignRunStatus>;
+
+export type DesignRunReplayEvent = {
+  seq: number;
+  at: number;
+  event: DesignJobEvent;
+};
+
+export type DesignRunEvents = {
+  items: DesignRunReplayEvent[];
+  next_seq: number;
+};
+
+export type DesignCanvasCommand = {
+  seq: number;
+  at: number;
+  event: Extract<DesignJobEvent, { type: 'tool_ops' | 'svg_delta' }>;
+};
+
+export type DesignCanvasCommands = { items: DesignCanvasCommand[]; next_seq: number; acked_seq: number };
+
+/** Read the safe task timeline after an SSE reconnect. Canvas mutations are never replayed here. */
+export const fetchDesignRunEvents = (
+  taskId: string,
+  afterSeq = 0,
+  signal?: AbortSignal
+) =>
+  request<DesignRunEvents>({
+    url: `/api/v1/design/run/${encodeURIComponent(taskId)}/events?after_seq=${Math.max(0, afterSeq)}&limit=96`,
+    signal: abortAfter(15_000, signal),
+    skipInflightDedupe: true,
+  });
+
+/** Read commands for an active worker subscription. Do not replay after a page reload. */
+export const fetchDesignCanvasCommands = (taskId: string, afterSeq = 0, signal?: AbortSignal) =>
+  request<DesignCanvasCommands>({
+    url: `/api/v1/design/run/${encodeURIComponent(taskId)}/commands?after_seq=${Math.max(0, afterSeq)}`,
+    signal: abortAfter(15_000, signal),
+    skipInflightDedupe: true,
+  });
+
+export const acknowledgeDesignCanvasCommands = (taskId: string, seq: number, signal?: AbortSignal) =>
+  request<{ ok: boolean; seq: number }>({
+    url: `/api/v1/design/run/${encodeURIComponent(taskId)}/commands/ack`,
+    method: 'POST',
+    data: { seq: Math.max(0, seq) },
+    signal: abortAfter(15_000, signal),
+  });
 
 /** POST /design/run/{taskId}/pause — keep LangGraph checkpoint. */
 export const pauseDesignRun = (taskId: string, signal?: AbortSignal) =>

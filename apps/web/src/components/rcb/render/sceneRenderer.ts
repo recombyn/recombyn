@@ -29,7 +29,7 @@ import {
   sidesFromAttrs,
   starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
-import { resolveFillColor, resolveStroke, resolveShadow, hexWithOpacity, boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
+import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hexWithOpacity, boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
 import {
   resolveFill,
   resolveLinearCoords,
@@ -100,7 +100,13 @@ export type SceneRendererHitDeps = {
   getZoom: () => number;
   listNodeIds: () => readonly string[];
   getNodeBox: (nodeId: string) => SceneHitBox | null;
+  /**
+   * Optional SVG hosts for DOM hit. Ignored unless {@link allowSvgDomHit}.
+   * Prefer Path2D / AABB (ADR 0027).
+   */
   getNodeEls?: () => Map<string, Element> | null | undefined;
+  /** Default false — do not use live SVG DOM for precise hit. */
+  allowSvgDomHit?: boolean;
 };
 
 /** Spatial coarse → precise geometry (shared by svg + canvas backends). */
@@ -110,26 +116,50 @@ export function hitTestWithSpatialIndex(
   screen?: { clientX: number; clientY: number }
 ): SceneNodeId | null {
   const doc = deps.getDocument();
-  if (!doc) return null;
   const zoom = Math.max(0.05, deps.getZoom() || 1);
   const pad = sceneHitSlop(zoom);
-  const allIds = deps.listNodeIds();
-  const order = deps.getSpatial().hitCandidateIds({
-    x: point.x,
-    y: point.y,
-    pad: pad + 64 / zoom,
-    allIds,
-  });
-  return hitTestSceneAtPoint({
-    document: doc,
-    order,
-    x: point.x,
-    y: point.y,
-    zoom,
-    screen,
-    getNodeBox: deps.getNodeBox,
-    nodeEls: deps.getNodeEls?.() ?? null,
-  });
+  const allIds = doc ? deps.listNodeIds() : [];
+  const order = doc
+    ? deps.getSpatial().hitCandidateIds({
+        x: point.x,
+        y: point.y,
+        pad: pad + 64 / zoom,
+        allIds,
+      })
+    : [];
+  const allowSvgDomHit = deps.allowSvgDomHit === true;
+  const hit =
+    doc
+      ? hitTestSceneAtPoint({
+          document: doc,
+          order,
+          x: point.x,
+          y: point.y,
+          zoom,
+          screen,
+          getNodeBox: deps.getNodeBox,
+          nodeEls: allowSvgDomHit ? (deps.getNodeEls?.() ?? null) : null,
+          allowSvgDomHit,
+        })
+      : null;
+  if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    const boxes = order.slice(0, 12).map((id) => {
+      const box = deps.getNodeBox(id);
+      return { id, box };
+    });
+    (window as unknown as { __rcbHitTrace?: unknown }).__rcbHitTrace = {
+      point,
+      zoom,
+      doc: Boolean(doc),
+      disposed: false,
+      allIdsLen: allIds.length,
+      orderLen: order.length,
+      orderHead: order.slice(0, 8),
+      boxes,
+      hit,
+    };
+  }
+  return hit;
 }
 
 export function isFullDirty(dirty: DirtyRegion): boolean {
@@ -151,7 +181,11 @@ export function createSvgSceneRenderer(deps: SceneRendererHitDeps): SceneRendere
       // Full hosts stay in RcbShapesLayer until more ink migrates to Canvas.
     },
     hitTest(point, screen) {
-      if (disposed) return null;
+      // Never no-op hit after dispose — bridge may briefly retain this instance
+      // across React effect reorder; precise hit is pure and safe.
+      if (disposed && typeof window !== 'undefined') {
+        (window as unknown as { __rcbHitDisposed?: boolean }).__rcbHitDisposed = true;
+      }
       return hitTestWithSpatialIndex(deps, point, screen);
     },
     dispose() {
@@ -235,7 +269,7 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       ctx.translate(pan.x, pan.y);
       ctx.scale(z, z);
 
-      const view = rcbViewportSceneBounds(req.camera, { width: sw, height: sh });
+      const view = rcbViewportSceneBounds(req.camera, { width: sw, height: sh }, dpr);
       const gridSize = resolveGridSize();
 
       if (paintGrid && shouldShowGrid(z)) {
@@ -303,7 +337,11 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       ctx.restore();
     },
     hitTest(point, screen) {
-      if (disposed) return null;
+      // Same as svg adapter: do not no-op hit after dispose while a bridge may
+      // still point here across React effect reorder.
+      if (disposed && typeof window !== 'undefined') {
+        (window as unknown as { __rcbHitDisposed?: boolean }).__rcbHitDisposed = true;
+      }
       return hitTestWithSpatialIndex(deps, point, screen);
     },
     dispose() {
@@ -479,10 +517,14 @@ function isTransparentCssColor(c: string): boolean {
 }
 
 /**
- * Idle nodes that can leave SVG hosts for Canvas underlay paint.
- * Keep the proxy boundary tight: solid fill only, no stroke / shadow, simple
- * rect·ellipse (no donut/arc). Gradients, image/diffuse fills, paths, text,
- * polygons, and media stay on SVG hosts so stroke/complex ink match 1:1.
+ * Idle nodes that can leave SVG hosts for Canvas underlay paint (ADR 0027 S3).
+ *
+ * Allowed: solid fill (or none), center-aligned stroke, no shadow —
+ * rect / roundRect / ellipse / circle (no donut·arc), line / arrow,
+ * and light pen / pencil / path `d` (under {@link HEAVY_PATH_D_CHARS}).
+ *
+ * Gradients / image / diffuse fills, non-center strokeAlign, heavy paths,
+ * text, polygons/stars, and media stay on SVG hosts (or forceFull).
  */
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
@@ -493,8 +535,7 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
     key === 'lottie' ||
     key === 'audio' ||
     key === 'group' ||
-    key === 'text' ||
-    key === 'path'
+    key === 'text'
   ) {
     return false;
   }
@@ -506,9 +547,16 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
   if (boolEffectAttr(attrs['shadow-enabled'], false) && boolEffectAttr(attrs['shadow-visible'], true)) {
     return false;
   }
+  if (
+    boolEffectAttr(attrs['inner-shadow-enabled'], false) ||
+    boolEffectAttr(attrs['backdrop-blur-enabled'], false) ||
+    boolEffectAttr(attrs['blur-enabled'], false)
+  ) {
+    return false;
+  }
 
-  const { strokeWidth } = resolveStroke(node);
-  if (strokeWidth > 0) return false;
+  // Canvas stroke is centered; outside/inside stay on SVG until strokeAlign paint lands.
+  if (resolveStrokeAlign(attrs) !== 'center') return false;
 
   const t = String(attrs.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
   if (t === 'rect' || t === 'roundrect' || t === '') return true;
@@ -516,6 +564,14 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
     if (ellipseInnerRatioFromAttrs(attrs) > 1e-6) return false;
     const arc = ellipseArcPercentFromAttrs(attrs);
     if (arc > 0 && arc < 100 - 1e-6) return false;
+    return true;
+  }
+  if (t === 'line' || t === 'arrow') return true;
+
+  if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path') {
+    const d = String(attrs.path || attrs.d || '').trim();
+    if (!d) return false;
+    if (d.length >= HEAVY_PATH_D_CHARS) return false;
     return true;
   }
 

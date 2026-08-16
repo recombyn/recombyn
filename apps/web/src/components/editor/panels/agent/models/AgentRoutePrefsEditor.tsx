@@ -25,7 +25,7 @@ import { getToken } from '@/utils/token';
 import {
   customProvidersAsModels,
   hydrateCustomLlmProviders,
-} from './customLlmProviders';
+} from '../customLlmProviders';
 import {
   AGENT_ROUTE_POPOVER_PANEL,
   AGENT_ROUTE_SUBMENU_PANEL,
@@ -47,7 +47,7 @@ import {
   saveDesignIntensity,
   seedCustomLaneFromPrefs,
   warmOpenrouterAvailability,
-} from './agentRoutePrefs';
+} from '../agentRoutePrefs';
 
 const selectFieldClass =
   'mt-1.5 w-full !h-10 rounded-lg border-0 bg-[var(--account-main)] px-3 pr-8 text-[14px] text-[var(--ink)] ring-1 ring-[var(--line)]';

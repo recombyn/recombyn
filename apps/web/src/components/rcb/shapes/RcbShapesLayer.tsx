@@ -115,8 +115,10 @@ function trimProxyIds(opts: {
 
 /**
  * Split visible ids into full SVG hosts vs Canvas underlay proxies.
- * Idle solid stroke-free rect/ellipse paint on Canvas even under host budget.
- * forceFullSet (editors + selection) always keeps SVG. keepSet is cull-only.
+ * Under host budget (and not force-LOD): **all** visible ids stay full SVG hosts
+ * so hit / selection / chrome keep a mounted lattice. Canvas proxies only when
+ * over budget or far-zoom LOD — `canIdlePaintOnCanvas` prefers those for the
+ * underlay, not as a host replacement at normal zoom.
  */
 export function pickFullAndProxyIds(opts: {
   document: SceneDocument;
@@ -137,25 +139,11 @@ export function pickFullAndProxyIds(opts: {
     far || (moving && visibleIds.length >= EFFICIENT_ZOOM_SHAPE_THRESHOLD);
 
   if (visibleIds.length <= budget && !forceLod) {
-    const fullIds: string[] = [];
-    const proxyRaw: string[] = [];
-    for (const id of visibleIds) {
-      const node = document?.deltaSetLike?.[id];
-      if (forceFullSet.has(id) || !canIdlePaintOnCanvas(node)) {
-        fullIds.push(id);
-      } else {
-        proxyRaw.push(id);
-      }
-    }
-    return {
-      fullIds,
-      proxyIds: trimProxyIds({
-        document,
-        proxyIds: proxyRaw,
-        zoom,
-        maxProxies,
-      }),
-    };
+    // Under host budget: keep SVG hosts for every visible node.
+    // Canvas-idle must NOT drop hosts — selection / hit / chrome still need a
+    // mounted lattice (ADR 0027 phase 1). Idle Canvas paint is an overflow /
+    // far-zoom path below, not a replacement for interactive hosts.
+    return { fullIds: [...visibleIds], proxyIds: [] };
   }
 
   const scored: Array<{ id: string; score: number; force: boolean; canvasIdle: boolean }> = [];

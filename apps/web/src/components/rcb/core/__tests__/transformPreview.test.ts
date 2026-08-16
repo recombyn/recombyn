@@ -70,4 +70,17 @@ describe('transformPreview store', () => {
     unsub();
     expect(n).toBe(2);
   });
+
+  it('does not notify for an identical preview frame', () => {
+    clearNodeTransformPreviews();
+    let n = 0;
+    const unsub = subscribeTransformPreview(() => {
+      n += 1;
+    });
+    const patch = { nodeId: 'z', left: 4, top: 5, width: 6, height: 7, angle: 8 };
+    setNodeTransformPreviews([patch]);
+    setNodeTransformPreviews([patch]);
+    unsub();
+    expect(n).toBe(1);
+  });
 });

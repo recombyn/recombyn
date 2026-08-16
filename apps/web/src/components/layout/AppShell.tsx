@@ -11,7 +11,7 @@ function AppShell() {
   const desktop = useIsDesktopShell();
 
   useEffect(() => {
-    // Home is eager (no BrandWordmarkLoader) — clear the HTML splash once shell paints.
+    // Drop residual HTML splash (home has none; editor hands off to boot overlay).
     dismissHtmlBootSplash();
   }, []);
 

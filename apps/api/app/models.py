@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import BigInteger, Column, LargeBinary, Text
+from sqlalchemy import BigInteger, Column, LargeBinary, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -381,6 +381,27 @@ class DesignTask(SQLModel, table=True):
     meta_json: Optional[str] = Field(default=None)
     created_at: float = Field(default=0.0)
     updated_at: float = Field(default=0.0)
+
+
+class DesignTaskEvent(SQLModel, table=True):
+    """Replayable UI timeline event; deliberately independent from task metadata."""
+    __tablename__ = "design_task_event"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: str = Field(index=True, max_length=64)
+    event_json: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: float = Field(default=0.0)
+
+
+class DesignTaskCanvasCommand(SQLModel, table=True):
+    """Durable canvas command outbox. Acknowledgement is task-global for now."""
+    __tablename__ = "design_task_canvas_command"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: str = Field(index=True, max_length=64)
+    command_json: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: float = Field(default=0.0)
+    acknowledged_at: Optional[float] = Field(default=None)
 
 
 class DesignLayerLock(SQLModel, table=True):

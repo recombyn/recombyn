@@ -257,27 +257,21 @@ def test_heuristic_user_intent_gate():
         paint_ops_intent,
     )
 
-    # Fallback is structural only — normal path uses intent LLM + tools catalog.
-    assert heuristic_user_intent("hi", has_images=False).intent == "chat"
-
-    from app.services.design.runtime.models_route import is_chitchat_prompt
-
-    assert is_chitchat_prompt("你好")
-    assert is_chitchat_prompt("User request:\n你好呀😊")
-    assert is_chitchat_prompt("hello")
-    assert not is_chitchat_prompt("你好，帮我做一张海报")
-    assert not is_chitchat_prompt("添加一个矩形到画布，红色的")
-
+    # Fallback is structural only — greetings are NOT keyword-routed to chat;
+    # normal path uses intent LLM. LLM-down fail-opens non-empty text → design.
+    assert heuristic_user_intent("hi", has_images=False).intent == "design"
+    assert heuristic_user_intent("你好", has_images=False).intent == "design"
     assert (
-        heuristic_user_intent("User request:\nhi", has_images=False).intent == "chat"
+        heuristic_user_intent("User request:\nhi", has_images=False).intent == "design"
     )
+    assert heuristic_user_intent("", has_images=False).intent == "chat"
+    assert heuristic_user_intent("User request:\n", has_images=False).intent == "chat"
     img = heuristic_user_intent(
         "[Attached image 1]\nname: canvas.png\n\nUser request:\nhi",
         has_images=True,
     )
     assert img.intent == "design"
     assert img.paint_lane == "create"
-    # LLM-down fail-open: non-greeting text → design (never length→canvas_op).
     op = heuristic_user_intent("short canvas task text", has_images=False)
     assert op.intent == "design"
     assert op.paint_lane == "create"
@@ -298,6 +292,16 @@ def test_heuristic_user_intent_gate():
         "create",
     )
     assert paint_ops_intent("canvas_op", "edit") == "edit"
+
+    from app.services.design.runtime.models_route import normalize_session_action
+
+    assert normalize_session_action("clear_context") == "clear_context"
+    assert normalize_session_action("new_chat") == "clear_context"
+    assert normalize_session_action("stop") == "stop"
+    assert normalize_session_action("canvas") == ""
+    bare = heuristic_user_intent("清空上下文", has_images=False)
+    assert bare.session_action == ""
+    assert bare.intent == "design"
 
 
 def test_agent_model_id_prefers_api_model():

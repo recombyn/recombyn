@@ -246,7 +246,8 @@ export function dumpGridVsHosts(getState: () => {
   boxes?: Array<{ id: string; left: number; top: number; width: number; height: number }>;
 }): Record<string, unknown> {
   const { dpr, camera, boxes = [] } = getState();
-  const world = document.querySelector('[data-rcb-world="1"]') as HTMLElement | null;
+  const sceneRoot = document.querySelector('[data-rcb-scene-root="1"]') as SVGSVGElement | null;
+  const cameraRoot = sceneRoot?.querySelector('[data-rcb-scene-camera="1"]') as SVGGElement | null;
   const grid =
     (document.querySelector('[data-rcb-scene-canvas][data-rcb-pixel-grid="1"]') as
       | HTMLCanvasElement
@@ -260,7 +261,7 @@ export function dumpGridVsHosts(getState: () => {
   const gridStyleTop =
     grid instanceof HTMLCanvasElement ? null : parsePx((grid as SVGSVGElement | null)?.style?.top);
   const gridRect = grid?.getBoundingClientRect?.() ?? null;
-  const worldTf = world?.style?.transform || '';
+  const worldTf = cameraRoot?.getAttribute('transform') || '';
 
   const hosts = Array.from(
     document.querySelectorAll('[data-rcb-infinite="1"]:not([data-rcb-pixel-grid]):not([data-rcb-scene-canvas])')
@@ -315,8 +316,7 @@ export function dumpGridVsHosts(getState: () => {
     };
   });
 
-  // Same parent? Grid must be under [data-rcb-world], sibling of shape hosts.
-  const gridParentIsWorld = Boolean(grid && world && grid.parentElement === world);
+  const gridSharesStage = Boolean(grid && sceneRoot && grid.parentElement === sceneRoot.parentElement);
 
   const payload: Record<string, unknown> = {
     dpr,
@@ -324,7 +324,7 @@ export function dumpGridVsHosts(getState: () => {
     camera: { ...camera },
     grid: {
       present: Boolean(grid),
-      parentIsWorld: gridParentIsWorld,
+      sharesStageWithScene: gridSharesStage,
       gridSize: g,
       attrOrigin: { left: gridLeft, top: gridTop },
       styleOrigin: { left: gridStyleLeft, top: gridStyleTop },

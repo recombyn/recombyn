@@ -872,7 +872,16 @@ function CornerRadiusHandlesOverlay({
   if (radiusInteractive && handles.length > 0) {
     setOverlayHandleSeats(
       seatOwnerId,
-      handles.map((h) => ({ pickKey: `radius-${h.key}`, start: h.start }))
+      handles.map((h) => {
+        const scene = localPointToScene(h.lx, h.ly, seatBox, angle);
+        return {
+          pickKey: `radius-${h.key}`,
+          start: h.start,
+          sceneX: scene.x,
+          sceneY: scene.y,
+          half: resizeHitR,
+        };
+      })
     );
   } else {
     setOverlayHandleSeats(seatOwnerId, null);

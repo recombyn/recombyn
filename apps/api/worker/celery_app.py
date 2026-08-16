@@ -19,6 +19,18 @@ celery.conf.update(
     enable_utc=True,
     worker_prefetch_multiplier=1,
     beat_schedule={
+        "design-agent-requeue": {
+            "task": "worker.tasks.requeue_stale_design_agent_jobs",
+            "schedule": 60.0,
+        },
+        "design-agent-lease-recovery": {
+            "task": "worker.tasks.recover_expired_design_agent_leases",
+            "schedule": 60.0,
+        },
+        "design-agent-outbox-prune": {
+            "task": "worker.tasks.prune_design_agent_outboxes",
+            "schedule": 60 * 60 * 24,
+        },
         "db-backup-daily": {
             "task": "worker.tasks.run_db_backup_job",
             "schedule": 60 * 60 * 24,  # seconds; override via Celery beat if needed

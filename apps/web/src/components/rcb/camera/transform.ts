@@ -40,6 +40,12 @@ export function cameraPan(t: CameraTransform): RcbVec {
   return rcbCameraScreenOffset(t.camera, t.dpr);
 }
 
+/** SVG transform attribute for a scene root painted directly in screen space. */
+export function cameraSvgTransform(t: CameraTransform): string {
+  const pan = cameraPan(t);
+  return `translate(${pan.x} ${pan.y}) scale(${cameraZoom(t)})`;
+}
+
 /** World (scene) → stage-local screen px. */
 export function worldToScreen(
   t: CameraTransform,
