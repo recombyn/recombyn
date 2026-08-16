@@ -39,7 +39,7 @@ Open source takes time. If Recombyn helps you, please hit **⭐ Star** in the to
 
 ## Canvas
 
-Custom **RCB** infinite canvas: the scene graph is `SceneDocument`, zoom roughly 5%–10000%. Committed nodes paint as per-node **SVG**; **Path2D** handles hit-testing and selection. Far-out geometry uses **LOD**, so large docs stay editable.
+Custom **RCB** infinite canvas: the scene graph is `SceneDocument`, with a 5%–10000% zoom range. Committed nodes normally paint as per-node **SVG**; the grid and eligible lightweight far-out nodes use Canvas2D LOD proxies. Hit testing combines the spatial index, AABB checks, and **Path2D** geometry to keep large documents responsive.
 
 Details: [docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md).
 

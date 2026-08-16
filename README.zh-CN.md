@@ -38,7 +38,7 @@
 
 ## 画布
 
-自研 **RCB** 无限画布：场景图是 `SceneDocument`，缩放大约 5%–10000%。已提交的图元按节点用 **SVG** 画出来，**Path2D** 负责点选和选区；远处用 **LOD** 简化，大文档也能流畅编辑。
+自研 **RCB** 无限画布：场景图是 `SceneDocument`，缩放范围为 5%–10000%。已提交图元默认按节点使用 **SVG** 绘制；网格和符合条件的远距离轻量图元使用 Canvas2D LOD 代理。命中采用空间索引、AABB 与 **Path2D** 几何协同处理，降低大文档的渲染与交互成本。
 
 工程细节：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
 
