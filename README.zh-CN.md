@@ -22,7 +22,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** 是 **AI Native 的无限矢量画布**。它从网页画布到桌面客户端、Design Agent、后端服务、多人协作、私有化部署和自动化测试，全链路闭环的商用级完整产品。
+**Recombyn** 是一个开源的 AI 设计工作台，提供可编辑的无限矢量画布与 Design Agent。你可以用自然语言创建和修改图形、文字、布局与样式，也可以在画布中继续精细编辑，并通过 Docker Compose 自托管。
 
 内置 Design Agent（LangGraph）：自然语言就能建图层、画图形、改样式、排版布局。自带多套 Skill，也可自定义 Skill / AgentProfile（YAML）/ 提示词包，扩展海报、仪表盘、落地页等品类；做完后仍可在矢量画布上精细改。
 
