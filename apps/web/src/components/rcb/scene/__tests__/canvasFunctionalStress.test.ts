@@ -268,7 +268,7 @@ describe('canvas functional stress (可用性)', () => {
     expect(movedFill.nextUnion.width).toBe(box.width);
     expect(movedFill.nextUnion.height).toBe(box.height);
 
-    // Center stroke: origins are chrome (visual outer); path may sit on half-grid.
+    // Center stroke: chrome = path (may sit on half-grid); grid snap targets outer ink.
     const strokePath = {
       left: box.left + 0.5,
       top: box.top + 0.5,
@@ -276,8 +276,11 @@ describe('canvas functional stress (可用性)', () => {
       height: Math.max(1, box.height - 1),
     };
     const strokeChrome = inflateSelectionBox(strokePath, stroked);
-    assertOnLattice(strokeChrome.left);
-    assertOnLattice(strokeChrome.top);
+    expect(strokeChrome.left).toBe(strokePath.left);
+    expect(strokeChrome.top).toBe(strokePath.top);
+    const strokeVisual0 = inflateBoxByVisualOutset(strokePath, stroked);
+    assertOnLattice(strokeVisual0.left);
+    assertOnLattice(strokeVisual0.top);
     const movedStroke = computeMovedUnion({
       union: strokeChrome,
       origins: [{ nodeId: 's', box: strokeChrome }],
@@ -289,8 +292,6 @@ describe('canvas functional stress (可用性)', () => {
       targets: [],
       threshold: smartSnapThreshold(zoom),
     });
-    assertOnLattice(movedStroke.nextUnion.left);
-    assertOnLattice(movedStroke.nextUnion.top);
     const pathAfter = deflateSelectionBox(movedStroke.nextUnion, stroked);
     const visual = inflateBoxByVisualOutset(pathAfter, stroked);
     assertOnLattice(visual.left);

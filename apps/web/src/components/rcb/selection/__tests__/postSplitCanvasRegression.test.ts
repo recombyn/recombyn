@@ -24,6 +24,7 @@ import {
   visualGuideBoxForNode,
 } from '../selectionLogic';
 import { segmentIntersectsAabb } from '@/components/rcb/scene/document/sceneShapes';
+import { inflateBoxByVisualOutset } from '@/components/rcb/scene/document/sceneEffects';
 import { computeShapeBoolean, type ShapeBox } from '../shapeBoolean';
 import { smartSnapThreshold } from '../alignGuides';
 import {
@@ -282,8 +283,8 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
       attrs: { ...centerStroke.attrs },
       children: [],
     };
-    // Selection chrome is visual-outer (center stroke outset 1) — deflate → path.
-    const chrome = { left: pathLeft - 1, top: pathTop - 1, width: 42, height: 42 };
+    // Selection chrome = path geom (stroke does not expand the control box).
+    const chrome = { left: pathLeft, top: pathTop, width: 40, height: 40 };
     const doc = {
       x: 0,
       y: 0,
@@ -293,10 +294,10 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
     } as SceneDocument;
     const moverPath = visualGuideBoxForNode('m', doc, chrome);
     const targetPath = visualGuideBoxForNode('s', doc, {
-      left: 10 - 1,
-      top: pathTop - 1,
-      width: 52,
-      height: 82,
+      left: 10,
+      top: pathTop,
+      width: 50,
+      height: 80,
     });
     expect(moverPath?.top).toBe(pathTop);
     expect(targetPath?.top).toBe(pathTop);
@@ -448,8 +449,8 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
   });
 
   it('center-stroke move keeps outer ink on grid (not path integers)', () => {
-    // Chrome = visual outer. Path at *.5 with center sw=1 → outer at integers.
-    const chrome = { left: 100, top: 20, width: 41, height: 41 };
+    // Chrome = path at *.5; center sw=1 → outer ink at integers after snap.
+    const chrome = { left: 100.5, top: 20.5, width: 40, height: 40 };
     const node = {
       id: 'm',
       key: 'shape',
@@ -484,8 +485,8 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
       targets: [],
       threshold: 8,
     });
-    // Visual-outer snap: outer stays on integer lattice after the gesture.
-    expect(Number.isInteger(nextUnion.left)).toBe(true);
+    const visual = inflateBoxByVisualOutset(nextUnion, node);
+    expect(Number.isInteger(visual.left)).toBe(true);
     expect(sdx).toBe(nextUnion.left - chrome.left);
     expect(Math.abs(sdx - 2.3)).toBeLessThan(0.6);
   });
