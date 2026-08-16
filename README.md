@@ -23,7 +23,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** is an **AI-native infinite vector canvas**. From web canvas to desktop app, Design Agent, backend, live collab, private deploy, and automated tests — a commercial-grade full-loop product.
+**Recombyn** is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
 
 Built-in Design Agent (LangGraph): natural language creates layers, draws shapes, restyles, and typesets. Ships with Skills out of the box; you can also add custom Skills / AgentProfile (YAML) / prompt packs for posters, dashboards, landing pages, and more — then keep editing at vector precision.
 
@@ -39,7 +39,7 @@ Open source takes time. If Recombyn helps you, please hit **⭐ Star** in the to
 
 ## Canvas
 
-Custom **RCB** infinite canvas: the scene graph is `SceneDocument`, zoom roughly 5%–10000%. Committed nodes paint as per-node **SVG**; **Path2D** handles hit-testing and selection. Far-out geometry uses **LOD**, so large docs stay editable.
+Custom **RCB** infinite canvas: the scene graph is `SceneDocument`, with a 5%–10000% zoom range. Committed nodes normally paint as per-node **SVG**; the grid and eligible lightweight far-out nodes use Canvas2D LOD proxies. Hit testing combines the spatial index, AABB checks, and **Path2D** geometry to keep large documents responsive.
 
 Details: [docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md).
 

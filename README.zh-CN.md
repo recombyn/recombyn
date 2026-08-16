@@ -22,7 +22,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** 是 **AI Native 的无限矢量画布**。它从网页画布到桌面客户端、Design Agent、后端服务、多人协作、私有化部署和自动化测试，全链路闭环的商用级完整产品。
+**Recombyn** 是一个开源的 AI 设计工作台，提供可编辑的无限矢量画布与 Design Agent。你可以用自然语言创建和修改图形、文字、布局与样式，也可以在画布中继续精细编辑，并通过 Docker Compose 自托管。
 
 内置 Design Agent（LangGraph）：自然语言就能建图层、画图形、改样式、排版布局。自带多套 Skill，也可自定义 Skill / AgentProfile（YAML）/ 提示词包，扩展海报、仪表盘、落地页等品类；做完后仍可在矢量画布上精细改。
 
@@ -38,7 +38,7 @@
 
 ## 画布
 
-自研 **RCB** 无限画布：场景图是 `SceneDocument`，缩放大约 5%–10000%。已提交的图元按节点用 **SVG** 画出来，**Path2D** 负责点选和选区；远处用 **LOD** 简化，大文档也能流畅编辑。
+自研 **RCB** 无限画布：场景图是 `SceneDocument`，缩放范围为 5%–10000%。已提交图元默认按节点使用 **SVG** 绘制；网格和符合条件的远距离轻量图元使用 Canvas2D LOD 代理。命中采用空间索引、AABB 与 **Path2D** 几何协同处理，降低大文档的渲染与交互成本。
 
 工程细节：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
 
