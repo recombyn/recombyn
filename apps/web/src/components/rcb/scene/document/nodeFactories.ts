@@ -1,6 +1,11 @@
 import { nanoid } from '@reduxjs/toolkit';
 import { buildMarkdownTextAttrs, measurePlainTextSize } from './sceneText';
-import { clampShapeSides, DEFAULT_SHAPE_SIDES, DEFAULT_STAR_INNER_RATIO } from './sceneShapes';
+import {
+  clampShapeSides,
+  DEFAULT_SHAPE_SIDES,
+  DEFAULT_STAR_INNER_RATIO,
+  STROKE_GEOMETRY_HEIGHT,
+} from './sceneShapes';
 import type { CreatedSceneNode } from '@/components/rcb/sceneNode';
 
 /** Pure node constructors + media measure helpers (no document writes). */
@@ -132,7 +137,8 @@ export function createShapeNode({
         y: iy,
         z: 0,
         width: Math.max(iw, 1),
-        height: Math.max(ih, 8),
+        // Open strokes are length + angle; visual thickness belongs to border-width.
+        height: STROKE_GEOMETRY_HEIGHT,
         attrs: {
           shapeType,
           'border-color': stroke,

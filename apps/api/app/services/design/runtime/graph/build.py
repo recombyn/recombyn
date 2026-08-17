@@ -872,7 +872,7 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     locale_in = inp.locale
     intensity_in = getattr(inp, "design_intensity", None)
 
-    task_id = str(uuid.uuid4())
+    task_id = str(inp.task_id or uuid.uuid4())
     trace_id = str(uuid.uuid4())
     try:
         from app.services.llm.usage_log import bind_usage_context
@@ -1104,11 +1104,10 @@ async def resume_agent_graph(
 
     meta = parse_task_meta(row.get("meta_json"))
     lc = get_run_lifecycle(meta)
-    if resume_token:
-        expected = str(lc.get("resume_token") or "")
-        if expected and expected != str(resume_token).strip():
-            yield {"type": "error", "message": "resume_token_mismatch", "task_id": tid}
-            return
+    expected = str(lc.get("resume_token") or "")
+    if not resume_token or not expected or expected != str(resume_token).strip():
+        yield {"type": "error", "message": "resume_token_mismatch", "task_id": tid}
+        return
 
     lease = _try_claim_run_lease(tid)
     if not lease.get("ok"):

@@ -8,7 +8,7 @@ import { HiOutlineArrowLeft } from 'react-icons/hi2';
 import AccountSettingsDialog from '@/components/layout/AccountSettingsDialog';
 import WalletLedgerPanel from '@/components/layout/WalletLedgerPanel';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
-import AgentModelsPanel from '@/components/editor/panels/agent/AgentModelsPanel';
+import AgentModelsPanel from '@/components/editor/panels/agent/models/AgentModelsPanel';
 import AccountProfileTab from '@/components/account/AccountProfileTab';
 import AccountOrgPanel from '@/components/account/AccountOrgPanel';
 import { apiQuery } from '@/service/client';

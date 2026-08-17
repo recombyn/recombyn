@@ -25,8 +25,8 @@ import AgentComposerInput, {
 import {
   ComposerAttachmentChip,
   composerAttachActionClass,
-} from '@/components/editor/panels/agent/AgentComposerShell';
-import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import {
   buildByokAwareModelList,
   cloudVideoFallbackId,

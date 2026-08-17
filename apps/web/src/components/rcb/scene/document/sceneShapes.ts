@@ -16,12 +16,8 @@ export const MIN_ELLIPSE_INNER_RATIO = 0;
 export const MAX_ELLIPSE_INNER_RATIO = 0.92;
 /** Circle / ellipse remaining sweep as % of full turn (弧度 / 周弧度). Signed. */
 export const DEFAULT_ELLIPSE_ARC_PERCENT = 100;
-export const MIN_ELLIPSE_ARC_PERCENT = 0.5;
+export const MIN_ELLIPSE_ARC_PERCENT = 0;
 export const MAX_ELLIPSE_ARC_PERCENT = 100;
-/** Snap shut when gap to full is within this % (enter). */
-export const ELLIPSE_ARC_SNAP_FULL_PCT = 5;
-/** Must open past this % gap before leaving a snapped-full state (hysteresis). */
-export const ELLIPSE_ARC_UNSNAP_FULL_PCT = 11;
 /**
  * Snap inner hole → solid disk when ratio is within this.
  * Generous so dragging the hole closed is easy (was 3.5% ≈ 1–2px on small shapes).
@@ -77,29 +73,6 @@ export function snapEllipseInnerRatio(
   return v;
 }
 
-/** Near ±100 → full circle (commit / non-drag helpers). Live drag uses hysteresis instead. */
-export function snapEllipseArcPercent(n: unknown): number {
-  const v = clampEllipseArcPercent(n);
-  if (Math.abs(v) >= MAX_ELLIPSE_ARC_PERCENT - ELLIPSE_ARC_SNAP_FULL_PCT) {
-    return v < 0 ? -MAX_ELLIPSE_ARC_PERCENT : MAX_ELLIPSE_ARC_PERCENT;
-  }
-  return v;
-}
-
-/** Resolve locked sweep sign for one gesture (never flips mid-drag). */
-export function ellipseArcLockSign(
-  prevPercent: number,
-  deltaFromStart: number
-): 1 | -1 {
-  const prev = Number.isFinite(prevPercent) ? prevPercent : 100;
-  if (Math.abs(prev) >= 99.95) {
-    // From full: end on pointer side with near-full remaining (CW → +, CCW → −).
-    if (Math.abs(deltaFromStart) < 1e-6) return 1;
-    return deltaFromStart < 0 ? 1 : -1;
-  }
-  return prev < 0 ? -1 : 1;
-}
-
 /** Normalize degrees into [0, 360). */
 export function clampEllipseStartDeg(
   n: unknown,
@@ -111,7 +84,7 @@ export function clampEllipseStartDeg(
   return m < 0 ? m + 360 : m;
 }
 
-/** Normalize angle delta into (−π, π]. */
+/** Normalize an incremental angle delta into (−π, π]. */
 export function wrapAngleDelta(delta: number): number {
   let d = delta;
   while (d > Math.PI) d -= Math.PI * 2;
@@ -123,18 +96,6 @@ const TWO_PI = Math.PI * 2;
 
 function minEllipseArcAlong(): number {
   return (MIN_ELLIPSE_ARC_PERCENT / 100) * TWO_PI;
-}
-
-/** Remaining sweep from start → pointer along ``lockSign``, in (0, 2π]. */
-function ellipseArcAlongFromDelta(delta: number, lockSign: 1 | -1): number {
-  if (lockSign > 0) {
-    if (delta > 1e-6) return delta;
-    if (delta < -1e-6) return delta + TWO_PI;
-    return TWO_PI;
-  }
-  if (delta < -1e-6) return -delta;
-  if (delta > 1e-6) return TWO_PI - delta;
-  return TWO_PI;
 }
 
 /** Remaining sweep radians from signed arc percent. */
@@ -199,58 +160,20 @@ export function ellipseStartDegFromAttrs(
 }
 
 /**
- * Map pointer angle → remaining sweep so the end handle sits under the cursor.
- * ``prevAlong`` blocks jumping across 开始位置 (near-full ↔ tiny).
+ * Advance an arc from the pointer's incremental angular movement.
+ *
+ * An absolute pointer angle has two valid representations around the start
+ * ray (a tiny arc and an almost-full arc), which made the opening jump sides.
+ * Accumulating movement keeps one sweep direction for a whole drag and clamps
+ * it to exactly one turn: once closed, further movement cannot wrap it open.
  */
-export function ellipseArcAlongFromPointerAngle(
-  pointerAngle: number,
-  startRad: number,
-  lockSign: 1 | -1,
-  prevAlong: number
+export function advanceEllipseArcAlong(
+  previousAlong: number,
+  pointerAngleDelta: number,
+  sweepSign: 1 | -1
 ): number {
-  const delta = wrapAngleDelta(pointerAngle - startRad);
-  let along = ellipseArcAlongFromDelta(delta, lockSign);
-
-  // Crossed the start ray from near-full → stay closed (only when already nearly full).
-  if (prevAlong > TWO_PI * 0.85 && along < TWO_PI * 0.25) {
-    along = TWO_PI;
-  }
-  // Crossed from a tiny pie → stay at minimum open.
-  if (prevAlong < TWO_PI * 0.25 && along > TWO_PI * 0.85) {
-    along = minEllipseArcAlong();
-  }
-
-  return Math.min(TWO_PI, Math.max(minEllipseArcAlong(), along));
-}
-
-/**
- * Open/close hysteresis so snapping to full does not chatter.
- * First open from full: no snap until gap > UNSNAP; then snap in / hold out.
- */
-export function ellipseArcApplyFullHysteresis(
-  alongRad: number,
-  state: { openedOnce: boolean; heldFull: boolean }
-): { along: number; openedOnce: boolean; heldFull: boolean } {
-  const snapIn = (ELLIPSE_ARC_SNAP_FULL_PCT / 100) * TWO_PI;
-  const snapOut = (ELLIPSE_ARC_UNSNAP_FULL_PCT / 100) * TWO_PI;
-  const gap = Math.max(0, TWO_PI - alongRad);
-  let { openedOnce, heldFull } = state;
-  let along = alongRad;
-
-  if (!openedOnce) {
-    if (gap > snapOut) openedOnce = true;
-    return { along, openedOnce, heldFull: false };
-  }
-
-  if (heldFull) {
-    if (gap <= snapOut) along = TWO_PI;
-    else heldFull = false;
-  } else if (gap <= snapIn) {
-    along = TWO_PI;
-    heldFull = true;
-  }
-
-  return { along, openedOnce, heldFull };
+  const next = previousAlong + wrapAngleDelta(pointerAngleDelta) * sweepSign;
+  return Math.min(TWO_PI, Math.max(minEllipseArcAlong(), next));
 }
 
 /** Fixed arrowhead length in local (pre-rotation) units. */
@@ -404,6 +327,8 @@ export function ptsAttr(pts: Array<[number, number]>) {
 
 /** Hit/selection thickness for line & arrow nodes (world units). */
 export const STROKE_HIT = 24;
+/** Stored line/arrow thickness. Hit tolerance stays separate in STROKE_HIT. */
+export const STROKE_GEOMETRY_HEIGHT = 1;
 
 /**
  * Hit-test slop in **scene** units from a constant screen-pixel budget.
@@ -427,7 +352,7 @@ export function strokeNodeFromEndpoints(ep: StrokeEndpoints) {
   const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
   const midX = (ep.x0 + ep.x1) / 2;
   const midY = (ep.y0 + ep.y1) / 2;
-  const height = STROKE_HIT;
+  const height = STROKE_GEOMETRY_HEIGHT;
   return {
     x: midX - length / 2,
     y: midY - height / 2,
@@ -464,13 +389,27 @@ export function resizeStrokeByEndpoint(
   angleDeg: number,
   handle: 'e' | 'w',
   pointerX: number,
-  pointerY: number
+  pointerY: number,
+  snapToOctant = false
 ) {
   const ep = strokeEndpointsFromBox(box, angleDeg);
-  if (handle === 'e') {
-    return strokeNodeFromEndpoints({ x0: ep.x0, y0: ep.y0, x1: pointerX, y1: pointerY });
+  const fixed = handle === 'e' ? { x: ep.x0, y: ep.y0 } : { x: ep.x1, y: ep.y1 };
+  let nextX = pointerX;
+  let nextY = pointerY;
+  if (snapToOctant) {
+    const dx = pointerX - fixed.x;
+    const dy = pointerY - fixed.y;
+    const length = Math.hypot(dx, dy);
+    if (length > 1e-6) {
+      const snapped = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+      nextX = fixed.x + Math.cos(snapped) * length;
+      nextY = fixed.y + Math.sin(snapped) * length;
+    }
   }
-  return strokeNodeFromEndpoints({ x0: pointerX, y0: pointerY, x1: ep.x1, y1: ep.y1 });
+  if (handle === 'e') {
+    return strokeNodeFromEndpoints({ x0: ep.x0, y0: ep.y0, x1: nextX, y1: nextY });
+  }
+  return strokeNodeFromEndpoints({ x0: nextX, y0: nextY, x1: ep.x1, y1: ep.y1 });
 }
 
 /** Distance from point to segment (for line/arrow hit-testing). */

@@ -15,7 +15,7 @@ import { Fragment } from 'react';
 import PlansDialog from '@/components/layout/PlansDialog';
 import RedeemDialog from '@/components/layout/RedeemDialog';
 import WalletLedgerPanel from '@/components/layout/WalletLedgerPanel';
-import AgentModelsPanel from '@/components/editor/panels/agent/AgentModelsPanel';
+import AgentModelsPanel from '@/components/editor/panels/agent/models/AgentModelsPanel';
 import AccountProfilePanel from '@/components/layout/AccountProfilePanel';
 import { useBillingEnabled } from '@/service/wallet';
 import AccountNotificationsPanel from '@/components/layout/AccountNotificationsPanel';

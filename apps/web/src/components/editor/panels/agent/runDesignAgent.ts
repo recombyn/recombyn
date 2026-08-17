@@ -1,4 +1,4 @@
-import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 /**
  * Run backend design pipeline and stream progress into the agent UI.
@@ -8,11 +8,13 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
 
 import type { Dispatch } from '@reduxjs/toolkit';
 import {
+  fetchDesignRunEvents,
   fetchDesignRunStatus,
   parseDesignJobEvent,
   runDesignJob,
   resumeDesignJob,
   postDesignSceneFeedback,
+  acknowledgeDesignCanvasCommands,
   type DesignJobEvent,
   type DesignRunMode,
   type DesignScene,
@@ -20,11 +22,9 @@ import {
   type RunDesignJobBody,
 } from '@/service/design';
 import {
-  removeNodesFromDocument
-} from '@/components/rcb/scene/document/sceneDocument';
-import {
   groupNodesInDocument
 } from '@/components/rcb/scene/document/sceneGroups';
+import { removeNodesFromDocument } from '@/components/rcb/scene/document/sceneDocument';
 import { scalePathData } from '@/components/rcb/scene/document/pathScale';
 import { maxRadius, radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { renderExport } from '@/components/rcb/scene/paint/exportImage';
@@ -37,11 +37,10 @@ import {
   type TaskState,
 } from '@/components/editor/panels/agent/agentMemory';
 import {
+  applySceneMutation,
   executeDesignTool,
   executeDesignToolAsync,
-  applySceneMutation,
   nextArtboardOrigin,
-  nodeIdsInsideFrame,
   type CanvasUiBridge,
 } from '@/components/editor/panels/agent/designTools';
 import {
@@ -55,853 +54,6 @@ import {
   setAiOperationState,
 } from '@/store/modules/editor';
 import { store } from '@/store';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { parseNodeText, parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const SKIP_TAGS = new Set([
-  'defs',
-  'clippath',
-  'mask',
-  'pattern',
-  'lineargradient',
-  'radialgradient',
-  'filter',
-  'style',
-  'script',
-  'title',
-  'desc',
-  'metadata',
-  'marker',
-  'symbol',
-]);
-
-type AskChoiceUi = {
-  mode: 'confirm' | 'single' | 'multi' | 'buttons' | 'text';
-  options: Array<{ label: string; action: 'apply' | 'reply' | 'dismiss' }>;
-  placeholder?: string;
-};
-
-type DesignStatusEvent = Extract<DesignJobEvent, { type: 'status' }>;
-type DesignSkillStartEvent = Extract<DesignJobEvent, { type: 'skill_start' }>;
-type DesignSkillProgressEvent = Extract<DesignJobEvent, { type: 'skill_progress' }>;
-type DesignActivityEvent = Extract<DesignJobEvent, { type: 'activity' }>;
-type DesignToolOpsEvent = Extract<DesignJobEvent, { type: 'tool_ops' }>;
-type DesignSceneFeedbackEvent = Extract<DesignJobEvent, { type: 'scene_feedback_request' }>;
-type DesignTransactionBeginEvent = Extract<DesignJobEvent, { type: 'transaction.begin' }>;
-type DesignTransactionCommitEvent = Extract<DesignJobEvent, { type: 'transaction.commit' }>;
-type DesignTransactionRollbackEvent = Extract<
-  DesignJobEvent,
-  { type: 'transaction.rollback' }
->;
-type DesignSkillDoneEvent = Extract<DesignJobEvent, { type: 'skill_done' }>;
-type DesignResultEvent = Extract<DesignJobEvent, { type: 'result' }>;
-
-function normalizeChoiceUi(raw: unknown): AskChoiceUi | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const obj = raw as {
-    mode?: string;
-    options?: unknown[];
-    placeholder?: string;
-    hint?: string;
-  };
-  let modeRaw = String(obj.mode || '').trim().toLowerCase();
-  if (
-    modeRaw === 'freeform' ||
-    modeRaw === 'free_text' ||
-    modeRaw === 'input' ||
-    modeRaw === 'textarea'
-  ) {
-    modeRaw = 'text';
-  }
-  const mode: AskChoiceUi['mode'] =
-    modeRaw === 'confirm' ||
-    modeRaw === 'single' ||
-    modeRaw === 'multi' ||
-    modeRaw === 'buttons' ||
-    modeRaw === 'text'
-      ? modeRaw
-      : 'buttons';
-  const options: AskChoiceUi['options'] = [];
-  for (const item of obj.options || []) {
-    if (!item || typeof item !== 'object') continue;
-    const row = item as { label?: string; action?: string };
-    let action = String(row.action || 'reply').trim().toLowerCase();
-    if (action === 'cancel' || action === 'close') action = 'dismiss';
-    if (action === 'ok' || action === 'confirm') action = 'apply';
-    if (action !== 'apply' && action !== 'reply' && action !== 'dismiss') {
-      action = 'reply';
-    }
-    const label = String(row.label || '').trim();
-    if (!label && action === 'reply') continue;
-    options.push({ label, action: action as AskChoiceUi['options'][number]['action'] });
-    if (options.length >= 8) break;
-  }
-  const placeholder = String(obj.placeholder || obj.hint || '').trim() || undefined;
-  if (!options.length && mode !== 'text') return undefined;
-  return { mode, options, ...(placeholder ? { placeholder } : {}) };
-}
-
-function parseSize(canvasSize?: string | null): { width: number; height: number } {
-  const raw = String(canvasSize || '390x844')
-    .toLowerCase()
-    .replace('*', 'x')
-    .replace('脳', 'x')
-    .replace(/\s+/g, '')
-    .trim();
-  if (raw === 'auto') return { width: 1440, height: 900 };
-  const m = raw.match(/^(\d+|auto)x(\d+|auto)$/);
-  if (m) {
-    const width = m[1] === 'auto' ? 1440 : Math.max(64, Number(m[1]) || 1440);
-    const height = m[2] === 'auto' ? 900 : Math.max(64, Number(m[2]) || 900);
-    return { width, height };
-  }
-  const [a, b] = raw.split('x');
-  const width = Math.max(64, Number(a) || 390);
-  const height = Math.max(64, Number(b) || 844);
-  return { width, height };
-}
-
-/** Fully resolved WxH only — Auto / partial-auto must not spawn a stock artboard. */
-function parseResolvedSize(
-  canvasSize?: string | null
-): { width: number; height: number } | null {
-  const raw = String(canvasSize || '')
-    .toLowerCase()
-    .replace('*', 'x')
-    .replace('脳', 'x')
-    .replace(/\s+/g, '')
-    .trim();
-  const m = raw.match(/^(\d+)x(\d+)$/);
-  if (!m) return null;
-  const width = Math.max(64, Number(m[1]) || 0);
-  const height = Math.max(64, Number(m[2]) || 0);
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-  return { width, height };
-}
-
-/** Client chip WxH — never let backend status rewrite it. */
-function parseLockedClientSize(canvasSize?: string | null): string | null {
-  const s = String(canvasSize || '')
-    .trim()
-    .toLowerCase()
-    .replace('*', 'x');
-  return /^\d+x\d+$/.test(s) ? s : null;
-}
-
-/** Pick artboard for edit context: @ chip → last agent frame → active → sole frame. */
-export function resolveDesignTargetFrame(
-  doc: SceneDocument,
-  chipFrameId?: string | null,
-  lastAgentFrameId?: string | null
-): { id: string; width: number; height: number; x: number; y: number; name?: string } | null {
-  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  if (!frames.length) return null;
-  const pick = (id?: string | null) =>
-    id ? frames.find((f) => f && f.id === id) || null : null;
-  const frame =
-    pick(chipFrameId) ||
-    pick(lastAgentFrameId) ||
-    pick(doc?.activeFrameId) ||
-    (frames.length === 1 ? frames[0] : null);
-  if (!frame?.id) return null;
-  return {
-    id: String(frame.id),
-    width: Math.max(64, Math.round(Number(frame.width) || 390)),
-    height: Math.max(64, Math.round(Number(frame.height) || 844)),
-    x: Math.round(Number(frame.x) || 0),
-    y: Math.round(Number(frame.y) || 0),
-    name: frame.name ? String(frame.name) : undefined,
-  };
-}
-
-/** Scene node ids that mostly overlap a frame — re-export for AgentDock / send path. */
-export { nodeIdsInsideFrame } from '@/components/editor/panels/agent/designTools';
-
-/** Frame that mostly contains a node, or null for free-canvas shapes. */
-export function frameIdContainingNode(
-  doc: SceneDocument,
-  nodeId: string | null | undefined
-): string | null {
-  if (!doc || !nodeId) return null;
-  const node = doc?.deltaSetLike?.[nodeId];
-  if (!node) return null;
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  if (!frames.length) return null;
-  const { left, top } = nodeLeftTop(doc, node);
-  const nw = Math.max(1, Number(node.width) || 1);
-  const nh = Math.max(1, Number(node.height) || 1);
-  let bestId: string | null = null;
-  let bestArea = 0;
-  for (const frame of frames) {
-    if (!frame?.id) continue;
-    const fx = Number(frame.x) || 0;
-    const fy = Number(frame.y) || 0;
-    const fw = Math.max(1, Number(frame.width) || 1);
-    const fh = Math.max(1, Number(frame.height) || 1);
-    const ow = Math.max(0, Math.min(left + nw, fx + fw) - Math.max(left, fx));
-    const oh = Math.max(0, Math.min(top + nh, fy + fh) - Math.max(top, fy));
-    const area = ow * oh;
-    if (area > bestArea) {
-      bestArea = area;
-      bestId = String(frame.id);
-    }
-  }
-  if (!bestId || bestArea < nw * nh * 0.35) return null;
-  return bestId;
-}
-
-export type SceneNodeInventoryItem = {
-  id: string;
-  type: string;
-  frameId?: string;
-  name?: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  /** Same as w/h — update_node uses width/height. */
-  width: number;
-  height: number;
-  /** Full snapshot for @ edits — model may change any field. */
-  fill?: string;
-  fillType?: string;
-  stroke?: string;
-  borderWidth?: number;
-  /** center | inside | outside — selection chrome sits on mid of stroke band. */
-  strokeAlign?: string;
-  opacity?: number;
-  rotation?: number;
-  path?: string;
-  closed?: boolean;
-  text?: string;
-  fontSize?: number;
-  fontWeight?: string;
-  fontFamily?: string;
-  textAlign?: string;
-  lineHeight?: number;
-  cornerRadius?: number;
-  radiusTL?: number;
-  radiusTR?: number;
-  radiusBR?: number;
-  radiusBL?: number;
-};
-
-/** Prefer solid fills for inventory (text color + shape fill). */
-function nodeFillForInventory(node: SceneNodeInput): string {
-  const attrs = node?.attrs || {};
-  const candidates = [
-    attrs['fill-color'],
-    attrs.fill,
-    attrs.color,
-    attrs['font-color'],
-    attrs.fontColor,
-    attrs.textColor,
-  ];
-  for (const c of candidates) {
-    const s = c != null ? String(c).trim() : '';
-    if (s && s !== 'none' && s !== 'transparent' && typeof c !== 'object') return s;
-  }
-  const grad = attrs.fill;
-  if (grad && typeof grad === 'object') {
-    const rec = grad as Record<string, unknown>;
-    const from = String(rec.from || rec.color || rec.start || '').trim();
-    if (from && from !== 'none' && from !== 'transparent') return from;
-  }
-  return '';
-}
-
-/** Inventory opacity is 0–100; attrs may store 0–1 or already percent. */
-function sceneNodeOpacityPercent(opacityRaw: number): number {
-  if (!Number.isFinite(opacityRaw)) return 100;
-  if (opacityRaw > 1) return Math.min(100, opacityRaw);
-  return Math.round(opacityRaw * 100);
-}
-
-/**
- * Parent artboard for tool_ops.
- * Prefer Host-opened / @-pinned board; free-canvas when none.
- */
-function resolveToolOpsFrameId(opts: {
-  editInPlace: boolean;
-  liveFrameId: string | null;
-  targetFrameId: string | null | undefined;
-  pinnedFrameId?: string | null;
-}): string | null {
-  const pinned = String(opts.pinnedFrameId || '').trim() || null;
-  const target = String(opts.targetFrameId || '').trim() || null;
-  return opts.liveFrameId || pinned || target || null;
-}
-
-/** Explicit @ / chip pin only — ambient focus must not swallow free-canvas creates. */
-function explicitPinnedFrameId(opts: {
-  pinnedFrameId?: string | null;
-}): string | null {
-  return String(opts.pinnedFrameId || '').trim() || null;
-}
-
-/** Pull WxH from a create_frame op when Host size is still unknown. */
-function sizeFromCreateFrameOp(
-  ops: Array<{ name?: string; args?: Record<string, unknown> }>
-): { width: number; height: number } | null {
-  for (const o of ops) {
-    if (String(o?.name || '').trim() !== 'create_frame') continue;
-    const args = o?.args && typeof o.args === 'object' ? o.args : {};
-    const width = Math.round(Number(args.width ?? args.w) || 0);
-    const height = Math.round(Number(args.height ?? args.h) || 0);
-    if (width > 0 && height > 0) return { width, height };
-  }
-  return null;
-}
-
-/** Full node snapshot for SCENE_NODES (@ targets + edit inventory). No field filtering. */
-function nodeToInventoryItem(
-  doc: SceneDocument,
-  id: string,
-  node: SceneNodeInput,
-  originX = 0,
-  originY = 0,
-  frameId?: string | null
-): SceneNodeInventoryItem {
-  const { left, top } = nodeLeftTop(doc, node);
-  const attrs = node?.attrs || {};
-  const key = String(node.key || '').toLowerCase();
-  const shapeType = String(attrs.shapeType || key || 'shape').toLowerCase();
-  const fill = nodeFillForInventory(node);
-  const stroke = String(attrs['border-color'] ?? attrs.stroke ?? '').trim();
-  const borderRaw = Number(attrs['border-width'] ?? attrs.strokeWidth);
-  const strokeAlignRaw = String(attrs.strokeAlign || attrs['stroke-align'] || 'center')
-    .trim()
-    .toLowerCase();
-  const strokeAlign =
-    strokeAlignRaw === 'inside' || strokeAlignRaw === 'outside' || strokeAlignRaw === 'center'
-      ? strokeAlignRaw
-      : 'center';
-  const opacityRaw = Number(attrs.opacity);
-  const angleRaw = Number(attrs.angle ?? attrs.rotation);
-  const path = String(attrs.path || attrs.d || '').trim();
-  const fillType = String(attrs['fill-type'] || 'solid').trim() || 'solid';
-  const w = Math.max(1, Math.round(Number(node.width) || 1));
-  const h = Math.max(1, Math.round(Number(node.height) || 1));
-  const item: SceneNodeInventoryItem = {
-    id: String(id),
-    type: key === 'text' ? 'text' : shapeType || key || 'shape',
-    ...(frameId ? { frameId: String(frameId) } : {}),
-    x: Math.round(left - originX),
-    y: Math.round(top - originY),
-    w,
-    h,
-    width: w,
-    height: h,
-    fill: fill || undefined,
-    fillType,
-    stroke: stroke && stroke !== 'transparent' && stroke !== 'none' ? stroke : undefined,
-    borderWidth: Number.isFinite(borderRaw) && borderRaw >= 0 ? borderRaw : 0,
-    strokeAlign,
-    opacity: sceneNodeOpacityPercent(opacityRaw),
-    rotation: Number.isFinite(angleRaw) ? Math.round(angleRaw * 100) / 100 : 0,
-  };
-  const name = attrs.name != null ? String(attrs.name).trim() : '';
-  if (name) item.name = name;
-  // Truncate huge outline paths in SCENE — full `d` blows context + clone cost.
-  const SCENE_PATH_MAX = 480;
-  if (path) {
-    if (path.length > SCENE_PATH_MAX) {
-      item.path = `${path.slice(0, SCENE_PATH_MAX)}…(/*${path.length} chars; use update_node path sparingly*/)`;
-    } else {
-      item.path = path;
-    }
-  }
-  if (attrs.closed != null) {
-    item.closed = attrs.closed === true || attrs.closed === 'true';
-  }
-  if (key === 'text') {
-    const text = parseNodeText(attrs).trim();
-    const style = parseNodeTextStyle(attrs);
-    item.text = text.slice(0, 500);
-    const fontSizeRaw = Number(style?.fontSize) || Number(attrs.fontSize ?? attrs['font-size']);
-    if (Number.isFinite(fontSizeRaw) && fontSizeRaw > 0) item.fontSize = Math.round(fontSizeRaw);
-    const lineHeightRaw = Number(style?.lineHeight);
-    if (Number.isFinite(lineHeightRaw) && lineHeightRaw > 0) {
-      item.lineHeight = Math.round(lineHeightRaw * 100) / 100;
-    }
-    if (style?.fontWeight) item.fontWeight = String(style.fontWeight);
-    if (style?.fontFamily) item.fontFamily = String(style.fontFamily);
-    if (style?.textAlign) item.textAlign = String(style.textAlign);
-  } else {
-    const radii = radiiFromAttrs(attrs);
-    item.cornerRadius = Math.round(maxRadius(radii));
-    item.radiusTL = Math.round(radii.tl);
-    item.radiusTR = Math.round(radii.tr);
-    item.radiusBR = Math.round(radii.br);
-    item.radiusBL = Math.round(radii.bl);
-  }
-  return item;
-}
-
-/** World-space inventory for free-canvas @ targets (no artboard). */
-export function buildSceneNodesForIds(
-  doc: SceneDocument,
-  nodeIds: string[]
-): SceneNodeInventoryItem[] {
-  if (!doc || !nodeIds.length) return [];
-  const items: SceneNodeInventoryItem[] = [];
-  for (const id of nodeIds) {
-    const node = doc?.deltaSetLike?.[id];
-    if (!node || !id) continue;
-    items.push(nodeToInventoryItem(doc, id, node, 0, 0));
-  }
-  return items;
-}
-
-/** Frame-local node inventory for edit-in-place tool ops (full snapshot per node). */
-export function buildSceneNodesForEdit(
-  doc: SceneDocument,
-  frameId: string | null | undefined,
-  forceIds?: string[] | null
-): SceneNodeInventoryItem[] {
-  if (!doc || !frameId) return [];
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const frame = frames.find((f) => f?.id === frameId);
-  if (!frame) return [];
-  const fx = Number(frame.x) || 0;
-  const fy = Number(frame.y) || 0;
-  const forced = new Set(
-    (forceIds || []).filter((id) => id && doc?.deltaSetLike?.[id]).map(String)
-  );
-  const idSet = new Set(nodeIdsInsideFrame(doc, frameId));
-  for (const id of forced) idSet.add(id);
-  const items: SceneNodeInventoryItem[] = [];
-  for (const id of idSet) {
-    const node = doc?.deltaSetLike?.[id];
-    if (!node) continue;
-    items.push(nodeToInventoryItem(doc, id, node, fx, fy, frameId));
-  }
-  // Always keep @ / live forceIds; fill remaining slots with largest plates.
-  const pinned = items.filter((n) => forced.has(n.id));
-  const rest = items
-    .filter((n) => !forced.has(n.id))
-    .sort((a, b) => b.w * b.h - a.w * a.h);
-  const room = Math.max(0, 60 - pinned.length);
-  return [...pinned, ...rest.slice(0, room)];
-}
-
-/** All artboards + free-canvas nodes — what the agent actually "sees". */
-export function buildSceneNodesForCanvas(
-  doc: SceneDocument,
-  opts?: {
-    focusFrameId?: string | null;
-    forceIds?: string[] | null;
-    maxNodes?: number;
-  }
-): SceneNodeInventoryItem[] {
-  if (!doc) return [];
-  const maxNodes = Math.max(1, opts?.maxNodes ?? 120);
-  const forced = new Set(
-    (opts?.forceIds || []).filter((id) => id && doc?.deltaSetLike?.[id]).map(String)
-  );
-  const focus = String(opts?.focusFrameId || '').trim();
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const ordered = [...frames].sort((a, b) => {
-    const aid = String(a?.id || '');
-    const bid = String(b?.id || '');
-    if (aid === focus) return -1;
-    if (bid === focus) return 1;
-    return (Number(a?.x) || 0) - (Number(b?.x) || 0);
-  });
-
-  const byId = new Map<string, SceneNodeInventoryItem>();
-  for (const frame of ordered) {
-    const fid = frame?.id != null ? String(frame.id) : '';
-    if (!fid) continue;
-    for (const item of buildSceneNodesForEdit(doc, fid, [...forced])) {
-      if (!byId.has(item.id)) byId.set(item.id, item);
-    }
-  }
-
-  const rootChildren: string[] = doc?.deltaSetLike?.ROOT?.children || [];
-  for (const id of rootChildren) {
-    const sid = String(id || '');
-    if (!sid || byId.has(sid)) continue;
-    if (frameIdContainingNode(doc, sid)) continue;
-    const node = doc?.deltaSetLike?.[sid];
-    if (!node) continue;
-    byId.set(sid, nodeToInventoryItem(doc, sid, node, 0, 0));
-  }
-
-  const all = [...byId.values()];
-  const pinned = all.filter((n) => forced.has(n.id));
-  const rest = all
-    .filter((n) => !forced.has(n.id))
-    .sort((a, b) => {
-      const af = a.frameId && a.frameId === focus ? 0 : 1;
-      const bf = b.frameId && b.frameId === focus ? 0 : 1;
-      if (af !== bf) return af - bf;
-      return b.w * b.h - a.w * a.h;
-    });
-  const room = Math.max(0, maxNodes - pinned.length);
-  return [...pinned, ...rest.slice(0, room)];
-}
-
-export type SceneFrameSnapshot = {
-  id: string;
-  name?: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  is_empty: boolean;
-};
-
-/** Artboard list for SCENE_FRAMES — sent with every agent turn. */
-export function buildSceneFramesSnapshot(doc: SceneDocument): SceneFrameSnapshot[] {
-  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  return frames.slice(0, 32).map((f) => {
-    const id = String(f.id);
-    return {
-      id,
-      name: f.name ? String(f.name) : undefined,
-      x: Math.round(Number(f.x) || 0),
-      y: Math.round(Number(f.y) || 0),
-      w: Math.round(Number(f.width) || 0),
-      h: Math.round(Number(f.height) || 0),
-      is_empty: frameIsEmpty(doc, id),
-    };
-  });
-}
-
-export type SpatialBox = { x: number; y: number; w: number; h: number };
-
-export type SpatialSummary = {
-  focus_frame_id: string | null;
-  gap_px: number;
-  /** Frame-local boxes for create_* inside the focus artboard. */
-  focused: Array<{
-    id: string;
-    type: string;
-    name?: string;
-    text?: string;
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  }>;
-  /** World-space other artboards. */
-  peripheral: Array<{
-    id: string;
-    name?: string;
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    child_count: number;
-    is_empty: boolean;
-  }>;
-  overlaps: Array<{ a: string; b: string; iou: number }>;
-  /** Frame-local empty slots — intentionally unused (no invented WxH suggestions). */
-  empty_rects: SpatialBox[];
-  /** World-space slots for create_frame (same size as focus plate). */
-  new_frame_slots: SpatialBox[];
-  /** @deprecated Not set — host must not invent place WxH for the model. */
-  suggested_place?: SpatialBox;
-  /** Raw camera viewport in world coords (sensor only). */
-  viewport?: SpatialBox;
-};
-
-const SPATIAL_GAP = 40;
-const SPATIAL_FOCUSED_MAX = 36;
-
-function _boxIou(a: SpatialBox, b: SpatialBox): number {
-  const x1 = Math.max(a.x, b.x);
-  const y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.w, b.x + b.w);
-  const y2 = Math.min(a.y + a.h, b.y + b.h);
-  const iw = Math.max(0, x2 - x1);
-  const ih = Math.max(0, y2 - y1);
-  const inter = iw * ih;
-  if (inter <= 0) return 0;
-  const union = a.w * a.h + b.w * b.h - inter;
-  return union > 0 ? inter / union : 0;
-}
-
-function _boxesOverlap(a: SpatialBox, b: SpatialBox, gap = 0): boolean {
-  return !(
-    a.x + a.w + gap <= b.x ||
-    b.x + b.w + gap <= a.x ||
-    a.y + a.h + gap <= b.y ||
-    b.y + b.h + gap <= a.y
-  );
-}
-
-/** Map-like summary for the agent (focused / peripheral / empty slots). */
-export function buildSpatialSummary(
-  doc: SceneDocument,
-  opts?: {
-    focusFrameId?: string | null;
-    maxFocused?: number;
-    /** Raw camera viewport — report only; do not invent placement on the client. */
-    viewport?: SpatialBox | null;
-  }
-): SpatialSummary {
-  const gap = SPATIAL_GAP;
-  const frames = buildSceneFramesSnapshot(doc);
-  const focus =
-    String(opts?.focusFrameId || '').trim() ||
-    (frames.find((f) => !f.is_empty)?.id ?? frames[0]?.id ?? '') ||
-    null;
-  const maxFocused = Math.max(8, opts?.maxFocused ?? SPATIAL_FOCUSED_MAX);
-
-  const focusFrame = focus ? frames.find((f) => f.id === focus) : undefined;
-  const fw = Math.max(1, focusFrame?.w || 1280);
-  const fh = Math.max(1, focusFrame?.h || 720);
-  // Pass-through camera AABB only (no client-side "where to put" logic).
-  const viewport = opts?.viewport && opts.viewport.w > 8 && opts.viewport.h > 8
-    ? {
-        x: Math.round(opts.viewport.x),
-        y: Math.round(opts.viewport.y),
-        w: Math.round(opts.viewport.w),
-        h: Math.round(opts.viewport.h),
-      }
-    : undefined;
-
-  const inventory = buildSceneNodesForCanvas(doc, {
-    focusFrameId: focus,
-    maxNodes: 120,
-  });
-  const inFocus = inventory
-    .filter((n) => (focus ? n.frameId === focus : !n.frameId))
-    .sort((a, b) => b.w * b.h - a.w * a.h)
-    .slice(0, maxFocused)
-    .map((n) => ({
-      id: n.id,
-      type: n.type,
-      ...(n.name ? { name: n.name } : {}),
-      ...(n.text ? { text: String(n.text).slice(0, 80) } : {}),
-      x: n.x,
-      y: n.y,
-      w: n.w,
-      h: n.h,
-    }));
-
-  const peripheral = frames
-    .filter((f) => f.id !== focus)
-    .slice(0, 16)
-    .map((f) => ({
-      id: f.id,
-      ...(f.name ? { name: f.name } : {}),
-      x: f.x,
-      y: f.y,
-      w: f.w,
-      h: f.h,
-      child_count: inventory.filter((n) => n.frameId === f.id).length,
-      is_empty: f.is_empty,
-    }));
-
-  const overlaps: SpatialSummary['overlaps'] = [];
-  for (let i = 0; i < inFocus.length; i++) {
-    for (let j = i + 1; j < inFocus.length; j++) {
-      const a = inFocus[i];
-      const b = inFocus[j];
-      const iou = _boxIou(a, b);
-      if (iou >= 0.08) overlaps.push({ a: a.id, b: b.id, iou: Math.round(iou * 100) / 100 });
-    }
-  }
-  overlaps.sort((a, b) => b.iou - a.iou);
-
-  // Do NOT invent empty_rects / suggested_place with stock 320×200 (etc.).
-  // Those slots leaked into PLACEMENT and models copied them as create_frame size.
-  const new_frame_slots: SpatialBox[] = [];
-  if (frames.length) {
-    let worldR = 0;
-    let worldB = 0;
-    for (const f of frames) {
-      worldR = Math.max(worldR, f.x + f.w);
-      worldB = Math.max(worldB, f.y + f.h);
-    }
-    new_frame_slots.push({
-      x: Math.round(worldR + gap),
-      y: Math.round(frames[0]?.y || 0),
-      w: Math.round(fw),
-      h: Math.round(fh),
-    });
-    new_frame_slots.push({
-      x: Math.round(frames[0]?.x || 0),
-      y: Math.round(worldB + gap),
-      w: Math.round(fw),
-      h: Math.round(fh),
-    });
-  }
-
-  return {
-    focus_frame_id: focus,
-    gap_px: gap,
-    focused: inFocus,
-    peripheral,
-    overlaps: overlaps.slice(0, 12),
-    empty_rects: [],
-    new_frame_slots,
-    // viewport is raw camera AABB only (no invented place slots).
-    ...(viewport ? { viewport } : {}),
-  };
-}
-
-/**
- * Cheap layout schematic of the focus artboard → JPEG data URL for vision.
- * Not a photoreal export — colored boxes so the model sees denseness / stacking.
- */
-export async function captureFocusFramePreview(
-  doc: SceneDocument,
-  focusFrameId?: string | null
-): Promise<string | null> {
-  if (typeof window === 'undefined' || !doc) return null;
-  const summary = buildSpatialSummary(doc, { focusFrameId });
-  const focus = summary.focus_frame_id;
-  if (!focus) return null;
-  const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
-    (f) => String(f?.id) === focus
-  );
-  const fw = Math.max(64, Math.round(Number(frame?.width) || 1280));
-  const fh = Math.max(64, Math.round(Number(frame?.height) || 720));
-  const maxEdge = 768;
-  const scale = Math.min(1, maxEdge / Math.max(fw, fh));
-  const outW = Math.max(64, Math.round(fw * scale));
-  const outH = Math.max(64, Math.round(fh * scale));
-
-  const bg = String(
-    (frame as { fill?: string; background?: string } | undefined)?.fill ||
-      (frame as { fill?: string; background?: string } | undefined)?.background ||
-      frame?.backgroundColor ||
-      '#ffffff'
-  );
-  const parts: string[] = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${outH}" viewBox="0 0 ${fw} ${fh}">`,
-    `<rect width="${fw}" height="${fh}" fill="${bg.replace(/"/g, '') || '#fff'}"/>`,
-  ];
-  for (const n of summary.focused) {
-    const fill = n.type === 'text' ? '#94a3b8' : '#cbd5e1';
-    parts.push(
-      `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" fill="${fill}" fill-opacity="0.55" stroke="#64748b" stroke-width="2"/>`
-    );
-    const label = (n.name || n.text || n.type || '').slice(0, 24);
-    if (label) {
-      const esc = label.replace(/[<>&"]/g, '');
-      parts.push(
-        `<text x="${n.x + 6}" y="${n.y + 18}" font-size="14" fill="#0f172a">${esc}</text>`
-      );
-    }
-  }
-  parts.push('</svg>');
-  const svg = parts.join('');
-  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('preview_img_fail'));
-      el.src = url;
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = outW;
-    canvas.height = outH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, outW, outH);
-    ctx.drawImage(img, 0, 0, outW, outH);
-    return canvas.toDataURL('image/jpeg', 0.72);
-  } catch {
-    return null;
-  }
-}
-
-function sceneInventoryFingerprint(doc: SceneDocument | null | undefined): string {
-  if (!doc) return '';
-  const ids = Object.keys(doc.deltaSetLike || {})
-    .filter((id) => id && id !== 'ROOT')
-    .sort();
-  const frames = (Array.isArray(doc.frames) ? doc.frames : [])
-    .map((f: { id?: string }) => String(f?.id || ''))
-    .filter(Boolean)
-    .sort();
-  return `${ids.length}:${ids.join(',')}|${frames.join(',')}`;
-}
-
-/** Wait until Redux scene inventory stops changing (Yjs/dispatch lag). */
-async function waitSceneInventorySettled(
-  getDocument: () => SceneDocument | null,
-  opts?: { timeoutMs?: number; stableFrames?: number }
-): Promise<void> {
-  const timeoutMs = Math.max(80, opts?.timeoutMs ?? 480);
-  const needStable = Math.max(1, opts?.stableFrames ?? 2);
-  const frame = () =>
-    new Promise<void>((resolve) => {
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => resolve());
-      } else {
-        setTimeout(resolve, 16);
-      }
-    });
-  const t0 = Date.now();
-  let prev = sceneInventoryFingerprint(getDocument());
-  let stable = 0;
-  while (Date.now() - t0 < timeoutMs) {
-    await frame();
-    const next = sceneInventoryFingerprint(getDocument());
-    if (next === prev) {
-      stable += 1;
-      if (stable >= needStable) return;
-    } else {
-      stable = 0;
-      prev = next;
-    }
-  }
-}
-
-/**
- * Prefer a real artboard raster for CLIP critique; fall back to schematic boxes.
- * Caps longest edge so the scene_feedback POST stays small.
- */
-export async function captureCritiquePreview(
-  doc: SceneDocument,
-  focusFrameId?: string | null
-): Promise<string | null> {
-  if (typeof window === 'undefined' || !doc) return null;
-  const focus = String(focusFrameId || '').trim();
-  const frames: ArtboardFrame[] = Array.isArray(doc.frames) ? doc.frames : [];
-  const frame =
-    (focus && frames.find((f) => f?.id === focus)) ||
-    frames.find((f) => f?.id) ||
-    null;
-  if (frame) {
-    try {
-      const w = Math.max(1, Number(frame.width) || 1);
-      const h = Math.max(1, Number(frame.height) || 1);
-      const maxSide = 640;
-      const multiplier = Math.min(1.25, Math.max(0.2, maxSide / Math.max(w, h)));
-      const rendered = await renderExport({
-        document: doc,
-        format: 'jpeg',
-        compress: true,
-        multiplier,
-        crop: {
-          x: Number(frame.x) || 0,
-          y: Number(frame.y) || 0,
-          width: w,
-          height: h,
-        },
-        backgroundColor: String(frame.backgroundColor || frame.fill || '#FFFFFF'),
-      });
-      if (rendered?.kind === 'raster' && rendered.dataUrl?.startsWith('data:image/')) {
-        // Drop oversized payloads (API caps ~1.5MB text).
-        if (rendered.dataUrl.length <= 1_400_000) return rendered.dataUrl;
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-  return captureFocusFramePreview(doc, focusFrameId);
-}
 
 export type ToolOpResult = {
   op_id: string;
@@ -925,7 +77,6 @@ export type AiQueuedOp = {
   op_id?: string;
 };
 
-/** One DesignTransaction's apply queue — enqueue / drain / pause / cancel / rollback. */
 export type AiOperationQueue = {
   transactionId: string | null;
   phase: string;
@@ -948,196 +99,177 @@ export function createAiOperationQueue(): AiOperationQueue {
   };
 }
 
-function aiQueueClosed(status: AiQueueStatus): boolean {
-  return (
-    status === 'rolled_back' || status === 'cancelled' || status === 'paused'
-  );
+function isClosed(status: AiQueueStatus): boolean {
+  return ['rolled_back', 'cancelled', 'paused'].includes(status);
 }
 
 export function aiQueueBegin(
-  q: AiOperationQueue,
+  queue: AiOperationQueue,
   opts: { transactionId: string; phase?: string; baseRevision?: number }
-): void {
-  const tid = String(opts.transactionId || '').trim();
-  if (!tid) return;
-  q.transactionId = tid;
-  q.phase = String(opts.phase || 'paint').trim() || 'paint';
-  q.baseRevision = Math.max(0, Number(opts.baseRevision) || 0);
-  q.status = 'open';
-  q.historyPushed = false;
-  q.pending = [];
-  q.opResults = [];
+) {
+  const transactionId = String(opts.transactionId || '').trim();
+  if (!transactionId) return;
+  queue.transactionId = transactionId;
+  queue.phase = String(opts.phase || 'paint').trim() || 'paint';
+  queue.baseRevision = Math.max(0, Number(opts.baseRevision) || 0);
+  queue.status = 'open';
+  queue.historyPushed = false;
+  queue.pending = [];
+  queue.opResults = [];
 }
 
-export function aiQueueBindTransaction(
-  q: AiOperationQueue,
-  transactionId: string
-): void {
-  const tid = String(transactionId || '').trim();
-  if (!tid) return;
-  if (q.transactionId && q.transactionId !== tid) return;
-  q.transactionId = tid;
-  if (q.status === 'idle' || q.status === 'committed') q.status = 'open';
+export function aiQueueBindTransaction(queue: AiOperationQueue, id: string) {
+  const transactionId = String(id || '').trim();
+  if (!transactionId || (queue.transactionId && queue.transactionId !== transactionId)) return;
+  queue.transactionId = transactionId;
+  if (queue.status === 'idle' || queue.status === 'committed') queue.status = 'open';
 }
 
-export function aiQueueEnqueue(
-  q: AiOperationQueue,
-  ops: AiQueuedOp[]
-): boolean {
-  if (!ops.length) return false;
-  if (aiQueueClosed(q.status)) return false;
-  if (q.status === 'idle') {
-    q.status = 'open';
-    q.historyPushed = false;
-  } else if (q.status === 'committed') {
-    // SSE commit is sync; drain may still be in-flight — keep history group.
-    q.status = 'open';
+export function aiQueueEnqueue(queue: AiOperationQueue, ops: AiQueuedOp[]): boolean {
+  if (!ops.length || isClosed(queue.status)) return false;
+  if (queue.status === 'idle') {
+    queue.status = 'open';
+    queue.historyPushed = false;
+  } else if (queue.status === 'committed') {
+    queue.status = 'open';
   }
-  q.pending.push(ops);
+  queue.pending.push(ops);
   return true;
 }
 
-export function aiQueueTakeChunk(q: AiOperationQueue): AiQueuedOp[] | null {
-  if (aiQueueClosed(q.status)) return null;
-  if (!q.pending.length) return null;
-  q.status = 'applying';
-  return q.pending.shift() || null;
+export function aiQueueTakeChunk(queue: AiOperationQueue): AiQueuedOp[] | null {
+  if (isClosed(queue.status) || !queue.pending.length) return null;
+  queue.status = 'applying';
+  return queue.pending.shift() || null;
 }
 
 export function aiQueueMarkApplied(
-  q: AiOperationQueue,
+  queue: AiOperationQueue,
   opts: { historyPushed: boolean; opResults: ToolOpResult[] }
-): void {
-  if (opts.historyPushed) q.historyPushed = true;
-  if (opts.opResults.length) q.opResults.push(...opts.opResults);
-  if (q.status === 'applying') {
-    q.status = q.pending.length ? 'open' : 'committed';
+) {
+  if (opts.historyPushed) queue.historyPushed = true;
+  if (opts.opResults.length) queue.opResults.push(...opts.opResults);
+  if (queue.status === 'applying') {
+    queue.status = queue.pending.length ? 'open' : 'committed';
   }
 }
 
-export function aiQueueShouldSkipHistory(
-  q: AiOperationQueue,
-  transactionId: string
-): boolean {
-  const tid = String(transactionId || '').trim();
-  return Boolean(tid && q.transactionId === tid && q.historyPushed);
+export function aiQueueShouldSkipHistory(queue: AiOperationQueue, id: string): boolean {
+  const transactionId = String(id || '').trim();
+  return Boolean(transactionId && queue.transactionId === transactionId && queue.historyPushed);
 }
 
-export function aiQueuePause(q: AiOperationQueue): void {
-  if (q.status === 'open' || q.status === 'applying') q.status = 'paused';
+export function aiQueuePause(queue: AiOperationQueue) {
+  if (queue.status === 'open' || queue.status === 'applying') queue.status = 'paused';
 }
 
-export function aiQueueCommit(
-  q: AiOperationQueue,
-  transactionId?: string
-): void {
-  const tid = String(transactionId || '').trim();
-  if (tid && !q.transactionId) q.transactionId = tid;
-  if (q.status === 'rolled_back' || q.status === 'cancelled') return;
-  // Do not drop pending — commit SSE is sync and can race ahead of async drain.
-  if (!q.pending.length && q.status !== 'applying') q.status = 'committed';
+export function aiQueueCommit(queue: AiOperationQueue, id?: string) {
+  const transactionId = String(id || '').trim();
+  if (transactionId && !queue.transactionId) queue.transactionId = transactionId;
+  if (queue.status === 'rolled_back' || queue.status === 'cancelled') return;
+  if (!queue.pending.length && queue.status !== 'applying') queue.status = 'committed';
 }
 
-export function aiQueueRollback(
-  q: AiOperationQueue,
-  transactionId?: string
-): boolean {
-  const tid = String(transactionId || '').trim();
-  if (tid && q.transactionId && tid !== q.transactionId) return false;
-  if (q.status === 'rolled_back' || q.status === 'cancelled') return false;
-  const shouldUndo = q.historyPushed;
-  q.status = 'rolled_back';
-  q.pending = [];
-  q.historyPushed = false;
-  return shouldUndo;
+export function aiQueueRollback(queue: AiOperationQueue, id?: string): boolean {
+  const transactionId = String(id || '').trim();
+  if (
+    (transactionId && queue.transactionId && transactionId !== queue.transactionId) ||
+    queue.status === 'rolled_back' ||
+    queue.status === 'cancelled'
+  ) {
+    return false;
+  }
+  const undo = queue.historyPushed;
+  queue.status = 'rolled_back';
+  queue.pending = [];
+  queue.historyPushed = false;
+  return undo;
 }
 
-export function aiQueueCancel(q: AiOperationQueue): boolean {
-  if (q.status === 'rolled_back' || q.status === 'cancelled') return false;
-  const shouldUndo = q.historyPushed;
-  q.status = 'cancelled';
-  q.pending = [];
-  q.historyPushed = false;
-  return shouldUndo;
+export function aiQueueCancel(queue: AiOperationQueue): boolean {
+  if (queue.status === 'rolled_back' || queue.status === 'cancelled') return false;
+  const undo = queue.historyPushed;
+  queue.status = 'cancelled';
+  queue.pending = [];
+  queue.historyPushed = false;
+  return undo;
 }
 
-export function aiQueueFlushResults(q: AiOperationQueue): ToolOpResult[] {
-  const out = q.opResults;
-  q.opResults = [];
-  return out;
+export function aiQueueFlushResults(queue: AiOperationQueue): ToolOpResult[] {
+  const results = queue.opResults;
+  queue.opResults = [];
+  return results;
 }
 
-export function aiQueueAckStatus(q: AiOperationQueue): 'ack' | 'rollback' {
-  if (q.status === 'rolled_back' || q.status === 'cancelled') return 'rollback';
-  return 'ack';
+export function aiQueueAckStatus(queue: AiOperationQueue): 'ack' | 'rollback' {
+  return queue.status === 'rolled_back' || queue.status === 'cancelled'
+    ? 'rollback'
+    : 'ack';
+}
+
+export function acknowledgeAppliedDesignCommand(
+  taskId: string | null | undefined,
+  sequence: number | null | undefined,
+  signal?: AbortSignal,
+) {
+  const normalizedTaskId = String(taskId || '').trim();
+  const normalizedSequence = Number(sequence || 0);
+  if (!normalizedTaskId || normalizedSequence <= 0) return;
+  void acknowledgeDesignCanvasCommands(normalizedTaskId, normalizedSequence, signal)
+    .catch((error) => console.warn('[design command ack failed]', {
+      commandTaskId: normalizedTaskId,
+      commandSeq: normalizedSequence,
+      error,
+    }));
 }
 
 function overlayArgId(args: Record<string, unknown> | undefined): string | null {
   if (!args) return null;
-  const fromScalar = [args.id, args.nodeId, args.node_id]
-    .map((v) => String(v || '').trim())
-    .find(Boolean);
-  if (fromScalar) return fromScalar;
-  const list = args.ids ?? args.nodeIds;
-  if (!Array.isArray(list) || !list.length) return null;
-  const last = String(list[list.length - 1] || '').trim();
-  return last || null;
+  const scalar = [args.id, args.nodeId, args.node_id].map((value) => String(value || '').trim()).find(Boolean);
+  if (scalar) return scalar;
+  const ids = args.ids ?? args.nodeIds;
+  return Array.isArray(ids) && ids.length ? String(ids[ids.length - 1] || '').trim() || null : null;
 }
 
 export function overlayLabelForAction(action?: string): string {
-  switch (action) {
-    case 'create_text':
-      return 'Adding text…';
-    case 'create_shape':
-      return 'Adding shape…';
-    case 'create_image':
-      return 'Adding image…';
-    case 'create_frame':
-      return 'Opening artboard…';
-    case 'update_node':
-      return 'Updating element…';
-    case 'delete_nodes':
-      return 'Removing elements…';
-    case 'delete_frame':
-      return 'Removing artboard…';
-    default:
-      return action ? `Applying ${action}…` : 'Editing elements…';
-  }
+  const labels: Record<string, string> = {
+    create_text: 'Adding text…', create_shape: 'Adding shape…', create_image: 'Adding image…',
+    create_frame: 'Opening artboard…', update_node: 'Updating element…', delete_nodes: 'Removing elements…', delete_frame: 'Removing artboard…',
+  };
+  return labels[action || ''] || (action ? `Applying ${action}…` : 'Editing elements…');
 }
 
-/** Map a tool_ops chunk onto ephemeral overlay fields (never SceneDocument). */
-export function overlayFromToolOps(opts: {
-  ops: Array<{ name?: string; args?: Record<string, unknown> }>;
-  frameId?: string | null;
-  transactionId?: string;
-  label?: string;
-  appliedNodeIds?: string[];
-}): {
-  active: true;
-  transactionId?: string;
-  frameId: string | null;
-  nodeId: string | null;
-  action?: string;
-  label: string;
-} {
+export function overlayFromToolOps(opts: { ops: Array<{ name?: string; args?: Record<string, unknown> }>; frameId?: string | null; transactionId?: string; label?: string; appliedNodeIds?: string[] }) {
   const last = opts.ops.length ? opts.ops[opts.ops.length - 1] : undefined;
   const applied = (opts.appliedNodeIds || []).filter(Boolean);
-  const nodeId =
-    (applied.length ? applied[applied.length - 1] : '') ||
-    overlayArgId(last?.args) ||
-    null;
+  const nodeId = (applied.length ? applied[applied.length - 1] : '') || overlayArgId(last?.args) || null;
   const action = String(last?.name || '').trim() || undefined;
-  return {
-    active: true,
-    transactionId: opts.transactionId,
-    frameId: opts.frameId ?? null,
-    nodeId: nodeId || null,
-    action,
-    label: opts.label || overlayLabelForAction(action),
-  };
+  return { active: true as const, transactionId: opts.transactionId, frameId: opts.frameId ?? null, nodeId, action, label: opts.label || overlayLabelForAction(action) };
 }
 
-/** Apply allowlisted canvas tool_ops (Design Agent SSE + coding-CLI bridge). */
+export type ToolOpsExecutorContext = {
+  dispatch: Dispatch;
+  getDocument: () => SceneDocument | null;
+  frameId: string | null;
+  signal?: AbortSignal;
+  canvasUi?: CanvasUiBridge | null;
+  transactionId?: string;
+  baseRevision?: number;
+  currentRevision?: number;
+  skipHistoryPush?: boolean;
+  appliedOpIds: Set<string>;
+};
+
+export type ToolOpsExecutionResult = {
+  created: number;
+  updated: number;
+  deleted: number;
+  nodeIds: string[];
+  frameId: string | null;
+  opResults: ToolOpResult[];
+  historyPushed: boolean;
+  revisionAction?: 'apply' | 'rebase' | 'reject';
+};
 export async function applyAgentToolOps(opts: {
   ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
   dispatch: Dispatch;
@@ -1383,31 +515,38 @@ export async function applyAgentToolOps(opts: {
   };
 }
 
-/** Show artboard scan/shimmer while the design agent is generating. */
-function markArtboardGenerating(
-  dispatch: Dispatch,
-  frameId: string | null | undefined,
-  label = 'Preparing…',
-  extra?: {
-    transactionId?: string;
-    nodeId?: string | null;
-    action?: string;
-  }
-) {
-  if (!frameId) return;
-  dispatch(
-    setAiOperationState({
-      active: true,
-      frameId,
-      label,
-      transactionId: extra?.transactionId,
-      nodeId: extra?.nodeId ?? null,
-      action: extra?.action,
-    })
-  );
+
+/** Fully resolved WxH only. Auto and partial-auto never create a stock artboard. */
+export function parseResolvedSize(
+  canvasSize?: string | null
+): { width: number; height: number } | null {
+  const raw = String(canvasSize || '')
+    .toLowerCase()
+    .replace('*', 'x')
+    .replace(/\s+/g, '')
+    .trim();
+  const match = raw.match(/^(\d+)x(\d+)$/);
+  if (!match) return null;
+  const width = Math.max(64, Number(match[1]) || 0);
+  const height = Math.max(64, Number(match[2]) || 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  return { width, height };
 }
 
-function ensureFrameSize(opts: {
+export function frameSizeFromDoc(
+  getDocument: () => SceneDocument | null,
+  frameId: string | null | undefined
+): { width: number; height: number } | null {
+  if (!frameId) return null;
+  const doc = getDocument();
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  const frame = frames.find((item) => item?.id === frameId);
+  const width = Math.round(Number(frame?.width) || 0);
+  const height = Math.round(Number(frame?.height) || 0);
+  return width >= 64 && height >= 64 ? { width, height } : null;
+}
+
+export function ensureFrameSize(opts: {
   dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   frameId: string | null;
@@ -1425,7 +564,7 @@ function ensureFrameSize(opts: {
   if (!doc) return null;
   let frameId = opts.frameId;
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  if (!frameId || !frames.some((f) => f.id === frameId)) {
+  if (!frameId || !frames.some((frame) => frame.id === frameId)) {
     const slot = nextArtboardOrigin(doc, opts.width, opts.height);
     const created = executeDesignTool(
       'create_frame',
@@ -1444,15 +583,14 @@ function ensureFrameSize(opts: {
     if (!frameId) {
       doc = opts.getDocument();
       const nextFrames = Array.isArray(doc?.frames) ? doc.frames : [];
-      // Prefer the newest frame — do not fall back to activeFrameId (agent does not activate).
       frameId = nextFrames[nextFrames.length - 1]?.id || null;
     }
     return frameId;
   }
-  const frame = frames.find((f) => f.id === frameId);
-  const fw = Math.round(Number(frame?.width) || 0);
-  const fh = Math.round(Number(frame?.height) || 0);
-  if (fw !== opts.width || fh !== opts.height) {
+  const frame = frames.find((item) => item.id === frameId);
+  const width = Math.round(Number(frame?.width) || 0);
+  const height = Math.round(Number(frame?.height) || 0);
+  if (width !== opts.width || height !== opts.height) {
     executeDesignTool(
       'update_frame',
       JSON.stringify({ frameId, width: opts.width, height: opts.height }),
@@ -1462,6 +600,11 @@ function ensureFrameSize(opts: {
   return frameId;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const SKIP_TAGS = new Set([
+  'defs', 'clippath', 'mask', 'pattern', 'lineargradient', 'radialgradient',
+  'filter', 'style', 'script', 'title', 'desc', 'metadata', 'marker', 'symbol',
+]);
 function wrapSvgFragment(svg: string, width: number, height: number): string {
   const trimmed = svg.trim();
   if (/^<svg[\s>]/i.test(trimmed)) return trimmed;
@@ -1669,7 +812,10 @@ function isInsideSkipped(el: Element): boolean {
   return false;
 }
 
-type ToolOp = { name: 'create_shape' | 'create_text' | 'create_image'; args: Record<string, unknown> };
+export type ToolOp = {
+  name: 'create_shape' | 'create_text' | 'create_image';
+  args: Record<string, unknown>;
+};
 
 type SvgElGeom = {
   el: SVGGraphicsElement;
@@ -1905,7 +1051,7 @@ function elementToToolOp(el: SVGGraphicsElement, root: SVGSVGElement): ToolOp | 
   }
 }
 
-function designSvgToToolOps(svg: string, size: { width: number; height: number }): ToolOp[] {
+export function designSvgToToolOps(svg: string, size: { width: number; height: number }): ToolOp[] {
   if (typeof document === 'undefined') return [];
   const wrapped = wrapSvgFragment(svg, size.width, size.height);
   const parsed = new DOMParser().parseFromString(wrapped, 'image/svg+xml');
@@ -1933,6 +1079,7 @@ function designSvgToToolOps(svg: string, size: { width: number; height: number }
   }
   return out;
 }
+
 
 export type ApplyDesignSvgResult = {
   frameId: string | null;
@@ -2207,24 +1354,7 @@ function collectPrevIds(opts: {
   ].filter(Boolean);
 }
 
-/**
- * Apply design SVG through canvas tools → editable nodes (progressive live-draw).
- */
-function frameSizeFromDoc(
-  getDocument: () => SceneDocument | null,
-  frameId: string | null | undefined
-): { width: number; height: number } | null {
-  if (!frameId) return null;
-  const doc = getDocument();
-  const frame = (Array.isArray(doc?.frames) ? doc.frames : []).find(
-    (f) => f?.id === frameId
-  );
-  const width = Math.round(Number(frame?.width) || 0);
-  const height = Math.round(Number(frame?.height) || 0);
-  if (width < 64 || height < 64) return null;
-  return { width, height };
-}
-
+/** Apply design SVG through canvas tools as editable nodes (progressive live-draw). */
 export async function applyDesignSvgToDocumentProgressive(opts: {
   dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
@@ -2312,6 +1442,288 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+
+import {
+  buildSceneFramesSnapshot,
+  buildSceneNodesForCanvas,
+  buildSceneNodesForEdit,
+  buildSceneNodesForIds,
+  buildSpatialSummary,
+  explicitPinnedFrameId,
+  frameIdContainingNode,
+  nodeIdsInsideFrame,
+  resolveDesignTargetFrame,
+  resolveToolOpsFrameId,
+  sizeFromCreateFrameOp,
+  type SceneFrameSnapshot,
+  type SceneNodeInventoryItem,
+  type SpatialSummary,
+} from './agentSceneContext';
+export {
+  buildSceneFramesSnapshot,
+  buildSceneNodesForCanvas,
+  buildSceneNodesForEdit,
+  buildSceneNodesForIds,
+  buildSpatialSummary,
+  frameIdContainingNode,
+  nodeIdsInsideFrame,
+  resolveDesignTargetFrame,
+};
+export type { SceneFrameSnapshot, SceneNodeInventoryItem, SpatialSummary } from './agentSceneContext';
+type AskChoiceUi = {
+  mode: 'confirm' | 'single' | 'multi' | 'buttons' | 'text';
+  options: Array<{ label: string; action: 'apply' | 'reply' | 'dismiss' }>;
+  placeholder?: string;
+};
+
+type DesignStatusEvent = Extract<DesignJobEvent, { type: 'status' }>;
+type DesignSkillStartEvent = Extract<DesignJobEvent, { type: 'skill_start' }>;
+type DesignSkillProgressEvent = Extract<DesignJobEvent, { type: 'skill_progress' }>;
+type DesignActivityEvent = Extract<DesignJobEvent, { type: 'activity' }>;
+type DesignToolOpsEvent = Extract<DesignJobEvent, { type: 'tool_ops' }>;
+type DesignSceneFeedbackEvent = Extract<DesignJobEvent, { type: 'scene_feedback_request' }>;
+type DesignTransactionBeginEvent = Extract<DesignJobEvent, { type: 'transaction.begin' }>;
+type DesignTransactionCommitEvent = Extract<DesignJobEvent, { type: 'transaction.commit' }>;
+type DesignTransactionRollbackEvent = Extract<
+  DesignJobEvent,
+  { type: 'transaction.rollback' }
+>;
+type DesignSkillDoneEvent = Extract<DesignJobEvent, { type: 'skill_done' }>;
+type DesignResultEvent = Extract<DesignJobEvent, { type: 'result' }>;
+
+function normalizeChoiceUi(raw: unknown): AskChoiceUi | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as {
+    mode?: string;
+    options?: unknown[];
+    placeholder?: string;
+    hint?: string;
+  };
+  let modeRaw = String(obj.mode || '').trim().toLowerCase();
+  if (
+    modeRaw === 'freeform' ||
+    modeRaw === 'free_text' ||
+    modeRaw === 'input' ||
+    modeRaw === 'textarea'
+  ) {
+    modeRaw = 'text';
+  }
+  const mode: AskChoiceUi['mode'] =
+    modeRaw === 'confirm' ||
+    modeRaw === 'single' ||
+    modeRaw === 'multi' ||
+    modeRaw === 'buttons' ||
+    modeRaw === 'text'
+      ? modeRaw
+      : 'buttons';
+  const options: AskChoiceUi['options'] = [];
+  for (const item of obj.options || []) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as { label?: string; action?: string };
+    let action = String(row.action || 'reply').trim().toLowerCase();
+    if (action === 'cancel' || action === 'close') action = 'dismiss';
+    if (action === 'ok' || action === 'confirm') action = 'apply';
+    if (action !== 'apply' && action !== 'reply' && action !== 'dismiss') {
+      action = 'reply';
+    }
+    const label = String(row.label || '').trim();
+    if (!label && action === 'reply') continue;
+    options.push({ label, action: action as AskChoiceUi['options'][number]['action'] });
+    if (options.length >= 8) break;
+  }
+  const placeholder = String(obj.placeholder || obj.hint || '').trim() || undefined;
+  if (!options.length && mode !== 'text') return undefined;
+  return { mode, options, ...(placeholder ? { placeholder } : {}) };
+}
+
+/** Client chip WxH — never let backend status rewrite it. */
+function parseLockedClientSize(canvasSize?: string | null): string | null {
+  const s = String(canvasSize || '')
+    .trim()
+    .toLowerCase()
+    .replace('*', 'x');
+  return /^\d+x\d+$/.test(s) ? s : null;
+}
+
+export async function captureFocusFramePreview(
+  doc: SceneDocument,
+  focusFrameId?: string | null
+): Promise<string | null> {
+  if (typeof window === 'undefined' || !doc) return null;
+  const summary = buildSpatialSummary(doc, { focusFrameId });
+  const focus = summary.focus_frame_id;
+  if (!focus) return null;
+  const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
+    (f) => String(f?.id) === focus
+  );
+  const fw = Math.max(64, Math.round(Number(frame?.width) || 1280));
+  const fh = Math.max(64, Math.round(Number(frame?.height) || 720));
+  const maxEdge = 768;
+  const scale = Math.min(1, maxEdge / Math.max(fw, fh));
+  const outW = Math.max(64, Math.round(fw * scale));
+  const outH = Math.max(64, Math.round(fh * scale));
+
+  const bg = String(
+    (frame as { fill?: string; background?: string } | undefined)?.fill ||
+      (frame as { fill?: string; background?: string } | undefined)?.background ||
+      frame?.backgroundColor ||
+      '#ffffff'
+  );
+  const parts: string[] = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${outH}" viewBox="0 0 ${fw} ${fh}">`,
+    `<rect width="${fw}" height="${fh}" fill="${bg.replace(/"/g, '') || '#fff'}"/>`,
+  ];
+  for (const n of summary.focused) {
+    const fill = n.type === 'text' ? '#94a3b8' : '#cbd5e1';
+    parts.push(
+      `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" fill="${fill}" fill-opacity="0.55" stroke="#64748b" stroke-width="2"/>`
+    );
+    const label = (n.name || n.text || n.type || '').slice(0, 24);
+    if (label) {
+      const esc = label.replace(/[<>&"]/g, '');
+      parts.push(
+        `<text x="${n.x + 6}" y="${n.y + 18}" font-size="14" fill="#0f172a">${esc}</text>`
+      );
+    }
+  }
+  parts.push('</svg>');
+  const svg = parts.join('');
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('preview_img_fail'));
+      el.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.drawImage(img, 0, 0, outW, outH);
+    return canvas.toDataURL('image/jpeg', 0.72);
+  } catch {
+    return null;
+  }
+}
+
+function sceneInventoryFingerprint(doc: SceneDocument | null | undefined): string {
+  if (!doc) return '';
+  const ids = Object.keys(doc.deltaSetLike || {})
+    .filter((id) => id && id !== 'ROOT')
+    .sort();
+  const frames = (Array.isArray(doc.frames) ? doc.frames : [])
+    .map((f: { id?: string }) => String(f?.id || ''))
+    .filter(Boolean)
+    .sort();
+  return `${ids.length}:${ids.join(',')}|${frames.join(',')}`;
+}
+
+/** Wait until Redux scene inventory stops changing (Yjs/dispatch lag). */
+async function waitSceneInventorySettled(
+  getDocument: () => SceneDocument | null,
+  opts?: { timeoutMs?: number; stableFrames?: number }
+): Promise<void> {
+  const timeoutMs = Math.max(80, opts?.timeoutMs ?? 480);
+  const needStable = Math.max(1, opts?.stableFrames ?? 2);
+  const frame = () =>
+    new Promise<void>((resolve) => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => resolve());
+      } else {
+        setTimeout(resolve, 16);
+      }
+    });
+  const t0 = Date.now();
+  let prev = sceneInventoryFingerprint(getDocument());
+  let stable = 0;
+  while (Date.now() - t0 < timeoutMs) {
+    await frame();
+    const next = sceneInventoryFingerprint(getDocument());
+    if (next === prev) {
+      stable += 1;
+      if (stable >= needStable) return;
+    } else {
+      stable = 0;
+      prev = next;
+    }
+  }
+}
+
+/**
+ * Prefer a real artboard raster for CLIP critique; fall back to schematic boxes.
+ * Caps longest edge so the scene_feedback POST stays small.
+ */
+export async function captureCritiquePreview(
+  doc: SceneDocument,
+  focusFrameId?: string | null
+): Promise<string | null> {
+  if (typeof window === 'undefined' || !doc) return null;
+  const focus = String(focusFrameId || '').trim();
+  const frames: ArtboardFrame[] = Array.isArray(doc.frames) ? doc.frames : [];
+  const frame =
+    (focus && frames.find((f) => f?.id === focus)) ||
+    frames.find((f) => f?.id) ||
+    null;
+  if (frame) {
+    try {
+      const w = Math.max(1, Number(frame.width) || 1);
+      const h = Math.max(1, Number(frame.height) || 1);
+      const maxSide = 640;
+      const multiplier = Math.min(1.25, Math.max(0.2, maxSide / Math.max(w, h)));
+      const rendered = await renderExport({
+        document: doc,
+        format: 'jpeg',
+        compress: true,
+        multiplier,
+        crop: {
+          x: Number(frame.x) || 0,
+          y: Number(frame.y) || 0,
+          width: w,
+          height: h,
+        },
+        backgroundColor: String(frame.backgroundColor || frame.fill || '#FFFFFF'),
+      });
+      if (rendered?.kind === 'raster' && rendered.dataUrl?.startsWith('data:image/')) {
+        // Drop oversized payloads (API caps ~1.5MB text).
+        if (rendered.dataUrl.length <= 1_400_000) return rendered.dataUrl;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return captureFocusFramePreview(doc, focusFrameId);
+}
+
+/** Apply allowlisted canvas tool_ops (Design Agent SSE + coding-CLI bridge). */
+/** Show artboard scan/shimmer while the design agent is generating. */
+function markArtboardGenerating(
+  dispatch: Dispatch,
+  frameId: string | null | undefined,
+  label = 'Preparing…',
+  extra?: {
+    transactionId?: string;
+    nodeId?: string | null;
+    action?: string;
+  }
+) {
+  if (!frameId) return;
+  dispatch(
+    setAiOperationState({
+      active: true,
+      frameId,
+      label,
+      transactionId: extra?.transactionId,
+      nodeId: extra?.nodeId ?? null,
+      action: extra?.action,
+    })
+  );
+}
+
 export type DesignIntelligencePatch = {
   reference?: {
     thesis?: string;
@@ -2389,6 +1801,7 @@ export type AgentStepEvent =
   | { type: 'thinking'; text: string; replace?: boolean }
   | { type: 'token'; text?: string; code?: string; params?: Record<string, string> }
   | { type: 'chat' }
+  | { type: 'session_control'; action: 'clear_context' | 'stop' | string }
   | { type: 'phase'; progress: PipelineProgress }
   | { type: 'analysis'; text: string }
   | {
@@ -2821,7 +2234,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   let resultChoices: string[] = [];
   let lastPaintedSvg = '';
   let activitySeq = 0;
-  /** Early greeting divert — ignore Explored stage SSE after clear. */
+  /** Chat / session_control path — ignore Explored stage SSE after divert. */
   let chatDiverted = false;
   /** Client chip WxH — never let backend status rewrite it. */
   const lockedClientSize = parseLockedClientSize(params.canvasSize);
@@ -2953,7 +2366,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     return 'hidden';
   };
 
-  const paintSvgProgressive = (svg: string, patch?: DesignSvgPatch | null) => {
+  const paintSvgProgressive = (
+    svg: string,
+    patch?: DesignSvgPatch | null,
+    commandSeq?: number,
+  ) => {
     // Edit path must only mutate via tool_ops — SVG live-draw stacks duplicate shapes.
     // Blank artboard: empty frame only — never paint invented SVG onto anything.
     if (editInPlace || toolOpsApplied || blankArtboard) return;
@@ -3027,6 +2444,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         live.nodeIds = applied.nodeIds;
         live.frameId = applied.frameId;
         live.fingerprintById = applied.fingerprintById;
+        acknowledgeAppliedDesignCommand(liveTaskId, commandSeq, params.signal);
         coverLiveBoard(processLabels.editing || 'Editing elements…');
         // Prefer backend patch counts when present (source of truth for "incremental").
         const created = patch ? patch.create_count : applied.created;
@@ -3593,6 +3011,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             });
           }
           const anyOk = applied.opResults.some((r) => r.ok);
+          if (!failures.length) acknowledgeAppliedDesignCommand(liveTaskId, ev.command_seq, params.signal);
           toolOpsApplied = true;
           painted = painted || anyOk;
           if (applied.frameId && bindToBoard) {
@@ -3693,33 +3112,52 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         transactionId: feedbackTxId || null,
         transactionStatus: feedbackTxId ? txStatus : null,
       });
-      try {
-        await postDesignSceneFeedback(
-          taskId,
-          {
-            scene_nodes: nodes as Array<Record<string, unknown>>,
-            ...(frames.length
-              ? { scene_frames: frames as Array<Record<string, unknown>> }
-              : {}),
-            spatial_summary: spatial as unknown as Record<string, unknown>,
-            ...(opResults.length ? { op_results: opResults } : {}),
-            ...(previewImage ? { preview_image: previewImage } : {}),
-            round,
-            ...(feedbackTxId
-              ? {
-                  transaction_id: feedbackTxId,
-                  transaction_status: txStatus,
-                  ...(aiQueue.baseRevision
-                    ? { base_revision: aiQueue.baseRevision }
-                    : {}),
-                }
-              : {}),
-          },
-          params.signal
-        );
-      } catch {
-        /* ignore */
+      const feedback = {
+        scene_nodes: nodes as Array<Record<string, unknown>>,
+        ...(frames.length
+          ? { scene_frames: frames as Array<Record<string, unknown>> }
+          : {}),
+        spatial_summary: spatial as unknown as Record<string, unknown>,
+        ...(opResults.length ? { op_results: opResults } : {}),
+        ...(previewImage ? { preview_image: previewImage } : {}),
+        round,
+        ...(feedbackTxId
+          ? {
+              transaction_id: feedbackTxId,
+              transaction_status: txStatus,
+              ...(aiQueue.baseRevision
+                ? { base_revision: aiQueue.baseRevision }
+                : {}),
+            }
+          : {}),
+      };
+      const retryDelaysMs = [0, 750, 2_000];
+      let feedbackSent = false;
+      for (let attempt = 0; attempt < retryDelaysMs.length; attempt += 1) {
+        if (params.signal?.aborted) return;
+        if (retryDelaysMs[attempt]) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, retryDelaysMs[attempt]));
+        }
+        try {
+          await postDesignSceneFeedback(taskId, feedback, params.signal);
+          feedbackSent = true;
+          break;
+        } catch {
+          // The next attempt keeps the durable graph from waiting on a transient
+          // client/network failure. The final failure is surfaced below.
+        }
       }
+      activitySeq += 1;
+      params.onEvent({
+        type: 'activity',
+        id: `scene-feedback-${activitySeq}`,
+        kind: feedbackSent ? 'explored' : 'skipped',
+        status: feedbackSent ? 'done' : 'error',
+        detail: feedbackSent
+          ? 'Canvas changes checked'
+          : 'Canvas check could not be sent; changes are kept',
+        stage: 'scene_check',
+      });
     }
     paintChain = runSceneFeedbackAfterPaint();
     return;
@@ -3868,6 +3306,13 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             });
           }
           return;
+        case 'session_control': {
+          const action = String((ev as { action?: string }).action || '').trim();
+          if (action) {
+            params.onEvent({ type: 'session_control', action });
+          }
+          return;
+        }
         case 'chat_done': {
           // Ask proposals also finish without paint — do NOT wipe proposedOps / choices.
           if (pendingDone?.proposedOps?.length) return;
@@ -3967,7 +3412,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           handleStreamSkillDone(ev);
           return;
         case 'svg_delta':
-          if (!toolOpsApplied) paintSvgProgressive(ev.svg, ev.svg_patch);
+          if (!toolOpsApplied) paintSvgProgressive(ev.svg, ev.svg_patch, ev.command_seq);
           if (typeof ev.index === 'number') emitPhase(ev.index + 1, params.scene || 'design');
           return;
         case 'critique_start': {
@@ -4274,6 +3719,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       const msg = err.message || String(err);
       const networkish = /Failed to fetch|NetworkError|ERR_|timeout|aborted/i.test(msg);
       if (liveTaskId && networkish) {
+        try {
+          const replay = await fetchDesignRunEvents(liveTaskId, 0, params.signal);
+          for (const item of replay.items || []) {
+            if (item?.event) onStreamEvent(item.event);
+          }
+        } catch {
+          // Status still provides the existing pause/resume recovery path.
+        }
         try {
           const st = await fetchDesignRunStatus(liveTaskId, params.signal);
           if (st?.resumable) {

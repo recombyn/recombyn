@@ -226,14 +226,14 @@ User turn
 | Namespace | Source | Notes |
 |-----------|--------|--------|
 | `core` | Legacy `source=seed` only (not shipped) | Prefer file packs; bare keys stay BC aliases |
-| `ext` | `seeds/design_skills/<key>/` + **`plugins/skills/`** | Same canonical layout; `.agents/skills` is IDE-only |
+| `ext` | **`skills/foundation|domains`** + `plugins/skills/` (+ legacy `seeds/design_skills`) | Same canonical layout; `.agents/skills` is IDE-only |
 | `user` | Admin API | Always `user.<local>`; cannot claim core keys |
 
 Env: `DESIGN_SKILLS_HOT_RELOAD` (default true), `DESIGN_SKILLS_HOT_RELOAD_INTERVAL_SEC`, `DESIGN_SKILLS_PLUGIN_DIRS` (extra roots). Manual: Admin `POST /api/v1/admin/design/skills/resync`.
 
 Canonical layout: `_meta.json` + `SKILL.md` (+ optional `schema.json`, `handler.py`, `assets/`, `examples/`). Authoring: [skill-extensions.md](./skill-extensions.md) · sample [`plugins/skills/festival_poster/`](../plugins/skills/festival_poster/).
 
-Compose mounts `./plugins/skills` into the API container so private packs survive image upgrades.
+**Cloud / image builds:** `deploy/docker/Dockerfile.api` must `COPY skills` and `COPY plugins/skills` into `/app` (repo root as seen by `_repo_root()`). Compose also mounts `./skills` + `./plugins/skills` for local hot-reload. If the image omits `skills/`, the toolbox only shows whatever is under the plugins mount (e.g. a single demo pack).
 
 ### Prompt packs
 
@@ -271,14 +271,15 @@ docker compose up -d --build
 - API: http://localhost:8000  
 - MySQL: `127.0.0.1:3306` / db `recombyn`
 
-Design Intelligence defaults to **BasicLocal** (`RECOMBYN_INTELLIGENCE_MODE=local`). To attach an optional HTTP provider that implements the open `IntelligenceProvider` contract:
+Design Intelligence defaults to **BasicLocal** (`RECOMBYN_INTELLIGENCE_MODE=local`). To attach an optional HTTP provider that implements the open `IntelligenceProvider` contract, set `RECOMBYN_INTELLIGENCE_CONTEXT` to a directory that ships a compatible Dockerfile, then:
 
 ```bash
+export RECOMBYN_INTELLIGENCE_CONTEXT=/path/to/provider
 docker compose -f docker-compose.yml -f docker-compose.intelligence.yml \
   --profile intelligence up -d --build
 ```
 
-Requires a compatible provider checkout at `RECOMBYN_INTELLIGENCE_CONTEXT` (default `../recombyn-intelligence`). Details: [ADR 0017](./adr/0017-intelligence-provider-boundary.md).
+Details: [ADR 0017](./adr/0017-intelligence-provider-boundary.md).
 
 On first API start, schema + seed data are applied automatically.
 

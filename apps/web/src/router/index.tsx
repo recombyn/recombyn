@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, memo, type ReactNode } from 'react
 import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { NuqsAdapter } from 'nuqs/adapters/react-router/v6';
+import { ProgressBar, advanceBootProgress, readBootProgress } from '@/components/base';
 import AppShell from '@/components/layout/AppShell';
 import HomePage from '@/pages/HomePage';
 import LoginRedirectPage from '@/pages/LoginRedirectPage';
@@ -18,9 +19,32 @@ const AccountSettingsPage = lazy(() => import('@/pages/AccountSettingsPage'));
 const EditorPage = lazy(() => import('@/pages/EditorPage'));
 const SharePage = lazy(() => import('@/pages/SharePage'));
 
-/** Minimal shell while a heavy route chunk loads. */
+/** Chunk load (editor / share / account) — continues HTML splash high-water. Home is eager. */
 function RouteFallback(): ReactNode {
-  return <div className="h-full min-h-0 w-full bg-[var(--canvas)]" aria-busy="true" />;
+  const [pct, setPct] = useState(() => Math.max(8, readBootProgress()));
+  useEffect(() => {
+    advanceBootProgress(pct);
+    const id = window.setInterval(() => {
+      setPct((p) => {
+        const next = p >= 70 ? p : Math.min(70, p + 2);
+        return advanceBootProgress(next);
+      });
+    }, 220);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- climb once per fallback mount
+  }, []);
+
+  return (
+    <div
+      className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--canvas)]"
+      aria-busy="true"
+    >
+      <div className="flex flex-col items-center gap-3" style={{ width: 'min(220px, 56vw)' }}>
+        <ProgressBar percent={pct} active height={6} format={false} />
+        <span className="text-[12px] tabular-nums text-[var(--muted)]">{pct}%</span>
+      </div>
+    </div>
+  );
 }
 
 function LazyRoute({ children }: { children: ReactNode }) {

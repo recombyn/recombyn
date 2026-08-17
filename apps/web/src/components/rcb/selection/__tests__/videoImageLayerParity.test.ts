@@ -64,7 +64,7 @@ describe('image vs video paint layers', () => {
   it('videoSvgOwnsPixels: world surface → HTML owns pixels', () => {
     const { root } = svgRoot({
       'data-rcb-infinite': '1',
-      'data-rcb-world-surface': '1',
+      'data-rcb-shared-scene-surface': '1',
     });
     expect(videoSvgOwnsPixels(root)).toBe(false);
   });
@@ -85,7 +85,7 @@ describe('image vs video paint layers', () => {
   it('image on world surface paints one <image> (single layer, like today)', async () => {
     const { root, layer } = svgRoot({
       'data-rcb-infinite': '1',
-      'data-rcb-world-surface': '1',
+      'data-rcb-shared-scene-surface': '1',
     });
     const el = await nodeToSvgElement(root, layer, doc, imageNode(box), 'img1');
     expect(el).toBeTruthy();
@@ -100,7 +100,7 @@ describe('image vs video paint layers', () => {
   it('video on world surface paints poster underlay (image-parity drag path)', async () => {
     const { root, layer } = svgRoot({
       'data-rcb-infinite': '1',
-      'data-rcb-world-surface': '1',
+      'data-rcb-shared-scene-surface': '1',
     });
     const el = await nodeToSvgElement(root, layer, doc, videoNode(box), 'vid1');
     expect(el).toBeTruthy();
@@ -146,7 +146,7 @@ describe('video move preview geom == HTML plate override', () => {
   it('previewSvgNodeGeometry updates __scene* to the same box VideoNodeOverlay must use', async () => {
     const { root, layer } = svgRoot({
       'data-rcb-infinite': '1',
-      'data-rcb-world-surface': '1',
+      'data-rcb-shared-scene-surface': '1',
     });
     const node = videoNode(box);
     const el = await nodeToSvgElement(root, layer, doc, node, 'vid-move');
@@ -176,7 +176,7 @@ describe('video move preview geom == HTML plate override', () => {
   it('lottie generator move keeps SVG geom on the same lattice as image/video', async () => {
     const { root, layer } = svgRoot({
       'data-rcb-infinite': '1',
-      'data-rcb-world-surface': '1',
+      'data-rcb-shared-scene-surface': '1',
     });
     const node = lottieGenNode(box);
     const el = await nodeToSvgElement(root, layer, doc, node, 'lottie-gen-move');

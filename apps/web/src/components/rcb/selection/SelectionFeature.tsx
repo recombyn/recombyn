@@ -20,7 +20,17 @@ import {
   type SceneBox,
   type SmartGuideLine,
 } from './alignGuides';
-import SelectionChrome from './SelectionChrome';
+import SelectionChrome, {
+  cursorForResize,
+  pickChromeHandleAtClient,
+  pickOverlayHandleAtClient,
+  pickSelectionInkAtClient,
+  syncOverlayHandleHoverAtClient,
+  tryOverlayHandleDoubleClick,
+  tryStartOverlayHandleSeat,
+  type ChromeHandlePick,
+} from './SelectionChrome';
+import { cursorForRotate } from './rotateCornerCursor';
 import SelectionContextToolbar from './chrome/SelectionContextToolbar';
 import MultiSelectionToolbar from './chrome/MultiSelectionToolbar';
 import NodeTitleLabel from './chrome/NodeTitleLabel';
@@ -39,6 +49,7 @@ import {
   type ResizeHandle,
 } from './resizeGeometry';
 import { rememberNodePath2D } from '@/components/rcb/scene/document/sceneShapes';
+import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import { expandSelectionWithGroups } from '@/components/rcb/scene/document/sceneGroups';
 import {
   isAudioGeneratorNode,
@@ -51,17 +62,31 @@ import {
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
-import { deflateSelectionBox } from '@/components/rcb/scene/document/sceneEffects';
+import { deflateSelectionBox, inflateSelectionBox, strokeOuterClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 import { isEditablePathNode } from '@/components/rcb/scene/paint/outlineToPath';
 import { patchDocumentNode, setDevHoverNodeId } from '@/store/modules/editor';
 import type { TextResizeMode } from '@/components/rcb/scene/paint/svgToScene';
+
+function setEndpointHover(handle: 'w' | 'e' | null) {
+  if (typeof window === 'undefined') return;
+  const root = window.document;
+  root.querySelectorAll('[data-rcb-endpoint-hover="1"]').forEach((el) =>
+    el.removeAttribute('data-rcb-endpoint-hover')
+  );
+  if (!handle) return;
+  root.querySelectorAll(`[data-rcb-sel-endpoint="${handle}"]`).forEach((el) => {
+    const halo = el.parentElement?.querySelector('.sel-ep-halo');
+    halo?.setAttribute('data-rcb-endpoint-hover', '1');
+  });
+}
 import {
   ShapeOutlineSvg,
+  liveShapeGeomBox,
   nodeUsesOpenStrokeEndpoints,
   pathLocalEndpoints,
   type ShapeOutlineItem,
 } from './HostPathChrome';
-import { smartSnapThreshold } from './alignGuides';
+import { subscribeShapeHosts } from '@/components/rcb/shapes/shapeHostRegistry';import { smartSnapThreshold } from './alignGuides';
 import {
   CORNER_HANDLES,
   textResizeModeForHandle,
@@ -86,8 +111,8 @@ import {
   toolbarBoxForSelection,
   patchesAsOrigins,
   multiMembersKey,
-  DRAG_SCREEN_PX,
   DRAG_DISTANCE_SQUARED,
+  isMotionlessClick,
   BRUSH_SCREEN_PX,
   TOUCH_BRUSH_SCREEN_PX,
   brushScreenPx,
@@ -100,9 +125,9 @@ import {
   isRecentNodeDoubleTap,
   buildMoveOriginsForHit,
   filterMarqueeContentHits,
+  resolveMarqueeCandidates,
   commitMarqueeSelection,
   visualGuideBoxForNode,
-  visualBoxFromChromeOrigin,
   computeMovedUnion,
   computeResizedUnion,
   collectSmartGuideTargets,
@@ -119,8 +144,8 @@ import {
   deflateChromeBox,
   resolveTransformHostGuideBox,
   buildShapeOutlines,
-  resolveToolbarEdgePadScene,
   resolveChromeUnion,
+  resolvePaintedControlChrome,
   resolveHoverImageVariantsId,
   resolveSelectionEdgeHandles,
   type MediaTitleIcon,
@@ -131,6 +156,85 @@ import {
 } from './selectionLogic';
 import { frameSelId, parseFrameSelId } from './frameSelectionIds';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+
+const ROTATE_CORNER_ICON_DEG = {
+  nw: 0,
+  ne: 90,
+  se: 180,
+  sw: 270,
+} as const;
+
+function rotateCornerIconDeg(corner: keyof typeof ROTATE_CORNER_ICON_DEG): number {
+  return ROTATE_CORNER_ICON_DEG[corner];
+}
+
+/** One frame of live transform chrome + paint (ADR 0027 — RAF preview). */
+export type TransformPreviewBatch = {
+  union?: SceneBox | null;
+  origins?: Array<{ nodeId: string; box: SceneBox }> | null;
+  angle?: number;
+  guides?: SmartGuideLine[];
+  clearGuides?: boolean;
+  marquee?: SceneBox | null;
+  geom?: GeometryPatch[];
+  geomOpts?: { textResizeMode?: TextResizeMode };
+  angles?: Array<{ nodeId: string; angle: number }>;
+};
+
+/**
+ * Coalesce pointermove transform previews to one rAF.
+ * Commit path must {@link TransformPreviewCoalescer.cancel} — do not flush stale
+ * mid-gesture paint over the final pointerup geometry.
+ */
+export type TransformPreviewCoalescer = {
+  queue: (patch: TransformPreviewBatch) => void;
+  cancel: () => void;
+};
+
+export function createTransformPreviewCoalescer(handlers: {
+  applyChrome: (batch: TransformPreviewBatch) => void;
+  applyGeom: (
+    patches: GeometryPatch[],
+    opts?: { textResizeMode?: TextResizeMode }
+  ) => void;
+  applyAngles: (angles: Array<{ nodeId: string; angle: number }>) => void;
+}): TransformPreviewCoalescer {
+  let raf = 0;
+  let pending: TransformPreviewBatch | null = null;
+
+  const flush = () => {
+    raf = 0;
+    const batch = pending;
+    pending = null;
+    if (!batch) return;
+    handlers.applyChrome(batch);
+    if (batch.geom?.length) handlers.applyGeom(batch.geom, batch.geomOpts);
+    if (batch.angles?.length) handlers.applyAngles(batch.angles);
+  };
+
+  return {
+    queue(patch) {
+      pending = pending
+        ? {
+            ...pending,
+            ...patch,
+            geom: patch.geom !== undefined ? patch.geom : pending.geom,
+            geomOpts: patch.geomOpts !== undefined ? patch.geomOpts : pending.geomOpts,
+            angles: patch.angles !== undefined ? patch.angles : pending.angles,
+            guides: patch.guides !== undefined ? patch.guides : pending.guides,
+          }
+        : { ...patch };
+      if (!raf) raf = requestAnimationFrame(flush);
+    },
+    cancel() {
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+      pending = null;
+    },
+  };
+}
 
 type SelectionFeatureProps = {
   enabled: boolean;
@@ -304,6 +408,18 @@ function SelectionFeature({
   const gridSizeRef = useRef(gridSize);
   const readOnlyRef = useRef(readOnly);
   const attachPickActiveRef = useRef(attachPickActive);
+  /** Latest chrome pick options — read on pointer events (not effect deps). */
+  const chromePickOptsRef = useRef({
+    zoom: 1,
+    showHandles: false,
+    showRotate: false,
+    lineMode: false,
+    cornerHandlesOnly: false,
+    edgeHandles: 'all' as 'all' | 'horizontal' | 'none',
+    suppressChrome: false,
+    strokeOuterScene: 0,
+    clientToScene: (clientX: number, clientY: number) => ({ x: clientX, y: clientY }),
+  });
   documentRef.current = document;
   getNodeBoxRef.current = getNodeBox;
   listNodeIdsRef.current = listNodeIds;
@@ -331,6 +447,9 @@ function SelectionFeature({
     null
   );
   const [liveAngle, setLiveAngle] = useState(0);
+  /** Host mount / sticky re-align after draw — force live boxes to match paint. */
+  const [hostEpoch, setHostEpoch] = useState(0);
+  useEffect(() => subscribeShapeHosts(() => setHostEpoch((n) => n + 1)), []);
   const [marquee, setMarquee] = useState<SceneBox | null>(null);
   /** Live object-align guides while move / resize. */
   const [smartGuides, setSmartGuides] = useState<SmartGuideLine[]>([]);
@@ -357,13 +476,6 @@ function SelectionFeature({
   const frameIdsKey = selectedFrameIds.join('|');
   idsKeyRef.current = idsKey;
   frameIdsKeyRef.current = frameIdsKey;
-  /** Bust chrome memo when stroke band attrs change (align / width). */
-  const strokeChromeKey = selectedNodeIds
-    .map((id) => {
-      const a = document?.deltaSetLike?.[id]?.attrs || {};
-      return `${a.strokeAlign ?? a['stroke-align']}:${a['border-width'] ?? a.strokeWidth}`;
-    })
-    .join('|');
   const selectionCount = selectedNodeIds.length + selectedFrameIds.length;
   const single = selectionCount === 1;
   const singleNode = selectedNodeIds.length === 1 && selectedFrameIds.length === 0;
@@ -410,7 +522,7 @@ function SelectionFeature({
       })
       .filter(Boolean) as Array<{ nodeId: string; box: SceneBox }>;
     return [...nodeOrigins, ...frameOrigins];
-  }, [document, idsKey, frameIdsKey, getNodeBox, strokeChromeKey]);
+  }, [document, idsKey, frameIdsKey, getNodeBox]);
 
   const selectionSharedRotation = useMemo(() => {
     if (selectedNodeIds.length <= 1) return 0;
@@ -429,12 +541,25 @@ function SelectionFeature({
 
   useEffect(() => {
     if (dragRef.current) return;
-    setLiveOrigins(baseOrigins);
+    // After draw/remount, prefer live host geom so picks match HostPathChrome paint
+    // (Redux AABB alone drifts under sticky lattice at high zoom).
+    const origins = baseOrigins.map((o) => {
+      const frameId = parseFrameSelId(o.nodeId);
+      if (frameId) {
+        const live = liveShapeGeomBox(frameId);
+        return live ? { nodeId: o.nodeId, box: live } : o;
+      }
+      const live = liveShapeGeomBox(o.nodeId);
+      if (!live) return o;
+      const node = document?.deltaSetLike?.[o.nodeId];
+      return { nodeId: o.nodeId, box: inflateSelectionBox(live, node) };
+    });
+    setLiveOrigins(origins);
     const onlyNodeId =
       !frameIdsKey && idsKey && !idsKey.includes('|') ? idsKey : null;
     if (onlyNodeId) {
       multiChromeRef.current = null;
-      setLiveUnion(selectionUnion);
+      setLiveUnion(origins[0]?.box || selectionUnion);
       setLiveAngle(readNodeAngle(document, onlyNodeId));
       return;
     }
@@ -483,6 +608,7 @@ function SelectionFeature({
     frameIdsKey,
     selectionUnion,
     selectionSharedRotation,
+    hostEpoch,
   ]);
 
   // Inspect: keep prior selection as pair target when clicking another element.
@@ -514,10 +640,13 @@ function SelectionFeature({
     let pending: PointerEvent | null = null;
 
     const runHoverHit = (e: PointerEvent) => {
+      setEndpointHover(null);
       if (dragRef.current) {
         applyHover(null);
         return;
       }
+      const hoverScene = toScene(e.clientX, e.clientY);
+      syncOverlayHandleHoverAtClient(e.clientX, e.clientY, e.target, hoverScene);
       const target = e.target as HTMLElement | null;
       const variantsHost = target?.closest?.(
         '[data-image-variants-bar]'
@@ -531,12 +660,116 @@ function SelectionFeature({
       }
       if (
         target?.closest?.(
-          '[data-ctx-menu],[data-sel-toolbar],[data-export-panel],[data-frame-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-dev-props],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-radius-handle],[data-star-handle],[data-poly-handle],[data-circle-handle]'
+          '[data-ctx-menu],[data-sel-toolbar],[data-export-panel],[data-frame-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-dev-props],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-radius-handle],[data-star-handle],[data-poly-handle],[data-circle-handle],[data-rcb-hit-zone]'
         )
       ) {
+        // Selection pill often overlaps knobs at high zoom — still show chrome cursor.
+        const pickOptsEarly = chromePickOptsRef.current;
+        if (
+          hitEl &&
+          !pickOptsEarly.suppressChrome &&
+          pickOptsEarly.showHandles &&
+          liveUnionRef.current &&
+          liveOriginsRef.current?.length
+        ) {
+          const painted = resolvePaintedControlChrome(
+            documentRef.current,
+            liveOriginsRef.current,
+            liveUnionRef.current,
+            liveAngleRef.current || 0
+          );
+          const paint = pickChromeHandleAtClient(
+            e.clientX,
+            e.clientY,
+            e.target,
+            {
+              ...pickOptsEarly,
+              box: painted.box,
+              angle: painted.angle,
+              scene: toScene(e.clientX, e.clientY),
+            }
+          );
+          if (paint?.kind === 'endpoint') {
+            setEndpointHover(paint.handle);
+            hitEl.style.cursor = 'default';
+            applyHover(null);
+            return;
+          }
+          if (paint?.kind === 'resize') {
+            hitEl.style.cursor = cursorForResize(paint.handle, painted.angle);
+            applyHover(null);
+            return;
+          }
+          if (paint?.kind === 'rotate') {
+            hitEl.style.cursor = cursorForRotate(
+              rotateCornerIconDeg(paint.corner),
+              painted.angle
+            );
+            applyHover(null);
+            return;
+          }
+        }
         applyHover(null);
         return;
       }
+
+      const p = toScene(e.clientX, e.clientY);
+      const pickOpts = chromePickOptsRef.current;
+      const liveUnionNow = liveUnionRef.current;
+      const liveOriginsNow = liveOriginsRef.current;
+      const liveAngleNow = liveAngleRef.current;
+      if (
+        hitEl &&
+        !pickOpts.suppressChrome &&
+        pickOpts.showHandles &&
+        liveUnionNow &&
+        liveOriginsNow?.length
+      ) {
+        const painted = resolvePaintedControlChrome(
+          documentRef.current,
+          liveOriginsNow,
+          liveUnionNow,
+          liveAngleNow || 0
+        );
+        const pick = pickChromeHandleAtClient(e.clientX, e.clientY, e.target, {
+          ...pickOpts,
+          box: painted.box,
+          angle: painted.angle,
+          scene: p,
+        });
+        if (pick?.kind === 'endpoint') {
+          setEndpointHover(pick.handle);
+          hitEl.style.cursor = 'default';
+          applyHover(null);
+          return;
+        }
+        if (pick?.kind === 'resize') {
+          hitEl.style.cursor = cursorForResize(pick.handle, painted.angle);
+          applyHover(null);
+          return;
+        }
+        if (pick?.kind === 'rotate') {
+          hitEl.style.cursor = cursorForRotate(
+            rotateCornerIconDeg(pick.corner),
+            painted.angle
+          );
+          applyHover(null);
+          return;
+        }
+        const knob = pickOverlayHandleAtClient(e.clientX, e.clientY, e.target, p);
+        if (knob?.kind === 'radius' || knob?.kind === 'shape') {
+          hitEl.style.cursor = 'pointer';
+          applyHover(null);
+          return;
+        }
+        if (
+          hitEl.style.cursor &&
+          /resize|grab|alias|crosshair|pointer/.test(hitEl.style.cursor)
+        ) {
+          hitEl.style.cursor = '';
+        }
+      }
+
       // Only hit-test when the pointer is over the stage / paper / selection chrome.
       if (
         target &&
@@ -548,7 +781,6 @@ function SelectionFeature({
         applyHover(null);
         return;
       }
-      const p = toScene(e.clientX, e.clientY);
       const nodeHit = hitTestRef.current(p.x, p.y, {
         clientX: e.clientX,
         clientY: e.clientY,
@@ -594,6 +826,33 @@ function SelectionFeature({
 
   useEffect(() => {
     if (!enabled || !hitEl) return undefined;
+
+    const previewCoalesce = createTransformPreviewCoalescer({
+      applyChrome: (batch) => {
+        if (batch.union !== undefined) setLiveUnion(batch.union);
+        if (batch.origins !== undefined) setLiveOrigins(batch.origins);
+        if (batch.angle !== undefined) setLiveAngle(batch.angle);
+        if (batch.clearGuides) setSmartGuides([]);
+        else if (batch.guides) setSmartGuides(batch.guides);
+        if (batch.marquee !== undefined) setMarquee(batch.marquee);
+      },
+      applyGeom: (patches, opts) => {
+        onGeometryPreviewRef.current?.(patches, opts);
+      },
+      applyAngles: (angles) => {
+        for (const a of angles) {
+          onAnglePreviewRef.current?.(a.nodeId, a.angle);
+        }
+      },
+    });
+
+    /** Sync hit refs immediately; paint/chrome flush on rAF (ADR 0027). */
+    const queuePreview = (batch: TransformPreviewBatch) => {
+      if (batch.union !== undefined) liveUnionRef.current = batch.union;
+      if (batch.origins !== undefined) liveOriginsRef.current = batch.origins;
+      if (batch.angle !== undefined) liveAngleRef.current = batch.angle;
+      previewCoalesce.queue(batch);
+    };
 
     const getPointerCtx = () => ({
       // Scene model — never shadow DOM Document (elementsFromPoint / querySelector).
@@ -666,28 +925,6 @@ function SelectionFeature({
         onSelectFrame,
       } = getPointerCtx();
       const target = e.target as HTMLElement;
-      // Prefer sceneDoc for scene; DOM APIs use globalThis.document.
-      const underPointer =
-        typeof globalThis.document?.elementsFromPoint === 'function'
-          ? globalThis.document.elementsFromPoint(e.clientX, e.clientY)
-          : [];
-      const resizeUnderPointer = () =>
-        underPointer.some(
-          (n) => n instanceof Element && n.getAttribute('data-sel-handle') === 'resize'
-        );
-      // Overlays handle their own pointers — unless a resize hit also sits under
-      // the cursor (corner / control-box must prefer scale).
-      const onOverlayKnob = target.closest(
-        '[data-radius-handle],[data-star-handle],[data-poly-handle],[data-circle-handle],[data-sel-toolbar],[data-frame-toolbar]'
-      );
-      if (onOverlayKnob && !resizeUnderPointer()) return;
-      if (
-        target.closest(
-          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar]'
-        )
-      )
-        return;
-
       const seed = (
         mode: DragState['mode'],
         ev: { clientX: number; clientY: number },
@@ -700,24 +937,43 @@ function SelectionFeature({
       const liveOriginsNow = liveOriginsRef.current;
       const liveAngleNow = liveAngleRef.current;
       const lockedSelection = isSelectionOriginsLocked(sceneDoc, liveOriginsNow);
+      const pickOpts = chromePickOptsRef.current;
 
-      // Prefer resize over rotate when both are under the pointer (same corner).
-      const resizeEl = underPointer.find(
-        (n) => n instanceof Element && n.getAttribute('data-sel-handle') === 'resize'
-      ) as HTMLElement | undefined;
-      const rotateEl =
-        resizeEl
-          ? null
-          : (underPointer.find(
-              (n) => n instanceof Element && n.getAttribute('data-sel-handle') === 'rotate'
-            ) as HTMLElement | undefined) ||
-            (target.closest('[data-sel-handle="rotate"]') as HTMLElement | null);
+      // One pick: overlay seats → geometry chrome → (legacy DOM chrome).
+      // Scene point shared with CameraTransform (ADR 0027).
+      let chromePick: ChromeHandlePick | null = null;
+      if (
+        !pickOpts.suppressChrome &&
+        pickOpts.showHandles &&
+        liveUnionNow &&
+        liveOriginsNow?.length
+      ) {
+        const painted = resolvePaintedControlChrome(
+          sceneDoc,
+          liveOriginsNow,
+          liveUnionNow,
+          liveAngleNow
+        );
+        const ink = pickSelectionInkAtClient(e.clientX, e.clientY, e.target, {
+          ...pickOpts,
+          box: painted.box,
+          angle: painted.angle,
+          scene: p,
+        });
+        if (ink?.layer === 'overlay') {
+          tryStartOverlayHandleSeat(ink.pick, e);
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (ink?.layer === 'chrome') chromePick = ink.pick;
+      }
 
-      if (rotateEl && liveUnionNow && liveOriginsNow?.length) {
+      if (chromePick?.kind === 'rotate' && liveUnionNow && liveOriginsNow?.length) {
         if (readOnly || lockedSelection) return;
         e.preventDefault();
         e.stopPropagation();
-        const { box: union, angle: angle0 } = resolveControlChrome(
+        const { box: union, angle: angle0 } = resolvePaintedControlChrome(
           sceneDoc,
           liveOriginsNow,
           liveUnionNow,
@@ -746,18 +1002,19 @@ function SelectionFeature({
         return;
       }
 
-      const resizeHandleEl =
-        resizeEl ||
-        (target.closest('[data-sel-handle="resize"]') as HTMLElement | null);
-      if (resizeHandleEl && liveUnionNow && liveOriginsNow?.length) {
+      if (
+        (chromePick?.kind === 'resize' || chromePick?.kind === 'endpoint') &&
+        liveUnionNow &&
+        liveOriginsNow?.length
+      ) {
         if (readOnly || lockedSelection) return;
         e.preventDefault();
         e.stopPropagation();
-        const handle = (resizeHandleEl.getAttribute('data-resize') || 'se') as ResizeHandle;
+        const handle = chromePick.handle;
         const singleId = liveOriginsNow.length === 1 ? liveOriginsNow[0].nodeId : '';
         const singleNode = singleId ? sceneDoc?.deltaSetLike?.[singleId] : null;
         const shapeType = singleNode ? String(singleNode.attrs?.shapeType || '') : '';
-        const { box: union, angle: shared } = resolveControlChrome(
+        const { box: union, angle: shared } = resolvePaintedControlChrome(
           sceneDoc,
           liveOriginsNow,
           liveUnionNow,
@@ -795,6 +1052,15 @@ function SelectionFeature({
         return;
       }
 
+      // Toolbars own their pointers (shape dots go through pickSelectionInk above).
+      if (target.closest('[data-sel-toolbar],[data-frame-toolbar]')) return;
+      if (
+        target.closest(
+          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar]'
+        )
+      )
+        return;
+
       const beginMoveSelection = () => {
         if (readOnly || !liveUnionNow || !liveOriginsNow?.length) return false;
         if (lockedSelection) return false;
@@ -818,9 +1084,10 @@ function SelectionFeature({
         liveOriginsNow?.some((o) => parseFrameSelId(o.nodeId))
       );
 
-      // Drag control box (or anywhere on a frame-only / mixed selection chrome).
-      const selBoxEl = target.closest('[data-sel-box]') as HTMLElement | null;
-      if (selBoxEl && selectionHasFrame && !attachPickActive && beginMoveSelection()) return;
+      // Frame / mixed selection: move via oriented box geometry (not data-sel-box DOM).
+      if (selectionHasFrame && !attachPickActive && pointInLiveUnion && beginMoveSelection()) {
+        return;
+      }
 
       // Hit-test scene nodes (selection chrome is non-blocking so empty clicks pass through).
       const hitId = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
@@ -995,16 +1262,15 @@ function SelectionFeature({
         readOnly,
         getNodeBox,
         listNodeIds,
-        onGeometryPreview,
-        onAnglePreview,
+        queryNodeIdsInRect: queryIdsInRect,
       } = getPointerCtx();
       drag.currentClientX = e.clientX;
       drag.currentClientY = e.clientY;
       drag.currentShift = e.shiftKey;
       const screenDistSq = screenDragDistSq(drag, e.clientX, e.clientY);
       if (drag.mode === 'blank') {
-        // Abandon soft click once past drag threshold.
-        if (screenDistSq > DRAG_DISTANCE_SQUARED) {
+        // Abandon soft click once past drag threshold (≥1 CSS px).
+        if (screenDistSq >= DRAG_DISTANCE_SQUARED) {
           dragRef.current = null;
         }
         return;
@@ -1021,7 +1287,7 @@ function SelectionFeature({
         );
         if (!passed) return;
         drag.mode = 'marquee';
-        setMarquee(box);
+        queuePreview({ marquee: box });
         return;
       }
       // Client-delta keeps the selection under the pointer when the stage rect
@@ -1035,18 +1301,20 @@ function SelectionFeature({
         drag.mode === 'rotate' ? abs : { x: gesture.x, y: gesture.y };
 
       if (drag.mode === 'marquee') {
-        setMarquee(normalizeBox(drag.sceneX0, drag.sceneY0, p.x, p.y));
+        queuePreview({ marquee: normalizeBox(drag.sceneX0, drag.sceneY0, p.x, p.y) });
         return;
       }
 
       if (drag.mode === 'rotate' && drag.center && drag.pointerAngle0 != null) {
-        // Soft-click on rotate knob ??ignore OS pointer jitter.
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) return;
-        setSmartGuides([]);
+        // Soft-click on rotate knob — ignore OS pointer jitter.
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
         const { next, delta } = computeRotateDelta(drag, p, e.shiftKey);
-        setLiveAngle(next);
         if (drag.origins.length === 1) {
-          onAnglePreview?.(drag.origins[0].nodeId, next);
+          queuePreview({
+            angle: next,
+            clearGuides: true,
+            angles: [{ nodeId: drag.origins[0].nodeId, angle: next }],
+          });
           return;
         }
         const moved = rotateBoxesAround(
@@ -1060,26 +1328,28 @@ function SelectionFeature({
           angle0: o.angle0,
         }));
         // Keep oriented control box (do not expand to AABB of orbited members).
-        setLiveOrigins(nextOrigins.map((o) => ({ nodeId: o.nodeId, box: o.box })));
-        setLiveUnion(drag.union);
-        onGeometryPreview?.(
-          nextOrigins.map((o) => ({
+        queuePreview({
+          angle: next,
+          clearGuides: true,
+          origins: nextOrigins.map((o) => ({ nodeId: o.nodeId, box: o.box })),
+          union: drag.union,
+          geom: nextOrigins.map((o) => ({
             nodeId: o.nodeId,
             left: o.box.left,
             top: o.box.top,
             width: o.box.width,
             height: o.box.height,
-          }))
-        );
-        nextOrigins.forEach((o) => {
-          onAnglePreview?.(o.nodeId, Number(o.angle0 || 0) + delta);
+          })),
+          angles: nextOrigins.map((o) => ({
+            nodeId: o.nodeId,
+            angle: Number(o.angle0 || 0) + delta,
+          })),
         });
         return;
       }
 
       if (drag.mode === 'move') {
-        // Ignore pointer jitter until the pointer actually moves (protects dblclick).
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) return;
+        // Follow the pointer immediately — only grid may quantize (no travel gate).
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
         const threshold = smartSnapThreshold(zoom);
         const { nextUnion, sdx, sdy, guides } = computeMovedUnion({
@@ -1101,7 +1371,7 @@ function SelectionFeature({
               top: drag.union.top + dy,
             },
             threshold,
-            queryNodeIdsInRect,
+            queryNodeIdsInRect: queryIdsInRect,
           }),
           threshold,
         });
@@ -1109,41 +1379,43 @@ function SelectionFeature({
           nodeId: o.nodeId,
           box: { ...o.box, left: o.box.left + sdx, top: o.box.top + sdy },
         }));
-        setLiveUnion(nextUnion);
-        setLiveOrigins(nextOrigins);
-        setSmartGuides(guides);
-        onGeometryPreview?.(
-          nextOrigins.map((o) => ({
+        queuePreview({
+          union: nextUnion,
+          origins: nextOrigins,
+          guides,
+          geom: nextOrigins.map((o) => ({
             nodeId: o.nodeId,
             left: o.box.left,
             top: o.box.top,
             width: o.box.width,
             height: o.box.height,
-          }))
-        );
+          })),
+        });
         return;
       }
 
       if (drag.mode === 'resize' && drag.handle) {
-        // Soft-click on a handle must not resize: at 3% zoom, 2px jitter ??60+
+        // Soft-click on a handle must not resize: at 3% zoom, 2px jitter → 60+
         // scene units and snap threshold is huge (8/zoom), so the box jumps.
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) return;
-        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y);
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
+        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y, e.shiftKey);
         if (stroke) {
-          setLiveUnion(stroke.next);
-          setLiveOrigins([{ nodeId: stroke.strokeId, box: stroke.next }]);
-          setLiveAngle(stroke.angle);
-          setSmartGuides([]);
-          onGeometryPreview?.([
-            {
-              nodeId: stroke.strokeId,
-              left: stroke.next.left,
-              top: stroke.next.top,
-              width: stroke.next.width,
-              height: stroke.next.height,
-            },
-          ]);
-          onAnglePreview?.(stroke.strokeId, stroke.angle);
+          queuePreview({
+            union: stroke.next,
+            origins: [{ nodeId: stroke.strokeId, box: stroke.next }],
+            angle: stroke.angle,
+            clearGuides: true,
+            geom: [
+              {
+                nodeId: stroke.strokeId,
+                left: stroke.next.left,
+                top: stroke.next.top,
+                width: stroke.next.width,
+                height: stroke.next.height,
+              },
+            ],
+            angles: [{ nodeId: stroke.strokeId, angle: stroke.angle }],
+          });
           return;
         }
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
@@ -1163,16 +1435,16 @@ function SelectionFeature({
             excludeIds: exclude,
             nearBox: drag.union,
             threshold,
-            queryNodeIdsInRect,
+            queryNodeIdsInRect: queryIdsInRect,
           }),
           threshold,
         });
-        setSmartGuides(guides);
         if (drag.origins.length === 1) {
-          setLiveUnion(next);
-          setLiveOrigins([{ nodeId: drag.origins[0].nodeId, box: next }]);
-          onGeometryPreview?.(
-            [
+          queuePreview({
+            union: next,
+            origins: [{ nodeId: drag.origins[0].nodeId, box: next }],
+            guides,
+            geom: [
               {
                 nodeId: drag.origins[0].nodeId,
                 left: next.left,
@@ -1181,8 +1453,8 @@ function SelectionFeature({
                 height: next.height,
               },
             ],
-            textMode ? { textResizeMode: textMode } : undefined
-          );
+            geomOpts: textMode ? { textResizeMode: textMode } : undefined,
+          });
           return;
         }
         const scaled = scaleBoxesToOrientedUnion(
@@ -1195,22 +1467,25 @@ function SelectionFeature({
           nodeId: o.nodeId,
           box: scaled[i],
         }));
-        setLiveUnion(next);
-        setLiveOrigins(nextOrigins);
-        onGeometryPreview?.(
-          nextOrigins.map((o) => ({
+        queuePreview({
+          union: next,
+          origins: nextOrigins,
+          guides,
+          geom: nextOrigins.map((o) => ({
             nodeId: o.nodeId,
             left: o.box.left,
             top: o.box.top,
             width: o.box.width,
             height: o.box.height,
-          }))
-        );
+          })),
+        });
       }
     };
 
     const onUp = (e: PointerEvent) => {
       const drag = dragRef.current;
+      // Drop pending rAF preview — pointerup recomputes and commits final geom.
+      previewCoalesce.cancel();
       // Always clear the brush — even if the gesture ref was lost mid-flight
       // (effect remount used to drop pointerup and leave the box stuck).
       setMarquee(null);
@@ -1227,13 +1502,14 @@ function SelectionFeature({
         hitTestFrame,
         getNodeBox,
         listNodeIds,
-        queryNodeIdsInRect,
+        queryNodeIdsInRect: queryIdsInRect,
         onSelect,
         onSelectFrame,
         onSelectMixed,
         onSelectFrames,
         onGeometryCommit,
         onAngleCommit,
+        onAnglePreview: anglePreview,
       } = getPointerCtx();
       try {
         hitEl.releasePointerCapture?.(e.pointerId);
@@ -1302,7 +1578,7 @@ function SelectionFeature({
         // Pad spatial prefilter the same as fine hit — tiny nodes near the brush edge.
         const queryPad = marqueeHitPadScene(zoom) + MARQUEE_MIN_HIT_SCREEN_PX / Math.max(0.05, zoom);
         const queryBox = expandSceneBox(box, queryPad);
-        const candidates = queryNodeIdsInRect?.(queryBox) ?? listNodeIds();
+        const candidates = resolveMarqueeCandidates(queryIdsInRect?.(queryBox), listNodeIds());
         const rawHits = candidates.filter((id) =>
           nodeHitsMarquee(sceneDoc, id, box, getNodeBox, toScene, zoom)
         );
@@ -1330,7 +1606,7 @@ function SelectionFeature({
         if (
           !drag.skipSelectOnUp &&
           !attachPickActive &&
-          screenDistSq <= DRAG_DISTANCE_SQUARED
+          screenDistSq < DRAG_DISTANCE_SQUARED
         ) {
           const id = hitTest(p.x, p.y, { clientX, clientY });
           if (id && tryOpenTextEdit(id)) {
@@ -1345,7 +1621,7 @@ function SelectionFeature({
 
       if (drag.mode === 'rotate' && drag.center && drag.pointerAngle0 != null) {
         // Soft-click: restore start pose ??do not apply angle jitter.
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) {
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) {
           setLiveAngle(drag.angle0 || 0);
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
@@ -1388,10 +1664,8 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'move') {
-        // Soft-click: never leave liveUnion on a snap-only nudge while the
-        // document stays put ??that desyncs chrome from the shape (worst at
-        // 3%/800% where 8px snap ??huge / visible scene delta).
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) {
+        // Pure click (no pointer travel): restore + maybe text edit. Any travel commits.
+        if (isMotionlessClick(screenDistSq)) {
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
           if (drag.origins.length === 1 && tryOpenTextEdit(drag.origins[0].nodeId)) {
@@ -1422,7 +1696,7 @@ function SelectionFeature({
               top: drag.union.top + dy,
             },
             threshold,
-            queryNodeIdsInRect,
+            queryNodeIdsInRect: queryIdsInRect,
           }),
           threshold,
         });
@@ -1446,13 +1720,13 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'resize' && drag.handle) {
-        if (screenDistSq <= DRAG_DISTANCE_SQUARED) {
+        if (screenDistSq < DRAG_DISTANCE_SQUARED) {
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
           endTransform();
           return;
         }
-        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y);
+        const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y, shiftKey);
         if (stroke) {
           setLiveUnion(stroke.next);
           setLiveOrigins([{ nodeId: stroke.strokeId, box: stroke.next }]);
@@ -1460,7 +1734,7 @@ function SelectionFeature({
           lastTextClickRef.current = null;
           // Bake angle into documentRef first so geometry rebuild reads attrs.angle;
           // one history entry via onGeometryCommit (do not patch angle into Redux first).
-          onAnglePreview?.(stroke.strokeId, stroke.angle);
+          anglePreview?.(stroke.strokeId, stroke.angle);
           onGeometryCommit([
             {
               nodeId: stroke.strokeId,
@@ -1490,7 +1764,7 @@ function SelectionFeature({
             excludeIds: excludeUp,
             nearBox: drag.union,
             threshold: thresholdUp,
-            queryNodeIdsInRect,
+            queryNodeIdsInRect: queryIdsInRect,
           }),
           threshold: thresholdUp,
         });
@@ -1553,6 +1827,12 @@ function SelectionFeature({
         return;
       }
       const p = toScene(e.clientX, e.clientY);
+      const overlayPick = pickOverlayHandleAtClient(e.clientX, e.clientY, e.target, p);
+      if (overlayPick && tryOverlayHandleDoubleClick(overlayPick, e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       let hit = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
       // Selection chrome covers the glyph — fall back to the single selected node.
       if (!hit && target?.closest?.('[data-sel-box]')) {
@@ -1578,23 +1858,67 @@ function SelectionFeature({
       }
     };
 
-    // Chrome lives in the unscaled overlay — also listen there for resize/rotate / dblclick.
-    // Infinite paper is 0×0; stage receives empty artboard / shape clicks.
-    // Deps stay element/enabled-only: document/zoom/callbacks live in refs so a
-    // setMarquee / onSelect re-render cannot tear down window pointerup mid-gesture
-    // (that left the blue brush stuck on a soft click).
-    hitEl.addEventListener('pointerdown', onDown);
-    overlayRoot?.addEventListener('pointerdown', onDown);
+    // Single stage capture entry (ADR 0027). Overlay is usually under hitEl
+    // ([data-rcb-canvas]); only attach a second listener when it is not.
+    hitEl.addEventListener('pointerdown', onDown, true);
+    const overlayNeedsOwn =
+      Boolean(overlayRoot) && overlayRoot !== hitEl && !hitEl.contains(overlayRoot!);
+    if (overlayNeedsOwn) {
+      overlayRoot!.addEventListener('pointerdown', onDown, true);
+    }
+    const onWindowPaintChromeDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const node = e.target as Node | null;
+      if (node && hitEl.contains(node)) return;
+      if (node && overlayRoot?.contains(node)) return;
+      const el = e.target as HTMLElement | null;
+      if (
+        el?.closest?.(
+          'input,textarea,button,a,select,[role="button"],[contenteditable="true"],[data-agent-dock],[data-agent-composer]'
+        )
+      ) {
+        return;
+      }
+      const pickOpts = chromePickOptsRef.current;
+      if (pickOpts.suppressChrome || !pickOpts.showHandles) return;
+      const liveUnion = liveUnionRef.current;
+      const liveOrigins = liveOriginsRef.current;
+      if (!liveUnion || !liveOrigins?.length) return;
+      const painted = resolvePaintedControlChrome(
+        documentRef.current,
+        liveOrigins,
+        liveUnion,
+        liveAngleRef.current || 0
+      );
+      if (
+        !pickSelectionInkAtClient(e.clientX, e.clientY, e.target, {
+          ...pickOpts,
+          box: painted.box,
+          angle: painted.angle,
+        })
+      ) {
+        return;
+      }
+      onDown(e);
+    };
+    window.addEventListener('pointerdown', onWindowPaintChromeDown, true);
     hitEl.addEventListener('dblclick', onDblClick);
-    overlayRoot?.addEventListener('dblclick', onDblClick);
+    if (overlayNeedsOwn) {
+      overlayRoot!.addEventListener('dblclick', onDblClick);
+    }
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
     return () => {
-      hitEl.removeEventListener('pointerdown', onDown);
-      overlayRoot?.removeEventListener('pointerdown', onDown);
+      previewCoalesce.cancel();
+      clearNodeTransformPreviews();
+      hitEl.removeEventListener('pointerdown', onDown, true);
+      if (overlayNeedsOwn) {
+        overlayRoot!.removeEventListener('pointerdown', onDown, true);
+        overlayRoot!.removeEventListener('dblclick', onDblClick);
+      }
+      window.removeEventListener('pointerdown', onWindowPaintChromeDown, true);
       hitEl.removeEventListener('dblclick', onDblClick);
-      overlayRoot?.removeEventListener('dblclick', onDblClick);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
@@ -1777,7 +2101,6 @@ function SelectionFeature({
     }
   );
 
-  const toolbarEdgePadScene = resolveToolbarEdgePadScene(singleNodeData);
   const edgeHandles = resolveSelectionEdgeHandles({
     selectedIsImageGen,
     selectedIsVideoGen,
@@ -1786,6 +2109,38 @@ function SelectionFeature({
     lineChrome,
     nodeKey: singleNodeData?.key,
   });
+
+  let strokeOuterScene = 0;
+  if (singleNodeData) {
+    strokeOuterScene = strokeOuterClearanceScene(singleNodeData);
+  } else if (selectedNodeIds.length > 1) {
+    for (const id of selectedNodeIds) {
+      const n = document?.deltaSetLike?.[id];
+      if (n) strokeOuterScene = Math.max(strokeOuterScene, strokeOuterClearanceScene(n));
+    }
+  }
+  // Outside stroke ink (screen px) — applied inside scale(1/zoom) so the pill
+  // clears painted stroke at any zoom without scene-space drift.
+  const strokeUiPadScreen = Math.max(0, strokeOuterScene) * zoom;
+
+  chromePickOptsRef.current = {
+    zoom,
+    showHandles: !inspectDev && !readOnly && !selectedIsMediaGen && !transforming,
+    showRotate:
+      !inspectDev &&
+      !readOnly &&
+      !lineChrome &&
+      !selectedIsMediaGen &&
+      !transforming &&
+      selectedNodeIds.length >= 1 &&
+      selectedFrameIds.length === 0,
+    lineMode: Boolean(lineChrome),
+    cornerHandlesOnly: !single,
+    edgeHandles,
+    suppressChrome,
+    strokeOuterScene,
+    clientToScene: (clientX, clientY) => toScene(clientX, clientY),
+  };
 
   // DPR seam diagnostics ??opt-in: window.__RCB_DPR_DEBUG__ = true
   useEffect(() => {
@@ -1819,6 +2174,10 @@ function SelectionFeature({
     chromeUnion && singleNodeData
       ? deflateSelectionBox(chromeUnion, singleNodeData)
       : chromeUnion;
+  // Path control chrome follows the path geometry itself. Stroke expansion is
+  // used for spacing/toolbar clearance, never as the control-box position.
+  const selectionChromeBox =
+    hostInjectedSelection && !lineChrome ? chromeGeomBox || chromeUnion : chromeUnion;
 
   const hoverImageVariantsId = resolveHoverImageVariantsId({
     inspectDev,
@@ -1835,8 +2194,9 @@ function SelectionFeature({
 
   if (!enabled) return null;
 
-  // Path chrome already covers single vector selection (and inspect path ink).
-  const skipWorldSelectionChrome = hostInjectedSelection;
+  // HostPathChrome owns the precise open-stroke endpoints for lines/arrows.
+  // Other path shapes use the shared SelectionChrome for their box/handles.
+  const skipWorldSelectionChrome = hostInjectedSelection && lineChrome;
 
   return (
     <>
@@ -1850,13 +2210,13 @@ function SelectionFeature({
 
       {/* World SelectionChrome — path single/multi use host-mirrored chrome instead.
           Multi non-path keeps chrome while rotating so the control box can tilt. */}
-      {chromeUnion &&
+      {selectionChromeBox &&
       !suppressChrome &&
       selectionCount > 0 &&
       !skipWorldSelectionChrome &&
       (!transforming || !single) ? (
         <SelectionChrome
-          box={chromeUnion}
+          box={selectionChromeBox}
           angle={chromeAngle}
           showHandles={!inspectDev && !readOnly && !selectedIsMediaGen && !transforming}
           cornerHandlesOnly={!single}
@@ -1873,6 +2233,7 @@ function SelectionFeature({
           showBoxStroke={!lineChrome}
           interactiveBox={selectedFrameIds.length > 0}
           edgeHandles={edgeHandles}
+          strokeOuterScene={strokeOuterScene}
         />
       ) : null}
 
@@ -1974,7 +2335,17 @@ function SelectionFeature({
             lineChrome,
             node: singleNodeData,
           })}
-          edgePadScene={toolbarEdgePadScene}
+          valueBox={
+            singleNodeData
+              ? {
+                  left: Number(singleNodeData.x) || 0,
+                  top: Number(singleNodeData.y) || 0,
+                  width: Math.max(1, Number(singleNodeData.width) || 1),
+                  height: Math.max(1, Number(singleNodeData.height) || 1),
+                }
+              : undefined
+          }
+          edgePadScene={strokeUiPadScreen}
           onOpenAgent={onOpenAgent}
         />
       ) : null}
@@ -1992,6 +2363,7 @@ function SelectionFeature({
         <NodeTitleLabel
           box={chromeUnion}
           angle={chromeAngle}
+          nodeId={singleId}
           name={
             mediaTitleChrome({
               key: singleNodeData?.key,
@@ -2018,11 +2390,14 @@ function SelectionFeature({
             }).icon
           }
           dataProps={{ 'data-scene-node-id': singleId }}
-          onRename={(name) =>
+          onRename={(name, options) =>
             dispatch(
               patchDocumentNode({
                 nodeId: singleId,
                 patch: { attrs: { name } },
+                skipHistory: options?.skipHistory,
+                // A title is chrome metadata; the media SVG pixels do not change.
+                skipHostReload: true,
               })
             )
           }
@@ -2094,4 +2469,3 @@ function SelectionFeature({
 }
 
 export default memo(SelectionFeature);
-

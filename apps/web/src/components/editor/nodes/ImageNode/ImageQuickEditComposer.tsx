@@ -21,7 +21,7 @@ import AgentComposerInput, {
 import {
   ComposerAttachmentChip,
   composerAttachActionClass,
-} from '@/components/editor/panels/agent/AgentComposerShell';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import {
   buildImageGeneratorModelList,
   flyPickIntoImageComposer,
@@ -32,10 +32,10 @@ import ImageAspectRatioPicker, {
   DEFAULT_IMAGE_ASPECT_RATIO,
   DEFAULT_IMAGE_RESOLUTION,
   modelImageLimits,
-} from '@/components/editor/panels/agent/ImageAspectRatioPicker';
+} from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   ModelBrandIcon,
-} from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { cloudImageFallbackId } from '@/components/editor/panels/agent/llmModelMeta';
 import {
   listImageVariantUrls,
@@ -50,7 +50,7 @@ import {
   pushEditorHistory,
   startCanvasAttachPick,
 } from '@/store/modules/editor';
-import { noteCanvasFlyLand } from '@/components/editor/panels/agent/flyToChat';
+import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
 import { useWalletSnapshot } from '@/service/wallet';
 import { cn } from '@/utils/classnames';

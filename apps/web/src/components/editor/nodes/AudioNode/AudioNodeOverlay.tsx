@@ -27,7 +27,10 @@ import {
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
-import { toDisplayMediaUrl } from '@/utils/uploadImage';
+import {
+  toDisplayMediaUrl,
+  resolvePlayableMediaBlobUrl,
+} from '@/utils/uploadImage';
 import AudioWaveform, { type AudioWaveformHandle } from './AudioWaveform';
 
 export type AudioGeomOverride = {
@@ -126,9 +129,66 @@ function formatClock(seconds: number, opts?: { round?: boolean }): string {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 }
 
-/** Audio `src` → browser-playable URL (no auth blob round-trip). */
+/**
+ * Audio `src` → WaveSurfer-playable URL.
+ * Remote COS/CDN lacks CORS for wavesurfer fetch — resolve to blob: via uploads API.
+ */
+function initialPlayableAudioSrc(display: string): string {
+  const s = String(display || '').trim();
+  if (s.startsWith('blob:') || s.startsWith('data:')) return s;
+  return '';
+}
+
 function usePlayableAudioSrc(src: string, uploadKey?: string | null): string {
-  return toDisplayMediaUrl(src, uploadKey);
+  const display = toDisplayMediaUrl(src, uploadKey);
+  const [playable, setPlayable] = useState(() => initialPlayableAudioSrc(display));
+
+  useEffect(() => {
+    const s = String(display || '').trim();
+    let cancelled = false;
+    let revoke = () => {
+      /* no blob yet */
+    };
+
+    if (!s) {
+      setPlayable('');
+      return undefined;
+    }
+    if (s.startsWith('blob:') || s.startsWith('data:')) {
+      setPlayable(s);
+      return undefined;
+    }
+
+    // Clear until auth blob is ready — avoids WaveSurfer fetch → COS CORS.
+    setPlayable('');
+
+    async function resolveBlob() {
+      try {
+        const resolved = await resolvePlayableMediaBlobUrl(s, {
+          uploadKey,
+          filename: 'audio.mp3',
+          fallbackMime: 'audio/mpeg',
+        });
+        if (cancelled) {
+          resolved.revoke();
+          return;
+        }
+        revoke = resolved.revoke;
+        setPlayable(resolved.url);
+      } catch (err) {
+        console.warn('[audio] resolve playable src failed', err);
+        if (!cancelled) setPlayable('');
+      }
+    }
+
+    resolveBlob();
+    return () => {
+      cancelled = true;
+      revoke();
+    };
+  }, [display, uploadKey]);
+
+  return playable;
 }
 
 function resolveTrimWindow(
@@ -267,7 +327,7 @@ function AudioPlate({
             /* ignore play rejection */
           }
         }
-        void tryPlay();
+        tryPlay();
       },
       pause: () => waveRef.current?.pause(),
       isPaused: () => Boolean(waveRef.current?.isPaused() ?? true),
@@ -364,7 +424,7 @@ function AudioPlate({
         setPlaying(false);
       }
     }
-    void tryPlay();
+    tryPlay();
   };
 
   return createPortal(

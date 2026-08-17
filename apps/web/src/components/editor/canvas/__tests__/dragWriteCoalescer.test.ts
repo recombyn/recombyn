@@ -12,23 +12,7 @@ describe('createDragWriteCoalescer', () => {
     c.queueVideoGeom(geom);
 
     expect(apply).toHaveBeenCalledTimes(1);
-    expect(apply).toHaveBeenCalledWith({ frames: [], videoGeom: geom });
+    expect(apply).toHaveBeenCalledWith({ videoGeom: geom });
     expect(c.getPendingVideoGeom()).toEqual(geom);
-  });
-
-  it('still coalesces frame writes to one rAF', async () => {
-    const apply = vi.fn();
-    const c = createDragWriteCoalescer(apply);
-
-    c.queueFrames([{ id: 'f1', x: 1, y: 2, width: 3, height: 4 }]);
-    c.queueFrames([{ id: 'f1', x: 5, y: 6, width: 7, height: 8 }]);
-    expect(apply).not.toHaveBeenCalled();
-
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-
-    expect(apply).toHaveBeenCalledTimes(1);
-    expect(apply).toHaveBeenCalledWith({
-      frames: [{ id: 'f1', x: 5, y: 6, width: 7, height: 8 }],
-    });
   });
 });

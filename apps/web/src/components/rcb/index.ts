@@ -25,7 +25,83 @@ export {
   rcbViewportSceneBounds,
   rcbStepZoom,
 } from './core/math';
-export { RcbSpatialIndex, boxesIntersect, nodeSceneAabb, type RcbSpatialItem } from './core/spatialIndex';
+export {
+  createCameraTransform,
+  worldToScreen,
+  screenToWorld,
+  stageLocalToWorld,
+  screenDeltaToWorldDelta,
+  worldBoxToScreen,
+  cameraZoom,
+  cameraPan,
+  type CameraTransform,
+} from './camera/transform';
+export {
+  createSceneRenderer,
+  createSvgSceneRenderer,
+  createCanvasSceneRenderer,
+  hitTestWithSpatialIndex,
+  isFullDirty,
+  dirtyTouchesNode,
+  drawSceneGrid,
+  paintBasicShapeFill,
+  paintCanvasShapeInk,
+  paintCanvasPathInk,
+  paintCanvasTextInk,
+  paintLodNodeProxy,
+  paintStrokeLodProxy,
+  paintTextProxyLines,
+  paintMediaProxyIcon,
+  strokeLodCenterline,
+  lodProxyIsStrokeOnly,
+  lodProxyStrokeWidth,
+  canIdlePaintOnCanvas,
+  sceneGridLineWidth,
+  resolveNodeProxyFill,
+  resolveCanvasFillStyle,
+  createCanvasAngularGradient,
+  fillCanvasShapeGeometry,
+  drawFillImageInBox,
+  getFillImageReady,
+  setFillImageCacheEntry,
+  clearFillImageCache,
+  setSceneLodPaint,
+  getSceneLodPaint,
+  clearSceneLodPaint,
+  bumpSceneLodPaint,
+  subscribeSceneLodPaint,
+  listSceneLodPaintIds,
+  LOD_STROKE_MAX_PTS,
+  type SceneLodPaintSnapshot,
+  type SceneRenderer,
+  type SceneRendererBackend,
+  type SceneRenderRequest,
+  type DirtyRegion,
+  type SceneRendererHitDeps,
+  type CanvasSceneRendererDeps,
+} from './render/sceneRenderer';
+export {
+  RcbSpatialIndex,
+  SceneSpatialRuntime,
+  boxesIntersect,
+  nodeSceneAabb,
+  getSharedSceneSpatialRuntime,
+  setSharedSceneSpatialRuntime,
+  type RcbSpatialItem,
+} from './core/spatialIndex';
+export {
+  clearNodeTransformPreviews,
+  effectivePaintBox,
+  getNodeTransformPreview,
+  hasNodeTransformPreviews,
+  listNodeTransformPreviewIds,
+  setNodeTransformAngles,
+  setNodeTransformPreviews,
+  subscribeTransformPreview,
+  type EffectivePaintBox,
+  type NodeTransformPreview,
+  type NodeTransformPreviewPatch,
+} from './core/transformPreview';
 export {
   rcbAlignInBox,
   rcbCenterInBox,
@@ -59,6 +135,7 @@ export type { RcbCameraMotion } from './camera/context';
 export {
   nearestDprMultiple,
   snapCssToDevicePixel,
+  snapSceneStrokeAxis,
   toDomPrecision,
   readDevicePixelRatio,
   subscribeDevicePixelRatio,
@@ -67,8 +144,6 @@ export {
 export { default as RcbCanvas, zoomAtPoint } from './canvas/RcbCanvas';
 export type { RcbCanvasProps } from './canvas/RcbCanvas';
 export { default as RcbSvgDefs } from './canvas/RcbSvgDefs';
-export { default as RcbSceneOverlayCanvas } from './canvas/RcbSceneOverlayCanvas';
-export type { RcbSceneOverlayCanvasHandle } from './canvas/RcbSceneOverlayCanvas';
 export { getSvgBoard, setSvgBoard, type SvgBoardHandle } from './canvas/svgBoardRegistry';
 export { useSvgBoard } from './canvas/useSvgBoard';
 
@@ -105,7 +180,7 @@ export { STAMP_TINT_READY_EVENT, getTintedStampSrc } from './tools/stampTint';
 
 // Selection engine + chrome (toolbars/menus under selection/chrome/)
 export { default as SelectionFeature } from './selection/SelectionFeature';
-export { default as SelectionChrome, WorldSvgFrame, fittedSvgViewport } from './selection/SelectionChrome';
+export { default as SelectionChrome, WorldSvgFrame } from './selection/SelectionChrome';
 export { default as SelectionContextToolbar } from './selection/chrome/SelectionContextToolbar';
 export { default as MultiSelectionToolbar } from './selection/chrome/MultiSelectionToolbar';
 export { default as CanvasContextMenu } from './selection/chrome/CanvasContextMenu';

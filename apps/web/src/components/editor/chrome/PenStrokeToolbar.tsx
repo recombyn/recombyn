@@ -10,6 +10,8 @@ import Tooltip from '@/components/base/tooltip';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import {
   brushPreviewPath,
+  BRUSH_PREVIEW_POINTS,
+  buildStampDabs,
   DEFAULT_PENCIL_BRUSH_ID,
   findPencilBrush,
   isBrushPackFileName,
@@ -21,7 +23,7 @@ import {
   type PencilBrushDef,
   type PencilBrushId,
 } from '@/components/rcb/tools/pencilBrushes';
-import { preloadStampSrc } from '@/components/rcb/tools/stampTint';
+import { getTintedStampSrc, preloadStampSrc, STAMP_TINT_READY_EVENT } from '@/components/rcb/tools/stampTint';
 import {
   setActiveTool,
   setPenStrokeColor,
@@ -209,8 +211,17 @@ function BrushStrokePreview({
   className?: string;
 }) {
   const brush = findPencilBrush(brushId);
-  // Match canvas: tip brushes paint as SVG ribbon (no stamp soft-edge).
   const d = brushPreviewPath(brush, 9, hardness);
+  const dabs =
+    brush.kind === 'stamp' && brush.stampSrc
+      ? buildStampDabs(BRUSH_PREVIEW_POINTS, brush, 8, {
+          hardness,
+          pressureEnabled: true,
+          maxDabs: 160,
+          skipTaper: true,
+        })
+      : [];
+  const stampSrc = brush.stampSrc ? getTintedStampSrc(brush.stampSrc, color, hardness) : '';
   return (
     <svg
       className={className}
@@ -220,7 +231,23 @@ function BrushStrokePreview({
       preserveAspectRatio="none"
       aria-hidden
     >
-      <path d={d} fill={color} stroke="none" />
+      {dabs.length > 0 && stampSrc ? (
+        dabs.map((dab, index) => (
+          <image
+            key={`${index}-${dab.x.toFixed(2)}-${dab.y.toFixed(2)}`}
+            href={stampSrc}
+            x={dab.x - dab.size / 2}
+            y={dab.y - dab.size / 2}
+            width={dab.size}
+            height={dab.size}
+            opacity={Math.max(0.08, Math.min(1, dab.opacity))}
+            preserveAspectRatio="none"
+            transform={`rotate(${dab.angle} ${dab.x} ${dab.y})`}
+          />
+        ))
+      ) : (
+        <path d={d} fill={color} stroke="none" />
+      )}
     </svg>
   );
 }
@@ -288,6 +315,12 @@ function PenStrokeToolbar({
   useEffect(() => {
     hydrateCustomPencilBrushes();
     setBrushRev((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => setBrushRev((n) => n + 1);
+    window.addEventListener(STAMP_TINT_READY_EVENT, refresh);
+    return () => window.removeEventListener(STAMP_TINT_READY_EVENT, refresh);
   }, []);
 
   const clearTimer = (ref: { current: number | null }) => {
@@ -516,7 +549,7 @@ function PenStrokeToolbar({
                             aria-label={b.label}
                             aria-pressed={active}
                             className={cn(
-                              'relative flex h-9 w-full shrink-0 items-center overflow-hidden rounded-lg px-1.5 transition-colors',
+                              'relative flex h-9 w-full shrink-0 items-center overflow-hidden rounded-lg bg-white/[0.04] px-1.5 transition-colors',
                               active
                                 ? 'bg-[var(--accent-soft)]'
                                 : 'hover:bg-[var(--accent-soft)]',

@@ -3,6 +3,7 @@ import {
   findClosestPathHit,
   insertAnchorOnPath,
   penAnchorsToD,
+  rotateAnchorsAroundCenter,
   type PenAnchor,
 } from '../penPath';
 
@@ -45,5 +46,35 @@ describe('findClosestPathHit', () => {
     expect(hit!.x).toBeCloseTo(100, 0);
     expect(hit!.y).toBeCloseTo(40, 0);
     expect(hit!.dist).toBeLessThan(10);
+  });
+});
+
+describe('rotateAnchorsAroundCenter', () => {
+  it('is a no-op at angle 0', () => {
+    const out = rotateAnchorsAroundCenter(rect, 50, 40, 0);
+    expect(out).toEqual(rect);
+  });
+
+  it('rotates a corner 90° about center so path-edit matches host angle', () => {
+    // Box 100×80, center (50,40). Local TL (0,0) → after +90° → (90, -10)
+    const out = rotateAnchorsAroundCenter([{ x: 0, y: 0 }], 50, 40, 90);
+    expect(out[0].x).toBeCloseTo(90, 6);
+    expect(out[0].y).toBeCloseTo(-10, 6);
+  });
+
+  it('rotates Bezier handles with the anchor', () => {
+    const out = rotateAnchorsAroundCenter(
+      [{ x: 50, y: 0, outX: 70, outY: 0, inX: 30, inY: 0 }],
+      50,
+      40,
+      90
+    );
+    // (50,0)→(90,40); (70,0)→(90,60); (30,0)→(90,20)
+    expect(out[0].x).toBeCloseTo(90, 6);
+    expect(out[0].y).toBeCloseTo(40, 6);
+    expect(out[0].outX).toBeCloseTo(90, 6);
+    expect(out[0].outY).toBeCloseTo(60, 6);
+    expect(out[0].inX).toBeCloseTo(90, 6);
+    expect(out[0].inY).toBeCloseTo(20, 6);
   });
 });

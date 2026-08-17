@@ -1,6 +1,6 @@
 # ADR 0002: Custom RCB canvas runtime
 
-- **Status:** Accepted
+- **Status:** Accepted (runtime layering refined by [ADR 0027](./0027-canvas-layered-runtime.md))
 - **Date:** 2026-08-12
 
 ## Context
@@ -10,6 +10,8 @@ The product needs an infinite multi-artboard canvas with LOD, freehand ink, medi
 ## Decision
 
 Own a **Resume Canvas Backend (RCB)** runtime under `apps/web/src/components/rcb` + `editor/canvas`, with document model in `rcb/scene` / `packages/scene-schema`. Redux (`store/modules/editor.ts`) is the live document owner; SvgCanvas hosts tools and media overlays.
+
+**Runtime fact layer** (paint / hit / chrome) is specified in [ADR 0027](./0027-canvas-layered-runtime.md): `SceneDocument` + `CameraTransform` + spatial index — SVG is export/compat and transitional live paint, not the interaction substrate.
 
 Detailed behavior: [docs/canvas-architecture.md](../canvas-architecture.md).
 

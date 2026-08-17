@@ -62,6 +62,7 @@ import {
 import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
 import ToolbarMenuSelect from './ToolbarMenuSelect';
 import BlendModeControl from './BlendModeControl';
+import EffectsControl from './EffectsControl';
 import {
   SEL_ICON_BTN,
   SEL_ICON_BTN_ACTIVE,
@@ -95,12 +96,12 @@ import {
   buildOutlinePathAsync,
   canOutlineNode,
   outlineNodePatch,
-  requestEnterPathEdit,
 } from '@/components/rcb/scene/paint/outlineToPath';
 import {
   loadFontCatalog,
   parseWeightSelectValue,
   resolveWeightSelectValue,
+  toggleCatalogTextBold,
   weightOptionsForFamily,
 } from '@/components/rcb/scene/document/fontCatalog';
 import { TbVectorBezier } from 'react-icons/tb';
@@ -119,6 +120,8 @@ type Props = {
   document: SceneDocument;
   nodeId: string;
   box: SceneBox;
+  /** True node geometry used for W/H; box is only the toolbar placement box. */
+  valueBox?: SceneBox;
   /** Scene pad beyond chrome for outer stroke ink (center stroke half-width). */
   edgePadScene?: number;
   onOpenAgent?: (opts?: { prompt?: string }) => void;
@@ -164,8 +167,158 @@ function DecorationsTriggerIcon({
   return <HiOutlineUnderline className={cls} strokeWidth={2} />;
 }
 
+type TextAlignValue = 'left' | 'center' | 'right';
+type TextDecorationToken = 'underline' | 'overline' | 'line-through';
+
+type TranslateFn = (key: string, options?: Record<string, unknown>) => string;
+
+function textAlignOptions(t: TranslateFn) {
+  return [
+    { value: 'left' as const, label: t('editor.imageToolbar.alignLeft'), Icon: MdFormatAlignLeft },
+    {
+      value: 'center' as const,
+      label: t('editor.imageToolbar.alignCenter'),
+      Icon: MdFormatAlignCenter,
+    },
+    { value: 'right' as const, label: t('editor.imageToolbar.alignRight'), Icon: MdFormatAlignRight },
+  ];
+}
+
+function textDecorationOptions(
+  t: TranslateFn,
+  style: NonNullable<ReturnType<typeof parseNodeTextStyle>>
+) {
+  return [
+    {
+      token: 'underline' as const,
+      label: t('editor.imageToolbar.underline'),
+      Icon: HiOutlineUnderline,
+      on: isTextUnderline(style),
+    },
+    {
+      token: 'overline' as const,
+      label: t('editor.imageToolbar.overline'),
+      Icon: MdFormatOverline,
+      on: isTextOverline(style),
+    },
+    {
+      token: 'line-through' as const,
+      label: t('editor.imageToolbar.strike'),
+      Icon: HiOutlineStrikethrough,
+      on: isTextStrike(style),
+    },
+  ];
+}
+
+function TextAlignMenuItems({
+  textAlign,
+  t,
+  onPick,
+}: {
+  textAlign: string;
+  t: TranslateFn;
+  onPick: (value: TextAlignValue) => void;
+}) {
+  return textAlignOptions(t).map(({ value, label, Icon }) => (
+    <DropdownPanelItem
+      key={value}
+      selected={textAlign === value}
+      className="gap-2 whitespace-nowrap"
+      onClick={() => onPick(value)}
+    >
+      <Icon className="h-4 w-4 shrink-0 text-[var(--ink)]" />
+      <span className="whitespace-nowrap">{label}</span>
+      {textAlign === value ? (
+        <span className="ml-auto text-[11px] text-[var(--muted)]">✓</span>
+      ) : null}
+    </DropdownPanelItem>
+  ));
+}
+
+function TextDecorationMenuItems({
+  style,
+  t,
+  onToggle,
+}: {
+  style: NonNullable<ReturnType<typeof parseNodeTextStyle>>;
+  t: TranslateFn;
+  onToggle: (token: TextDecorationToken) => void;
+}) {
+  return textDecorationOptions(t, style).map(({ token, label, Icon, on }) => (
+    <DropdownPanelItem
+      key={token}
+      selected={on}
+      className="gap-2 whitespace-nowrap"
+      onClick={() => onToggle(token)}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="whitespace-nowrap">{label}</span>
+      {on ? <span className="ml-auto text-[11px] text-[var(--muted)]">✓</span> : null}
+    </DropdownPanelItem>
+  ));
+}
+
+function openImageMoreTool(
+  dispatch: ReturnType<typeof useDispatch>,
+  nodeId: string,
+  key: string
+) {
+  if (key === 'expand') {
+    dispatch(openImageToolPanel({ nodeId, kind: 'expand' }));
+    return;
+  }
+  if (key === 'crop') {
+    dispatch(openImageToolPanel({ nodeId, kind: 'crop' }));
+    return;
+  }
+  if (key === 'adjust') {
+    dispatch(openImageToolPanel({ nodeId, kind: 'adjust' }));
+    return;
+  }
+  if (key === 'flipRotate') {
+    dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }));
+  }
+}
+
+async function outlineSelectedNode(opts: {
+  node: SceneNodeInput;
+  nodeId: string;
+  dispatch: ReturnType<typeof useDispatch>;
+  loadingLabel: string;
+  failLabel: string;
+  okLabel: string;
+}) {
+  const hide = message.loading(opts.loadingLabel, 0);
+  try {
+    const outline = await buildOutlinePathAsync(opts.node);
+    if (!outline?.pathD) {
+      message.error(opts.failLabel);
+      return;
+    }
+    const patch = outlineNodePatch(opts.node, outline);
+    opts.dispatch(
+      patchDocumentNode({
+        nodeId: opts.nodeId,
+        patch: {
+          key: 'shape',
+          x: patch.x,
+          y: patch.y,
+          width: patch.width,
+          height: patch.height,
+          attrs: patch.attrs,
+        },
+      })
+    );
+    // Like text 轮廓化: stay on the filled silhouette in normal selection.
+    // Auto path-edit force-hides the host → hairline + knob carpet.
+    message.success(opts.okLabel);
+  } finally {
+    hide();
+  }
+}
+
 function SelectionContextToolbar(props: Props): ReactNode {
-  const { document, nodeId, box, edgePadScene = 0 } = props;
+  const { document, nodeId, box, valueBox, edgePadScene = 0 } = props;
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const [decorationOpen, setDecorationOpen] = useState(false);
@@ -216,7 +369,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
       await loadFontCatalog();
       if (!cancelled) setFontCatalogTick((n) => n + 1);
     }
-    void loadCatalog();
+    loadCatalog();
     return () => {
       cancelled = true;
     };
@@ -256,7 +409,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
 
   const textAlign = String(style?.textAlign || 'left');
   const fontFamily = String(style?.fontFamily || 'Alibaba PuHuiTi');
-  void fontCatalogTick;
+  // fontCatalogTick bumps after catalog load so weight options re-resolve.
   const weightFaces = weightOptionsForFamily(fontFamily);
   const weightSelectOptions = weightFaces.map((o) => ({ value: o.value, label: o.label }));
   const weightSelectValue = resolveWeightSelectValue(fontFamily, style?.fontWeight);
@@ -266,6 +419,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     'Regular';
   const showWeightSelect = weightFaces.length > 1;
   const showBoldToggle = true;
+  const fontCatalogEpoch = fontCatalogTick;
 
   const runImageProcess = (
     kind: ImageProcessKind,
@@ -286,6 +440,13 @@ function SelectionContextToolbar(props: Props): ReactNode {
   };
 
   const showBlend = !(kind === 'image' && isIconImageNode(node));
+  const supportsEffects = !['video', 'audio', 'lottie', 'frame', 'group'].includes(kind);
+  const effectControl = supportsEffects ? (
+    <EffectsControl
+      attrs={node.attrs}
+      onChange={(attrs) => dispatch(patchDocumentNode({ nodeId, patch: { attrs } }))}
+    />
+  ) : null;
   const imageAspectLocked = resolveImageAspectLocked(node, kind);
   const blendControl = showBlend ? (
     <BlendModeControl
@@ -421,24 +582,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
               />
             </>
           ) : null}
+          {effectControl ? (
+            <>
+              <Sep />
+              {effectControl}
+            </>
+          ) : null}
           <ImageToolbarMoreDownload
-            onAction={(key) => {
-              if (key === 'expand') {
-                dispatch(openImageToolPanel({ nodeId, kind: 'expand' }));
-                return;
-              }
-              if (key === 'crop') {
-                dispatch(openImageToolPanel({ nodeId, kind: 'crop' }));
-                return;
-              }
-              if (key === 'adjust') {
-                dispatch(openImageToolPanel({ nodeId, kind: 'adjust' }));
-                return;
-              }
-              if (key === 'flipRotate') {
-                dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }));
-              }
-            }}
+            onAction={(key) => openImageMoreTool(dispatch, nodeId, key)}
           />
           <Sep />
           <Tooltip
@@ -585,6 +736,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 className={btn}
               />
               <FontFamilyPicker
+                key={fontCatalogEpoch}
                 value={fontFamily}
                 onChange={({ fontFamily: nextFamily, fontWeight }) => {
                   patchTextStyle({ fontFamily: nextFamily, fontWeight });
@@ -618,11 +770,13 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     aria-label={t('editor.imageToolbar.bold')}
                     className={cn(SEL_ICON_BTN, isTextBold(style) && SEL_ICON_BTN_ACTIVE)}
                     aria-pressed={isTextBold(style)}
-                    onClick={() =>
+                    onClick={() => {
+                      const next = toggleCatalogTextBold(fontFamily, style?.fontWeight);
                       patchTextStyle({
-                        fontWeight: isTextBold(style) ? 'normal' : 'bold',
-                      })
-                    }
+                        fontFamily: next.fontFamily,
+                        fontWeight: next.fontWeight,
+                      });
+                    }}
                   >
                     <HiOutlineBold className="h-3.5 w-3.5" strokeWidth={2} />
                   </button>
@@ -671,45 +825,15 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 </Tooltip>
                 {decorationOpen ? (
                   <DropdownPanel className="absolute left-0 top-[calc(100%+6px)] z-40 min-w-max">
-                    {(
-                      [
-                        {
-                          token: 'underline' as const,
-                          label: t('editor.imageToolbar.underline'),
-                          Icon: HiOutlineUnderline,
-                          on: isTextUnderline(style),
-                        },
-                        {
-                          token: 'overline' as const,
-                          label: t('editor.imageToolbar.overline'),
-                          Icon: MdFormatOverline,
-                          on: isTextOverline(style),
-                        },
-                        {
-                          token: 'line-through' as const,
-                          label: t('editor.imageToolbar.strike'),
-                          Icon: HiOutlineStrikethrough,
-                          on: isTextStrike(style),
-                        },
-                      ] as const
-                    ).map(({ token, label, Icon, on }) => (
-                      <DropdownPanelItem
-                        key={token}
-                        selected={on}
-                        className="gap-2 whitespace-nowrap"
-                        onClick={() =>
-                          patchTextStyle({
-                            textDecoration: toggleTextDecoration(style.textDecoration, token),
-                          })
-                        }
-                      >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        <span className="whitespace-nowrap">{label}</span>
-                        {on ? (
-                          <span className="ml-auto text-[11px] text-[var(--muted)]">✓</span>
-                        ) : null}
-                      </DropdownPanelItem>
-                    ))}
+                    <TextDecorationMenuItems
+                      style={style!}
+                      t={t}
+                      onToggle={(token) =>
+                        patchTextStyle({
+                          textDecoration: toggleTextDecoration(style!.textDecoration, token),
+                        })
+                      }
+                    />
                   </DropdownPanel>
                 ) : null}
               </div>
@@ -731,41 +855,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 </Tooltip>
                 {alignOpen ? (
                   <DropdownPanel className="absolute left-0 top-[calc(100%+6px)] z-40 min-w-max">
-                    {(
-                      [
-                        {
-                          value: 'left',
-                          label: t('editor.imageToolbar.alignLeft'),
-                          Icon: MdFormatAlignLeft,
-                        },
-                        {
-                          value: 'center',
-                          label: t('editor.imageToolbar.alignCenter'),
-                          Icon: MdFormatAlignCenter,
-                        },
-                        {
-                          value: 'right',
-                          label: t('editor.imageToolbar.alignRight'),
-                          Icon: MdFormatAlignRight,
-                        },
-                      ] as const
-                    ).map(({ value, label, Icon }) => (
-                      <DropdownPanelItem
-                        key={value}
-                        selected={textAlign === value}
-                        className="gap-2 whitespace-nowrap"
-                        onClick={() => {
-                          patchTextStyle({ textAlign: value });
-                          setAlignOpen(false);
-                        }}
-                      >
-                        <Icon className="h-4 w-4 shrink-0 text-[var(--ink)]" />
-                        <span className="whitespace-nowrap">{label}</span>
-                        {textAlign === value ? (
-                          <span className="ml-auto text-[11px] text-[var(--muted)]">✓</span>
-                        ) : null}
-                      </DropdownPanelItem>
-                    ))}
+                    <TextAlignMenuItems
+                      textAlign={textAlign}
+                      t={t}
+                      onPick={(value) => {
+                        patchTextStyle({ textAlign: value });
+                        setAlignOpen(false);
+                      }}
+                    />
                   </DropdownPanel>
                 ) : null}
               </div>
@@ -785,33 +882,15 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     type="button"
                     aria-label="Outline"
                     className={SEL_ICON_BTN}
-                    onClick={async () => {
-                      const hide = message.loading('Outlining…', 0);
-                      try {
-                        const outline = await buildOutlinePathAsync(node);
-                        if (!outline?.pathD) {
-                          message.error('Outline failed');
-                          return;
-                        }
-                        const patch = outlineNodePatch(node, outline);
-                        dispatch(
-                          patchDocumentNode({
-                            nodeId,
-                            patch: {
-                              key: 'shape',
-                              x: patch.x,
-                              y: patch.y,
-                              width: patch.width,
-                              height: patch.height,
-                              attrs: patch.attrs,
-                            },
-                          })
-                        );
-                        requestEnterPathEdit(nodeId, outline.pathD);
-                        message.success('Outlined');
-                      } finally {
-                        hide();
-                      }
+                    onClick={() => {
+                      outlineSelectedNode({
+                        node,
+                        nodeId,
+                        dispatch,
+                        loadingLabel: 'Outlining…',
+                        failLabel: 'Outline failed',
+                        okLabel: 'Outlined',
+                      });
                     }}
                   >
                     <TbVectorBezier className="h-4 w-4" />
@@ -822,6 +901,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 <>
                   <Sep />
                   {blendControl}
+                </>
+              ) : null}
+              {effectControl ? (
+                <>
+                  <Sep />
+                  {effectControl}
                 </>
               ) : null}
               <Sep />
@@ -862,8 +947,21 @@ function SelectionContextToolbar(props: Props): ReactNode {
 
           {kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path' ? (
             <>
-              <ShapeSelectionToolbar nodeId={nodeId} node={node} box={box} hideExport />
+              <ShapeSelectionToolbar
+                nodeId={nodeId}
+                node={node}
+                box={box}
+                valueBox={valueBox}
+                document={document}
+                hideExport
+              />
               {blendControl}
+              {effectControl ? (
+                <>
+                  <Sep />
+                  {effectControl}
+                </>
+              ) : null}
               <Sep />
               <ExportSelectionPopover nodeIds={[nodeId]} />
             </>
@@ -873,6 +971,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
               {blendControl ? (
                 <>
                   {blendControl}
+                  <Sep />
+                </>
+              ) : null}
+              {effectControl ? (
+                <>
+                  {effectControl}
                   <Sep />
                 </>
               ) : null}

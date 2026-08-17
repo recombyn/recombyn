@@ -4,6 +4,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  overlayFromToolOps,
+  overlayLabelForAction,
+} from '../runDesignAgent';
+import {
   aiQueueAckStatus,
   aiQueueBegin,
   aiQueueBindTransaction,
@@ -17,8 +21,6 @@ import {
   aiQueueShouldSkipHistory,
   aiQueueTakeChunk,
   createAiOperationQueue,
-  overlayFromToolOps,
-  overlayLabelForAction,
   type ToolOpResult,
 } from '../runDesignAgent';
 

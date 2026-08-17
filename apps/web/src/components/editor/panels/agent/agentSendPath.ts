@@ -8,16 +8,16 @@ import {
 import type {
   ImageModeComposerControls,
   VideoModeComposerControls,
-} from '@/components/editor/panels/agent/AgentComposerShell';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import {
   type AskChoicePick,
   type ChatUiMessage,
-} from '@/components/editor/panels/agent/ChatTurnList';
+} from '@/components/editor/panels/agent/messages/ChatTurnList';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
 import {
   DEFAULT_IMAGE_QUALITY,
   modelImageLimits,
-} from '@/components/editor/panels/agent/ImageAspectRatioPicker';
+} from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import {
   cloudImageFallbackId,
   cloudVideoFallbackId,
@@ -26,7 +26,7 @@ import {
 } from '@/components/editor/panels/agent/llmModelMeta';
 import ModelPickerPanel, {
   ModelBrandIcon,
-} from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import {
   buildSceneFramesSnapshot,
   buildSceneNodesForCanvas,

@@ -119,7 +119,7 @@ function FontFamilyPicker({ value, onChange, className }: Props): ReactNode {
             ref={refs.setFloating}
             style={floatingStyles}
             {...getFloatingProps()}
-            className="z-[80] w-[240px] overflow-hidden rounded-[4px] bg-[var(--surface)] shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-1 ring-[var(--line)]"
+            className="z-[80] w-[240px] overflow-hidden rounded-xl bg-[var(--surface)] shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-1 ring-[var(--line)]"
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="px-2.5 pb-2 pt-2.5">

@@ -53,7 +53,8 @@ type SoftGlowSurfaceProps = {
 
 /**
  * Soft pastel loading surface + drifting bloom (not a horizontal light bar).
- * Lists: tone="random" + seed. Artboard / process plates: tone="canvas".
+ * Lists + canvas upload/generate plates: tone="random" + seed.
+ * Artboard process chrome: tone="canvas".
  */
 export function SoftGlowSurface({
   tone = 'random',

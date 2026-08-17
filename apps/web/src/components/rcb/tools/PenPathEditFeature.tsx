@@ -1,18 +1,32 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import { useEffect, useRef, useState, memo, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, memo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   useRcbCamera,
+  useRcbDevicePixelRatio,
   useRcbScreenToScene,
+  useRcbViewportEl,
 } from '../camera/context';
+import { rcbCameraCssZoom, rcbResolveViewportEl } from '../core/math';
+import {
+  clearChromeHitPads,
+  clearChromeKnobHits,
+  pickChromeKnobHit,
+  setChromeKnobHits,
+  type ChromeKnobHit,
+  type PaintedHitZonePick,
+} from '../selection/SelectionChrome';
+import { attachViewportToolPointers } from '../scene/document/sceneHitBridge';
 import {
   boundsOfAnchors,
   findClosestPathHit,
+  insertAnchorOnPath,
   localizeAnchors,
   offsetAnchors,
   penAnchorsToD,
   penSubpathsFromD,
   penSubpathsToD,
+  rotateAnchorsAroundCenter,
   withMirroredHandles,
   type PenAnchor,
 } from './penPath';
@@ -60,6 +74,8 @@ type Props = {
    * (pull out mirrored handles / cornerize / clear one handle).
    */
   convertPointMode?: boolean;
+  /** Path-edit Add anchor subtool — click a path segment to split it at the landing point. */
+  insertAnchorMode?: boolean;
   /** Stroke paint for newly drawn paths (path-edit Pen). */
   newStrokeColor?: string;
   newStrokeWidth?: number;
@@ -76,20 +92,24 @@ type Props = {
     pathD: string;
     box: { left: number; top: number; width: number; height: number };
     closed: boolean;
+    /** Path was edited in baked world orientation — clear attrs.angle on write. */
+    clearAngle?: boolean;
   }) => void;
   onExit: () => void;
 };
 
-const HANDLE_HIT_PX = 14;
-const ANCHOR_HIT_PX = 16;
+const HANDLE_HIT_PX = 22;
+const ANCHOR_HIT_PX = 24;
 /** Screen px — hover near stroke to show a preview dot. */
-const PATH_HIT_PX = 14;
+const PATH_HIT_PX = 20;
 
 /**
- * Screen-constant chrome (same contract as SelectionChrome):
- * page size = screenPx / zoom under the camera CSS scale. No Math.min caps.
+ * Screen-constant chrome (same contract as SelectionChrome overlay pads):
+ * hit radius in scene = screenPx / zoom. Pads place via worldToScreen.
  */
 const ANCHOR_VIS_PX = 8;
+/** Min screen gap between painted knobs — dense outline verts stay in data / hit-test. */
+const ANCHOR_PAINT_GAP_PX = 12;
 const HANDLE_VIS_PX = 7;
 const STROKE_PX = 1.5;
 const HANDLE_STROKE_PX = 1.25;
@@ -98,6 +118,61 @@ const SEL_BASELINE = '#3388ff';
 
 function hitRadiusScene(zoom: number, screenPx: number) {
   return screenPx / Math.max(0.05, zoom || 1);
+}
+
+/**
+ * Screen-constant chrome hit (ADR 0027): scene AABB registry only.
+ * No HTML/SVG pad DOM fallback — same `pickChromeKnobHit` as other knobs.
+ */
+function resolvePenPathEditKnobPick(
+  _e: PointerEvent,
+  sceneX: number,
+  sceneY: number
+): PaintedHitZonePick | null {
+  const painted = pickChromeKnobHit(sceneX, sceneY);
+  if (painted?.kind === 'pen-anchor' || painted?.kind === 'pen-handle') {
+    return painted;
+  }
+  return null;
+}
+
+/**
+ * Which anchors get a painted knob. Geometry / hit-testing keep every vert;
+ * only the chrome is thinned so outline ribbons do not carpet the canvas.
+ */
+export function filterAnchorsForKnobPaint(
+  anchors: Array<{ x: number; y: number; force?: boolean }>,
+  zoom: number,
+  gapPx = ANCHOR_PAINT_GAP_PX
+): boolean[] {
+  const n = anchors.length;
+  if (n === 0) return [];
+  const minScene = gapPx / Math.max(0.05, zoom || 1);
+  const keep = new Array<boolean>(n).fill(false);
+  const painted: Array<{ x: number; y: number }> = [];
+
+  function accept(i: number) {
+    keep[i] = true;
+    painted.push({ x: anchors[i].x, y: anchors[i].y });
+  }
+
+  function farEnough(x: number, y: number): boolean {
+    for (const p of painted) {
+      if (Math.hypot(x - p.x, y - p.y) < minScene) return false;
+    }
+    return true;
+  }
+
+  for (let i = 0; i < n; i += 1) {
+    if (anchors[i].force) accept(i);
+  }
+  for (let i = 0; i < n; i += 1) {
+    if (keep[i]) continue;
+    const a = anchors[i];
+    if (!farEnough(a.x, a.y)) continue;
+    accept(i);
+  }
+  return keep;
 }
 
 /**
@@ -192,6 +267,7 @@ type AnchorDraw = {
   r: number;
   fill: string;
   strokeColor: string;
+  zoneKey: string;
 };
 
 type HandleDraw = {
@@ -199,30 +275,47 @@ type HandleDraw = {
   y: number;
   r: number;
   active: boolean;
+  zoneKey: string;
 };
 
-function AnchorKnobSvg({ a, strokeW }: { a: AnchorDraw; strokeW: number }) {
+function AnchorKnobSvg({
+  a,
+  strokeW,
+}: {
+  a: AnchorDraw;
+  strokeW: number;
+}) {
   return (
-    <circle
-      cx={a.x}
-      cy={a.y}
-      r={a.r}
-      fill={a.fill}
-      stroke={a.strokeColor}
-      strokeWidth={strokeW}
-    />
+    <g style={{ pointerEvents: 'none' }}>
+      <circle
+        cx={a.x}
+        cy={a.y}
+        r={a.r}
+        fill={a.fill}
+        stroke={a.strokeColor}
+        strokeWidth={strokeW}
+      />
+    </g>
   );
 }
 
-function HandleDiamondSvg({ h, strokeW }: { h: HandleDraw; strokeW: number }) {
+function HandleDiamondSvg({
+  h,
+  strokeW,
+}: {
+  h: HandleDraw;
+  strokeW: number;
+}) {
   const d = `M ${h.x} ${h.y - h.r} L ${h.x + h.r} ${h.y} L ${h.x} ${h.y + h.r} L ${h.x - h.r} ${h.y} Z`;
   return (
-    <path
-      d={d}
-      fill={h.active ? SEL_BASELINE : '#fff'}
-      stroke={h.active ? SEL_BASELINE : '#383838'}
-      strokeWidth={strokeW}
-    />
+    <g style={{ pointerEvents: 'none' }}>
+      <path
+        d={d}
+        fill={h.active ? SEL_BASELINE : '#fff'}
+        stroke={h.active ? SEL_BASELINE : '#383838'}
+        strokeWidth={strokeW}
+      />
+    </g>
   );
 }
 
@@ -385,12 +478,25 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   // Keep multi-contour paths intact (do not sample into one polyline).
   const d = normalizePathDForEdit(raw) || raw;
   const { left, top } = nodeLeftTop(document, node);
+  const boxW = Math.max(1, Number(node.width) || 1);
+  const boxH = Math.max(1, Number(node.height) || 1);
+  // Path-edit chrome is axis-aligned — bake attrs.angle into scene points so a
+  // rotated boolean / outlined path does not “lie flat” when the host is hidden.
+  const angleDeg = Number(node.attrs?.angle) || 0;
   const parsed = penSubpathsFromD(d);
   if (!parsed.length) return null;
   const strokeOn =
     node.attrs?.['stroke-enabled'] !== false && node.attrs?.['stroke-enabled'] !== 'false';
-  const bw = Number(node.attrs?.['border-width'] ?? node.attrs?.borderWidth ?? 0);
-  const strokeWidth = strokeOn ? Math.max(0, Number.isFinite(bw) ? bw : 0) : 0;
+  const shapeType = String(node.attrs?.shapeType || node.key || '');
+  const rawBw = Number(
+    node.attrs?.['border-width'] ?? node.attrs?.borderWidth ?? node.attrs?.strokeWidth ?? 0
+  );
+  const strokeFallback =
+    shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'line' || shapeType === 'arrow'
+      ? 2
+      : 0;
+  const bw = Number.isFinite(rawBw) && rawBw > 0 ? rawBw : strokeFallback;
+  const strokeWidth = strokeOn ? Math.max(0, bw) : 0;
   const strokeColor = String(node.attrs?.['border-color'] || node.attrs?.stroke || '#333333');
   const fillColor = String(node.attrs?.['fill-color'] || node.attrs?.fill || '');
   const fillEnabled =
@@ -403,18 +509,30 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
       ? 'evenodd'
       : 'nonzero';
   const anyClosed = parsed.some((s) => s.closed);
+  const joinRaw = String(node.attrs?.strokeLinejoin ?? node.attrs?.['stroke-linejoin'] ?? '').toLowerCase();
+  const capRaw = String(node.attrs?.strokeLinecap ?? node.attrs?.['stroke-linecap'] ?? '').toLowerCase();
+  let strokeLinejoin: 'miter' | 'round' | 'bevel' = 'miter';
+  if (joinRaw === 'round' || joinRaw === 'bevel' || joinRaw === 'miter') strokeLinejoin = joinRaw;
+  else if (shapeType === 'pencil') strokeLinejoin = 'round';
+  let strokeLinecap: 'butt' | 'round' | 'square' = 'butt';
+  if (capRaw === 'round' || capRaw === 'square' || capRaw === 'butt') strokeLinecap = capRaw;
+  else if (shapeType === 'pencil') strokeLinecap = 'round';
   return {
-    subpaths: parsed.map((s) => ({
-      anchors: offsetAnchors(
-        mergeStackedAnchors(s.anchors, mergeEpsForAnchors(s.anchors)),
-        left,
-        top
-      ),
-      closed: s.closed,
-    })),
+    subpaths: parsed.map((s) => {
+      const local = mergeStackedAnchors(s.anchors, mergeEpsForAnchors(s.anchors));
+      const baked = rotateAnchorsAroundCenter(local, boxW / 2, boxH / 2, angleDeg);
+      return {
+        anchors: offsetAnchors(baked, left, top),
+        closed: s.closed,
+      };
+    }),
     strokeWidth,
     strokeColor,
     strokeEnabled: strokeOn && strokeWidth > 0,
+    /** True when scene anchors include baked rotation — commit must clear attrs.angle. */
+    bakedAngle: Math.abs(angleDeg) >= 0.01,
+    strokeLinecap,
+    strokeLinejoin,
     fill: anyClosed && fillEnabled ? fillColor : 'none',
     fillRule,
   };
@@ -440,6 +558,7 @@ function PenPathEditFeature({
   stageEl = null,
   drawNewShapeMode = false,
   convertPointMode = false,
+  insertAnchorMode = false,
   newStrokeColor = '#333333',
   newStrokeWidth = 2,
   gridSnap = true,
@@ -449,11 +568,15 @@ function PenPathEditFeature({
   onExit,
 }: Props) {
   const camera = useRcbCamera();
+  const dpr = useRcbDevicePixelRatio();
+  const viewportEl = useRcbViewportEl();
   const toScene = useRcbScreenToScene();
   const [subpaths, setSubpaths] = useState<PenSubpath[]>([]);
   const [strokeWidth, setStrokeWidth] = useState(0);
   const [strokeColor, setStrokeColor] = useState('#333333');
   const [strokeEnabled, setStrokeEnabled] = useState(false);
+  const [strokeLinecap, setStrokeLinecap] = useState<'butt' | 'round' | 'square'>('butt');
+  const [strokeLinejoin, setStrokeLinejoin] = useState<'miter' | 'round' | 'bevel'>('miter');
   const [fillColor, setFillColor] = useState('none');
   const [fillRule, setFillRule] = useState<'nonzero' | 'evenodd'>('nonzero');
   const [selectedHandle, setSelectedHandle] = useState<HandleHit | null>(null);
@@ -466,6 +589,7 @@ function PenPathEditFeature({
 
   const subpathsRef = useRef<PenSubpath[]>([]);
   const strokeWidthRef = useRef(0);
+  const bakedAngleRef = useRef(false);
   const draftAnchorsRef = useRef<PenAnchor[]>([]);
   const pathHoverRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<DragKind | null>(null);
@@ -477,6 +601,7 @@ function PenPathEditFeature({
   const onCommitNewShapeRef = useRef(onCommitNewShape);
   const drawNewRef = useRef(drawNewShapeMode);
   const convertPointRef = useRef(convertPointMode);
+  const insertAnchorRef = useRef(insertAnchorMode);
   const newStrokeWidthRef = useRef(newStrokeWidth);
   const gridSnapRef = useRef(gridSnap);
   const gridSizeRef = useRef(gridSize);
@@ -485,6 +610,7 @@ function PenPathEditFeature({
   onCommitNewShapeRef.current = onCommitNewShape;
   drawNewRef.current = drawNewShapeMode;
   convertPointRef.current = convertPointMode;
+  insertAnchorRef.current = insertAnchorMode;
   newStrokeWidthRef.current = newStrokeWidth;
   gridSnapRef.current = gridSnap;
   gridSizeRef.current = gridSize;
@@ -516,6 +642,7 @@ function PenPathEditFeature({
         pathD: d,
         box,
         closed: list.every((s) => s.closed),
+        clearAngle: bakedAngleRef.current,
       });
     }
     dirtyRef.current = false;
@@ -551,16 +678,25 @@ function PenPathEditFeature({
     setDraftCursor(null);
     onExitRef.current();
   };
+  const commitAndExitRef = useRef(commitAndExit);
+  commitAndExitRef.current = commitAndExit;
 
   useEffect(() => {
     if (!drawNewShapeMode) {
-      // Leaving Pen subtool: keep a 鈮?-point draft as an open path.
+      // Leaving Pen subtool: keep a ≥2-point draft as an open path.
       commitDraftIfAny(false);
       setPathHover(null);
       setDraftCursor(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawNewShapeMode]);
+
+  const pathNode = nodeId ? document?.deltaSetLike?.[nodeId] : undefined;
+  const pathGeomKey = String(
+    pathNode?.attrs?.path || pathNode?.attrs?.d || ''
+  );
+  const pathNodeWidth = Number(pathNode?.width);
+  const pathNodeHeight = Number(pathNode?.height);
+  const pathNodeAngle = Number(pathNode?.attrs?.angle) || 0;
 
   useEffect(() => {
     if (!enabled || !nodeId) {
@@ -568,6 +704,7 @@ function PenPathEditFeature({
       setPathHover(null);
       setDraftAnchors([]);
       setDraftCursor(null);
+      bakedAngleRef.current = false;
       return;
     }
     const loaded = loadSceneAnchors(document, nodeId);
@@ -579,8 +716,11 @@ function PenPathEditFeature({
     setStrokeWidth(loaded.strokeWidth);
     setStrokeColor(loaded.strokeColor);
     setStrokeEnabled(loaded.strokeEnabled);
+    setStrokeLinecap(loaded.strokeLinecap);
+    setStrokeLinejoin(loaded.strokeLinejoin);
     setFillColor(loaded.fill || 'none');
     setFillRule(loaded.fillRule === 'evenodd' ? 'evenodd' : 'nonzero');
+    bakedAngleRef.current = loaded.bakedAngle;
     dirtyRef.current = false;
     dragRef.current = null;
     setSelectedHandle(null);
@@ -589,33 +729,79 @@ function PenPathEditFeature({
     setPathHover(null);
     setDraftAnchors([]);
     setDraftCursor(null);
-    // Reload when path geometry changes (e.g. path-edit pen boolean union).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    enabled,
-    nodeId,
-    String(document?.deltaSetLike?.[nodeId]?.attrs?.path || document?.deltaSetLike?.[nodeId]?.attrs?.d || ''),
-    Number(document?.deltaSetLike?.[nodeId]?.width),
-    Number(document?.deltaSetLike?.[nodeId]?.height),
-  ]);
+    // Reload when path geometry / angle changes (e.g. path-edit pen boolean union).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- document read via pathGeomKey/size/angle
+  }, [enabled, nodeId, pathGeomKey, pathNodeWidth, pathNodeHeight, pathNodeAngle]);
 
   useEffect(() => {
     if (!enabled) return undefined;
-    const onExitToolbar = () => commitAndExit();
+    const onExitToolbar = () => commitAndExitRef.current();
     window.addEventListener('resume:exit-path-edit', onExitToolbar);
-    return () => window.removeEventListener('resume:exit-path-edit', onExitToolbar);
-    // commitAndExit closes over refs 鈥?stable enough for this listener.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      window.removeEventListener('resume:exit-path-edit', onExitToolbar);
+    };
   }, [enabled, nodeId]);
 
+  // Scene AABB knob registry only (ADR 0027 appendix A — no HTML hit pads).
+  useLayoutEffect(() => {
+    const ownerId = `pen-edit:${nodeId}`;
+    if (!enabled || !subpaths.length) {
+      clearChromeHitPads(ownerId);
+      clearChromeKnobHits(ownerId);
+      return undefined;
+    }
+    clearChromeHitPads(ownerId);
+    const z = Math.max(0.05, rcbCameraCssZoom(camera));
+    const anchorHalf = ANCHOR_HIT_PX / (2 * z);
+    const handleHalf = HANDLE_HIT_PX / (2 * z);
+    const knobHits: ChromeKnobHit[] = [];
+    subpaths.forEach((sp, si) => {
+      sp.anchors.forEach((a, i) => {
+        knobHits.push({
+          ownerId,
+          kind: 'pen-anchor',
+          key: `pen-anchor-${si}-${i}`,
+          x: a.x,
+          y: a.y,
+          half: anchorHalf,
+        });
+        if (a.outX != null && a.outY != null) {
+          knobHits.push({
+            ownerId,
+            kind: 'pen-handle',
+            key: `pen-handle-${si}-${i}-out`,
+            x: a.outX,
+            y: a.outY,
+            half: handleHalf,
+          });
+        }
+        if (a.inX != null && a.inY != null) {
+          knobHits.push({
+            ownerId,
+            kind: 'pen-handle',
+            key: `pen-handle-${si}-${i}-in`,
+            x: a.inX,
+            y: a.inY,
+            half: handleHalf,
+          });
+        }
+      });
+    });
+    setChromeKnobHits(ownerId, knobHits);
+    return () => {
+      clearChromeHitPads(ownerId);
+      clearChromeKnobHits(ownerId);
+    };
+  }, [enabled, nodeId, subpaths, camera.x, camera.y, camera.zoom, dpr]);
+
   useEffect(() => {
-    const hitEl = stageEl || paperEl;
+    const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
     if (!enabled || !hitEl) return undefined;
 
     const radii = () => ({
-      anchor: hitRadiusScene(camera.zoom, ANCHOR_HIT_PX),
-      handle: hitRadiusScene(camera.zoom, HANDLE_HIT_PX),
-      path: hitRadiusScene(camera.zoom, PATH_HIT_PX),
+      anchor: hitRadiusScene(rcbCameraCssZoom(camera), ANCHOR_HIT_PX),
+      handle: hitRadiusScene(rcbCameraCssZoom(camera), HANDLE_HIT_PX),
+      path: hitRadiusScene(rcbCameraCssZoom(camera), PATH_HIT_PX),
     });
 
     const onDown = (e: PointerEvent) => {
@@ -624,14 +810,14 @@ function PenPathEditFeature({
       if (target?.closest?.('[data-sel-toolbar],[data-frame-toolbar],[data-text-inline-editor]')) {
         return;
       }
-      e.preventDefault();
-      e.stopPropagation();
       const p = toScene(e.clientX, e.clientY);
       const list = subpathsRef.current;
       const { anchor: anchorR, handle: handleR } = radii();
 
       // Path-edit Pen: draw a new path in-place (keep edge hover; never leave to Pen tool).
       if (drawNewRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
         const draft = draftAnchorsRef.current;
         const skipGrid = e.ctrlKey || !gridSnapRef.current;
         const place = snapPenAnchorPoint(p.x, p.y, gridSizeRef.current, skipGrid);
@@ -666,8 +852,62 @@ function PenPathEditFeature({
         return;
       }
 
-      const aRef = hitAnchor(list, p, anchorR);
-      const handleHit = aRef ? null : hitHandle(list, p, handleR);
+      if (insertAnchorRef.current) {
+        let target: { sub: number; dist: number } | null = null;
+        for (let sub = 0; sub < list.length; sub += 1) {
+          const pathHit = findClosestPathHit(list[sub].anchors, list[sub].closed, p.x, p.y);
+          if (pathHit && (!target || pathHit.dist < target.dist)) {
+            target = { sub, dist: pathHit.dist };
+          }
+        }
+        if (!target || target.dist > radii().path) return;
+        const inserted = insertAnchorOnPath(
+          list[target.sub].anchors,
+          list[target.sub].closed,
+          p.x,
+          p.y,
+          radii().path
+        );
+        if (!inserted) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dirtyRef.current = true;
+        setSubpaths((prev) =>
+          prev.map((subpath, index) =>
+            index === target!.sub ? { ...subpath, anchors: inserted.anchors } : subpath
+          )
+        );
+        setSelectedHandle(null);
+        setHoverAnchor({ sub: target.sub, index: inserted.index });
+        return;
+      }
+
+      // Scene registry first; overlay HTML pads as DOM fallback.
+      const painted = resolvePenPathEditKnobPick(e, p.x, p.y);
+      let aRef: AnchorRef | null = null;
+      let handleHit: HandleHit | null = null;
+      if (painted?.kind === 'pen-anchor') {
+        aRef = { sub: painted.sub, index: painted.index };
+      } else if (painted?.kind === 'pen-handle') {
+        handleHit = {
+          sub: painted.sub,
+          index: painted.index,
+          side: painted.side,
+        };
+      } else {
+        aRef = hitAnchor(list, p, anchorR);
+        handleHit = aRef ? null : hitHandle(list, p, handleR);
+      }
+
+      // Only claim the gesture when we hit a knob or the path body.
+      // Miss must not swallow — yellow-aligned clicks used to die here.
+      if (!aRef && !handleHit) {
+        const onPath = findClosestOnSubpaths(list, p.x, p.y);
+        if (!onPath || onPath.dist > radii().path) return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+
       const convertMod = convertPointRef.current || e.altKey;
 
       // Alt/Option (or Meta) on a handle clears that side — not Curve tool alone
@@ -770,13 +1010,18 @@ function PenPathEditFeature({
       if (!drag) {
         const { anchor: anchorR, handle: handleR, path: pathR } = radii();
         const list = subpathsRef.current;
-        if (drawNewRef.current) {
-          // Always show edge preview on the edited path — even mid-draw.
+        if (drawNewRef.current || insertAnchorRef.current) {
+          // Pen and Add anchor share the same edge landing preview.
           const nearest = findClosestOnSubpaths(list, p.x, p.y);
           if (nearest && nearest.dist <= pathR) {
             setPathHover({ x: nearest.x, y: nearest.y });
           } else {
             setPathHover(null);
+          }
+          if (insertAnchorRef.current) {
+            setHoverAnchor(null);
+            setHoverHandle(null);
+            return;
           }
           const skipGrid = e.ctrlKey || !gridSnapRef.current;
           // Snap tip even before the first draft click (CSS cursor ≠ lattice).
@@ -785,8 +1030,21 @@ function PenPathEditFeature({
           setHoverHandle(null);
           return;
         }
-        setHoverAnchor(hitAnchor(list, p, anchorR));
-        setHoverHandle(hitHandle(list, p, handleR));
+        const painted = resolvePenPathEditKnobPick(e, p.x, p.y);
+        if (painted?.kind === 'pen-anchor') {
+          setHoverAnchor({ sub: painted.sub, index: painted.index });
+          setHoverHandle(null);
+        } else if (painted?.kind === 'pen-handle') {
+          setHoverHandle({
+            sub: painted.sub,
+            index: painted.index,
+            side: painted.side,
+          });
+          setHoverAnchor(null);
+        } else {
+          setHoverAnchor(hitAnchor(list, p, anchorR));
+          setHoverHandle(hitHandle(list, p, handleR));
+        }
         setPathHover(null);
         return;
       }
@@ -794,7 +1052,7 @@ function PenPathEditFeature({
       if (drag.kind === 'convert') {
         const dist = Math.hypot(p.x - drag.ax, p.y - drag.ay);
         // Small threshold so a plain Alt-click can still mean 鈥渕ake corner鈥?
-        if (dist < 3 / Math.max(0.05, camera.zoom || 1)) return;
+        if (dist < 3 / Math.max(0.05, rcbCameraCssZoom(camera))) return;
         drag.pulled = true;
         dirtyRef.current = true;
         setSubpaths((prev) =>
@@ -884,7 +1142,7 @@ function PenPathEditFeature({
         }
         e.preventDefault();
         e.stopPropagation();
-        commitAndExit();
+        commitAndExitRef.current();
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -900,23 +1158,26 @@ function PenPathEditFeature({
     };
 
     hitEl.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    const detachPointers = attachViewportToolPointers(hitEl, {
+      onMove,
+      onUp,
+    });
     window.addEventListener('keydown', onKey, true);
     return () => {
       hitEl.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      detachPointers();
       window.removeEventListener('keydown', onKey, true);
     };
-  }, [enabled, paperEl, stageEl, camera.zoom, toScene, nodeId]);
+  }, [enabled, paperEl, stageEl, viewportEl, camera, toScene, nodeId]);
 
-  if (!enabled || !subpaths.length) return null;
+  if (!enabled || !subpaths.length) {
+    return null;
+  }
 
   const d = penSubpathsToD(subpaths);
   const sw = Math.max(0, strokeWidth);
   // Screen-constant ink in scene units (HostPathChrome / SelectionChrome: px / zoom).
-  const z = Math.max(0.05, camera.zoom || 1);
+  const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const inv = 1 / z;
   const stroke = STROKE_PX * inv;
   const handleStroke = HANDLE_STROKE_PX * inv;
@@ -942,6 +1203,16 @@ function PenPathEditFeature({
   const handlesDraw: HandleDraw[] = [];
 
   subpaths.forEach((sp, si) => {
+    const paintMask = filterAnchorsForKnobPaint(
+      sp.anchors.map((a, i) => ({
+        x: a.x,
+        y: a.y,
+        // Only force hover — Q→C outlines put handles on almost every vert;
+        // forcing those carpeted the canvas and looked like thickness vanished.
+        force: hoverAnchor?.sub === si && hoverAnchor?.index === i,
+      })),
+      z
+    );
     sp.anchors.forEach((a, i) => {
       const hovered = hoverAnchor?.sub === si && hoverAnchor?.index === i;
       const pushHandle = (side: HandleSide, hx: number, hy: number) => {
@@ -956,8 +1227,11 @@ function PenPathEditFeature({
           y: hy,
           r: active ? handleRHot : handleR,
           active,
+          zoneKey: `pen-handle-${si}-${i}-${side}`,
         });
       };
+      // Paint handles only for knobs we show — otherwise Q→C outlines carpet the canvas.
+      if (!paintMask[i]) return;
       if (a.outX != null && a.outY != null) pushHandle('out', a.outX, a.outY);
       if (a.inX != null && a.inY != null) pushHandle('in', a.inX, a.inY);
       anchorsDraw.push({
@@ -966,6 +1240,7 @@ function PenPathEditFeature({
         r: hovered ? anchorRHot : anchorR,
         fill: hovered ? SEL_BASELINE : '#fff',
         strokeColor: SEL_BASELINE,
+        zoneKey: `pen-anchor-${si}-${i}`,
       });
     });
   });
@@ -977,6 +1252,7 @@ function PenPathEditFeature({
       r: anchorR,
       fill: SEL_BASELINE,
       strokeColor: '#fff',
+      zoneKey: 'pen-preview',
     });
   }
   draftAnchors.forEach((a) => {
@@ -986,6 +1262,7 @@ function PenPathEditFeature({
       r: anchorR,
       fill: '#fff',
       strokeColor: SEL_BASELINE,
+      zoneKey: 'pen-preview',
     });
   });
 
@@ -996,6 +1273,8 @@ function PenPathEditFeature({
       fillRule={fillRule === 'evenodd' ? 'evenodd' : 'nonzero'}
       editStrokeOn={editStrokeOn}
       editStrokeColor={editStrokeColor}
+      strokeLinecap={strokeLinecap}
+      strokeLinejoin={strokeLinejoin}
       pathSw={pathSw}
       linkSegs={linkSegs}
       linkSw={linkStroke}
@@ -1019,6 +1298,8 @@ function PenPathEditInkSvg({
   fillRule,
   editStrokeOn,
   editStrokeColor,
+  strokeLinecap,
+  strokeLinejoin,
   pathSw,
   linkSegs,
   linkSw,
@@ -1038,6 +1319,8 @@ function PenPathEditInkSvg({
   fillRule: 'evenodd' | 'nonzero';
   editStrokeOn: boolean;
   editStrokeColor: string;
+  strokeLinecap: 'butt' | 'round' | 'square';
+  strokeLinejoin: 'miter' | 'round' | 'bevel';
   pathSw: number;
   linkSegs: Array<{ x1: number; y1: number; x2: number; y2: number }>;
   linkSw: number;
@@ -1052,7 +1335,7 @@ function PenPathEditInkSvg({
   knobStroke: number;
   handleStroke: number;
 }) {
-  // Portal into shared world SVG — sibling sceneSurfaceSvgProps drifts under fractional DPR.
+  // Portal into the shared camera group so edit chrome and scene ink use one lattice.
   const [, setWorldEpoch] = useState(() => getSceneWorldEpoch());
   useEffect(
     () =>
@@ -1090,8 +1373,8 @@ function PenPathEditInkSvg({
           fillRule={fillRule}
           stroke={editStrokeOn && pathSw > 0 ? editStrokeColor : 'none'}
           strokeWidth={pathSw}
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          strokeLinecap={strokeLinecap}
+          strokeLinejoin={strokeLinejoin}
         />
       ) : null}
       {draftD ? (

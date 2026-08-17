@@ -118,13 +118,37 @@ export function strokeVisualOutset(node: SceneNodeInput): number {
 }
 
 /**
- * How far selection chrome sits outside the geometric box (≥ 0).
- * Control box = **vector path** (geometry AABB). Stroke align is paint-only —
- * do not pad the blue box to outer ink. Move/snap still uses visual outer via
- * `strokeVisualOutset` / `inflateBoxByVisualOutset`.
+ * Scene distance from the path into the fill past the **inner** stroke edge.
+ * Radius knobs park here so they stay inside the stroke band at any zoom
+ * (stroke width is scene-constant; screen park alone cannot clear it).
  */
-export function strokeChromeOutset(node: SceneNodeInput): number {
-  void node;
+export function strokeInnerClearanceScene(node: SceneNodeInput): number {
+  const meta = strokePaintMeta(node);
+  if (!meta || !(meta.strokeWidth > 0)) return 0;
+  if (meta.align === 'outside') return 0;
+  if (meta.align === 'inside') return meta.strokeWidth;
+  return meta.strokeWidth / 2;
+}
+
+/**
+ * Scene distance from the path into the exterior past the **outer** stroke edge.
+ * Rotate hotzones sit beyond this so they stay outside the stroke at any zoom.
+ */
+export function strokeOuterClearanceScene(node: SceneNodeInput): number {
+  const meta = strokePaintMeta(node);
+  if (!meta || !(meta.strokeWidth > 0)) return 0;
+  if (meta.align === 'inside') return 0;
+  if (meta.align === 'outside') return meta.strokeWidth;
+  return meta.strokeWidth / 2;
+}
+
+/**
+ * Selection and resize own the stored node geometry, not painted stroke ink.
+ * This keeps every control edge on the same grid lattice as x/y/width/height;
+ * visual stroke extent remains available through `strokeVisualOutset` for paint
+ * and hit testing.
+ */
+export function strokeChromeOutset(_node: SceneNodeInput): number {
   return 0;
 }
 
@@ -146,8 +170,7 @@ export function strokeIndicatorOutset(node: SceneNodeInput): number {
 }
 
 /**
- * Align / snap / spacing boxes — **vector path only**.
- * Guides / snap use visual outer separately; selection chrome stays on path.
+ * Align / snap / spacing boxes — path geom for guides; chrome uses visual outer.
  */
 export type StrokeBandFace = 'inner' | 'path' | 'outer';
 
@@ -156,8 +179,7 @@ export type StrokeBandBox<T extends { left: number; top: number; width: number; 
 
 export function strokeBandGuideBoxes<
   T extends { left: number; top: number; width: number; height: number },
->(geom: T, node: SceneNodeInput): StrokeBandBox<T>[] {
-  void node;
+>(geom: T, _node: SceneNodeInput): StrokeBandBox<T>[] {
   return [{ ...geom, face: 'path' }];
 }
 
@@ -175,7 +197,7 @@ function padBox<T extends { left: number; top: number; width: number; height: nu
   };
 }
 
-/** Selection chrome AABB from geometry (path only — chrome outset is 0). */
+/** Selection chrome AABB from geometry (padded to visual outer when stroked). */
 export function inflateBoxByStrokeOutset<
   T extends { left: number; top: number; width: number; height: number },
 >(box: T, node: SceneNodeInput): T {
@@ -218,17 +240,12 @@ function strokeVisualOutsetAssumingPainted(node: SceneNodeInput): number {
 }
 
 /**
- * Closed shapes drawn with center stroke store path geom inset by sw/2 so outer
- * ink sits on the integer grid. Hiding stroke without expanding leaves the fill
- * on half-pixels. Expand/inset AABB to keep the visible edge stable.
- *
- * Skips open strokes / freehand / custom path `d` (AABB alone would not offset the curve).
+ * Closed shapes drawn with center/outside stroke store path geom inset so outer
+ * ink sits on the integer grid. AABB-only adjust — skip open strokes / freehand /
+ * custom path `d` (those need curve offset, not box resize).
  */
-export function geometryPatchForStrokeVisibilityToggle(
-  node: SceneNodeInput,
-  nextVisible: boolean
-): { x: number; y: number; width: number; height: number } | null {
-  if (!node) return null;
+function canAdjustClosedStrokeGeomBox(node: SceneNodeInput): boolean {
+  if (!node) return false;
   const shapeType = String(node.attrs?.shapeType || '');
   if (
     shapeType === 'line' ||
@@ -237,7 +254,7 @@ export function geometryPatchForStrokeVisibilityToggle(
     shapeType === 'pen' ||
     shapeType === 'path'
   ) {
-    return null;
+    return false;
   }
   if (
     node.key === 'text' ||
@@ -247,13 +264,48 @@ export function geometryPatchForStrokeVisibilityToggle(
     node.key === 'lottie' ||
     node.key === 'audio'
   ) {
-    return null;
+    return false;
   }
   // Boolean / pasted outlines keep absolute local `path` — resizing the box alone
   // would not grow the fill to the old outer ink.
   if (typeof node.attrs?.path === 'string' && String(node.attrs.path).trim()) {
-    return null;
+    return false;
   }
+  return true;
+}
+
+/** Inset (+delta) or expand (−delta) path so outer ink stays put. */
+function patchNodeBoxByOutsetDelta(
+  node: SceneNodeInput,
+  delta: number,
+  opts?: { rejectIfNoShrink?: boolean }
+): { x: number; y: number; width: number; height: number } | null {
+  if (!(Math.abs(delta) > 1e-9)) return null;
+  const x = Number(node.x) || 0;
+  const y = Number(node.y) || 0;
+  const width = Math.max(1, Number(node.width) || 1);
+  const height = Math.max(1, Number(node.height) || 1);
+  const nextW = Math.max(1, width - delta * 2);
+  const nextH = Math.max(1, height - delta * 2);
+  if (opts?.rejectIfNoShrink && nextW >= width && nextH >= height) return null;
+  return {
+    x: quantizeHalfPx(x + delta),
+    y: quantizeHalfPx(y + delta),
+    width: quantizeHalfPx(nextW),
+    height: quantizeHalfPx(nextH),
+  };
+}
+
+/**
+ * Closed shapes drawn with center stroke store path geom inset by sw/2 so outer
+ * ink sits on the integer grid. Hiding stroke without expanding leaves the fill
+ * on half-pixels. Expand/inset AABB to keep the visible edge stable.
+ */
+export function geometryPatchForStrokeVisibilityToggle(
+  node: SceneNodeInput,
+  nextVisible: boolean
+): { x: number; y: number; width: number; height: number } | null {
+  if (!canAdjustClosedStrokeGeomBox(node)) return null;
 
   const attrs = node.attrs || {};
   const currentlyVisible =
@@ -265,31 +317,28 @@ export function geometryPatchForStrokeVisibilityToggle(
     : strokeVisualOutset(node);
   if (!(outset > 0)) return null;
 
-  const x = Number(node.x) || 0;
-  const y = Number(node.y) || 0;
-  const width = Math.max(1, Number(node.width) || 1);
-  const height = Math.max(1, Number(node.height) || 1);
+  // Show → inset (+outset); hide → expand (−outset).
+  return patchNodeBoxByOutsetDelta(node, nextVisible ? outset : -outset, {
+    rejectIfNoShrink: nextVisible,
+  });
+}
 
-  if (nextVisible) {
-    // Show stroke → inset path so outer ink matches current fill edge.
-    const nextW = Math.max(1, width - outset * 2);
-    const nextH = Math.max(1, height - outset * 2);
-    if (nextW >= width && nextH >= height) return null;
-    return {
-      x: quantizeHalfPx(x + outset),
-      y: quantizeHalfPx(y + outset),
-      width: quantizeHalfPx(nextW),
-      height: quantizeHalfPx(nextH),
-    };
-  }
+/**
+ * Keep **outer ink** fixed when border-width / strokeAlign change (panel edits).
+ * Path insets or expands by Δoutset so the painted edge stays on the same grid.
+ */
+export function geometryPatchForStrokeOutsetChange(
+  node: SceneNodeInput,
+  nextAttrs: Record<string, unknown>
+): { x: number; y: number; width: number; height: number } | null {
+  if (!canAdjustClosedStrokeGeomBox(node)) return null;
 
-  // Hide stroke → expand fill to previous outer ink.
-  return {
-    x: quantizeHalfPx(x - outset),
-    y: quantizeHalfPx(y - outset),
-    width: quantizeHalfPx(width + outset * 2),
-    height: quantizeHalfPx(height + outset * 2),
-  };
+  const prevOutset = strokeVisualOutset(node);
+  const nextOutset = strokeVisualOutset({
+    ...node,
+    attrs: { ...(node.attrs || {}), ...nextAttrs },
+  });
+  return patchNodeBoxByOutsetDelta(node, nextOutset - prevOutset);
 }
 
 /** Scene-space air between text glyphs and selection chrome (flush / ~0). */
@@ -352,12 +401,29 @@ export function resolveStrokeLinejoin(attrs: Record<string, unknown> | null | un
   return 'miter';
 }
 
+/** Match outline / design tools — keep acute pen tips (SVG default 4 clips them flat). */
+export function resolveStrokeMiterlimit(attrs: Record<string, unknown> | null | undefined): number {
+  const raw = attrs?.strokeMiterlimit ?? attrs?.['stroke-miterlimit'] ?? attrs?.miterLimit;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return Math.min(1000, Math.max(1, n));
+  return 100;
+}
+
 export type ShadowSpec = {
   color: string;
   blur: number;
   offsetX: number;
   offsetY: number;
 } | null;
+
+export type InnerShadowSpec = ShadowSpec;
+
+export type BackdropBlurSpec = {
+  blur: number;
+  brightness: number;
+} | null;
+
+export type ObjectBlurSpec = { blur: number } | null;
 
 export function resolveShadow(node: SceneNodeInput): ShadowSpec {
   const attrs = node?.attrs || {};
@@ -370,4 +436,36 @@ export function resolveShadow(node: SceneNodeInput): ShadowSpec {
     offsetX: Number(attrs['shadow-x'] ?? 0),
     offsetY: Number(attrs['shadow-y'] ?? 2),
   };
+}
+
+export function resolveInnerShadow(node: SceneNodeInput): InnerShadowSpec {
+  const attrs = node?.attrs || {};
+  if (
+    !boolEffectAttr(attrs['inner-shadow-enabled'], false) ||
+    !boolEffectAttr(attrs['inner-shadow-visible'], true)
+  ) {
+    return null;
+  }
+  return {
+    color: String(attrs['inner-shadow-color'] || 'rgba(0,0,0,0.25)'),
+    blur: Math.max(0, Number(attrs['inner-shadow-blur'] ?? 4)),
+    offsetX: Number(attrs['inner-shadow-x'] ?? 0),
+    offsetY: Number(attrs['inner-shadow-y'] ?? 2),
+  };
+}
+
+export function resolveBackdropBlur(node: SceneNodeInput): BackdropBlurSpec {
+  const attrs = node?.attrs || {};
+  if (!boolEffectAttr(attrs['backdrop-blur-enabled'], false)) return null;
+  return {
+    blur: Math.max(0, Number(attrs['backdrop-blur-amount'] ?? 12)),
+    brightness: Math.max(0, Number(attrs['backdrop-blur-brightness'] ?? 100)),
+  };
+}
+
+/** Blur the selected object's own pixels (distinct from backdrop blur). */
+export function resolveObjectBlur(node: SceneNodeInput): ObjectBlurSpec {
+  const attrs = node?.attrs || {};
+  if (!boolEffectAttr(attrs['blur-enabled'], false)) return null;
+  return { blur: Math.max(0, Number(attrs['blur-amount'] ?? 12)) };
 }

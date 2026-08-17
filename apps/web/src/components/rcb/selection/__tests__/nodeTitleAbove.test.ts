@@ -14,13 +14,7 @@ import {
   nodeTitleLabelWorldPlacement,
   nodeTitleScreenGapPx,
 } from '../chrome/NodeTitleLabel';
-import { expandInfiniteSvgPad } from '../../scene/paint/sceneToSvg';
-import {
-  CHROME_HANDLE_HIT_PX,
-  CHROME_STROKE_PX,
-  cursorForResize,
-  selectionChromeSurfaceProps,
-} from '../SelectionChrome';
+import { cursorForResize } from '../SelectionChrome';
 import { rcbScreenPxToScene } from '../../core/math';
 
 const CANVAS_ZOOMS = [0.5, 1, 2.247, 10, 71.61, 80, 100] as const;
@@ -72,7 +66,7 @@ describe('nodeTitleLabelWorldPlacement — title layout contract', () => {
   });
 
   it.each([...CANVAS_ZOOMS])(
-    'keeps a 10 layout-px gap above the plate at canvas zoom %s',
+    'keeps a 10 screen-px gap above the control box at canvas zoom %s',
     (zoom) => {
       const box = { left: 0, top: 24, width: 15, height: 24 };
       const place = nodeTitleLabelWorldPlacement(box, zoom);
@@ -137,20 +131,21 @@ describe('toolbar 20px outside node @ canvas + browser zoom', () => {
         SELECTION_TOOLBAR_ABOVE_BOX_GAP_PX / zoom,
         8
       );
+      // Scene gap shrinks with zoom — at 10000% it is < 1 CSS px in world space.
+      // Placement must apply that air as screen px inside scale(1/zoom), not as
+      // world `top` alone (subpixel world offsets get eaten next to the stroke).
+      expect((boxTop - anchor) * zoom).toBeCloseTo(gap, 6);
       // eslint-disable-next-line no-console
       console.log('[test:toolbar-gap@canvas]', { zoom, gapLayoutPx: gap, anchor });
     }
   );
 
   it.each([...CANVAS_ZOOMS])(
-    'titled toolbar clears title (10+16+8) + handle at zoom %s',
+    'titled toolbar clears title stack (10+16+8) at zoom %s',
     (zoom) => {
       const boxTop = 40;
       const gap = toolbarAboveScreenGapPx(boxTop, zoom, true);
-      expect(gap).toBeCloseTo(
-        toolbarAboveClearancePx(true) + SELECTION_HANDLE_CLEARANCE_PX,
-        6
-      );
+      expect(gap).toBeCloseTo(toolbarAboveClearancePx(true), 6);
       const box = { left: 0, top: boxTop, width: 15, height: 24 };
       const title = nodeTitleLabelWorldPlacement(box, zoom);
       const toolbarAnchor = selectionToolbarAboveAnchorScene(boxTop, zoom, true);
@@ -170,58 +165,10 @@ describe('toolbar 20px outside node @ canvas + browser zoom', () => {
       const boxTop = 40;
       const zoom = 2.247;
       const visual = toolbarAboveScreenGapPx(boxTop, zoom, true, 0, viewportScale);
-      const expected =
-        (toolbarAboveClearancePx(true) + SELECTION_HANDLE_CLEARANCE_PX) *
-        viewportScale;
+      const expected = toolbarAboveClearancePx(true) * viewportScale;
       expect(visual).toBeCloseTo(expected, 6);
     }
   );
-});
-
-describe('selectionChromeSurfaceProps (no handle-pad drift)', () => {
-  it('fallback surface at 8000% is stroke-padded only — not handle-hit padded', () => {
-    const box = { left: 2, top: 4, width: 11, height: 15 };
-    const zoom = 80;
-    const stroke = CHROME_STROKE_PX / zoom;
-    const handleHit = CHROME_HANDLE_HIT_PX / zoom;
-    const surf = selectionChromeSurfaceProps(
-      box,
-      0,
-      stroke,
-      { x: 0, y: 0, zoom },
-      1
-    );
-    const vb = (surf.viewBox || '').split(/[\s,]+/).map(Number);
-    const [, , vw, vh] = vb;
-    expect(vw).toBeLessThan(box.width + 2 * handleHit);
-    expect(vh).toBeLessThan(box.height + 2 * handleHit);
-    expect(vw).toBeLessThanOrEqual(box.width + 2 * stroke + 1);
-    expect(vh).toBeLessThanOrEqual(box.height + 2 * stroke + 1);
-  });
-});
-
-describe('expandInfiniteSvgPad (private host handle hits only)', () => {
-  it('grows viewBox + CSS box so corner hits outside path still lie inside the SVG', () => {
-    const root = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    root.setAttribute('viewBox', '10 20 11 15');
-    root.setAttribute('width', '11');
-    root.setAttribute('height', '15');
-    root.style.left = '10px';
-    root.style.top = '20px';
-    root.style.width = '11px';
-    root.style.height = '15px';
-
-    const zoom = 80;
-    const inv = 1 / zoom;
-    const pad = CHROME_HANDLE_HIT_PX * inv;
-    expect(expandInfiniteSvgPad(root, pad)).toBe(true);
-
-    const vb = (root.getAttribute('viewBox') || '').split(/\s+/).map(Number);
-    expect(vb[0]).toBeCloseTo(10 - pad, 8);
-    expect(vb[1]).toBeCloseTo(20 - pad, 8);
-    expect(vb[2]).toBeCloseTo(11 + pad * 2, 8);
-    expect(vb[3]).toBeCloseTo(15 + pad * 2, 8);
-  });
 });
 
 describe('cursorForResize still direction-correct', () => {

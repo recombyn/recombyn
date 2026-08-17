@@ -280,6 +280,49 @@ export function spawnVideoUploadPlaceholderNode(
   return { document: addNodeToDocument(next, id, node), id };
 }
 
+/** Spawn audio plate with local preview while remote upload runs (sweep like video). */
+export function spawnAudioUploadPlaceholderNode(
+  doc: SceneDocument,
+  {
+    src,
+    width,
+    height,
+    label = '上传中',
+    x,
+    y,
+    name,
+    duration,
+  }: {
+    src: string;
+    width: number;
+    height: number;
+    label?: string;
+    x?: number;
+    y?: number;
+    name?: string;
+    duration?: number;
+  }
+) {
+  if (!doc || !src) return { document: doc, id: null as string | null };
+  const next = normalizeDocument(doc);
+  const { id, node } = createAudioNode({
+    x: x ?? 40,
+    y: y ?? 40,
+    width,
+    height,
+    src,
+    name: name || 'Audio',
+    duration,
+  });
+  node.attrs = {
+    ...(node.attrs || {}),
+    processStatus: 'running',
+    processKind: 'upload',
+    processLabel: label,
+  };
+  return { document: addNodeToDocument(next, id, node), id };
+}
+
 /**
  * Pull one stack URL out into a sibling image node (to the right).
  * Removes it from the source stack when successful.

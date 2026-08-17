@@ -12,7 +12,7 @@ import {
   localizeExploreItem,
   normalizeActivityStatus,
   type ChatUiMessage,
-} from '@/components/editor/panels/agent/ChatTurnList';
+} from '@/components/editor/panels/agent/messages/ChatTurnList';
 import {
   type AgentStepEvent,
   type DesignIntelligencePatch,
@@ -163,8 +163,8 @@ export function hasStructuredProcess(steps: ChatUiMessage['steps']): boolean {
 
 /**
  * Final assistant bubble after design `done`.
- * Progress lives in `steps` / analysis_delta / activity / phase — never guess from Chinese/English prefixes.
- * `summary` is the structured finish text from the done event; `content` is chat token stream only.
+ * Progress lives in `steps` / analysis_delta / activity / phase — never invent product copy.
+ * Prefer `summary` (done event) / streamed tokens only; empty bubble is OK when the canvas is the result.
  */
 export function pickDesignDoneContent(opts: {
   t: TFn;
@@ -179,17 +179,10 @@ export function pickDesignDoneContent(opts: {
   const streamed = opts.streamedContent.trim();
 
   if (opts.hasProposedOps) return summary || streamed;
-
-  if (opts.painted) {
-    if (summary) return summary;
-    return hasStructuredProcess(opts.steps)
-      ? opts.t('agent.canvasReadyHint')
-      : opts.t('agent.canvasUpdated');
-  }
-
-  if (opts.designStarted) return summary || opts.t('agent.designEmptyResult');
-
-  return streamed || summary || opts.t('agent.stopped');
+  if (opts.painted) return summary || streamed;
+  // Design ran but no paint — keep backend summary only; drop mid-run stream ("正在生成…").
+  if (opts.designStarted) return summary;
+  return streamed || summary;
 }
 
 function patchDesignDoneAssistant(
@@ -327,7 +320,41 @@ export function createDesignAgentEventRouter(opts: {
   store: Store;
   finishAssistantPatch: (m: ChatUiMessage, patch?: Partial<ChatUiMessage>) => ChatUiMessage;
   mutable: DesignSendMutable;
+  /** Host meta: clear chat / stop generation. */
+  onSessionControl?: (action: string) => void;
 }) {
+  // Model analysis can arrive in very small SSE chunks. Coalesce updates to one
+  // React state update per frame, but flush before every semantic event so the
+  // timeline never appears after the action it describes.
+  let pendingAnalysisDelta = '';
+  let analysisFrame: number | null = null;
+
+  const flushAnalysisDelta = () => {
+    if (analysisFrame != null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(analysisFrame);
+    }
+    analysisFrame = null;
+    const piece = pendingAnalysisDelta;
+    pendingAnalysisDelta = '';
+    if (!piece) return;
+    opts.setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== opts.assistantId) return m;
+        const next = applyAnalysisDeltaToSteps(m.steps || [], piece);
+        return next ? { ...m, steps: next } : m;
+      })
+    );
+  };
+
+  const scheduleAnalysisDeltaFlush = () => {
+    if (analysisFrame != null) return;
+    if (typeof requestAnimationFrame !== 'function') {
+      flushAnalysisDelta();
+      return;
+    }
+    analysisFrame = requestAnimationFrame(() => flushAnalysisDelta());
+  };
+
   const handleUiChat = () => {
     opts.mutable.designStarted = false;
     opts.setMessages((prev) =>
@@ -391,13 +418,8 @@ export function createDesignAgentEventRouter(opts: {
   const handleUiAnalysisDelta = (ev: Extract<AgentStepEvent, { type: 'analysis_delta' }>) => {
     const piece = String(ev.text || '');
     if (!piece.trim()) return;
-    opts.setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== opts.assistantId) return m;
-        const next = applyAnalysisDeltaToSteps(m.steps || [], piece);
-        return next ? { ...m, steps: next } : m;
-      })
-    );
+    pendingAnalysisDelta += piece;
+    scheduleAnalysisDeltaFlush();
   };
 
   const handleUiCanvas = (ev: Extract<AgentStepEvent, { type: 'canvas' }>) => {
@@ -544,12 +566,11 @@ export function createDesignAgentEventRouter(opts: {
   };
 
   const handleUiPaused = (ev: Extract<AgentStepEvent, { type: 'paused' }>) => {
-    const tip = opts.t('agent.pausedHint');
     opts.setMessages((prev) =>
       prev.map((m) =>
         m.id === opts.assistantId
           ? opts.finishAssistantPatch(m, {
-              content: m.content?.trim() ? m.content : tip,
+              content: (m.content || '').trim(),
               thinking: undefined,
               pipeline: undefined,
               drawing: undefined,
@@ -628,12 +649,18 @@ export function createDesignAgentEventRouter(opts: {
   };
 
   return (ev: AgentStepEvent) => {
+    if (ev.type !== 'analysis_delta') flushAnalysisDelta();
     switch (ev.type) {
       case 'permission':
         return;
       case 'chat':
         handleUiChat();
         return;
+      case 'session_control': {
+        const action = String(ev.action || '').trim();
+        if (action && opts.onSessionControl) opts.onSessionControl(action);
+        return;
+      }
       case 'token':
         handleUiToken(ev);
         return;

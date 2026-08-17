@@ -6,7 +6,7 @@ import time
 
 from langgraph.types import Command
 
-from app.services.design.admin.task_store import _insert_task
+from app.services.design.admin.task_store import initialize_design_task, build_worker_snapshot
 from app.services.design.prompts.rules_text import _as_text
 from app.services.design.readpath.canvas_scene import (
     early_status_canvas_fields,
@@ -34,7 +34,7 @@ async def _node_bootstrap(state: GraphState) -> Command:
     st = rt.run
     # Sync MySQL / catalog must not block the ASGI event loop (Admin lists starve).
     await asyncio.to_thread(
-        _insert_task,
+        initialize_design_task,
         {
             "id": st.task_id,
             "user_id": rt.user_id,
@@ -61,6 +61,28 @@ async def _node_bootstrap(state: GraphState) -> Command:
                     "max_rounds": rt.max_rounds,
                     "decision_log": rt.decision.to_log(),
                     "execution_log": st.to_execution_log(),
+                    "worker_snapshot": build_worker_snapshot(
+                        mode=rt.mode,
+                        prompt=rt.prompt,
+                        canvas_id=rt.canvas_id,
+                        canvas_size=rt.canvas_size,
+                        scene=rt.scene_key,
+                        focus_frame_id=rt.focus_id,
+                        scene_nodes=rt.scene_nodes,
+                        scene_frames=rt.scene_frames,
+                        images=rt.images,
+                        spatial_summary=rt.spatial_summary,
+                        session_id=rt.session_id,
+                        project_id=rt.project_id,
+                        memory=rt.memory_in,
+                        apply_ops=rt.apply_ops,
+                        proposal_id=(rt.flags.get("pending_proposal") or {}).get("id"),
+                        proposal_task_id=(rt.flags.get("pending_proposal") or {}).get("task_id"),
+                        interaction_mode=rt.flags.get("mode"),
+                        skill_refs=rt.flags.get("skill_refs"),
+                        locale=rt.flags.get("locale"),
+                        design_intensity=rt.flags.get("design_intensity"),
+                    ),
                     "run_lifecycle": {
                         "thread_id": f"design:{st.task_id}",
                         "resumable": True,

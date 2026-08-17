@@ -14,9 +14,9 @@ import {
   radiusParkSceneForBox,
 } from '../SelectionChrome';
 import {
+  boxRadiusSeatLocal,
   pathRadiusSeatAlong,
   radiusParkAlongBisector,
-  radiusSeatInset,
 } from '../chrome/CornerRadiusHandlesOverlay';
 
 type Aabb = { left: number; top: number; right: number; bottom: number };
@@ -44,14 +44,13 @@ function seCornerHitLayout(boxW: number, boxH: number, zoom: number, r = 0) {
   const inv = 1 / z;
   const hitScale = chromeHitScaleForBox(boxW, boxH, z);
   const parkScene = radiusParkSceneForBox(boxW, boxH, z);
-  const halfSide = Math.min(boxW, boxH) / 2;
-  const inset = radiusSeatInset(r, halfSide, parkScene);
+  const seat = boxRadiusSeatLocal({ cx: 1, cy: 1 }, r, boxW, boxH, parkScene);
 
   const halfHit = (CHROME_HANDLE_HIT_PX * hitScale * inv) / 2;
   const resizeCx = boxW;
   const resizeCy = boxH;
-  const radiusCx = boxW - inset;
-  const radiusCy = boxH - inset;
+  const radiusCx = seat.lx;
+  const radiusCy = seat.ly;
 
   const radiusHalfScene = (CHROME_RADIUS_HIT_PX * hitScale * inv) / 2;
   const resizeHit = aabbFixed(resizeCx, resizeCy, halfHit);
@@ -114,9 +113,9 @@ const ZOOMS = [0.05, 0.13, 0.25, 0.5, 1, 2, 8, 20, 49.9, 80, 90] as const;
 const BOX = { w: 200, h: 150 };
 
 describe('resize vs radius hit pads (icon-centered)', () => {
-  it('hits stay near icon size (not oversized magnets)', () => {
-    expect(CHROME_HANDLE_HIT_PX).toBeLessThanOrEqual(CHROME_HANDLE_VIS_PX + 4);
-    expect(CHROME_RADIUS_HIT_PX).toBeLessThanOrEqual(CHROME_HANDLE_VIS_PX + 4);
+  it('hit is larger than paint; park keeps R-dot clear of resize', () => {
+    expect(CHROME_HANDLE_HIT_PX).toBeGreaterThan(CHROME_HANDLE_VIS_PX);
+    expect(CHROME_RADIUS_HIT_PX).toBeGreaterThanOrEqual(CHROME_HANDLE_VIS_PX);
     expect(radiusHandleParkScreenPx()).toBe(
       CHROME_HANDLE_HIT_PX / 2 + CHROME_RADIUS_HIT_PX / 2 + CHROME_RADIUS_PARK_GAP_PX
     );
@@ -182,11 +181,11 @@ describe('resize vs radius hit pads (icon-centered)', () => {
     expect(layout.axisClearanceScreen).toBeGreaterThanOrEqual(CHROME_RADIUS_PARK_GAP_PX - 0.05);
   });
 
-  it('at 100%, hits clear with icon-sized pads', () => {
+  it('at 100%, fat hits still clear via park gap', () => {
     const layout = seCornerHitLayout(BOX.w, BOX.h, 1, 0);
     expect(layout.overlap).toBe(false);
-    expect(layout.resizeHitScreen).toBe(10);
-    expect(layout.radiusHitScreen).toBe(8);
+    expect(layout.resizeHitScreen).toBe(CHROME_HANDLE_HIT_PX);
+    expect(layout.radiusHitScreen).toBe(CHROME_RADIUS_HIT_PX);
   });
 
   it('at 8019% on 4×4 box, corner icon is resize territory; radius center is free of resize', () => {
@@ -202,7 +201,9 @@ describe('resize vs radius hit pads (icon-centered)', () => {
   it('park scene distance is stable across box sizes at fixed zoom (no resize jump)', () => {
     const zoom = 1;
     const parkPx = radiusHandleParkScreenPx();
-    const a = radiusParkSceneForBox(80, 80, zoom, parkPx);
+    // Min side must clear park clamp (half * 0.45 >= parkPx).
+    const minSide = Math.ceil((parkPx / 0.45) * 2) + 2;
+    const a = radiusParkSceneForBox(minSide, minSide, zoom, parkPx);
     const b = radiusParkSceneForBox(400, 300, zoom, parkPx);
     const c = radiusParkSceneForBox(1200, 900, zoom, parkPx);
     expect(a).toBeCloseTo(parkPx / zoom, 5);
@@ -222,5 +223,20 @@ describe('resize vs radius hit pads (icon-centered)', () => {
     expect(seat).toBeCloseTo(park, 5);
     // Old bug: park / min(|ix|,|iy|) with iy≈0.05 → ~20× blow-up.
     expect(seat).toBeLessThan(park * 1.01);
+  });
+
+  it('box-mode seats move toward center on both axes as R grows', () => {
+    const park = radiusParkSceneForBox(400, 300, 1);
+    const r = 80;
+    const tl = boxRadiusSeatLocal({ cx: 0, cy: 0 }, r, 400, 300, park);
+    const br = boxRadiusSeatLocal({ cx: 1, cy: 1 }, r, 400, 300, park);
+    const tr = boxRadiusSeatLocal({ cx: 1, cy: 0 }, r, 400, 300, park);
+    // Diagonal inset — not edge-locked (old: TL only +x, BR only -y).
+    expect(tl.lx).toBeCloseTo(r, 6);
+    expect(tl.ly).toBeCloseTo(r, 6);
+    expect(br.lx).toBeCloseTo(400 - r, 6);
+    expect(br.ly).toBeCloseTo(300 - r, 6);
+    expect(tr.lx).toBeCloseTo(400 - r, 6);
+    expect(tr.ly).toBeCloseTo(r, 6);
   });
 });

@@ -3,12 +3,11 @@ from __future__ import annotations
 """Scene digest, admin-step logging, and graph control helpers."""
 
 import asyncio
-import json
 import logging
 import time
 from typing import Any
 from langgraph.types import Command
-from app.services.design.admin.task_store import _update_task
+from app.services.design.admin.task_store import merge_task_meta
 from app.services.design.readpath.canvas_scene import parse_size as _parse_size
 from app.services.design.runtime.decision_log import DesignRunDecision
 from app.services.design.runtime.host import (
@@ -276,21 +275,6 @@ def _resolve_wh(
             return fw, fh
     return 0, 0
 
-def _existing_run_lifecycle(task_id: str) -> dict[str, Any] | None:
-    try:
-        from app.services.design.admin.task_store import (
-            get_design_task,
-            get_run_lifecycle,
-            parse_task_meta,
-        )
-
-        row = get_design_task(task_id)
-        lc = get_run_lifecycle(parse_task_meta((row or {}).get("meta_json")))
-        return lc or None
-    except Exception:
-        return None
-
-
 def _existing_ask_proposal(task_id: str) -> dict[str, Any] | None:
     """Keep Ask held ops across Admin meta rewrites (typed confirm needs this)."""
     try:
@@ -353,29 +337,20 @@ def _persist_task_meta(task_id: str, *, decision: DesignRunDecision, state: Agen
             }
         if ask_proposal is None:
             ask_proposal = _existing_ask_proposal(task_id)
-        _update_task(
-            task_id,
-            meta_json=json.dumps(
-                {
-                    "control": control,
-                    "flow_id": state.flow_id or None,
-                    "flow_version": state.flow_version or None,
-                    "trace_id": state.trace_id,
-                    "decision_log": decision.to_log(),
-                    "execution_log": exec_log,
-                    "langfuse": langfuse,
-                    # Preserve pause/resume fields across Admin meta rewrites.
-                    **(
-                        {"run_lifecycle": prev_lc}
-                        if (prev_lc := _existing_run_lifecycle(task_id))
-                        else {}
-                    ),
-                    # Ask typed confirm resolves ops from meta.ask_proposal.
-                    **({"ask_proposal": ask_proposal} if ask_proposal else {}),
-                },
-                ensure_ascii=False,
-            ),
-        )
+        patch = {
+            "control": control,
+            "flow_id": state.flow_id or None,
+            "flow_version": state.flow_version or None,
+            "trace_id": state.trace_id,
+            "decision_log": decision.to_log(),
+            "execution_log": exec_log,
+            "langfuse": langfuse,
+        }
+        # Ask typed confirm resolves ops from meta.ask_proposal. Existing
+        # lifecycle and unrelated concurrent fields stay untouched by merge.
+        if ask_proposal:
+            patch["ask_proposal"] = ask_proposal
+        merge_task_meta(task_id, patch)
     except Exception:
         _log.exception("persist execution_log failed task=%s", task_id)
 
