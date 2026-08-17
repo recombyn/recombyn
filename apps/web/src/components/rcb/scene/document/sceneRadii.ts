@@ -41,8 +41,8 @@ export function serializeRadiusVertices(rs: number[]): string {
   return rs.map((v) => Math.max(0, Math.round(Number(v) || 0))).join(',');
 }
 
-/** Signed-free polygon area (shoelace) for picking the exterior ring. */
-function ringPolygonArea(ring: Array<[number, number]>): number {
+/** Signed polygon area (shoelace). Sign = winding (CCW > 0 in Y-down scene too). */
+function ringSignedArea(ring: Array<[number, number]>): number {
   const n = ring.length;
   if (n < 3) return 0;
   let a = 0;
@@ -51,7 +51,29 @@ function ringPolygonArea(ring: Array<[number, number]>): number {
     const [x2, y2] = ring[(i + 1) % n];
     a += x1 * y2 - x2 * y1;
   }
-  return Math.abs(a) * 0.5;
+  return a * 0.5;
+}
+
+/** Absolute area for picking the exterior ring. */
+function ringPolygonArea(ring: Array<[number, number]>): number {
+  return Math.abs(ringSignedArea(ring));
+}
+
+/**
+ * Convex relative to ring winding (left turn for CCW, right for CW).
+ * Dense curve polylines after path-edit / outline are full of concave
+ * micro-notches — those used to get R-dots parked outside the fill, and a
+ * linked drag filleted them into self-intersecting mush.
+ */
+function isConvexRingVertex(
+  prev: [number, number],
+  curr: [number, number],
+  next: [number, number],
+  ccw: boolean
+): boolean {
+  const cross =
+    (curr[0] - prev[0]) * (next[1] - curr[1]) - (curr[1] - prev[1]) * (next[0] - curr[0]);
+  return ccw ? cross > 1e-9 : cross < -1e-9;
 }
 
 /** Exterior / primary ring — largest area (not vertex count; holes are denser). */
@@ -204,6 +226,9 @@ export function sharpCornerIndices(points: Array<[number, number]>): number[] {
     ? Math.max(diag * 0.01, maxEdge * 0.03)
     : Math.max(1e-4, diag * 0.002);
   const minTurn = dense ? SHARP_CORNER_DENSE_MIN_DEG : SHARP_CORNER_MIN_DEG;
+  // Dense outlines from curve/path-edit densify: only convex tips. Concave
+  // valleys park R-dots outside the silhouette and linked fillet destroys the path.
+  const ccw = dense ? ringSignedArea(points) >= 0 : true;
   const out: number[] = [];
   for (let i = 0; i < n; i += 1) {
     const prev = points[(i - 1 + n) % n];
@@ -214,6 +239,7 @@ export function sharpCornerIndices(points: Array<[number, number]>): number[] {
     const len1 = edgeLenSkippingColinear(points, edgeLens, i, -1);
     const len2 = edgeLenSkippingColinear(points, edgeLens, i, 1);
     if (len1 < minCornerEdge || len2 < minCornerEdge) continue;
+    if (dense && !isConvexRingVertex(prev, curr, next, ccw)) continue;
     out.push(i);
   }
   return out;
@@ -514,12 +540,16 @@ export function maxRadius(r: CornerRadii) {
 /**
  * Parse closed M/L(/H/V)Z path(s) into rings (local coords).
  * Used for boolean results and other polyline paths.
+ * Curves (C/Q/A/…) abort → [] so callers skip R-dots / fillet (must not
+ * treat command letters as coordinates — that parked dots in empty space).
  */
 export function parseClosedPathRings(d: string): Array<Array<[number, number]>> {
   const rings: Array<Array<[number, number]>> = [];
+  // Split ALL SVG path letters so C/Q/A are not left as bare tokens under an
+  // implicit L command (Number('C')===0 produced ghost verts after 曲线编辑).
   const tokens = String(d || '')
     .replace(/,/g, ' ')
-    .replace(/([MmLlHhVvZz])/g, ' $1 ')
+    .replace(/([MmLlHhVvCcQqSsTtAaZz])/g, ' $1 ')
     .trim()
     .split(/\s+/)
     .filter(Boolean);
@@ -533,9 +563,12 @@ export function parseClosedPathRings(d: string): Array<Array<[number, number]>> 
   let ring: Array<[number, number]> = [];
 
   const readNum = () => {
+    if (i >= tokens.length) return NaN;
+    // Never swallow a command letter as 0 — that invented off-path R sites.
+    if (/^[A-Za-z]$/.test(tokens[i])) return NaN;
     const n = Number(tokens[i]);
     i += 1;
-    return Number.isFinite(n) ? n : 0;
+    return Number.isFinite(n) ? n : NaN;
   };
 
   const pushRing = () => {
@@ -554,7 +587,9 @@ export function parseClosedPathRings(d: string): Array<Array<[number, number]>> 
 
   while (i < tokens.length) {
     const t = tokens[i];
-    if (/^[MmLlHhVvZz]$/.test(t)) {
+    if (/^[A-Za-z]$/.test(t)) {
+      // Polyline-only parser — any curve command means “no sharp R sites”.
+      if (!/^[MmLlHhVvZz]$/.test(t)) return [];
       cmd = t;
       i += 1;
       if (cmd === 'Z' || cmd === 'z') {
@@ -571,6 +606,7 @@ export function parseClosedPathRings(d: string): Array<Array<[number, number]>> 
     if (cmd === 'M' || cmd === 'L') {
       const x = readNum();
       const y = readNum();
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
       cx = x;
       cy = y;
       if (cmd === 'M') {
@@ -582,8 +618,11 @@ export function parseClosedPathRings(d: string): Array<Array<[number, number]>> 
       continue;
     }
     if (cmd === 'm' || cmd === 'l') {
-      const x = cx + readNum();
-      const y = cy + readNum();
+      const dx = readNum();
+      const dy = readNum();
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return [];
+      const x = cx + dx;
+      const y = cy + dy;
       cx = x;
       cy = y;
       if (cmd === 'm') {
@@ -595,22 +634,30 @@ export function parseClosedPathRings(d: string): Array<Array<[number, number]>> 
       continue;
     }
     if (cmd === 'H') {
-      cx = readNum();
+      const x = readNum();
+      if (!Number.isFinite(x)) return [];
+      cx = x;
       ring.push([cx, cy]);
       continue;
     }
     if (cmd === 'h') {
-      cx += readNum();
+      const dx = readNum();
+      if (!Number.isFinite(dx)) return [];
+      cx += dx;
       ring.push([cx, cy]);
       continue;
     }
     if (cmd === 'V') {
-      cy = readNum();
+      const y = readNum();
+      if (!Number.isFinite(y)) return [];
+      cy = y;
       ring.push([cx, cy]);
       continue;
     }
     if (cmd === 'v') {
-      cy += readNum();
+      const dy = readNum();
+      if (!Number.isFinite(dy)) return [];
+      cy += dy;
       ring.push([cx, cy]);
       continue;
     }

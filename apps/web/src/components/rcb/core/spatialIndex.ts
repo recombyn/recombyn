@@ -309,8 +309,8 @@ export class SceneSpatialRuntime {
   }
 
   /**
-   * Top→bottom hit-test order. Large warm scenes: spatial pad only (no full-list filter).
-   * Cold index falls back to reversing allIds; warm empty pad → [].
+   * Top→bottom hit-test order. Large warm scenes prefer spatial pad; if the pad
+   * misses (stale AABB / thin pad), fall back to allIds so clicks still resolve.
    */
   hitCandidateIds(opts: {
     x: number;
@@ -332,8 +332,24 @@ export class SceneSpatialRuntime {
         { ascending: false }
       );
     }
-    if (this.index.size === 0) return [...allIds].reverse();
-    return [];
+    // Warm empty must not mean "no hit" — index can lag geometry commits.
+    return [...allIds].reverse();
   }
+}
+
+/**
+ * Product canvas registers the live SceneSpatialRuntime here so stage underlay
+ * / other consumers share one sync source (ADR 0027) instead of a second empty index.
+ */
+let sharedSceneSpatial: SceneSpatialRuntime | null = null;
+
+export function setSharedSceneSpatialRuntime(
+  runtime: SceneSpatialRuntime | null
+): void {
+  sharedSceneSpatial = runtime;
+}
+
+export function getSharedSceneSpatialRuntime(): SceneSpatialRuntime | null {
+  return sharedSceneSpatial;
 }
 

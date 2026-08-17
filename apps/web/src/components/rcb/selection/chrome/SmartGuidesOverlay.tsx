@@ -1,8 +1,8 @@
 /**
- * Smart guides as scene-space SVG under the shared world surface.
+ * Smart guides as scene-space SVG under the shared camera surface.
  * Must portal into `data-rcb-smart-guides-mount` — a sibling
- * `sceneSurfaceSvgProps` SVG snaps its origin independently under fractional
- * browser DPR and drifts vs the pixel grid (same bug as shape draw preview).
+ * A separate SVG snaps independently under fractional browser DPR and drifts
+ * against the pixel grid (the same failure mode as shape draw preview).
  * Snap math stays in alignGuides; this file only paints.
  *
  * Paint contract: one continuous stroke per guide, then small dots at marks.

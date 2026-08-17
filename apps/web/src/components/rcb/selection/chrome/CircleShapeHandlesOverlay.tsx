@@ -2,25 +2,22 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Circle / ellipse knobs: 内半径, 开始位置 (display), 弧度 / 周弧度.
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeEllipseParams } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
 import {
+  clampEllipseArcPercent,
   clampEllipseInnerRatio,
-  ellipseArcAlongFromPointerAngle,
+  advanceEllipseArcAlong,
   ellipseArcAlongRadFromPercent,
-  ellipseArcApplyFullHysteresis,
   ellipseArcEndAngles,
-  ellipseArcLockSign,
   ellipseArcPercentFromAlongRad,
   ellipseArcPercentFromAttrs,
   ellipseInnerRatioFromAttrs,
   ellipseStartDegFromAttrs,
-  snapEllipseArcPercent,
   snapEllipseInnerRatio,
-  wrapAngleDelta,
 } from '@/components/rcb/scene/document/sceneShapes';
 import { patchDocumentNode } from '@/store/modules/editor';
 import {
@@ -30,19 +27,20 @@ import {
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import type { SceneBox } from '../alignGuides';
 import {
-  CHROME_HANDLE_HIT_PX,
   CHROME_HANDLE_VIS_PX,
+  CHROME_RADIUS_HIT_PX,
   CHROME_STROKE_PX,
+  chromeHandleHitRadiusScene,
+  chromeHitScaleForBox,
+  setOverlayHandleSeats,
   WorldSvgFrame,
   WorldScreenBadge,
 } from '../SelectionChrome';
 
-const DRAG_DISTANCE_SQUARED = 16;
+const INNER_DRAG_DISTANCE_SQUARED = 64;
+const INNER_HANDLE_HIT_PX = 14;
 const KNOB_VIS_PX = CHROME_HANDLE_VIS_PX;
-const KNOB_HIT_PX = CHROME_HANDLE_HIT_PX;
 const KNOB_STROKE_PX = CHROME_STROKE_PX;
-/** Arc / start knobs sit slightly inside the rim so they clear resize chrome. */
-const ARC_RIM_INSET_PX = 10;
 
 function liveNodeEl(nodeId: string): Element | null {
   return (
@@ -111,7 +109,7 @@ function commitEllipseParams(opts: {
       patch: {
         attrs: {
           ellipseInnerRatio: snapEllipseInnerRatio(opts.innerRatio),
-          ellipseArcPercent: snapEllipseArcPercent(opts.arcPercent),
+          ellipseArcPercent: clampEllipseArcPercent(opts.arcPercent),
           ellipseStartDeg: opts.startDeg,
         },
       },
@@ -130,16 +128,12 @@ type DragState =
     }
   | {
       mode: 'arc';
-      startPercent: number;
       current: number;
-      /** Locked on first move — one direction; end cannot cross 开始位置. */
-      lockSign: 1 | -1 | null;
-      /** Remaining sweep radians in (0, 2π]; 2π = closed at 开始位置. */
+      /** Preserve an existing partial arc's direction; complete circles open clockwise. */
+      sweepSign: 1 | -1;
+      /** Remaining sweep radians in (0, 2π]; capped at a single full turn. */
       alongRad: number;
-      /** Hysteresis: has left the full-circle band once this gesture. */
-      openedOnce: boolean;
-      /** Hysteresis: currently latched to full (absorb pointer chatter). */
-      heldFull: boolean;
+      lastPointerAngle: number;
       startX: number;
       startY: number;
       moved: boolean;
@@ -174,6 +168,14 @@ function CircleShapeHandlesOverlay({
   const [liveInner, setLiveInner] = useState<number | null>(null);
   const [liveArc, setLiveArc] = useState<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const seatOwnerId = `circle:${nodeId}`;
+
+  useEffect(
+    () => () => {
+      setOverlayHandleSeats(seatOwnerId, null);
+    },
+    [seatOwnerId]
+  );
 
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
@@ -190,18 +192,24 @@ function CircleShapeHandlesOverlay({
   const arcPercent = liveArc ?? baseArc;
   const isFull = Math.abs(arcPercent) >= 99.95;
 
-  const rimInset = Math.min(outerR * 0.2, ARC_RIM_INSET_PX * k);
-  const arcSeatR = Math.max(outerR * 0.35, outerR - rimInset);
-  const { a0, a1, mid } = ellipseArcEndAngles(arcPercent, startDeg);
+  // Visual seats belong to the actual geometry edge. Hit slop is handled
+  // separately by chromeHandleHitRadiusScene below; it must not move the
+  // painted controls inward from the outer/inner circle.
+  const arcSeatR = outerR;
+  const { a0, a1 } = ellipseArcEndAngles(arcPercent, startDeg);
   const seatOnRim = (ang: number, r: number) => ({
     x: cx + Math.cos(ang) * (rx / outerR) * r,
     y: cy + Math.sin(ang) * (ry / outerR) * r,
   });
-  // 内半径: solid → center; donut → mid-sweep on the inner rim.
+  // Inner radius is anchored opposite the fixed opening start, never at the
+  // changing arc midpoint. The knob remains on the same inner-ring edge while
+  // the user changes the opening sweep.
   const innerSeatR =
     innerRatio > 1e-4 ? Math.max(2 * k, outerR * innerRatio) : 0;
-  const innerLocal =
-    innerRatio > 1e-4 ? seatOnRim(mid, innerSeatR) : { x: cx, y: cy };
+  let innerLocal = { x: cx, y: cy };
+  if (innerRatio > 1e-4) {
+    innerLocal = seatOnRim(a0 + Math.PI, innerSeatR);
+  }
   // Full: one 周弧度 knob where ends coincide (at 开始位置).
   // Partial: fixed 开始位置 at a0 + movable 弧度 at a1.
   const startLocal = seatOnRim(a0, arcSeatR);
@@ -238,7 +246,7 @@ function CircleShapeHandlesOverlay({
       // Arc follows the pointer immediately; inner keeps a tiny slop before drag.
       if (d.mode === 'inner') {
         const distSq = (e.clientX - d.startX) ** 2 + (e.clientY - d.startY) ** 2;
-        if (!d.moved && distSq <= DRAG_DISTANCE_SQUARED) return;
+        if (!d.moved && distSq <= INNER_DRAG_DISTANCE_SQUARED) return;
       }
       d.moved = true;
 
@@ -258,29 +266,16 @@ function CircleShapeHandlesOverlay({
         return;
       }
 
-      // Arc: end handle tracks the pointer angle (not Δθ accumulation).
+      // Arc uses angle movement, not an absolute angle: passing the fixed start
+      // ray clamps at a full turn instead of re-opening on the opposite side.
       const pointerAngle = Math.atan2(local.y - cy, local.x - cx);
-      const startRad = (startDeg * Math.PI) / 180;
-      const delta = wrapAngleDelta(pointerAngle - startRad);
-      if (d.lockSign == null) {
-        d.lockSign = ellipseArcLockSign(d.startPercent, delta);
-      }
-
-      const prevAlong = d.alongRad;
-      const mapped = ellipseArcAlongFromPointerAngle(
-        pointerAngle,
-        startRad,
-        d.lockSign,
-        prevAlong
+      d.alongRad = advanceEllipseArcAlong(
+        d.alongRad,
+        pointerAngle - d.lastPointerAngle,
+        d.sweepSign
       );
-      const hyst = ellipseArcApplyFullHysteresis(mapped, {
-        openedOnce: d.openedOnce,
-        heldFull: d.heldFull,
-      });
-      d.openedOnce = hyst.openedOnce;
-      d.heldFull = hyst.heldFull;
-      d.alongRad = hyst.along;
-      const next = ellipseArcPercentFromAlongRad(d.alongRad, d.lockSign);
+      d.lastPointerAngle = pointerAngle;
+      const next = ellipseArcPercentFromAlongRad(d.alongRad, d.sweepSign);
       d.current = next;
       setDragValue(Math.round(next * 10) / 10);
       setLiveArc(next);
@@ -348,17 +343,11 @@ function CircleShapeHandlesOverlay({
     h,
   ]);
 
-  const hitSize = KNOB_HIT_PX * k;
   const visualSize = KNOB_VIS_PX * k;
   const stroke = KNOB_STROKE_PX * k;
   const halfVis = visualSize / 2;
-  const halfHit = hitSize / 2;
   const left = box.left;
   const top = box.top;
-  const gTransform =
-    Math.abs(angle) > 0.001
-      ? `translate(${left} ${top}) rotate(${angle} ${w / 2} ${h / 2})`
-      : `translate(${left} ${top})`;
 
   const innerLabel = t('editor.imageToolbar.ellipseInnerRadius', {
     defaultValue: '内半径',
@@ -384,7 +373,7 @@ function CircleShapeHandlesOverlay({
     badgeText = `${startLabel} ${startDegLabel}°`;
   }
 
-  const beginInner = (e: ReactPointerEvent<SVGElement>) => {
+  const beginInner = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -403,7 +392,7 @@ function CircleShapeHandlesOverlay({
   };
 
   /** Double-click 内半径 → solid disk (restore after opening a hole). */
-  const resetInnerSolid = (e: React.MouseEvent<SVGElement>) => {
+  const resetInnerSolid = (e: MouseEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -422,19 +411,18 @@ function CircleShapeHandlesOverlay({
     preview({ inner: 0 });
   };
 
-  const beginArc = (e: ReactPointerEvent<SVGElement>) => {
+  const beginArc = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    const sc = toScene(e.clientX, e.clientY);
+    const local = scenePointToLocal(sc.x, sc.y, box, angle);
     dragRef.current = {
       mode: 'arc',
-      startPercent: baseArc,
       current: baseArc,
-      lockSign: Math.abs(baseArc) >= 99.95 ? null : baseArc < 0 ? -1 : 1,
+      sweepSign: Math.abs(baseArc) >= 99.95 ? 1 : baseArc < 0 ? -1 : 1,
       alongRad: ellipseArcAlongRadFromPercent(baseArc),
-      // From full: follow pointer until clearly open, then enable close-snap hysteresis.
-      openedOnce: Math.abs(baseArc) < 99.95,
-      heldFull: false,
+      lastPointerAngle: Math.atan2(local.y - cy, local.x - cx),
       startX: e.clientX,
       startY: e.clientY,
       moved: false,
@@ -445,12 +433,12 @@ function CircleShapeHandlesOverlay({
     setLiveArc(baseArc);
   };
 
-  /** Double-click 弧度 → full circle (keep prior CW/CCW sign). */
-  const resetArcFull = (e: React.MouseEvent<SVGElement>) => {
+  /** Double-click 弧度 → full circle with the canonical clockwise opening direction. */
+  const resetArcFull = (e: MouseEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const full = baseArc < 0 ? -100 : 100;
+    const full = 100;
     dragRef.current = null;
     setActiveKey(null);
     setDragValue(null);
@@ -470,11 +458,13 @@ function CircleShapeHandlesOverlay({
     key: string;
     lx: number;
     ly: number;
+    sceneX: number;
+    sceneY: number;
     label: string;
     interactive: boolean;
     isActive: boolean;
-    onDown?: (e: ReactPointerEvent<SVGElement>) => void;
-    onDoubleClick?: (e: React.MouseEvent<SVGGElement>) => void;
+    onDown?: (e: PointerEvent) => void;
+    onDoubleClick?: (e: MouseEvent) => void;
     onEnter?: () => void;
     onLeave?: () => void;
   };
@@ -484,6 +474,8 @@ function CircleShapeHandlesOverlay({
       key: 'inner',
       lx: innerLocal.x,
       ly: innerLocal.y,
+      sceneX: innerPos.x,
+      sceneY: innerPos.y,
       label: innerLabel,
       interactive: true,
       isActive: activeKey === 'inner',
@@ -498,6 +490,8 @@ function CircleShapeHandlesOverlay({
       key: 'arc',
       lx: arcLocal.x,
       ly: arcLocal.y,
+      sceneX: arcPos.x,
+      sceneY: arcPos.y,
       label: arcLabel,
       interactive: true,
       isActive: activeKey === 'arc',
@@ -510,6 +504,8 @@ function CircleShapeHandlesOverlay({
         key: 'start',
         lx: startLocal.x,
         ly: startLocal.y,
+        sceneX: startPos.x,
+        sceneY: startPos.y,
         label: `${startLabel} ${startDegLabel}°`,
         interactive: false,
         isActive: hoverStart,
@@ -520,6 +516,8 @@ function CircleShapeHandlesOverlay({
         key: 'arc',
         lx: arcLocal.x,
         ly: arcLocal.y,
+        sceneX: arcPos.x,
+        sceneY: arcPos.y,
         label: arcLabel,
         interactive: true,
         isActive: activeKey === 'arc',
@@ -529,63 +527,87 @@ function CircleShapeHandlesOverlay({
     );
   }
 
+  const hitHalf = chromeHandleHitRadiusScene(
+    z,
+    CHROME_RADIUS_HIT_PX,
+    chromeHitScaleForBox(w, h, z)
+  );
+
+  if (interactive && knobs.length > 0) {
+    setOverlayHandleSeats(
+      seatOwnerId,
+      knobs.map((knob) => ({
+        pickKey: `circle-${knob.key}`,
+        interactive: knob.interactive,
+        start: knob.onDown ?? (() => {}),
+        onDoubleClick: knob.onDoubleClick,
+        onEnter: knob.onEnter,
+        onLeave: knob.onLeave,
+        sceneX: knob.sceneX,
+        sceneY: knob.sceneY,
+        half:
+          knob.key === 'inner'
+            ? chromeHandleHitRadiusScene(
+                z,
+                INNER_HANDLE_HIT_PX,
+                chromeHitScaleForBox(w, h, z)
+              )
+            : hitHalf,
+      }))
+    );
+  } else {
+    setOverlayHandleSeats(seatOwnerId, null);
+  }
+
   return (
-    <WorldSvgFrame left={left} top={top} width={w} height={h} angle={angle} zClass="z-[28]">
-      <g transform={gTransform}>
-        {knobs.map((knob) => {
-          const canHit = interactive && (knob.interactive || Boolean(knob.onEnter));
-          return (
-            <g
-              key={knob.key}
-              data-circle-handle={knob.key}
-              transform={`translate(${knob.lx} ${knob.ly})`}
-              style={{
-                pointerEvents: canHit ? 'all' : 'none',
-                cursor: knob.interactive && interactive ? 'default' : undefined,
-              }}
-              onPointerDown={
-                interactive && knob.interactive && knob.onDown ? knob.onDown : undefined
-              }
-              onDoubleClick={
-                interactive && knob.interactive && knob.onDoubleClick
-                  ? knob.onDoubleClick
-                  : undefined
-              }
-              onPointerEnter={interactive ? knob.onEnter : undefined}
-              onPointerLeave={interactive ? knob.onLeave : undefined}
-            >
-              <title>{knob.label}</title>
-              <rect x={-halfHit} y={-halfHit} width={hitSize} height={hitSize} fill="transparent" />
-              <circle
-                r={Math.max(0.01, halfVis - stroke / 2)}
-                fill="#ffffff"
-                stroke="#3388ff"
-                strokeWidth={stroke}
-                style={{ pointerEvents: 'none' }}
-              />
-              {knob.isActive ? (
-                <circle
-                  r={Math.max(0.01, halfVis + stroke)}
-                  fill="none"
-                  stroke="rgba(51,136,255,0.35)"
-                  strokeWidth={2 * k}
-                  style={{ pointerEvents: 'none' }}
-                />
-              ) : null}
-            </g>
-          );
-        })}
-      </g>
-      {badgePos ? (
-        <WorldScreenBadge
-          text={badgeText}
-          x={badgePos.x}
-          y={badgePos.y}
-          inv={k}
-          anchor="right"
-          clearance={halfVis + 2 * k}
-        />
-      ) : null}
+    <WorldSvgFrame
+      nodeId={nodeId}
+      left={left}
+      top={top}
+      width={w}
+      height={h}
+      angle={angle}
+      zClass="z-[28]"
+      pointerEvents="none"
+      sceneChildren={
+        badgePos ? (
+          <WorldScreenBadge
+            text={badgeText}
+            x={badgePos.x}
+            y={badgePos.y}
+            inv={k}
+            anchor="right"
+            clearance={halfVis + 2 * k}
+          />
+        ) : null
+      }
+    >
+      {knobs.map((knob) => (
+        <g
+          key={knob.key}
+          data-circle-handle={knob.key}
+          transform={`translate(${knob.lx} ${knob.ly})`}
+          style={{ pointerEvents: 'all' }}
+        >
+          <title>{knob.label}</title>
+          <circle
+            r={Math.max(0.01, halfVis - stroke / 2)}
+            fill="#ffffff"
+            stroke="#3388ff"
+            strokeWidth={stroke}
+            style={{ pointerEvents: 'all' }}
+          />
+          {knob.isActive ? (
+            <circle
+              r={Math.max(0.01, halfVis + stroke)}
+              fill="none"
+              stroke="rgba(51,136,255,0.35)"
+              strokeWidth={2 * k}
+              style={{ pointerEvents: 'none' }}
+            />
+          ) : null}
+        </g>
+      ))}
     </WorldSvgFrame>
   );
 }

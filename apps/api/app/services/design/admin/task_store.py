@@ -24,6 +24,37 @@ RESUMABLE_STATUSES = frozenset(
 )
 TERMINAL_STATUSES = frozenset({STATUS_SUCCESS, STATUS_CANCELLED})
 
+# Product-level run events are intentionally separate from raw model output and
+# canvas mutations. They are safe to replay after a browser reconnect without
+# accidentally applying an operation twice.
+_EVENT_LOG_KEY = "event_log"
+_EVENT_LOG_MAX_ITEMS = 96
+_EVENT_LOG_MAX_BYTES = 12_000
+_COMMAND_LOG_KEY = "canvas_command_outbox"
+_COMMAND_LOG_MAX_ITEMS = 48
+_REPLAYABLE_EVENT_TYPES = frozenset(
+    {
+        "status",
+        "decision",
+        "skill_start",
+        "skill_done",
+        "activity",
+        "paused",
+        "cancelled",
+        "error",
+        "result",
+        "chat_done",
+    }
+)
+_EVENT_LOG_DROP_KEYS = frozenset(
+    {"svg", "ops", "scene_nodes", "scene_frames", "images", "preview_image"}
+)
+_WORKER_SNAPSHOT_MAX_ITEMS = 120
+_WORKER_SNAPSHOT_MAX_FRAMES = 32
+_WORKER_SNAPSHOT_MAX_IMAGES = 8
+_WORKER_SNAPSHOT_MAX_STRING = 250_000
+_WORKER_SNAPSHOT_MAX_SVG = 1_000_000
+
 _WORKER_ID = f"{socket.gethostname()}:{os.getpid()}:{_uuid.uuid4().hex[:8]}"
 
 
@@ -32,34 +63,65 @@ def _update_task(task_id: str, **fields: Any) -> None:
         return
     from sqlmodel import Session
 
-    from app import crud
+    from app.repositories import design_tasks
     from app.core.db import engine
 
     with Session(engine) as session:
-        crud.update_design_task(session=session, task_id=task_id, fields=fields)
+        design_tasks.update_design_task(session=session, task_id=task_id, fields=fields)
 
 
 def _insert_task(row: dict[str, Any]) -> None:
     from sqlmodel import Session
 
-    from app import crud
+    from app.repositories import design_tasks
     from app.core.db import engine
 
     with Session(engine) as session:
-        crud.create_design_task(session=session, row=row)
+        design_tasks.create_design_task(session=session, row=row)
+
+
+def initialize_design_task(row: dict[str, Any]) -> bool:
+    """Create a task once, or promote a prepared task to running without losing meta."""
+    tid = str(row.get("id") or "").strip()
+    if not tid:
+        raise ValueError("missing_task_id")
+    existing = get_design_task(tid)
+    if not existing:
+        _insert_task(row)
+        return True
+    if str(existing.get("status") or "") in TERMINAL_STATUSES:
+        raise ValueError("task_already_terminal")
+
+    current_meta = parse_task_meta(existing.get("meta_json"))
+    incoming_meta = parse_task_meta(row.get("meta_json"))
+    # The API snapshot is the complete request used to launch the job.  Graph
+    # bootstrap only knows a reduced runtime view, so it must never downgrade a
+    # prepared Worker snapshot when it persists execution metadata.
+    prepared_snapshot = current_meta.get("worker_snapshot")
+    current_meta.update(incoming_meta)
+    if isinstance(prepared_snapshot, dict):
+        current_meta["worker_snapshot"] = prepared_snapshot
+    fields = {
+        key: value
+        for key, value in row.items()
+        if key not in {"id", "user_id", "created_at", "meta_json"}
+    }
+    fields["meta_json"] = json.dumps(current_meta, ensure_ascii=False)
+    _update_task(tid, **fields)
+    return False
 
 
 def get_design_task(task_id: str) -> dict[str, Any] | None:
     from sqlmodel import Session
 
-    from app import crud
+    from app.repositories import design_tasks
     from app.core.db import engine
 
     tid = str(task_id or "").strip()
     if not tid:
         return None
     with Session(engine) as session:
-        row = crud.get_design_task(session=session, task_id=tid)
+        row = design_tasks.get_design_task(session=session, task_id=tid)
     if not row:
         return None
     return row.model_dump()
@@ -76,6 +138,249 @@ def parse_task_meta(meta_json: Any) -> dict[str, Any]:
         return got if isinstance(got, dict) else {}
     except Exception:
         return {}
+
+
+def build_worker_snapshot(
+    *,
+    mode: str,
+    prompt: str,
+    canvas_id: str | None,
+    canvas_size: str | None,
+    scene: str | None,
+    focus_frame_id: str | None,
+    scene_nodes: list[dict[str, Any]] | None,
+    scene_frames: list[dict[str, Any]] | None,
+    images: list[str] | None,
+    user_selected_model: str | None = None,
+    style_group_id: int | None = None,
+    ref_image_sizes: list[str] | None = None,
+    target_layer_id: str | None = None,
+    layer_ids: list[str] | None = None,
+    current_svg: str | None = None,
+    spatial_summary: dict[str, Any] | None = None,
+    session_id: str | None = None,
+    project_id: str | None = None,
+    memory: dict[str, Any] | None = None,
+    route_overrides: dict[str, Any] | None = None,
+    apply_ops: list[dict[str, Any]] | None = None,
+    proposal_id: str | None = None,
+    proposal_task_id: str | None = None,
+    interaction_mode: str | None = None,
+    client_country: str | None = None,
+    skill_refs: list[str] | None = None,
+    paint_mode: str | None = None,
+    locale: str | None = None,
+    design_intensity: str | None = None,
+) -> dict[str, Any]:
+    """Build the versioned, bounded request DTO used by Worker execution.
+
+    Worker mode must receive the same behavior-affecting inputs as the local
+    request path.  This function only bounds transport size; it does not
+    intentionally discard a field based on its meaning.
+    """
+    def text(value: Any, *, limit: int = _WORKER_SNAPSHOT_MAX_STRING) -> str | None:
+        if value is None:
+            return None
+        return str(value)[:limit]
+
+    def json_value(value: Any) -> Any:
+        try:
+            # JSON round-trip prevents non-serializable request state entering
+            # task metadata while preserving normal dict/list structures.
+            return json.loads(json.dumps(value, ensure_ascii=False))
+        except (TypeError, ValueError):
+            return None
+
+    def objects(items: list[dict[str, Any]] | None, limit: int) -> list[dict[str, Any]]:
+        return [item for item in (json_value(items) or [])[:limit] if isinstance(item, dict)]
+
+    def strings(items: list[str] | None, limit: int) -> list[str]:
+        return [str(item)[:_WORKER_SNAPSHOT_MAX_STRING] for item in (items or [])[:limit] if isinstance(item, str)]
+
+    return {
+        "version": 2,
+        "mode": text(mode, limit=32) or "agent",
+        "user_selected_model": text(user_selected_model, limit=128) or "auto",
+        "prompt": text(prompt, limit=12_000) or "",
+        "canvas_id": text(canvas_id, limit=128),
+        "canvas_size": text(canvas_size, limit=64),
+        "scene": text(scene, limit=128),
+        "focus_frame_id": text(focus_frame_id, limit=128),
+        "scene_nodes": objects(scene_nodes, _WORKER_SNAPSHOT_MAX_ITEMS),
+        "scene_frames": objects(scene_frames, _WORKER_SNAPSHOT_MAX_FRAMES),
+        "images": strings(images, _WORKER_SNAPSHOT_MAX_IMAGES),
+        "style_group_id": style_group_id,
+        "ref_image_sizes": strings(ref_image_sizes, _WORKER_SNAPSHOT_MAX_IMAGES),
+        "target_layer_id": text(target_layer_id, limit=128),
+        "layer_ids": strings(layer_ids, _WORKER_SNAPSHOT_MAX_ITEMS),
+        "current_svg": text(current_svg, limit=_WORKER_SNAPSHOT_MAX_SVG),
+        "spatial_summary": json_value(spatial_summary),
+        "session_id": text(session_id, limit=64),
+        "project_id": text(project_id, limit=128),
+        "memory": json_value(memory),
+        "route_overrides": json_value(route_overrides),
+        "apply_ops": objects(apply_ops, _WORKER_SNAPSHOT_MAX_ITEMS),
+        "proposal_id": text(proposal_id, limit=64),
+        "proposal_task_id": text(proposal_task_id, limit=64),
+        "interaction_mode": text(interaction_mode, limit=16),
+        "client_country": text(client_country, limit=8),
+        "skill_refs": strings(skill_refs, _WORKER_SNAPSHOT_MAX_ITEMS),
+        "paint_mode": text(paint_mode, limit=32),
+        "locale": text(locale, limit=16),
+        "design_intensity": text(design_intensity, limit=16),
+    }
+
+
+def _safe_replay_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep a bounded UI timeline, never canvas payloads or model token streams."""
+    event_type = str(event.get("type") or "").strip()
+    if event_type not in _REPLAYABLE_EVENT_TYPES:
+        return None
+    safe = {
+        str(key): value
+        for key, value in event.items()
+        if str(key) not in _EVENT_LOG_DROP_KEYS
+    }
+    safe["type"] = event_type
+    try:
+        encoded = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return None
+    if len(encoded.encode("utf-8")) > _EVENT_LOG_MAX_BYTES:
+        return {"type": event_type, "code": "event_payload_omitted"}
+    return safe
+
+
+def _event_seq(item: dict[str, Any]) -> int:
+    try:
+        return int(item.get("seq") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def append_task_event(task_id: str, event: dict[str, Any]) -> int | None:
+    """Persist a compact, monotonically sequenced event for reconnect replay."""
+    tid = str(task_id or "").strip()
+    safe = _safe_replay_event(event)
+    if not tid or safe is None:
+        return None
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    with Session(engine) as session:
+        if not design_tasks.get_design_task(session=session, task_id=tid):
+            return None
+        return design_tasks.append_design_task_event(
+            session=session, task_id=tid, event_json=json.dumps(safe, ensure_ascii=False), created_at=time.time()
+        )
+
+
+def get_task_events(
+    task_id: str,
+    *,
+    after_seq: int = 0,
+    limit: int = 96,
+) -> dict[str, Any]:
+    """Read a compact event tail for a reconnecting client."""
+    tid = str(task_id or "").strip()
+    try:
+        cursor = max(0, int(after_seq))
+    except (TypeError, ValueError):
+        cursor = 0
+    try:
+        lim = max(1, min(int(limit), _EVENT_LOG_MAX_ITEMS))
+    except (TypeError, ValueError):
+        lim = _EVENT_LOG_MAX_ITEMS
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    with Session(engine) as session:
+        rows = design_tasks.list_design_task_events(session=session, task_id=tid, after_id=cursor, limit=lim)
+    items = []
+    for row in rows:
+        event = parse_task_meta(row.event_json)
+        if event:
+            items.append({"seq": int(row.id or 0), "at": row.created_at, "event": event})
+    return {"items": items, "next_seq": (items[-1]["seq"] + 1) if items else cursor + 1}
+
+
+def append_canvas_command(task_id: str, event: dict[str, Any]) -> int | None:
+    """Append one canvas command without touching competing task metadata."""
+    tid = str(task_id or "").strip()
+    if not tid or str(event.get("type") or "") not in {"tool_ops", "svg_delta"}:
+        return None
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    with Session(engine) as session:
+        if not design_tasks.get_design_task(session=session, task_id=tid):
+            return None
+        return design_tasks.append_design_task_canvas_command(
+            session=session,
+            task_id=tid,
+            command_json=json.dumps(event, ensure_ascii=False),
+            created_at=time.time(),
+        )
+
+
+def get_canvas_commands(task_id: str, *, after_seq: int = 0, limit: int = 48) -> dict[str, Any]:
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    tid = str(task_id or "").strip()
+    cursor = max(0, int(after_seq or 0))
+    lim = max(1, min(int(limit or 48), _COMMAND_LOG_MAX_ITEMS))
+    with Session(engine) as session:
+        rows = design_tasks.list_design_task_canvas_commands(
+            session=session, task_id=tid, after_id=cursor, limit=lim
+        )
+        last_id, acked_id = design_tasks.get_design_task_canvas_command_cursors(session=session, task_id=tid)
+    kept = []
+    for row in rows:
+        event = parse_task_meta(row.command_json)
+        if event:
+            kept.append({"seq": int(row.id or 0), "at": row.created_at, "event": event})
+    return {
+        "items": kept,
+        "next_seq": last_id + 1,
+        "acked_seq": acked_id,
+    }
+
+
+def acknowledge_canvas_commands(task_id: str, seq: int) -> None:
+    tid = str(task_id or "").strip()
+    if not tid:
+        return
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    with Session(engine) as session:
+        design_tasks.acknowledge_design_task_canvas_commands(
+            session=session,
+            task_id=tid,
+            through_id=max(0, int(seq or 0)),
+            acknowledged_at=time.time(),
+        )
+
+
+def prune_design_run_outboxes(*, retention_days: int) -> dict[str, int]:
+    """Prune old replay rows without affecting active/resumable task recovery."""
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    days = max(1, int(retention_days or 7))
+    with Session(engine) as session:
+        return design_tasks.prune_design_task_outboxes(
+            session=session,
+            cutoff=time.time() - days * 86400,
+            statuses=[STATUS_SUCCESS, STATUS_CANCELLED, STATUS_ERROR],
+        )
 
 
 def get_run_lifecycle(meta: dict[str, Any] | None) -> dict[str, Any]:
@@ -112,18 +417,45 @@ def build_run_lifecycle(
 
 
 def merge_task_meta(task_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-    """Deep-merge top-level meta keys; ``run_lifecycle`` is replaced when provided."""
+    """Atomically merge task metadata under the database row lock.
+
+    Scene feedback, lifecycle updates and lease heartbeats arrive from
+    different processes.  Updating a pre-read JSON blob loses fields written
+    by another process, so all shared metadata writes pass through this one
+    transactional path.
+    """
     tid = str(task_id or "").strip()
-    row = get_design_task(tid) if tid else None
-    meta = parse_task_meta(row.get("meta_json") if row else None)
-    for k, v in (patch or {}).items():
-        if k == "run_lifecycle" and isinstance(v, dict):
-            prev = get_run_lifecycle(meta)
-            merged = {**prev, **v}
-            meta["run_lifecycle"] = merged
-        else:
-            meta[k] = v
-    _update_task(tid, meta_json=json.dumps(meta, ensure_ascii=False))
+    if not tid:
+        return {}
+    from sqlalchemy import text
+    from sqlmodel import Session
+
+    from app.repositories import design_tasks
+    from app.core.db import engine
+    from app.services.db import dialect
+
+    with Session(engine) as session:
+        # SQLite has no SELECT ... FOR UPDATE. BEGIN IMMEDIATE acquires its
+        # write lock before the read/merge/write sequence; other dialects use
+        # the row-level lock in CRUD.
+        if dialect() == "sqlite":
+            try:
+                session.connection().execute(text("BEGIN IMMEDIATE"))
+            except Exception:
+                pass
+        row = design_tasks.get_design_task_for_update(session=session, task_id=tid)
+        if not row:
+            return {}
+        meta = parse_task_meta(row.meta_json)
+        for k, v in (patch or {}).items():
+            if k == "run_lifecycle" and isinstance(v, dict):
+                meta["run_lifecycle"] = {**get_run_lifecycle(meta), **v}
+            else:
+                meta[k] = v
+        row.meta_json = json.dumps(meta, ensure_ascii=False)
+        row.updated_at = time.time()
+        session.add(row)
+        session.commit()
     return meta
 
 
@@ -145,7 +477,7 @@ def list_stale_resumable_task_ids(*, ttl_hours: float, limit: int = 100) -> list
     """Paused / waiting / resumable-error tasks older than TTL (by updated_at)."""
     from sqlmodel import Session
 
-    from app import crud
+    from app.repositories import design_tasks
     from app.core.db import engine
 
     hours = float(ttl_hours or 0.0)
@@ -154,7 +486,7 @@ def list_stale_resumable_task_ids(*, ttl_hours: float, limit: int = 100) -> list
     lim = max(1, min(int(limit or 100), 500))
     cutoff = time.time() - hours * 3600.0
     with Session(engine) as session:
-        rows = crud.list_stale_design_tasks(
+        rows = design_tasks.list_stale_design_tasks(
             session=session,
             statuses=[STATUS_PAUSED, STATUS_WAITING_CLIENT, STATUS_ERROR],
             cutoff=cutoff,
@@ -169,6 +501,21 @@ def list_stale_resumable_task_ids(*, ttl_hours: float, limit: int = 100) -> list
         if tid:
             out.append(tid)
     return out
+
+
+def list_stale_queued_task_ids(*, older_than_sec: float = 30.0, limit: int = 100) -> list[str]:
+    """Queued tasks that were persisted but never claimed by a Worker."""
+    from sqlmodel import Session
+
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    cutoff = time.time() - max(1.0, float(older_than_sec))
+    with Session(engine) as session:
+        rows = design_tasks.list_stale_design_tasks(
+            session=session, statuses=[STATUS_QUEUED], cutoff=cutoff, limit=limit
+        )
+    return [str(row.id) for row in rows if str(row.id or "").strip()]
 
 
 def expire_stale_design_task(
@@ -201,6 +548,46 @@ def expire_stale_design_task(
     )
     _update_task(tid, status=STATUS_CANCELLED, error_message=reason)
     return True
+
+
+def recover_expired_running_task(task_id: str) -> bool:
+    """Turn a dead Worker lease into an explicit, checkpoint-resumable state."""
+    tid = str(task_id or "").strip()
+    row = get_design_task(tid)
+    if not row or str(row.get("status") or "") != STATUS_RUNNING:
+        return False
+    meta = parse_task_meta(row.get("meta_json"))
+    if lease_is_active(get_run_lease(meta)):
+        return False
+    merge_task_meta(
+        tid,
+        {
+            "run_lifecycle": build_run_lifecycle(
+                thread_id=str(get_run_lifecycle(meta).get("thread_id") or f"design:{tid}"),
+                resumable=True,
+                interrupt_kind="worker_lease_expired",
+                extra={"recovery_hint": "resume_from_checkpoint"},
+            )
+        },
+    )
+    _update_task(tid, status=STATUS_ERROR, error_message="worker_lease_expired")
+    return True
+
+
+def list_stale_running_task_ids(*, older_than_sec: float, limit: int = 100) -> list[str]:
+    from sqlmodel import Session
+
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    with Session(engine) as session:
+        rows = design_tasks.list_stale_design_tasks(
+            session=session,
+            statuses=[STATUS_RUNNING],
+            cutoff=time.time() - max(1.0, float(older_than_sec)),
+            limit=limit,
+        )
+    return [str(row.id) for row in rows if str(row.id or "").strip()]
 
 
 # --- Cross-worker run lease + durable pause/cancel intent --------------------
@@ -410,7 +797,7 @@ def _claim_lease_db_cas(
     from sqlalchemy import text
     from sqlmodel import Session
 
-    from app import crud
+    from app.repositories import design_tasks
     from app.core.db import engine
     from app.services.db import dialect
 
@@ -423,7 +810,7 @@ def _claim_lease_db_cas(
                     session.connection().execute(text("BEGIN IMMEDIATE"))
                 except Exception:
                     pass
-            row = crud.get_design_task_for_update(session=session, task_id=tid)
+            row = design_tasks.get_design_task_for_update(session=session, task_id=tid)
             if not row:
                 return {"ok": True, "lease": lease, "via": "pending"}
             meta = parse_task_meta(row.meta_json)
@@ -584,11 +971,11 @@ def resolve_ask_proposal_ops(
 def _lock_layers(canvas_id: str, target_layer_id: str, all_layer_ids: list[str]) -> None:
     from sqlmodel import Session
 
-    from app import crud
+    from app.repositories import design_tasks
     from app.core.db import engine
 
     with Session(engine) as session:
-        crud.insert_design_layer_locks(
+        design_tasks.insert_design_layer_locks(
             session=session,
             canvas_id=canvas_id,
             target_layer_id=target_layer_id,

@@ -239,24 +239,33 @@ function onGrid(value: number, g: number) {
   return Math.abs(value - q) < 1e-6;
 }
 
-/** Measure infinite-canvas grid SVG vs shape hosts — always prints JSON. */
+/** Measure infinite-canvas grid (Canvas underlay) vs shape hosts — always prints JSON. */
 export function dumpGridVsHosts(getState: () => {
   dpr: number;
   camera: RcbCamera;
   boxes?: Array<{ id: string; left: number; top: number; width: number; height: number }>;
 }): Record<string, unknown> {
   const { dpr, camera, boxes = [] } = getState();
-  const world = document.querySelector('[data-rcb-world="1"]') as HTMLElement | null;
-  const grid = document.querySelector('[data-rcb-pixel-grid="1"]') as SVGSVGElement | null;
+  const sceneRoot = document.querySelector('[data-rcb-scene-root="1"]') as SVGSVGElement | null;
+  const cameraRoot = sceneRoot?.querySelector('[data-rcb-scene-camera="1"]') as SVGGElement | null;
+  const grid =
+    (document.querySelector('[data-rcb-scene-canvas][data-rcb-pixel-grid="1"]') as
+      | HTMLCanvasElement
+      | null) ||
+    (document.querySelector('[data-rcb-pixel-grid="1"]') as SVGSVGElement | HTMLCanvasElement | null);
   const g = Number(grid?.getAttribute('data-rcb-grid-size') || 1) || 1;
   const gridLeft = parsePx(grid?.getAttribute('data-rcb-grid-left'));
   const gridTop = parsePx(grid?.getAttribute('data-rcb-grid-top'));
-  const gridStyleLeft = parsePx(grid?.style?.left);
-  const gridStyleTop = parsePx(grid?.style?.top);
+  const gridStyleLeft =
+    grid instanceof HTMLCanvasElement ? null : parsePx((grid as SVGSVGElement | null)?.style?.left);
+  const gridStyleTop =
+    grid instanceof HTMLCanvasElement ? null : parsePx((grid as SVGSVGElement | null)?.style?.top);
   const gridRect = grid?.getBoundingClientRect?.() ?? null;
-  const worldTf = world?.style?.transform || '';
+  const worldTf = cameraRoot?.getAttribute('transform') || '';
 
-  const hosts = Array.from(document.querySelectorAll('[data-rcb-infinite="1"]:not([data-rcb-pixel-grid])'));
+  const hosts = Array.from(
+    document.querySelectorAll('[data-rcb-infinite="1"]:not([data-rcb-pixel-grid]):not([data-rcb-scene-canvas])')
+  );
   const hostRows = hosts.slice(0, 24).map((node, i) => {
     const el = node as SVGSVGElement;
     const left = parsePx(el.style.left) ?? parsePx(el.getAttribute('x'));
@@ -307,8 +316,7 @@ export function dumpGridVsHosts(getState: () => {
     };
   });
 
-  // Same parent? Grid must be under [data-rcb-world], sibling of shape hosts.
-  const gridParentIsWorld = Boolean(grid && world && grid.parentElement === world);
+  const gridSharesStage = Boolean(grid && sceneRoot && grid.parentElement === sceneRoot.parentElement);
 
   const payload: Record<string, unknown> = {
     dpr,
@@ -316,7 +324,7 @@ export function dumpGridVsHosts(getState: () => {
     camera: { ...camera },
     grid: {
       present: Boolean(grid),
-      parentIsWorld: gridParentIsWorld,
+      sharesStageWithScene: gridSharesStage,
       gridSize: g,
       attrOrigin: { left: gridLeft, top: gridTop },
       styleOrigin: { left: gridStyleLeft, top: gridStyleTop },

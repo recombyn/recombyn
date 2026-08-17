@@ -73,6 +73,8 @@ CANVAS_WORK_INTENTS = frozenset({"canvas_op", "design"})
 PAINT_LANES = ("create", "edit")
 # Ask pending proposal side-channel (only when PENDING_PROPOSAL is injected).
 PROPOSAL_ACTIONS = ("apply", "dismiss", "revise")
+# Host session meta-commands (clear chat / stop generation) — not canvas work.
+SESSION_ACTIONS = ("clear_context", "stop")
 
 
 class IntentClassifyDecision(BaseModel):
@@ -83,6 +85,7 @@ class IntentClassifyDecision(BaseModel):
       update_node, …) — direct tool path, no methodology skills
     - design: needs design composition / creative judgment beyond a single tool op
     - proposal_action: only when a PENDING_PROPOSAL block is present
+    - session_action: host UI control (clear chat / stop) — intent stays chat
     """
 
     intent: Literal["chat", "canvas_op", "design"] = Field(
@@ -107,6 +110,13 @@ class IntentClassifyDecision(BaseModel):
             "empty=no pending / ignore pending"
         ),
     )
+    session_action: Literal["clear_context", "stop", ""] = Field(
+        default="",
+        description=(
+            "Host meta-command: clear_context=new chat / wipe dialogue memory; "
+            "stop=abort in-flight generation; empty=normal turn"
+        ),
+    )
     reply: str = Field(
         default="",
         description=(
@@ -118,6 +128,23 @@ class IntentClassifyDecision(BaseModel):
         default="",
         description="Short reason — cite tool names from the catalog when canvas_op",
     )
+
+
+def normalize_session_action(raw: str | None) -> str:
+    s = str(raw or "").strip().lower()
+    if s in SESSION_ACTIONS:
+        return s
+    aliases = {
+        "clear": "clear_context",
+        "clearcontext": "clear_context",
+        "new_chat": "clear_context",
+        "newchat": "clear_context",
+        "reset": "clear_context",
+        "reset_chat": "clear_context",
+        "cancel": "stop",
+        "abort": "stop",
+    }
+    return aliases.get(s, "")
 
 
 def normalize_proposal_action(
@@ -737,84 +764,12 @@ def router_model_id(rules: dict[str, str] | None) -> str:
 
 
 def _user_request_core(prompt: str) -> str:
-    """Strip FE ``User request:`` wrapper so greetings are not mistaken for tasks."""
+    """Strip FE ``User request:`` wrapper so the core ask is visible to heuristics."""
     p = (prompt or "").strip()
     m = re.search(r"(?is)\buser\s*request\s*:\s*(.*)\Z", p)
     if m:
         return (m.group(1) or "").strip()
     return p
-
-
-_CHITCHAT_STRIP_RX = re.compile(
-    r"[\s\-_=+~`!@#$%^&*()\[\]{};:'\",.<>/?\\|，。！？、；：「」『』（）【】…·—～]+"
-)
-_CHITCHAT_EMOJI_RX = re.compile(
-    r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF\U0001F1E6-\U0001F1FF]+"
-)
-_CHITCHAT_SOFT = ("呀", "啊", "哇", "吗", "嘛", "哦", "哟", "呢", "吧", "哈", "喽", "咯")
-_CHITCHAT_CORES = frozenset(
-    {
-        "hi",
-        "hii",
-        "hiii",
-        "hello",
-        "helloo",
-        "hey",
-        "heya",
-        "yo",
-        "hola",
-        "你好",
-        "您好",
-        "嗨",
-        "嗨喽",
-        "哈喽",
-        "哈罗",
-        "哈囉",
-        "在吗",
-        "在嘛",
-        "早上好",
-        "晚上好",
-        "早安",
-        "午安",
-        "晚安",
-        "谢谢",
-        "谢谢你",
-        "谢谢您",
-        "thanks",
-        "thankyou",
-        "ok",
-        "okay",
-        "好",
-        "好的",
-        "嗯",
-        "哦",
-        "こんにちは",
-        "안녕",
-        "안녕하세요",
-    }
-)
-
-
-def _soften_chitchat_core(core: str) -> str:
-    s = core
-    changed = True
-    while changed and s:
-        changed = False
-        for suf in _CHITCHAT_SOFT:
-            if s.endswith(suf) and len(s) > len(suf):
-                s = s[: -len(suf)]
-                changed = True
-                break
-    return s
-
-
-def is_chitchat_prompt(prompt: str) -> bool:
-    """True for a bare greeting — not '你好，帮我做张海报'."""
-    compact = _CHITCHAT_EMOJI_RX.sub("", _CHITCHAT_STRIP_RX.sub("", _user_request_core(prompt)))
-    key = compact.lower()
-    if key in _CHITCHAT_CORES:
-        return True
-    return _soften_chitchat_core(key) in _CHITCHAT_CORES
 
 
 def heuristic_user_intent(
@@ -825,9 +780,9 @@ def heuristic_user_intent(
 ) -> IntentClassifyDecision:
     """Fallback when the intent LLM is unavailable.
 
-    Structural only (images / target chip / bare greeting). Never maps
-    prompt length or content keywords → canvas_op vs design — that belongs
-    to ``agent.prompt.intent_classify``. Non-greeting text fail-opens to
+    Structural only (images / target chip / empty prompt). Never maps
+    greetings or content keywords → chat vs design — that belongs to
+    ``agent.prompt.intent_classify``. Non-empty text fail-opens to
     design/create so craft still gets a plate path when the classifier is down.
     """
     del canvas_node_count
@@ -847,9 +802,9 @@ def heuristic_user_intent(
             reply="",
             rationale="heuristic_target",
         )
-    if is_chitchat_prompt(full) or not _user_request_core(full).strip():
+    if not _user_request_core(full).strip():
         return IntentClassifyDecision(
-            intent="chat", paint_lane="", reply="", rationale="heuristic_chitchat"
+            intent="chat", paint_lane="", reply="", rationale="heuristic_empty"
         )
     return IntentClassifyDecision(
         intent="design",
@@ -943,6 +898,7 @@ async def classify_user_intent(
             rationale = structured.rationale
             reply = structured.reply
             raw_action = structured.proposal_action
+            raw_session = structured.session_action
             raw_grade = None
         elif isinstance(structured, dict):
             raw_intent = structured.get("intent")
@@ -952,6 +908,9 @@ async def classify_user_intent(
             reply = structured.get("reply")
             raw_action = structured.get("proposal_action") or structured.get(
                 "proposalAction"
+            )
+            raw_session = structured.get("session_action") or structured.get(
+                "sessionAction"
             )
         else:
             _log.warning(
@@ -968,19 +927,25 @@ async def classify_user_intent(
             )
             return fallback
         action = normalize_proposal_action(raw_action, has_pending=has_pending)
+        session_action = normalize_session_action(raw_session)
         # Trust the intent LLM fully — no chitchat / length / keyword demotion.
         reply_s = str(reply or "").strip()
-        if intent != "chat" and action != "dismiss":
+        if intent != "chat" and action != "dismiss" and not session_action:
             reply_s = ""
         # Confirm held ops — do not short-circuit as chat.
         if action == "apply":
             intent = "design"
             lane = lane or "create"
             reply_s = ""
+            session_action = ""
+        if session_action:
+            intent = "chat"
+            lane = ""
         return IntentClassifyDecision(
             intent=intent,  # type: ignore[arg-type]
             paint_lane=lane if intent != "chat" else "",  # type: ignore[arg-type]
             proposal_action=action,  # type: ignore[arg-type]
+            session_action=session_action,  # type: ignore[arg-type]
             reply=reply_s[:500],
             rationale=str(rationale or "").strip() or "llm_intent",
         )

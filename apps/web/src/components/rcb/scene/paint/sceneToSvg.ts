@@ -31,6 +31,7 @@ import {
   resolveStrokeAlign,
   resolveStrokeLinecap,
   resolveStrokeLinejoin,
+  resolveStrokeMiterlimit,
 } from '../document/sceneEffects';
 import type { StrokeAlign, StrokeLinecap, StrokeLinejoin } from '../document/sceneEffects';
 import { isTransparentFill, resolveDocumentBackground, resolveFill } from '../document/sceneFill';
@@ -43,6 +44,7 @@ import {
   isLottieGeneratorNode,
   isLottieNode,
   isNodeHidden,
+  isOutlinedPath,
   isVideoGeneratorNode
 } from '../document/nodeCapabilities';
 import {
@@ -58,10 +60,10 @@ import {
   roundedRectPath,
   type CornerRadii,
 } from '../document/sceneRadii';
-import { isCustomPathShape } from '../document/pathScale';
+import { isCustomPathShape, scalePathData } from '../document/pathScale';
 import { shapeVertexPoints, sidesFromAttrs, clampShapeSides, DEFAULT_SHAPE_SIDES, starInnerRatioFromAttrs, ellipseInnerRatioFromAttrs, ellipseArcPercentFromAttrs, ellipseStartDegFromAttrs, clampEllipseInnerRatio, clampEllipseArcPercent, clampEllipseStartDeg } from '../document/sceneShapes';
 import { getShapeBaseline, getShapeBaselineD } from '@/components/rcb/core/geometry';
-import { applyNodeShadow, applySvgFill } from './svgPaint';
+import { applyNodeEffects, applySvgFill } from './svgPaint';
 import {
   brushSize,
   findPencilBrush,
@@ -137,32 +139,6 @@ export function editorChromeStrokeSceneWidth(cssPx = 1): number {
   return Math.max(1e-4, cssPx / Math.max(0.05, z));
 }
 
-/**
- * One shared scene viewport for pixel grid + every shape host.
- * Same CSS `left/top/width/height` === `viewBox` → one raster lattice under
- * browser zoom (fractional DPR). Content stays in absolute scene coords.
- */
-export function worldCameraViewport(
-  camera?: RcbCamera | null,
-  dpr?: number,
-  stageW?: number,
-  stageH?: number
-): { left: number; top: number; width: number; height: number } | null {
-  const cam = resolvePaintCamera(camera);
-  const w = typeof stageW === 'number' && stageW > 0 ? stageW : paintStage.w;
-  const h = typeof stageH === 'number' && stageH > 0 ? stageH : paintStage.h;
-  if (!cam || !(w > 0) || !(h > 0)) return null;
-  const d = resolvePaintDpr(dpr);
-  const z = rcbCameraCssZoom(cam);
-  const { x: camX, y: camY } = rcbCameraScreenOffset(cam, d);
-  return {
-    left: -camX / z,
-    top: -camY / z,
-    width: w / z,
-    height: h / z,
-  };
-}
-
 let clipSeq = 0;
 function nextClipId(prefix: string) {
   clipSeq += 1;
@@ -220,6 +196,7 @@ type ShapeStrokeOpts = {
   align: StrokeAlign;
   linecap: StrokeLinecap;
   linejoin: StrokeLinejoin;
+  miterlimit: number;
 };
 
 function strokeOptsFromNode(node: SceneNodeInput, color: string, width: number): ShapeStrokeOpts {
@@ -231,6 +208,7 @@ function strokeOptsFromNode(node: SceneNodeInput, color: string, width: number):
     align: resolveStrokeAlign(node?.attrs),
     linecap: resolveStrokeLinecap(node?.attrs),
     linejoin: resolveStrokeLinejoin(node?.attrs),
+    miterlimit: resolveStrokeMiterlimit(node?.attrs),
   };
 }
 
@@ -366,7 +344,7 @@ export function stampStrokeBakeZoomBucket(zoom?: number): number {
 
 /**
  * Stroke paints along the element's vector baseline.
- * Align is paint-only on the path; selection chrome stays on path geom
+ * Align is paint-only on the path; selection chrome pads to visual outer.
  * (`strokeChromeOutset` === 0). Draw uses a separate visual→geom inset when
  * committing path size.
  *
@@ -409,6 +387,7 @@ function applyElementStroke(
       width: opts.width * 2,
       linecap: opts.linecap || 'butt',
       linejoin: opts.linejoin || 'miter',
+      miterlimit: opts.miterlimit ?? 100,
       ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
     };
     setAttrs(el, { 'paint-order': 'stroke fill' });
@@ -426,6 +405,7 @@ function applyElementStroke(
       width: opts.width * 2,
       linecap: opts.linecap || 'butt',
       linejoin: opts.linejoin || 'miter',
+      miterlimit: opts.miterlimit ?? 100,
       ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
     });
     return;
@@ -436,6 +416,7 @@ function applyElementStroke(
     width: opts.width,
     linecap: opts.linecap || 'butt',
     linejoin: opts.linejoin || 'miter',
+    miterlimit: opts.miterlimit ?? 100,
     ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
   });
 }
@@ -468,6 +449,7 @@ function applyOutsideStrokeUnderlay(el: SVGElement, opts: ShapeStrokeOpts): bool
     width: opts.width * 2,
     linecap: opts.linecap || 'butt',
     linejoin: opts.linejoin || 'miter',
+    miterlimit: opts.miterlimit ?? 100,
     ...(opts.dasharray ? { dasharray: opts.dasharray } : {}),
   });
   parent.insertBefore(under, el);
@@ -529,6 +511,10 @@ export type SceneSvgHost = SVGElement & {
   __scenePlainText?: string;
   __sceneDragBaseW?: number;
   __sceneDragBaseH?: number;
+  /** Painted path `d` at gesture start (custom path live resize). */
+  __sceneDragBasePath?: string;
+  /** Unfilleted base path at gesture start, when present. */
+  __sceneDragBasePathRaw?: string;
   __sceneDragBaseFontSize?: number;
   __sceneDragBaseLetterSpacing?: number;
   __sceneDidResize?: boolean;
@@ -877,7 +863,7 @@ function createRectLike(
     tagNode(line, nodeId, sceneNodeKey, shapeType, left, top, width, height);
     markAbsPos(line);
     applyMeta(line, left, top, meta, width, height);
-    applyNodeShadow(root, line, node);
+    applyNodeEffects(root, line, node);
     return line;
   }
 
@@ -921,7 +907,7 @@ function createRectLike(
     coverRotatedFillFringe(body, paint, stroke, sw, Number(meta.angle) || 0);
   }
   applyMeta(g, left, top, meta, width, height);
-  applyNodeShadow(root, g, node);
+  applyNodeEffects(root, g, node);
   return g;
 }
 
@@ -960,16 +946,15 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
     applyElementStroke(root, line, strokeOpen);
     tagNode(line, nodeId, 'shape', shapeType, left, top, width, height);
     applyMeta(line, left, top, meta, width, height);
-    applyNodeShadow(root, line, node);
+    applyNodeEffects(root, line, node);
     return line;
   }
 
   if (shapeType === 'arrow') {
     const d = getShapeBaselineD({
-      key: 'shape',
+      ...node,
       width,
       height,
-      attrs: { shapeType: 'arrow' },
     })!;
     const path = appendChild(parent, svgEl('path', { d }));
     setFill(path, 'none');
@@ -977,7 +962,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
     applyElementStroke(root, path, strokeOpen);
     tagNode(path, nodeId, 'shape', shapeType, left, top, width, height);
     applyMeta(path, left, top, meta, width, height);
-    applyNodeShadow(root, path, node);
+    applyNodeEffects(root, path, node);
     return path;
   }
 
@@ -1011,7 +996,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
     tagNode(g, nodeId, 'shape', shapeType, left, top, width, height);
     rememberSceneEllipseParams(g, innerRatio, arcPercent, startDeg);
     applyMeta(g, left, top, meta, width, height);
-    applyNodeShadow(root, g, node);
+    applyNodeEffects(root, g, node);
     return g;
   }
 
@@ -1031,7 +1016,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
     if (shapeType === 'star' || shapeType === 'polygon') writeSceneSides(g, sidesFromAttrs(node.attrs));
     rememberSceneCornerRadii(g, radiiFromAttrs(node.attrs));
     applyMeta(g, left, top, meta, width, height);
-    applyNodeShadow(root, g, node);
+    applyNodeEffects(root, g, node);
     return g;
   }
 
@@ -1046,12 +1031,14 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
       const stampSrcAttr =
         node.attrs?.brushStampSrc != null ? String(node.attrs.brushStampSrc) : '';
       const brush = findPencilBrush(brushId);
-      // New tip strokes use the same SVG ribbon as vector ink (instant, no dab jitter).
-      // Legacy nodes that stored brushStampSrc still bake tip texture PNGs.
-      const useStamp = Boolean(stampSrcAttr) && pts.length >= 2;
+      // Tip brushes always paint from their declared tip. `brushStampSrc` is
+      // persisted for custom uploads; builtins resolve from the brush id so
+      // existing documents do not silently fall back to a vector ribbon.
+      const stampSrc = stampSrcAttr || brush.stampSrc || '';
+      const useStamp = brush.kind === 'stamp' && Boolean(stampSrc) && pts.length >= 2;
 
       if (useStamp) {
-        const src = stampSrcAttr;
+        const src = stampSrc;
         const hardnessRaw = Number(node.attrs?.brushHardness);
         const hardness = Number.isFinite(hardnessRaw)
           ? Math.max(0, Math.min(100, hardnessRaw))
@@ -1114,7 +1101,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
         setAttrs(hit, { 'pointer-events': 'stroke', 'data-baseline': '1' });
         tagNode(g, nodeId, 'shape', shapeType, left, top, width, height);
         applyMeta(g, left, top, meta, width, height);
-        applyNodeShadow(root, g, node);
+        applyNodeEffects(root, g, node);
         return g;
       }
 
@@ -1151,7 +1138,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
       setAttrs(hit, { 'pointer-events': 'stroke', 'data-baseline': '1' });
       tagNode(g, nodeId, 'shape', shapeType, left, top, width, height);
       applyMeta(g, left, top, meta, width, height);
-      applyNodeShadow(root, g, node);
+      applyNodeEffects(root, g, node);
       return g;
     }
 
@@ -1160,9 +1147,9 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
         ? resolveFill(node, 'transparent')
         : resolveFill(node, closed ? '#FFFFFF' : 'transparent');
     const baseD = String(d);
-    // Pen centerlines stay raw. Closed boolean/outline paths keep a sharp base
-    // and fillet via radiusVertices (same R dots as rect, seated on corners).
-    const skipFillet = shapeType === 'pen' || !closed;
+    // Pen centerlines stay raw. 轮廓化 / densified silhouettes must not be
+    // re-filleted (would shred fontkit / canvas glyph rings into wedges).
+    const skipFillet = shapeType === 'pen' || !closed || isOutlinedPath(node);
     const cornerR = skipFillet
       ? { tl: 0, tr: 0, br: 0, bl: 0 }
       : radiiFromAttrs(node.attrs);
@@ -1187,7 +1174,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
     tagNode(path, nodeId, 'shape', shapeType, left, top, width, height);
     rememberSceneCornerRadii(path, cornerR);
     applyMeta(path, left, top, meta, width, height);
-    applyNodeShadow(root, path, node);
+    applyNodeEffects(root, path, node);
     return path;
   }
 
@@ -1322,7 +1309,7 @@ export async function nodeToSvgElement(
     anyEl.__sceneLineCount = Math.max(1, visualLines.length);
     anyEl.__scenePlainText = text;
     applyMeta(el, left, top, meta, finalW, finalH);
-    applyNodeShadow(root, el, node);
+    applyNodeEffects(root, el, node);
     return el;
   }
 
@@ -1412,7 +1399,7 @@ export async function nodeToSvgElement(
 
     tagNode(g, nodeId, 'svg', undefined, left, top, boxW, boxH);
     applyMeta(g, left, top, meta, boxW, boxH);
-    applyNodeShadow(root, g, node);
+    applyNodeEffects(root, g, node);
     return g;
   }
 
@@ -1565,7 +1552,7 @@ export async function nodeToSvgElement(
       // Process shimmer is editor chrome — never bake into export / cover clones.
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
-      applyNodeShadow(root, g, node);
+      applyNodeEffects(root, g, node);
       rememberSceneCornerRadii(g, cornerR);
       return g;
     }
@@ -1607,7 +1594,7 @@ export async function nodeToSvgElement(
     tagNode(g, nodeId, 'image', undefined, left, top, boxW, boxH);
     if (isGen || isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
     applyMeta(g, left, top, meta, boxW, boxH);
-    applyNodeShadow(root, g, node);
+    applyNodeEffects(root, g, node);
     if (cssFilter && cssFilter !== 'none') {
       const shadowFilter = String(g.style.filter || '').trim();
       const combined =
@@ -1647,7 +1634,7 @@ export async function nodeToSvgElement(
       tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
-      applyNodeShadow(root, g, node);
+      applyNodeEffects(root, g, node);
       return g;
     }
 
@@ -1722,7 +1709,7 @@ export async function nodeToSvgElement(
     rememberSceneCornerRadii(g, cornerR);
     tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
     applyMeta(g, left, top, meta, boxW, boxH);
-    applyNodeShadow(root, g, node);
+    applyNodeEffects(root, g, node);
     return g;
   }
 
@@ -1822,7 +1809,7 @@ export async function nodeToSvgElement(
       tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
-      applyNodeShadow(root, g, node);
+      applyNodeEffects(root, g, node);
       rememberSceneCornerRadii(g, cornerR);
       return g;
     }
@@ -1889,7 +1876,7 @@ export async function nodeToSvgElement(
     tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
     if (isGen || isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
     applyMeta(g, left, top, meta, boxW, boxH);
-    applyNodeShadow(root, g, node);
+    applyNodeEffects(root, g, node);
     return g;
   }
 
@@ -1920,7 +1907,7 @@ export async function nodeToSvgElement(
       tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
-      applyNodeShadow(root, g, node);
+      applyNodeEffects(root, g, node);
       return g;
     }
 
@@ -2048,7 +2035,7 @@ export async function nodeToSvgElement(
     rememberSceneCornerRadii(g, cornerR);
     tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
     applyMeta(g, left, top, meta, boxW, boxH);
-    applyNodeShadow(root, g, node);
+    applyNodeEffects(root, g, node);
     return g;
   }
 
@@ -2200,7 +2187,7 @@ export function panInfiniteSvgViewport(
   dTop: number
 ) {
   if (!isInfiniteSvgRoot(root)) return;
-  if (root.getAttribute('data-rcb-world-surface') === '1') return;
+  if (root.getAttribute('data-rcb-shared-scene-surface') === '1') return;
   if (!(dLeft || dTop)) return;
   const intent = readSurfaceIntent(root);
   const parts = (root.getAttribute('viewBox') || '')
@@ -2220,272 +2207,10 @@ export function panInfiniteSvgViewport(
   writeInfiniteViewport(root, snapped, { lock: lock || undefined, intent: nextIntent });
 }
 
-/**
- * Bind host CSS/viewBox to the shared camera world viewport (same box as the
- * pixel grid). Falls back to re-snapping a per-host intent when stage size is
- * not known yet.
- */
-export function snapInfiniteSvgViewportToCamera(
-  root: SVGSVGElement,
-  camera?: RcbCamera | null,
-  dpr?: number
-) {
-  if (!isInfiniteSvgRoot(root)) return;
-  if (camera) setInfiniteSvgPaintCamera(camera, dpr);
-  const world = worldCameraViewport(camera, dpr);
-  if (world) {
-    const intent: ViewportBox = {
-      minX: world.left,
-      minY: world.top,
-      w: world.width,
-      h: world.height,
-    };
-    // Identical box for every host — do not per-origin fractional-shift.
-    writeInfiniteViewport(root, intent, { lock: true, intent });
-    root.setAttribute('data-rcb-world-surface', '1');
-    return;
-  }
-  const parts = (root.getAttribute('viewBox') || '')
-    .trim()
-    .split(/[\s,]+/)
-    .map(Number);
-  if (parts.length < 4 || !parts.every(Number.isFinite)) return;
-  const intent =
-    readSurfaceIntent(root) ||
-    ({ minX: parts[0], minY: parts[1], w: parts[2], h: parts[3] } as ViewportBox);
-  const next = snapSurfaceBox(intent, camera, dpr);
-  if (
-    next.minX === parts[0] &&
-    next.minY === parts[1] &&
-    next.w === parts[2] &&
-    next.h === parts[3]
-  ) {
-    return;
-  }
-  const lock = root.getAttribute('data-rcb-viewport-locked') === '1';
-  writeInfiniteViewport(root, next, { lock: lock || undefined, intent });
-}
-
-/** Pass-through scene CSS box sizes for React/DOM. Prefer applySceneSurface at call sites. */
-export function snapSvgSurfaceBox(
-  box: { left: number; top: number; width: number; height: number },
-  camera?: RcbCamera | null,
-  dpr?: number
-): { left: number; top: number; width: number; height: number } {
-  const next = snapSurfaceBox(
-    { minX: box.left, minY: box.top, w: box.width, h: box.height },
-    camera,
-    dpr
-  );
-  return { left: next.minX, top: next.minY, width: next.w, height: next.h };
-}
-
-/**
- * World-layer surface: CSS left/top/width/height === viewBox in scene units.
- * Use for grid, AABB chrome, guides, draw previews.
- */
-export function applySvgSurfaceBox(
-  root: SVGSVGElement,
-  box: { left: number; top: number; width: number; height: number },
-  camera?: RcbCamera | null,
-  dpr?: number
-): { left: number; top: number; width: number; height: number } {
-  const s = snapSvgSurfaceBox(box, camera, dpr);
-  root.setAttribute('width', String(s.width));
-  root.setAttribute('height', String(s.height));
-  root.setAttribute('viewBox', `${s.left} ${s.top} ${s.width} ${s.height}`);
-  root.setAttribute('overflow', 'visible');
-  root.setAttribute('preserveAspectRatio', 'none');
-  root.setAttribute('data-rcb-infinite', '1');
-  root.style.position = 'absolute';
-  root.style.overflow = 'visible';
-  root.style.display = 'block';
-  root.style.left = `${s.left}px`;
-  root.style.top = `${s.top}px`;
-  root.style.width = `${s.width}px`;
-  root.style.height = `${s.height}px`;
-  return s;
-}
-
-/** Alias — prefer this name at new call sites. */
-export const applySceneSurface = applySvgSurfaceBox;
-
-export type HostSurfaceSnapshot = {
-  viewBox: string;
-  left: string;
-  top: string;
-  width: string;
-  height: string;
-  attrWidth: string | null;
-  attrHeight: string | null;
-};
-
-/** Read a mounted shape-host infinite SVG surface (CSS box + viewBox). */
-export function readHostSurface(hostRoot: SVGSVGElement): HostSurfaceSnapshot | null {
-  const viewBox = hostRoot.getAttribute('viewBox') || '';
-  const left = hostRoot.style?.left || '';
-  const top = hostRoot.style?.top || '';
-  if (!viewBox || !left || !top) return null;
-  return {
-    viewBox,
-    left,
-    top,
-    width: hostRoot.style.width || '',
-    height: hostRoot.style.height || '',
-    attrWidth: hostRoot.getAttribute('width'),
-    attrHeight: hostRoot.getAttribute('height'),
-  };
-}
-
-/**
- * Copy the shape host's CSS box + viewBox onto a chrome twin SVG
- * so path ink and chrome share one lattice under browser zoom.
- */
-export function mirrorHostSurface(target: SVGSVGElement, hostRoot: SVGSVGElement): boolean {
-  const s = readHostSurface(hostRoot);
-  if (!s) return false;
-  target.style.position = 'absolute';
-  target.style.overflow = 'visible';
-  target.style.display = 'block';
-  target.style.left = s.left;
-  target.style.top = s.top;
-  target.style.width = s.width || hostRoot.style.width;
-  target.style.height = s.height || hostRoot.style.height;
-  if (s.attrWidth) target.setAttribute('width', s.attrWidth);
-  if (s.attrHeight) target.setAttribute('height', s.attrHeight);
-  target.setAttribute('viewBox', s.viewBox);
-  target.setAttribute('overflow', 'visible');
-  target.setAttribute('preserveAspectRatio', 'none');
-  target.setAttribute('data-rcb-infinite', '1');
-  return true;
-}
-
-/**
- * Grow an infinite SVG CSS box + viewBox by scene pad without re-snapping.
- * Needed so resize/rotate hits that sit outside the path geom still receive
- * pointer events (overflow:visible paints outside the box but does not hit-test).
- */
-export function expandInfiniteSvgPad(root: SVGSVGElement, pad: number): boolean {
-  const p = Math.max(0, Number(pad) || 0);
-  if (p < 1e-9) return false;
-  const parts = (root.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
-  if (parts.length < 4 || parts.some((n) => !Number.isFinite(n))) return false;
-  const [minX, minY, w, h] = parts;
-  const left = minX - p;
-  const top = minY - p;
-  const width = Math.max(1e-4, w + p * 2);
-  const height = Math.max(1e-4, h + p * 2);
-  root.setAttribute('viewBox', `${left} ${top} ${width} ${height}`);
-  root.setAttribute('width', String(width));
-  root.setAttribute('height', String(height));
-  root.style.left = `${left}px`;
-  root.style.top = `${top}px`;
-  root.style.width = `${width}px`;
-  root.style.height = `${height}px`;
-  return true;
-}
-
-/**
- * Body `<g transform>` matching host ink.
- * `mirrored`: prefer live host `transform` / `__sceneLeft`; else box translate (+ rotate).
- */
-export function hostChromeBodyTransform(
-  el: SVGElement | null | undefined,
-  box: { left: number; top: number; width: number; height: number },
-  angleDeg: number,
-  mirrored: boolean
-): string {
-  if (mirrored) {
-    const hostTransform = el?.getAttribute?.('transform') || '';
-    if (hostTransform) return hostTransform;
-    const hl = Number((el as { __sceneLeft?: number } | null | undefined)?.__sceneLeft);
-    const ht = Number((el as { __sceneTop?: number } | null | undefined)?.__sceneTop);
-    const left = Number.isFinite(hl) ? hl : box.left;
-    const top = Number.isFinite(ht) ? ht : box.top;
-    return `translate(${left} ${top})`;
-  }
-  const w = Math.max(1, box.width);
-  const h = Math.max(1, box.height);
-  const angle = Number(angleDeg) || 0;
-  if (Math.abs(angle) > 0.01) {
-    return `translate(${box.left} ${box.top}) rotate(${angle} ${w / 2} ${h / 2})`;
-  }
-  return `translate(${box.left} ${box.top})`;
-}
-
-/** React props for a scene-surface SVG (CSS box === viewBox). */
-export function sceneSurfaceSvgProps(
-  box: { left: number; top: number; width: number; height: number },
-  camera?: RcbCamera | null,
-  dpr?: number
-): {
-  width: number;
-  height: number;
-  viewBox: string;
-  style: {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-    overflow: 'visible';
-    display: 'block';
-    shapeRendering: 'geometricPrecision';
-  };
-} {
-  const s = snapSvgSurfaceBox(box, camera, dpr);
-  return {
-    width: s.width,
-    height: s.height,
-    viewBox: `${s.left} ${s.top} ${s.width} ${s.height}`,
-    style: {
-      left: s.left,
-      top: s.top,
-      width: s.width,
-      height: s.height,
-      overflow: 'visible',
-      display: 'block',
-      shapeRendering: 'geometricPrecision',
-    },
-  };
-}
-
-/** React props mirroring a host surface, or null when host is incomplete. */
-export function hostMirrorSvgProps(hostRoot: SVGSVGElement): {
-  viewBox: string;
-  width: string | undefined;
-  height: string | undefined;
-  style: {
-    left: string;
-    top: string;
-    width: string;
-    height: string;
-    overflow: 'visible';
-    display: 'block';
-    shapeRendering: 'geometricPrecision';
-  };
-} | null {
-  const s = readHostSurface(hostRoot);
-  if (!s) return null;
-  return {
-    viewBox: s.viewBox,
-    width: s.attrWidth || undefined,
-    height: s.attrHeight || undefined,
-    style: {
-      left: s.left,
-      top: s.top,
-      width: s.width || hostRoot.style.width,
-      height: s.height || hostRoot.style.height,
-      overflow: 'visible',
-      display: 'block',
-      shapeRendering: 'geometricPrecision',
-    },
-  };
-}
-
 export function fitInfiniteSvgToContent(root: SVGSVGElement, layer?: SVGElement | null) {
   if (!isInfiniteSvgRoot(root)) return;
   // Shared world surface — never shrink to content bbox (would desync from grid).
-  if (root.getAttribute('data-rcb-world-surface') === '1') return;
+  if (root.getAttribute('data-rcb-shared-scene-surface') === '1') return;
   // Locked after seedInfiniteSvgViewport — preserve half-pixel origins for
   // odd center strokes (visual outer on integer grid). getBBox often reports
   // 269.5 as ~270 and used to rewrite CSS left, which browser zoom amplifies.
@@ -2654,6 +2379,8 @@ export function clearSceneDragPreview(nodeEls: Map<string, SVGElement>, nodeId: 
   const bag = asHost(el);
   delete bag.__sceneDragBaseW;
   delete bag.__sceneDragBaseH;
+  delete bag.__sceneDragBasePath;
+  delete bag.__sceneDragBasePathRaw;
   delete bag.__sceneDragBaseFontSize;
   delete bag.__sceneDragBaseLetterSpacing;
   delete bag.__sceneDidResize;
@@ -2852,7 +2579,15 @@ export function previewSvgNodeAngle(
   anyEl.__sceneAngle = angleDeg;
   const baseW = Number(anyEl.__sceneDragBaseW);
   const baseH = Number(anyEl.__sceneDragBaseH);
-  if (anyEl.__sceneDidResize && baseW > 0 && baseH > 0) {
+  const shapeType = String(
+    anyEl.sceneShapeType || el.getAttribute('data-scene-shape-type') || ''
+  );
+  // Path live-resize already baked sx/sy into `d` — do not CSS-scale again (stroke thickens).
+  const pathDScaled =
+    isCustomPathShape(shapeType) &&
+    el.tagName.toLowerCase() === 'path' &&
+    Boolean(anyEl.__sceneDragBasePath);
+  if (anyEl.__sceneDidResize && baseW > 0 && baseH > 0 && !pathDScaled) {
     reapplySceneTransformScaled(
       el,
       geom.left,
@@ -3093,9 +2828,9 @@ export function previewSvgNodeGeometry(
       return previewResizeText(el, box, options);
     }
 
-    // Custom path (boolean / pen): live resize is CSS scale from gesture base.
-    // Keep that scale for the whole gesture — including when clamped at min size
-    // (sameSize). Dropping it calls plain translate and the path flashes at 1:1.
+    // Custom path (boolean / pen): scale path `d` like commit (`scalePathData`).
+    // CSS scale(sx,sy) also scales stroke → anisotropic edge thickness while dragging.
+    // Stamp pencil hosts are <g> — keep CSS scale for those bitmaps.
     if (isCustomPathShape(shapeType) && (!sameSize || anyEl.__sceneDidResize)) {
       if (!anyEl.__sceneDragBaseW) {
         anyEl.__sceneDragBaseW = geom.width;
@@ -3111,6 +2846,32 @@ export function previewSvgNodeGeometry(
         height: box.height,
         abs: false,
       });
+
+      if (el.tagName.toLowerCase() === 'path') {
+        if (!anyEl.__sceneDragBasePath) {
+          anyEl.__sceneDragBasePath = el.getAttribute('d') || '';
+          anyEl.__sceneDragBasePathRaw =
+            String(anyEl.__sceneBasePath || '') ||
+            el.getAttribute('data-scene-base-path') ||
+            anyEl.__sceneDragBasePath;
+        }
+        const baseD = String(anyEl.__sceneDragBasePath || '');
+        if (baseD) {
+          const sx = box.width / bw;
+          const sy = box.height / bh;
+          const nextD = scalePathData(baseD, sx, sy);
+          setPathD(el, nextD);
+          const rawBase = String(anyEl.__sceneDragBasePathRaw || '');
+          if (rawBase) {
+            const nextRaw = scalePathData(rawBase, sx, sy);
+            anyEl.__sceneBasePath = nextRaw;
+            el.setAttribute('data-scene-base-path', nextRaw);
+          }
+          reapplySceneTransform(el, box.left, box.top, box.width, box.height);
+          return true;
+        }
+      }
+
       reapplySceneTransformScaled(
         el,
         box.left,

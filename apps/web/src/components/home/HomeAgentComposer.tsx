@@ -27,7 +27,7 @@ import AgentComposerShell, {
   type ComposerInteractionMode,
   type ImageModeComposerControls,
   type VideoModeComposerControls,
-} from '@/components/editor/panels/agent/AgentComposerShell';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import {
   chipBaseKey,
   parseAtMentionQuery,
@@ -37,25 +37,25 @@ import {
 } from '@/components/editor/panels/AgentComposerInput';
 import MentionAttachPanel, {
   type MentionAttachItem,
-} from '@/components/editor/panels/agent/MentionAttachPanel';
+} from '@/components/editor/panels/agent/composer/MentionAttachPanel';
 import {
   DEFAULT_IMAGE_ASPECT_RATIO,
   DEFAULT_IMAGE_COUNT,
   DEFAULT_IMAGE_RESOLUTION,
   modelImageLimits,
-} from '@/components/editor/panels/agent/ImageAspectRatioPicker';
+} from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   ModelBrandIcon,
   modelTabOf,
   type ModelPickerTab,
-} from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import {
   loadAgentRoutePrefs,
   loadDesignIntensity,
   warmOpenrouterAvailability,
   routeOverridesForApi,
 } from '@/components/editor/panels/agent/agentRoutePrefs';
-import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/AgentRoutePrefsEditor';
+import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/models/AgentRoutePrefsEditor';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import { cn } from '@/utils/classnames';
 import { useWalletSnapshot } from '@/service/wallet';

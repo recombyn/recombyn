@@ -16,7 +16,7 @@ import {
 function svgRoot(attrs: Record<string, string> = {}) {
   const root = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   root.setAttribute('data-rcb-infinite', '1');
-  root.setAttribute('data-rcb-world-surface', '1');
+  root.setAttribute('data-rcb-shared-scene-surface', '1');
   for (const [k, v] of Object.entries(attrs)) root.setAttribute(k, v);
   const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   root.appendChild(layer);

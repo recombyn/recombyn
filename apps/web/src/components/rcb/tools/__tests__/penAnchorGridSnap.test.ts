@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { snapPenAnchorPoint } from '../PenDrawFeature';
-import { snapCoordToGrid } from '../../selection/alignGuides';
+import { snapPenAnchorPoint, snapPenPointToArtboardEdge } from '../PenDrawFeature';
 import { penAnchorsToD, boundsOfAnchors, type PenAnchor } from '../penPath';
 
 /**
@@ -18,68 +17,50 @@ function simulatePenClicks(
   });
 }
 
-/** Corner or edge-mid on the 1px lattice (not free floats / not cell centers). */
-function assertOnPenGridLattice(anchors: PenAnchor[], gridSize: number) {
+function assertOnPenGridPerimeter(anchors: PenAnchor[], gridSize: number) {
   const g = gridSize;
-  const half = g / 2;
   for (const a of anchors) {
-    const onX =
-      Math.abs(a.x - snapCoordToGrid(a.x, g)) < 1e-9 ||
-      Math.abs(a.x - (Math.floor(a.x / g) * g + half)) < 1e-9;
-    const onY =
-      Math.abs(a.y - snapCoordToGrid(a.y, g)) < 1e-9 ||
-      Math.abs(a.y - (Math.floor(a.y / g) * g + half)) < 1e-9;
-    const corner =
-      Math.abs(a.x - snapCoordToGrid(a.x, g)) < 1e-9 &&
-      Math.abs(a.y - snapCoordToGrid(a.y, g)) < 1e-9;
-    const edgeMid =
-      (Math.abs(a.x - snapCoordToGrid(a.x, g)) < 1e-9 &&
-        Math.abs(a.y - (Math.floor(a.y / g) * g + half)) < 1e-9) ||
-      (Math.abs(a.y - snapCoordToGrid(a.y, g)) < 1e-9 &&
-        Math.abs(a.x - (Math.floor(a.x / g) * g + half)) < 1e-9);
-    expect(onX && onY).toBe(true);
-    expect(corner || edgeMid).toBe(true);
-    // Cell center is not a snap target.
-    expect(
-      Math.abs(a.x - (Math.floor(a.x / g) * g + half)) < 1e-9 &&
-        Math.abs(a.y - (Math.floor(a.y / g) * g + half)) < 1e-9
-    ).toBe(false);
+    const x2 = Math.round((a.x / g) * 2);
+    const y2 = Math.round((a.y / g) * 2);
+    expect(a.x / g).toBeCloseTo(x2 / 2, 9);
+    expect(a.y / g).toBeCloseTo(y2 / 2, 9);
+    expect(x2 % 2 === 0 || y2 % 2 === 0).toBe(true);
   }
 }
 
-describe('snapPenAnchorPoint (corners + edge mids)', () => {
-  it('snaps to nearest grid cell corner when closer than edge mid', () => {
+describe('snapPenAnchorPoint (four corners + four edge midpoints)', () => {
+  it('snaps to the nearest perimeter target', () => {
+    const raw = { x: 10.3, y: 20.7 };
+    const place = snapPenAnchorPoint(raw.x, raw.y, 1, false);
+    expect(place).toEqual({ x: 10.5, y: 21 });
+  });
+
+  it('snaps to nearest grid cell corner', () => {
     const p = snapPenAnchorPoint(10.15, 20.85, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-snap:corner]', p);
     expect(p).toEqual({ x: 10, y: 21 });
   });
 
-  it('snaps to vertical edge midpoint (网格边缘线中间)', () => {
-    // Near mid of vertical line x=14 between y=11 and y=12.
-    const raw = { x: 14.12, y: 11.48 };
-    const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-snap:v-edge-mid]', { raw, tip });
+  it('snaps to a vertical edge midpoint', () => {
+    const tip = snapPenAnchorPoint(14.12, 11.48, 1, false);
     expect(tip).toEqual({ x: 14, y: 11.5 });
   });
 
-  it('snaps to horizontal edge midpoint', () => {
-    const raw = { x: 20.47, y: 30.08 };
-    const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-snap:h-edge-mid]', { raw, tip });
-    expect(tip).toEqual({ x: 20.5, y: 30 });
+  it('cell center uses a stable edge midpoint and never remains at center', () => {
+    const p = snapPenAnchorPoint(3.5, 7.5, 1, false);
+    expect(p).toEqual({ x: 3.5, y: 7 });
   });
 
-  it('cell center prefers nearest edge mid (not stay at ½,½)', () => {
-    const p = snapPenAnchorPoint(3.5, 7.5, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-snap:cell-center]', p);
-    // Four edge mids tie at dist 0.5 — stable pick prefers lower x then y among ties,
-    // after corner preference (corners farther). Expect an edge mid.
-    expect(p.x === 3.5 || p.y === 7.5).toBe(true);
-    expect(p.x === 3.5 && p.y === 7.5).toBe(false);
+  it.each([
+    [{ x: 10.08, y: 20.08 }, { x: 10, y: 20 }],
+    [{ x: 10.5, y: 20.08 }, { x: 10.5, y: 20 }],
+    [{ x: 10.92, y: 20.08 }, { x: 11, y: 20 }],
+    [{ x: 10.92, y: 20.5 }, { x: 11, y: 20.5 }],
+    [{ x: 10.92, y: 20.92 }, { x: 11, y: 21 }],
+    [{ x: 10.5, y: 20.92 }, { x: 10.5, y: 21 }],
+    [{ x: 10.08, y: 20.92 }, { x: 10, y: 21 }],
+    [{ x: 10.08, y: 20.5 }, { x: 10, y: 20.5 }],
+  ])('makes every perimeter target reachable: %o -> %o', (raw, expected) => {
+    expect(snapPenAnchorPoint(raw.x, raw.y, 1, false)).toEqual(expected);
   });
 
   it('Ctrl / skip leaves the raw point (free place)', () => {
@@ -94,8 +75,25 @@ describe('snapPenAnchorPoint (corners + edge mids)', () => {
   });
 });
 
+describe('snapPenPointToArtboardEdge', () => {
+  it('keeps a near top edge on the exact artboard border', () => {
+    expect(
+      snapPenPointToArtboardEdge({ x: 42, y: 7 }, { width: 400, height: 300 }, 1)
+    ).toEqual({ x: 42, y: 0 });
+  });
+
+  it('snaps the right and bottom edges without moving interior points', () => {
+    expect(
+      snapPenPointToArtboardEdge({ x: 394, y: 296 }, { width: 400, height: 300 }, 1)
+    ).toEqual({ x: 400, y: 300 });
+    expect(
+      snapPenPointToArtboardEdge({ x: 30, y: 30 }, { width: 400, height: 300 }, 1)
+    ).toEqual({ x: 30, y: 30 });
+  });
+});
+
 describe('pen draw full flow (click → snap → path)', () => {
-  it('user clicks → all anchors land on corner or edge-mid lattice', () => {
+  it('user clicks → all anchors land on cell perimeter targets', () => {
     const rawClicks = [
       { x: 12.3, y: 8.7 },
       { x: 40.1, y: 9.4 },
@@ -104,19 +102,12 @@ describe('pen draw full flow (click → snap → path)', () => {
       { x: 10.2, y: 45.8 },
     ];
     const anchors = simulatePenClicks(rawClicks, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-flow:clicks]', {
-      raw: rawClicks,
-      snapped: anchors,
-    });
     expect(anchors).toHaveLength(5);
-    assertOnPenGridLattice(anchors, 1);
+    assertOnPenGridPerimeter(anchors, 1);
   });
 
-  it('rubber-band tip follows snapped cursor (edge mid when nearer)', () => {
+  it('rubber-band tip follows the same snapped edge midpoint', () => {
     const tip = snapPenAnchorPoint(22.37, 18.61, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-flow:cursor]', tip);
     expect(tip).toEqual({ x: 22, y: 18.5 });
   });
 
@@ -131,12 +122,11 @@ describe('pen draw full flow (click → snap → path)', () => {
       1,
       false
     );
-    assertOnPenGridLattice(anchors, 1);
+    assertOnPenGridPerimeter(anchors, 1);
     const bounds = boundsOfAnchors(anchors, true);
     const d = penAnchorsToD(anchors, true);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-flow:commit]', { anchors, bounds, d });
     expect(d.length).toBeGreaterThan(0);
+    expect(bounds.width).toBeGreaterThan(0);
   });
 
   it('edit-drag: start off-grid legacy + move → ends on lattice', () => {
@@ -145,18 +135,7 @@ describe('pen draw full flow (click → snap → path)', () => {
     const dx = pointer.x - 14.3;
     const dy = pointer.y - 11.7;
     const next = snapPenAnchorPoint(start.x + dx, start.y + dy, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-flow:edit-drag]', { start, pointer, next });
-    assertOnPenGridLattice([next], 1);
-  });
-
-  it('screenshot: hover near vertical edge mid snaps there (not forced to corner)', () => {
-    // User arrow: mid of vertical grid line should get a snap tip.
-    const raw = { x: 14.08, y: 11.52 };
-    const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-flow:edge-mid-tip]', { raw, tip });
-    expect(tip).toEqual({ x: 14, y: 11.5 });
+    assertOnPenGridPerimeter([next], 1);
   });
 
   it('final place never stores free mid-cell floats off the lattice', () => {
@@ -165,8 +144,6 @@ describe('pen draw full flow (click → snap → path)', () => {
       { x: 31.2, y: 35.6 },
     ];
     const placed = simulatePenClicks(raw, 1, false);
-    // eslint-disable-next-line no-console
-    console.log('[test:pen-flow:final-land]', { raw, placed });
-    assertOnPenGridLattice(placed, 1);
+    assertOnPenGridPerimeter(placed, 1);
   });
 });

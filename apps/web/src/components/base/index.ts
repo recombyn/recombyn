@@ -21,7 +21,13 @@ export { default as Slider } from './slider';
 export { ColorPanel, ColorPanelPopover } from './colorPanel';
 export { default as Popover } from './popover';
 export { default as Switch } from './switch';
-export { default as ProgressBar } from './progress';
+export {
+  default as ProgressBar,
+  advanceBootProgress,
+  readBootProgress,
+  resetBootProgress,
+} from './progress';
+
 export { Checkbox, CheckboxGroup } from './checkbox';
 export { default as Dialog } from './dialog';
 export { Icon } from './icon';
@@ -36,3 +42,5 @@ export {
   SOFT_GLOW_LIST_TONES,
 } from './SoftGlowSurface';
 export type { SoftGlowListTone, SoftGlowTone } from './SoftGlowSurface';
+export { default as LoadingDots } from './LoadingDots';
+export type { LoadingDotsSize } from './LoadingDots';

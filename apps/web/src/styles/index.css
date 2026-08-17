@@ -577,51 +577,52 @@ html[data-theme='dark'] .rcb-skeleton-card .rcb-skeleton-bone {
   background-color: #2a2d36;
 }
 
-@keyframes rcb-boot-word-shine {
-  0% {
-    background-position: 120% 50%;
-  }
+@keyframes rcb-loading-dot {
+  0%,
+  80%,
   100% {
-    background-position: -40% 50%;
+    opacity: 0.28;
+    transform: translateY(0) scale(0.88);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1);
   }
 }
 
-.rcb-boot-wordmark {
-  font-family: Syne, var(--font-sans);
-  font-weight: 700;
-  font-size: clamp(2.25rem, 5.6vw, 3.5rem);
-  letter-spacing: -0.05em;
-  line-height: 1;
-  user-select: none;
-  background-image: linear-gradient(
-    105deg,
-    color-mix(in srgb, var(--ink) 26%, var(--canvas)) 0%,
-    color-mix(in srgb, var(--ink) 26%, var(--canvas)) 40%,
-    var(--ink) 47%,
-    color-mix(in srgb, var(--ink) 42%, #fff) 50%,
-    var(--ink) 53%,
-    color-mix(in srgb, var(--ink) 26%, var(--canvas)) 60%,
-    color-mix(in srgb, var(--ink) 26%, var(--canvas)) 100%
-  );
-  background-size: 240% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: rcb-boot-word-shine 1.85s ease-in-out infinite;
+.rcb-loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
-.rcb-boot-wordmark--sm {
-  font-size: 0.95rem;
-  letter-spacing: -0.04em;
+.rcb-loading-dots > span {
+  display: block;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background-color: color-mix(in srgb, var(--ink) 42%, transparent);
+  animation: rcb-loading-dot 1.05s ease-in-out infinite;
+}
+
+.rcb-loading-dots > span:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.rcb-loading-dots > span:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+.rcb-loading-dots--lg > span {
+  width: 0.5rem;
+  height: 0.5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rcb-boot-wordmark {
+  .rcb-loading-dots > span {
     animation: none;
-    color: var(--ink);
-    -webkit-text-fill-color: var(--ink);
-    background: none;
+    opacity: 0.55;
+    transform: none;
   }
 }
 
@@ -681,4 +682,13 @@ html[data-theme='dark'] *:hover::-webkit-scrollbar-thumb:hover {
 .rcb-table-scroll-body::-webkit-scrollbar-track {
   margin-block: 6px;
   margin-inline: 2px;
+}
+
+/* Image expand canvas: neutral translucent margins in both editor themes. */
+.rcb-crop-expand-margin {
+  background: rgba(100, 116, 139, 0.28);
+}
+
+html[data-theme='dark'] .rcb-crop-expand-margin {
+  background: rgba(203, 213, 225, 0.14);
 }

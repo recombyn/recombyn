@@ -29,9 +29,9 @@ describe('sceneHitSlop (high-zoom blank click)', () => {
 });
 
 describe('move snap at high zoom threshold', () => {
-  it('with grid on, origin snap alone keeps box on lattice (smart must not own position)', () => {
-    // At tiny zoom the smart threshold is huge; production move ignores smart
-    // translation when gridSize>0 and only snapBoxToGrid(visual).
+  it('with grid on, visual-outer snap alone keeps ink on lattice (smart must not own position)', () => {
+    // At tiny zoom the smart threshold is huge; production move ignores object
+    // magnets and only snapBoxToGrid(visual outer).
     const moving = { left: 10.2, top: 10.4, width: 17, height: 15 };
     const next = snapBoxToGrid(moving, 1);
     expect(next.left).toBe(snapCoordToGrid(next.left, 1));

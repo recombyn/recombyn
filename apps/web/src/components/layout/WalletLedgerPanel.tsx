@@ -23,7 +23,7 @@ import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 import ProgressBar from '@/components/base/progress';
 import { SegmentedControl } from '@/components/base';
-import { BrandWordmarkLoader } from '@/components/base/AppLogo';
+import LoadingDots from '@/components/base/LoadingDots';
 
 type Filter = WalletLedgerKindFilter;
 
@@ -406,7 +406,7 @@ function WalletLedgerPanel({
                 {loading ? (
                   <tr>
                     <td colSpan={5} className="px-5 py-12">
-                      <BrandWordmarkLoader label={t('common.loading')} />
+                      <LoadingDots label={t('common.loading')} />
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (

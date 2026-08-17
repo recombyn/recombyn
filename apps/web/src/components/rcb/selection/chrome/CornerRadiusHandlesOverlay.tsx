@@ -1,20 +1,13 @@
 import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
  * Shape handles — corner radius.
- * Pointer engine stays in SelectionFeature; this paints world-SVG knobs only.
- *
- * Paint shell mirrors the shape-host SVG (same as HostPathChrome sel knobs) so
- * zoom / fractional DPR cannot desync dots from the blue control box.
+ * Pointer engine stays in SelectionFeature; this paints screen-overlay knobs
+ * via WorldSvgFrame (ADR 0027 — no host viewBox mirror).
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import {
-  hostChromeBodyTransform,
-  hostMirrorSvgProps,
-  previewSvgNodeCornerRadii,
-  sceneSurfaceSvgProps,
-} from '@/components/rcb/scene/paint/sceneToSvg';
+import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
 import {
   clampCornerRadii,
@@ -31,124 +24,92 @@ import {
   type CornerRadii,
   type SharpCornerSite,
 } from '@/components/rcb/scene/document/sceneRadii';
+import { isOutlinedPath } from '@/components/rcb/scene/document/nodeCapabilities';
+import { strokeInnerClearanceScene, strokeOuterClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 import { patchDocumentNode } from '@/store/modules/editor';
 import {
   getShapeHost,
   getSharedNodeEls,
   notifyShapeHostGeometry,
-  subscribeShapeHosts,
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import type { SceneBox } from '../alignGuides';
 import {
-  CHROME_HANDLE_VIS_PX,
   CHROME_RADIUS_HIT_PX,
+  CHROME_RADIUS_VIS_PX,
   CHROME_STROKE_PX,
+  chromeHandleHitRadiusScene,
   chromeHitScaleForBox,
+  pickChromeHandleAtClient,
   radiusHandleParkScreenPx,
-  radiusHandlesFitOnScreen,
   radiusParkSceneForBox,
+  setOverlayHandleSeats,
   WorldScreenBadge,
+  WorldSvgFrame,
 } from '../SelectionChrome';
+import { liveShapeGeomBox } from '../HostPathChrome';
+import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 
 /** Soft-click threshold (screen px²) — match SelectionFeature. */
 const DRAG_DISTANCE_SQUARED = 16;
 
-/** Ideal park when the box is large enough on screen (icon-centered hits). */
-const RADIUS_PARK_PX = radiusHandleParkScreenPx();
+/**
+ * Path seats that sit on the control-box corners (outer ring of a stroke
+ * outline / frame) collide with resize — keep only seats that clear the corner.
+ * Also drop seats glued to the AABB edges (look like knobs stuck on the blue box
+ * while the rounded path has pulled away).
+ */
+function pathSeatClearsControlCorners(
+  lx: number,
+  ly: number,
+  boxW: number,
+  boxH: number,
+  clearScene: number
+): boolean {
+  const clear = Math.max(0, clearScene);
+  const corners: Array<[number, number]> = [
+    [0, 0],
+    [boxW, 0],
+    [boxW, boxH],
+    [0, boxH],
+  ];
+  for (const [cx, cy] of corners) {
+    if (Math.hypot(lx - cx, ly - cy) < clear) return false;
+  }
+  if (lx < clear || ly < clear || lx > boxW - clear || ly > boxH - clear) {
+    return false;
+  }
+  return true;
+}
 
-function liveNodeEl(nodeId: string): Element | null {
-  return (
-    (getSharedNodeEls()?.get(nodeId) as Element | undefined) ||
-    (getShapeHost(nodeId)?.el as Element | null | undefined) ||
-    null
+function resizeHandleUnderClient(
+  clientX: number,
+  clientY: number,
+  opts: {
+    box: SceneBox;
+    angle: number;
+    zoom: number;
+    toScene: (clientX: number, clientY: number) => { x: number; y: number };
+    strokeOuterScene?: number;
+  }
+): boolean {
+  return Boolean(
+    pickChromeHandleAtClient(clientX, clientY, null, {
+      showHandles: true,
+      showRotate: true,
+      box: opts.box,
+      angle: opts.angle,
+      zoom: opts.zoom,
+      strokeOuterScene: opts.strokeOuterScene,
+      clientToScene: opts.toScene,
+    })
   );
 }
 
-/**
- * Twin the shape-host SVG viewport.
- * Local children: host-local box; sceneChildren: absolute scene (badges).
- */
-function HostMirroredKnobSvg({
-  nodeId,
-  box,
-  angle,
-  localChildren,
-  sceneChildren,
-}: {
-  nodeId: string;
-  box: SceneBox;
-  angle: number;
-  localChildren: ReactNode;
-  sceneChildren?: ReactNode;
-}) {
-  const camera = useRcbCamera();
-  const [hostEpoch, setHostEpoch] = useState(0);
-  useEffect(() => subscribeShapeHosts(() => setHostEpoch((n) => n + 1)), []);
-
-  const host = getShapeHost(nodeId);
-  const hostRoot = host?.root as SVGSVGElement | null | undefined;
-  const el = (host?.el || getSharedNodeEls()?.get(nodeId)) as SVGElement | null | undefined;
-  const w = Math.max(1, box.width);
-  const h = Math.max(1, box.height);
-  const pad = 32;
-  void hostEpoch;
-
-  const mirror = hostRoot ? hostMirrorSvgProps(hostRoot) : null;
-  const mirrored = Boolean(mirror);
-  const bodyTransform = hostChromeBodyTransform(el, box, angle, mirrored);
-
-  if (mirror) {
-    return (
-      <svg
-        data-rcb-infinite="1"
-        className="absolute z-[16] overflow-visible"
-        preserveAspectRatio="none"
-        viewBox={mirror.viewBox}
-        width={mirror.width}
-        height={mirror.height}
-        style={{
-          ...mirror.style,
-          pointerEvents: 'none',
-        }}
-        aria-hidden
-      >
-        <g transform={bodyTransform} style={{ pointerEvents: 'none' }}>
-          {localChildren}
-        </g>
-        {sceneChildren}
-      </svg>
-    );
-  }
-
-  const surf = sceneSurfaceSvgProps(
-    {
-      left: box.left - pad,
-      top: box.top - pad,
-      width: w + pad * 2,
-      height: h + pad * 2,
-    },
-    camera
-  );
-
+function liveNodeEl(nodeId: string): Element | null {
   return (
-    <svg
-      data-rcb-infinite="1"
-      className="absolute z-[16] overflow-visible"
-      preserveAspectRatio="none"
-      width={surf.width}
-      height={surf.height}
-      viewBox={surf.viewBox}
-      style={{
-        ...surf.style,
-        pointerEvents: 'none',
-      }}
-      aria-hidden
-    >
-      <g transform={bodyTransform} style={{ pointerEvents: 'none' }}>
-        {localChildren}
-      </g>
-      {sceneChildren}
-    </svg>
+    (getShapeHost(nodeId)?.el as Element | null | undefined) ||
+    (getSharedNodeEls()?.get(nodeId) as Element | undefined) ||
+    null
   );
 }
 
@@ -279,14 +240,36 @@ function previewRadiiOnHost(opts: {
 }
 
 /**
- * Seat inset from the corner: tracks R. When R is below the park distance,
- * keep a screen-constant inset so the radius hit clears the resize hit under any zoom.
+ * Seat travel from the corner toward center: tracks R on both axes.
+ * When R is below the park distance, keep a screen-constant inset so the
+ * radius hit clears the corner resize hit under any zoom.
  * Park is clamped on tiny boxes so the seat cannot cross the center.
  */
 export function radiusSeatInset(r: number, halfSide: number, parkScene: number): number {
   const park = Math.min(Math.max(0, parkScene), Math.max(0, halfSide * 0.45));
   const capped = Math.max(0, Math.min(Number(r) || 0, Math.max(0, halfSide - park)));
   return Math.max(park, capped);
+}
+
+/**
+ * Box-mode local seat: slide along the inward diagonal `(inset, inset)` from
+ * the corner — same path the drag projects onto ({@link radiusAlongBoxCorner}).
+ * At R≈0 this is `(park,park)` and still clears resize; as R grows every corner
+ * moves toward the box center (not along one AABB edge).
+ */
+export function boxRadiusSeatLocal(
+  corner: { cx: 0 | 1; cy: 0 | 1 },
+  r: number,
+  boxW: number,
+  boxH: number,
+  parkScene: number
+): { lx: number; ly: number } {
+  const halfSide = Math.min(Math.max(1, boxW), Math.max(1, boxH)) / 2;
+  const inset = radiusSeatInset(r, halfSide, parkScene);
+  return {
+    lx: corner.cx === 0 ? inset : boxW - inset,
+    ly: corner.cy === 0 ? inset : boxH - inset,
+  };
 }
 
 /**
@@ -460,7 +443,26 @@ function isPathRadiusShape(node: SceneNodeInput, shapeType: string): boolean {
 function shouldSkipRadiusHandles(node: SceneNodeInput, shapeType: string): boolean {
   if (node?.key === 'ellipse') return true;
   if (shapeType === 'circle' || shapeType === 'ellipse') return true;
-  // Outlined text (many M rings): R-dots only after entering path-edit.
+  // 轮廓化结果：一律不显示圆角控制点（含钢笔 / 线 / 箭头 / 文字等）.
+  if (isOutlinedPath(node)) return true;
+  // Legacy stroke-bake without `outlined` flag.
+  const strokeOff =
+    node?.attrs?.['stroke-enabled'] === false || node?.attrs?.['stroke-enabled'] === 'false';
+  const bw = Number(
+    node?.attrs?.['border-width'] ??
+      node?.attrs?.borderWidth ??
+      node?.attrs?.strokeWidth ??
+      0
+  );
+  if (
+    strokeOff &&
+    Number.isFinite(bw) &&
+    bw > 0 &&
+    (shapeType === 'path' || node?.key === 'path')
+  ) {
+    return true;
+  }
+  // Outlined text (many M rings) without the flag (legacy): still skip.
   const d = String(node?.attrs?.path || node?.attrs?.d || '').trim();
   if (!d) return false;
   const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
@@ -485,7 +487,7 @@ function CornerRadiusHandlesOverlay({
   nodeId: string;
   node: SceneNodeInput;
   toScene: (clientX: number, clientY: number) => { x: number; y: number };
-  /** Kept for call-site parity with other shape overlays (unused — seats always show). */
+  /** Kept for SelectionFeature call-site parity; picks live in SelectionFeature. */
   stageEl: HTMLElement | null;
   /** False while moving/resizing so dots follow chrome without stealing pointers. */
   interactive?: boolean;
@@ -493,29 +495,46 @@ function CornerRadiusHandlesOverlay({
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const camera = useRcbCamera();
-  const z = Math.max(0.05, camera.zoom || 1);
+  const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
   const dragRef = useRef<RadiusHandleDrag | null>(null);
   const dragSessionEndRef = useRef<(() => void) | null>(null);
+  const seatOwnerId = `radius:${nodeId}`;
+  const chromeDeferRef = useRef({
+    box,
+    angle,
+    zoom: z,
+    toScene,
+    strokeOuterScene: strokeOuterClearanceScene(node),
+  });
+  // seatBox assigned below — refreshed after live geom read.
 
-  // Hooks must stay above any early return (outline rect→path can flip isPathType/usePath).
   useEffect(
     () => () => {
       dragSessionEndRef.current?.();
       dragSessionEndRef.current = null;
+      setOverlayHandleSeats(seatOwnerId, null);
     },
-    []
+    [seatOwnerId]
   );
 
-  // Path / pen with curves (C/Q/A): parseClosedPathRings returns [] → pathSites null.
-  // Those shapes have no sharp corners to fillet, so skip AABB fallback handles entirely.
   const shapeType = radiusShapeType(node);
   const isPathType = isPathRadiusShape(node, shapeType);
   const skipRadiusHandles = shouldSkipRadiusHandles(node, shapeType);
 
-  const w = Math.max(1, box.width);
-  const h = Math.max(1, box.height);
+  // Prefer live host geom so park inset shares the same lattice as resize knobs
+  // (Redux box drifts after high-zoom sticky re-align → R-dot lands on the corner).
+  const seatBox = liveShapeGeomBox(nodeId) || box;
+  chromeDeferRef.current = {
+    box: seatBox,
+    angle,
+    zoom: z,
+    toScene,
+    strokeOuterScene: strokeOuterClearanceScene(node),
+  };
+  const w = Math.max(1, seatBox.width);
+  const h = Math.max(1, seatBox.height);
   const boxMaxR = Math.min(w, h) / 2;
   const baseRadii = clampCornerRadii(radiiFromAttrs(node?.attrs), w, h);
   const linked = isRadiusLinked(node?.attrs);
@@ -524,41 +543,28 @@ function CornerRadiusHandlesOverlay({
   // Path/pen with no parseable sharp corners (curves only) → no handles at all.
   // Without this guard the code falls back to AABB box-mode handles that float
   // in the empty space outside the actual shape (e.g. crescent, arc shapes).
-  if (isPathType && !usePath) return null;
+  const hidePathWithoutSites = isPathType && !usePath;
   const pathVertexCount = usePath ? pathSites!.length : 0;
   const pathVertices = usePath
     ? resolvePathVertexRadii(node?.attrs, pathVertexCount, baseRadii)
     : [];
 
-  // Seat = max(R, park) in control-box local space — TL at (inset,inset), etc.
-  // Park is screen-constant scene units (see radiusParkSceneForBox); resize /
-  // rotate knobs use the same box corners in HostPathChrome.
   const hitScale = chromeHitScaleForBox(w, h, z);
-  const hitPx = CHROME_RADIUS_HIT_PX * hitScale;
   const k = 1 / z;
-  const parkScene = radiusParkSceneForBox(w, h, z, RADIUS_PARK_PX);
-  const radiusInteractive =
-    !skipRadiusHandles &&
-    interactive &&
-    radiusHandlesFitOnScreen(w, h, z, RADIUS_PARK_PX);
+  const parkPx = radiusHandleParkScreenPx();
+  const strokeInner = strokeInnerClearanceScene(node);
+  const parkScene = radiusParkSceneForBox(w, h, z, parkPx, strokeInner);
+  const radiusInteractive = !skipRadiusHandles && interactive;
   // `box` prop is path geom (caller deflates visual chrome). Host-mirrored
   // local space is also geom — path sites need no chrome pad.
-  const halfSide = Math.min(w, h) / 2;
 
-  const radiusHandleInset = (r: number) => radiusSeatInset(r, halfSide, parkScene);
-
-  /** Control-box local: corner (cx,cy) → seat at axis inset from that corner. */
-  const boxHandleLocalPos = (corner: (typeof RADIUS_CORNERS)[number], r: number) => {
-    const inset = radiusHandleInset(r);
-    return {
-      lx: corner.cx === 0 ? inset : w - inset,
-      ly: corner.cy === 0 ? inset : h - inset,
-    };
-  };
+  /** Control-box local: corner → seat on the inward diagonal. */
+  const boxHandleLocalPos = (corner: (typeof RADIUS_CORNERS)[number], r: number) =>
+    boxRadiusSeatLocal(corner, r, w, h, parkScene);
 
   const boxHandleScenePos = (corner: (typeof RADIUS_CORNERS)[number], r: number) => {
     const { lx, ly } = boxHandleLocalPos(corner, r);
-    return localPointToScene(lx, ly, box, angle);
+    return localPointToScene(lx, ly, seatBox, angle);
   };
 
   const pathHandleLocalPos = (site: SharpCornerSite, r: number) => {
@@ -571,7 +577,7 @@ function CornerRadiusHandlesOverlay({
 
   const pathHandleScenePos = (site: SharpCornerSite, r: number) => {
     const { lx, ly } = pathHandleLocalPos(site, r);
-    return localPointToScene(lx, ly, box, angle);
+    return localPointToScene(lx, ly, seatBox, angle);
   };
 
   const endDragSession = () => {
@@ -666,7 +672,7 @@ function CornerRadiusHandlesOverlay({
       if (!d.moved && distSq <= DRAG_DISTANCE_SQUARED) return;
       d.moved = true;
       const sc = toScene(e.clientX, e.clientY);
-      const local = scenePointToLocal(sc.x, sc.y, box, angle);
+      const local = scenePointToLocal(sc.x, sc.y, seatBox, angle);
       if (d.mode === 'path') {
         applyPathDragLocal(d, local, { preview: true });
         return;
@@ -688,7 +694,7 @@ function CornerRadiusHandlesOverlay({
         return;
       }
       const sc = toScene(e.clientX, e.clientY);
-      const local = scenePointToLocal(sc.x, sc.y, box, angle);
+      const local = scenePointToLocal(sc.x, sc.y, seatBox, angle);
       if (d.mode === 'path') {
         applyPathDragLocal(d, local, { preview: false });
         return;
@@ -717,11 +723,10 @@ function CornerRadiusHandlesOverlay({
     };
   };
 
-  const startPathDrag = (
-    e: ReactPointerEvent<SVGElement>,
-    site: SharpCornerSite
-  ) => {
+  const startPathDrag = (e: PointerEvent, site: SharpCornerSite) => {
     if (e.button !== 0 || !radiusInteractive) return;
+    // Corner resize pad stacks above / beside R — never steal scale gestures.
+    if (resizeHandleUnderClient(e.clientX, e.clientY, chromeDeferRef.current)) return;
     e.preventDefault();
     e.stopPropagation();
     const solo = e.altKey || !linked;
@@ -742,10 +747,11 @@ function CornerRadiusHandlesOverlay({
   };
 
   const startBoxDrag = (
-    e: ReactPointerEvent<SVGElement>,
+    e: PointerEvent,
     corner: (typeof RADIUS_CORNERS)[number]
   ) => {
     if (e.button !== 0 || !radiusInteractive) return;
+    if (resizeHandleUnderClient(e.clientX, e.clientY, chromeDeferRef.current)) return;
     e.preventDefault();
     e.stopPropagation();
     const solo = e.altKey || !linked;
@@ -764,7 +770,10 @@ function CornerRadiusHandlesOverlay({
     beginDragSession();
   };
 
-  if (skipRadiusHandles) return null;
+  if (skipRadiusHandles || hidePathWithoutSites) {
+    setOverlayHandleSeats(seatOwnerId, null);
+    return null;
+  }
 
   // Always show while selected — seats track R (park only when R≈0).
   let badgeVal = Math.round(baseRadii.tl);
@@ -793,41 +802,90 @@ function CornerRadiusHandlesOverlay({
     }
   }
 
-  const hitSize = hitPx * k;
-  const visualSize = CHROME_HANDLE_VIS_PX * k;
+  const visualSize = CHROME_RADIUS_VIS_PX * k;
   const stroke = CHROME_STROKE_PX * k;
   const halfVis = visualSize / 2;
-  const halfHit = hitSize / 2;
 
   type HandleSpec = {
     key: string;
     lx: number;
     ly: number;
-    onDown: (e: ReactPointerEvent<SVGElement>) => void;
+    start: (e: PointerEvent) => void;
   };
 
-  const handles: HandleSpec[] =
+  const resizeHitR = chromeHandleHitRadiusScene(z, CHROME_RADIUS_HIT_PX, hitScale);
+  // Screen-constant clear + stroke inner so outer-ring verts on the AABB
+  // corner never become "圆角" next to resize — hole verts stay.
+  const pathClearScene = parkScene + resizeHitR;
+
+  const boxHandles: HandleSpec[] = RADIUS_CORNERS.map((corner) => {
+    const r = liveBoxRadii[corner.key];
+    const { lx, ly } = boxHandleLocalPos(corner, r);
+    return {
+      key: corner.key,
+      lx,
+      ly,
+      start: (e: PointerEvent) => startBoxDrag(e, corner),
+    };
+  });
+
+  const pathCandidates: HandleSpec[] =
     usePath && pathSites
-      ? pathSites.map((site) => {
-          const r = livePathVertices[site.sharpIndex] ?? 0;
-          const { lx, ly } = pathHandleLocalPos(site, r);
-          return {
-            key: String(site.sharpIndex),
-            lx,
-            ly,
-            onDown: (e: ReactPointerEvent<SVGElement>) => startPathDrag(e, site),
-          };
-        })
-      : RADIUS_CORNERS.map((corner) => {
-          const r = liveBoxRadii[corner.key];
-          const { lx, ly } = boxHandleLocalPos(corner, r);
-          return {
-            key: corner.key,
-            lx,
-            ly,
-            onDown: (e: ReactPointerEvent<SVGElement>) => startBoxDrag(e, corner),
-          };
-        });
+      ? pathSites
+          .map((site) => {
+            const r = livePathVertices[site.sharpIndex] ?? 0;
+            const { lx, ly } = pathHandleLocalPos(site, r);
+            return {
+              key: String(site.sharpIndex),
+              lx,
+              ly,
+              start: (e: PointerEvent) => startPathDrag(e, site),
+            };
+          })
+          .filter((handle) => {
+            const margin = parkScene * 1.5;
+            return (
+              handle.lx >= -margin &&
+              handle.ly >= -margin &&
+              handle.lx <= w + margin &&
+              handle.ly <= h + margin
+            );
+          })
+      : [];
+
+  const pathHandles = pathCandidates.filter((handle) =>
+    pathSeatClearsControlCorners(handle.lx, handle.ly, w, h, pathClearScene)
+  );
+
+  // Path seats on the outer ring sit on AABB corners → look like "圆角" on resize.
+  // Keep hole/inner seats; if every site was a control-box corner (rect-like path),
+  // fall back to inset AABB seats.
+  let handles: HandleSpec[] = [];
+  if (!usePath) {
+    handles = boxHandles;
+  } else if (pathHandles.length > 0) {
+    handles = pathHandles;
+  } else if (pathCandidates.length > 0) {
+    handles = boxHandles;
+  }
+
+  if (radiusInteractive && handles.length > 0) {
+    setOverlayHandleSeats(
+      seatOwnerId,
+      handles.map((h) => {
+        const scene = localPointToScene(h.lx, h.ly, seatBox, angle);
+        return {
+          pickKey: `radius-${h.key}`,
+          start: h.start,
+          sceneX: scene.x,
+          sceneY: scene.y,
+          half: resizeHitR,
+        };
+      })
+    );
+  } else {
+    setOverlayHandleSeats(seatOwnerId, null);
+  }
 
   let badgePos: { x: number; y: number } | null = null;
   if (activeKey != null && dragValue != null) {
@@ -846,30 +904,44 @@ function CornerRadiusHandlesOverlay({
   }
 
   return (
-    <HostMirroredKnobSvg
+    <WorldSvgFrame
       nodeId={nodeId}
-      box={box}
+      left={seatBox.left}
+      top={seatBox.top}
+      width={seatBox.width}
+      height={seatBox.height}
       angle={angle}
-      localChildren={handles.map((h) => {
+      zClass="z-[28]"
+      pointerEvents="none"
+      sceneChildren={
+        badgePos ? (
+          <WorldScreenBadge
+            text={`${t('editor.imageToolbar.cornerRadius')} ${badgeVal}`}
+            x={badgePos.x}
+            y={badgePos.y}
+            inv={k}
+            anchor="above"
+            clearance={12 * k}
+          />
+        ) : null
+      }
+    >
+      {handles.map((h) => {
         const isActive = activeKey === h.key;
         return (
           <g
             key={h.key}
             data-radius-handle={h.key}
             transform={`translate(${h.lx} ${h.ly})`}
-            style={{
-              pointerEvents: radiusInteractive ? 'all' : 'none',
-              cursor: radiusInteractive ? 'default' : undefined,
-            }}
-            onPointerDown={radiusInteractive ? h.onDown : undefined}
+            style={{ pointerEvents: 'all' }}
           >
-            <rect x={-halfHit} y={-halfHit} width={hitSize} height={hitSize} fill="transparent" />
+            <title>{`corner-radius-${h.key}`}</title>
             <circle
               r={Math.max(0.01, halfVis - stroke / 2)}
               fill="#ffffff"
               stroke="#3388ff"
               strokeWidth={stroke}
-              style={{ pointerEvents: 'none' }}
+              style={{ pointerEvents: 'all' }}
             />
             {isActive ? (
               <circle
@@ -883,19 +955,7 @@ function CornerRadiusHandlesOverlay({
           </g>
         );
       })}
-      sceneChildren={
-        badgePos ? (
-          <WorldScreenBadge
-            text={`${t('editor.imageToolbar.cornerRadius')} ${badgeVal}`}
-            x={badgePos.x}
-            y={badgePos.y}
-            inv={k}
-            anchor="above"
-            clearance={12 * k}
-          />
-        ) : null
-      }
-    />
+    </WorldSvgFrame>
   );
 }
 

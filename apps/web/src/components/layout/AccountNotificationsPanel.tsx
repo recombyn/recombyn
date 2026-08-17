@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineCheck, HiOutlineMegaphone } from 'react-icons/hi2';
 import { SegmentedControl } from '@/components/base';
-import { BrandWordmarkLoader } from '@/components/base/AppLogo';
+import LoadingDots from '@/components/base/LoadingDots';
 import { apiQuery } from '@/service/client';
 import { cn } from '@/utils/classnames';
 
@@ -85,6 +85,7 @@ function AccountNotificationsPanel(): ReactNode {
     },
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const items = noticesQuery.data || [];
   const loading = noticesQuery.isFetching && !noticesQuery.data;
   const loaded = noticesQuery.isFetched || noticesQuery.isError;
@@ -148,7 +149,7 @@ function AccountNotificationsPanel(): ReactNode {
 
       <div className="mt-5 min-h-0 flex-1">
         {showLoading ? (
-          <BrandWordmarkLoader
+          <LoadingDots
             label={t('common.loading')}
             className="h-[280px]"
           />

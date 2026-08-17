@@ -19,15 +19,19 @@ import {
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  STROKE_HIT,
-  sceneHitSlop,
+  STROKE_GEOMETRY_HEIGHT,
   strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
   deflateSelectionBox,
   inflateSelectionBox,
 } from '@/components/rcb/scene/document/sceneEffects';
-import { hitTestSceneAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
+import { hitTestWithSpatialIndex } from '@/components/rcb/render/sceneRenderer';
+import {
+  clearNodeTransformPreviews,
+  setNodeTransformAngles,
+  setNodeTransformPreviews,
+} from '@/components/rcb/core/transformPreview';
 import {
   parseNodeText,
   parseNodeTextStyle,
@@ -55,6 +59,7 @@ import {
 import { parseFrameSelId } from '@/components/rcb/selection/frameSelectionIds';
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 import type { createDragWriteCoalescer } from './dragWriteCoalescer';
+import type { ArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   patchDocumentNode,
   pushEditorHistory,
@@ -156,7 +161,7 @@ export function toGeometryPatches(doc: SceneDocument | null | undefined, patches
   });
 }
 
-/** Line/arrow keep a fixed hit height — length changes via width only. */
+/** Line/arrow keep a 1px geometry height — hit tolerance is handled separately. */
 export function normalizeGeomPatches(doc: SceneDocument | null | undefined, patches: GeomPatch[]): GeomPatch[] {
   return patches.map((p) => {
     const t = String(doc?.deltaSetLike?.[p.nodeId]?.attrs?.shapeType || '');
@@ -164,8 +169,8 @@ export function normalizeGeomPatches(doc: SceneDocument | null | undefined, patc
     const midY = p.top + p.height / 2;
     return {
       ...p,
-      height: STROKE_HIT,
-      top: midY - STROKE_HIT / 2,
+      height: STROKE_GEOMETRY_HEIGHT,
+      top: midY - STROKE_GEOMETRY_HEIGHT / 2,
       width: Math.max(1, p.width),
     };
   });
@@ -198,8 +203,8 @@ export type CanvasSessionDeps = {
   setEditingTextId: (id: string | null) => void;
   measureViewport: () => DOMRect | null;
   getDragWriteCoalescer: () => DragWriteCoalescer;
-  getFrameGeomHistoryPushed: () => boolean;
-  setFrameGeomHistoryPushed: (next: boolean) => void;
+  previewFrameGeometry: (frames: ArtboardFrameGeometry[]) => void;
+  clearFrameGeometryPreview: () => void;
   publishVideoLiveGeom: (next: Record<string, VideoGeomOverride> | null) => void;
   clearVideoLiveGeom: () => void;
 };
@@ -255,27 +260,19 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     y: number,
     screen?: { clientX: number; clientY: number }
   ) => {
-    const doc = deps.getDocument();
     const board = deps.getBoard();
-    const zoom = Math.max(0.05, deps.getZoom() || 1);
-    const pad = sceneHitSlop(zoom);
-    const allIds = listNodeIds();
-    const order = deps.spatial.hitCandidateIds({
-      x,
-      y,
-      pad: pad + 64 / zoom,
-      allIds,
-    });
-    return hitTestSceneAtPoint({
-      document: doc,
-      order,
-      x,
-      y,
-      zoom,
-      screen,
-      getNodeBox,
-      nodeEls: board?.nodeEls ?? null,
-    });
+    return hitTestWithSpatialIndex(
+      {
+        getDocument: deps.getDocument,
+        getSpatial: () => deps.spatial,
+        getZoom: deps.getZoom,
+        listNodeIds,
+        getNodeBox,
+        getNodeEls: () => board?.nodeEls ?? null,
+      },
+      { x, y },
+      screen
+    );
   };
 
   const hitTestFrame = (x: number, y: number) => hitTestFrameInDoc(deps.getDocument(), x, y);
@@ -431,15 +428,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       }
     }
     if (!frames.length) return { nodePatches, frames };
-    // Live preview only — commit merges frames into the document object below.
+    // Live paint is imperative, just like node SVG geometry. Redux only receives
+    // the final document on commit so frame and content cannot alternate frames.
     if (opts?.preview) {
-      // Push pre-gesture doc before the first Redux frame write (same as title-bar
-      // onFrameMoveStart). Nodes are still pre-gesture in Redux during preview.
-      if (!deps.getFrameGeomHistoryPushed()) {
-        deps.dispatch(pushEditorHistory());
-        deps.setFrameGeomHistoryPushed(true);
-      }
-      deps.getDragWriteCoalescer().queueFrames(frames);
+      deps.previewFrameGeometry(frames);
     }
     return { nodePatches, frames };
   };
@@ -448,7 +440,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     patches: GeomPatch[],
     options?: { textResizeMode?: 'scale' | 'wrap'; skipHistory?: boolean }
   ) => {
-    // Drop coalesced frame previews — commit writes the final document once.
+    // Drop coalesced media previews — frame paint is committed below.
     deps.getDragWriteCoalescer().cancel();
     const doc = deps.getDocument();
     const board = deps.getBoard();
@@ -517,15 +509,15 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       };
     }
     deps.setDocumentLocal(next);
-    // Node-only preview leaves Redux pristine; frame preview already pushed history.
-    if (!options?.skipHistory && !deps.getFrameGeomHistoryPushed()) {
+    if (!options?.skipHistory) {
       deps.dispatch(pushEditorHistory());
     }
-    deps.setFrameGeomHistoryPushed(false);
     deps.dispatch(setDocumentFromCanvas(next));
     // Same React turn as Redux doc — HTML plates must not fall back to stale
     // coords between commit and onTransformingChange(false).
     deps.clearVideoLiveGeom();
+    deps.clearFrameGeometryPreview();
+    clearNodeTransformPreviews();
   };
 
   const onGeometryPreview = (
@@ -545,6 +537,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     const videoOverrides: Record<string, VideoGeomOverride> = {};
     let hasVideo = false;
     const coalescer = deps.getDragWriteCoalescer();
+    const previewPatches: Array<{
+      nodeId: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      angle?: number;
+    }> = [];
     normalized.forEach((p) => {
       const node = next?.deltaSetLike?.[p.nodeId];
       const isText = node?.key === 'text';
@@ -557,7 +557,21 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
               height: Math.max(1, Number(node.height) || p.height),
             }
           : p;
-      if (node?.key === 'video' || node?.key === 'lottie' || node?.key === 'audio') {
+      previewPatches.push({
+        nodeId: p.nodeId,
+        left: box.left,
+        top: box.top,
+        width: Math.max(1, box.width),
+        height: Math.max(1, box.height),
+        angle: Number(node?.attrs?.angle) || 0,
+      });
+      if (
+        node?.key === 'video' ||
+        node?.key === 'lottie' ||
+        node?.key === 'audio' ||
+        // SoftGlow process plates sit in HTML — keep them glued like media hosts.
+        node?.key === 'image'
+      ) {
         hasVideo = true;
         const pending = coalescer.getPendingVideoGeom()?.[p.nodeId];
         videoOverrides[p.nodeId] = {
@@ -581,6 +595,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         textStyle: isText ? parseNodeTextStyle(node.attrs || {}) : undefined,
       });
     });
+    // Fact-layer preview for Canvas underlay / chrome (ADR 0027) — not SVG-DOM-only.
+    setNodeTransformPreviews(previewPatches);
     // Keep HTML <video> plates glued to chrome (Redux doc is still pre-gesture).
     if (hasVideo) {
       deps.publishVideoLiveGeom({
@@ -617,6 +633,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         skipHistory: Boolean(options?.skipHistory),
       })
     );
+    clearNodeTransformPreviews([nodeId]);
   };
 
   const onAnglePreview = (nodeId: string, angleDeg: number) => {
@@ -635,6 +652,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         },
       }),
     });
+    setNodeTransformAngles([{ nodeId, angle: nextAngle }]);
     const synced = previewSvgNodeAngle(
       board.nodeEls,
       nodeId,
@@ -649,8 +667,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         board.root ? board : null
       );
     }
-    // HTML video / lottie plates read Redux doc — push live angle so rotate tracks chrome.
-    if (isVideoNode(node) || isLottieNode(node) || isAudioNode(node)) {
+    // HTML video / lottie / audio / image SoftGlow plates read Redux doc —
+    // push live angle so rotate tracks chrome.
+    if (
+      isVideoNode(node) ||
+      isLottieNode(node) ||
+      isAudioNode(node) ||
+      node.key === 'image'
+    ) {
       const live = deps.getDocument()?.deltaSetLike?.[nodeId] || node;
       const { left, top } = nodeLeftTop(deps.getDocument(), live);
       const coalescer = deps.getDragWriteCoalescer();

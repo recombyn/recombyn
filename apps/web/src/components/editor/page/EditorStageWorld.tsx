@@ -36,9 +36,7 @@ import SmartGuidesOverlay from '@/components/rcb/selection/chrome/SmartGuidesOve
 import {
   collectMoveSnapIndicators,
   GUIDE_COINCIDE_EPS,
-  smartSnapThreshold,
   snapBoxToGrid,
-  snapMoveToSmartGuides,
   type SmartGuideLine,
 } from '@/components/rcb/selection/alignGuides';
 import {
@@ -200,7 +198,7 @@ function frameLabelInteractionProps(
   isDevMode: boolean,
   handlers: {
     onSelectFrame: (id: string) => void;
-    onRenameFrame: (id: string, name: string) => void;
+    onRenameFrame: (id: string, name: string, options?: { skipHistory?: boolean }) => void;
     onMoveFrame: (
       id: string,
       x: number,
@@ -222,7 +220,8 @@ function frameLabelInteractionProps(
   }
   return {
     onSelect: () => handlers.onSelectFrame(frameId),
-    onRename: (name: string) => handlers.onRenameFrame(frameId, name),
+    onRename: (name: string, options?: { skipHistory?: boolean }) =>
+      handlers.onRenameFrame(frameId, name, options),
     onMove: (x: number, y: number, opts?: { skipGrid?: boolean }) =>
       handlers.onMoveFrame(frameId, x, y, opts),
     onMoveStart: () => handlers.onFrameMoveStart(frameId),
@@ -313,6 +312,7 @@ function EditorStageWorld({
     (state: RootState) => state.editor.aiOperationState
   );
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
+  const [selectionTransforming, setSelectionTransforming] = useState(false);
   const [frameMoveGuides, setFrameMoveGuides] = useState<SmartGuideLine[]>([]);
 
   const onCommitFrame = useCallback(
@@ -335,7 +335,7 @@ function EditorStageWorld({
         height: Math.max(1, Number(frame.height) || 1),
       };
       let guides: SmartGuideLine[] = [];
-      // Same magnet path as SelectionFeature move (frames + nodes are AABB targets).
+      // Grid only — no object magnets. Align guides are display-only.
       if (!opts?.skipGrid) {
         const targets = frames
           .filter((f) => f.id !== id && !f.locked)
@@ -345,27 +345,10 @@ function EditorStageWorld({
             width: Math.max(1, Number(f.width) || 1),
             height: Math.max(1, Number(f.height) || 1),
           }));
-        const threshold = smartSnapThreshold(camera.zoom);
-        let smartX = false;
-        let smartY = false;
-        if (threshold > 0 && targets.length) {
-          const smart = snapMoveToSmartGuides({
-            box: moving,
-            targets,
-            threshold,
-          });
-          moving = smart.box;
-          guides = smart.guides;
-          smartX = smart.snappedX;
-          smartY = smart.snappedY;
-        }
         if (gridSize > 0) {
-          const pinned = snapBoxToGrid(moving, gridSize);
-          moving = {
-            ...moving,
-            left: smartX ? moving.left : pinned.left,
-            top: smartY ? moving.top : pinned.top,
-          };
+          moving = snapBoxToGrid(moving, gridSize);
+        }
+        if (targets.length) {
           guides = collectMoveSnapIndicators(moving, targets, GUIDE_COINCIDE_EPS);
         }
       }
@@ -381,7 +364,7 @@ function EditorStageWorld({
         })
       );
     },
-    [camera.zoom, dispatch, frames, gridSize]
+    [dispatch, frames, gridSize]
   );
 
   const onFrameMoveStart = useCallback(
@@ -410,8 +393,8 @@ function EditorStageWorld({
   }, [dispatch]);
 
   const onRenameFrame = useCallback(
-    (id: string, name: string) => {
-      dispatch(renameArtboardFrame({ id, name }));
+    (id: string, name: string, options?: { skipHistory?: boolean }) => {
+      dispatch(renameArtboardFrame({ id, name, skipHistory: options?.skipHistory }));
     },
     [dispatch]
   );
@@ -444,7 +427,8 @@ function EditorStageWorld({
     selectedFrames.length >= 1 &&
     selectedNodeIds.length === 0 &&
     Boolean(activeFrame) &&
-    movingFrameId !== activeFrame?.id;
+    movingFrameId !== activeFrame?.id &&
+    !selectionTransforming;
   const aiNodeBox = aiOperationState?.active
     ? aiNodeWorldBox(document, aiOperationState.nodeId)
     : null;
@@ -492,6 +476,7 @@ function EditorStageWorld({
           onZoomIn={onZoomIn}
           onZoomOut={onZoomOut}
           onReady={onCanvasReady}
+          onTransformingChange={setSelectionTransforming}
           embedded
           stageEl={stageEl}
           onOpenAgent={onOpenAgent}
@@ -554,7 +539,11 @@ function EditorStageWorld({
               key={`label-${frame.id}`}
               frame={frame}
               selected={!isDevMode && selectedFrameIds.includes(frame.id)}
-              hideTitle={isDevMode || movingFrameId === frame.id}
+              hideTitle={
+                isDevMode ||
+                movingFrameId === frame.id ||
+                (selectionTransforming && selectedFrameIds.includes(frame.id))
+              }
               {...frameLabelInteractionProps(frame.id, isDevMode, {
                 onSelectFrame,
                 onRenameFrame,

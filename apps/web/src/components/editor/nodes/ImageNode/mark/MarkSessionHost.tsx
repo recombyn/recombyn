@@ -17,7 +17,7 @@ import {
   enqueueAgentContexts,
 } from '@/store/modules/editor';
 import { CONTEXT_CHIP_PILL_CLASS } from '@/components/editor/panels/AgentComposerInput';
-import { resolveChatFlyTarget } from '@/components/editor/panels/agent/flyToChat';
+import { resolveChatFlyTarget } from '@/components/editor/panels/agent/composer/flyToChat';
 import { getHttpErrorMessage } from '@/service/client';
 import {
   processImageTool,

@@ -46,3 +46,4 @@ Cross-cutting or hard-to-undo technical choices live here. Product how-tos stay 
 | [0024](./0024-protocol-version-cross-repo-ci.md) | Protocol version pin + cross-repo CI | Accepted |
 | [0025](./0025-billing-protocol.md) | Billing Protocol open / host commercial private | Accepted |
 | [0026](./0026-task-centric-billing.md) | Task-centric credits (≠ tokens) | Accepted |
+| [0027](./0027-canvas-layered-runtime.md) | Scene + camera + layered render + hit | Accepted |

@@ -4,7 +4,7 @@ import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/
  * (e.g. FrameMoveFeature via setSceneHitTestBridge).
  *
  * Spatial candidate order stays in SceneSpatialRuntime; this module owns
- * per-node ink tests (Path2D / SVG DOM / AABB fallbacks).
+ * per-node ink tests (Path2D / AABB; optional SVG DOM behind allowSvgDomHit).
  */
 
 import { getShapeBaselineD } from '@/components/rcb/core/geometry';
@@ -33,6 +33,72 @@ export type SceneHitFn = (
   screen?: { clientX: number; clientY: number }
 ) => string | null;
 
+export type ViewportToolPointerHandlers = {
+  onDown?: (e: PointerEvent) => void;
+  onMove?: (e: PointerEvent) => void;
+  onUp?: (e: PointerEvent) => void;
+  onLeave?: (e: PointerEvent) => void;
+  onDblClick?: (e: PointerEvent) => void;
+};
+
+/**
+ * Shared tool pointer binder (ADR 0027 appendix A).
+ * Stage capture is the authority. Window capture is a **outside-stage relay**
+ * only (skips events already handled on `hitEl`) so pe:auto layers above the
+ * stage cannot starve tip/drag — do not add per-feature window listeners.
+ */
+export function attachViewportToolPointers(
+  hitEl: HTMLElement,
+  handlers: ViewportToolPointerHandlers
+): () => void {
+  const { onDown, onMove, onUp, onLeave, onDblClick } = handlers;
+
+  function targetOutsideHit(e: Event): boolean {
+    const t = e.target;
+    if (!(t instanceof Node)) return true;
+    return !hitEl.contains(t);
+  }
+
+  function onWindowMove(e: PointerEvent) {
+    if (!onMove || !targetOutsideHit(e)) return;
+    onMove(e);
+  }
+
+  function onWindowUp(e: PointerEvent) {
+    if (!onUp) return;
+    // pointercancel may target hitEl while capture is held — still finish.
+    if (e.type !== 'pointercancel' && !targetOutsideHit(e)) return;
+    onUp(e);
+  }
+
+  if (onDown) hitEl.addEventListener('pointerdown', onDown, true);
+  if (onMove) {
+    hitEl.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointermove', onWindowMove, true);
+  }
+  if (onUp) {
+    hitEl.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointerup', onWindowUp, true);
+    window.addEventListener('pointercancel', onWindowUp, true);
+  }
+  if (onLeave) hitEl.addEventListener('pointerleave', onLeave);
+  if (onDblClick) hitEl.addEventListener('dblclick', onDblClick, true);
+  return () => {
+    if (onDown) hitEl.removeEventListener('pointerdown', onDown, true);
+    if (onMove) {
+      hitEl.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointermove', onWindowMove, true);
+    }
+    if (onUp) {
+      hitEl.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointerup', onWindowUp, true);
+      window.removeEventListener('pointercancel', onWindowUp, true);
+    }
+    if (onLeave) hitEl.removeEventListener('pointerleave', onLeave);
+    if (onDblClick) hitEl.removeEventListener('dblclick', onDblClick, true);
+  };
+}
+
 export type SceneHitBox = { left: number; top: number; width: number; height: number };
 
 export type HitTestSceneAtPointOpts = {
@@ -44,14 +110,110 @@ export type HitTestSceneAtPointOpts = {
   zoom: number;
   screen?: { clientX: number; clientY: number };
   getNodeBox: (nodeId: string) => SceneHitBox | null;
-  /** Live SVG hosts for DOM isPointInFill/Stroke (optional). */
+  /**
+   * Live SVG hosts for DOM isPointInFill/Stroke.
+   * Only used when {@link allowSvgDomHit} is true (default off — ADR 0027).
+   */
   nodeEls?: Map<string, Element> | null;
+  /**
+   * When true, path-like hits may fall back to SVG DOM under the cursor.
+   * Default false: Path2D / AABB only (no live DOM lattice).
+   */
+  allowSvgDomHit?: boolean;
 };
 
 let hitFn: SceneHitFn | null = null;
 
 export function setSceneHitTestBridge(fn: SceneHitFn | null) {
-  hitFn = fn;
+  if (!fn) {
+    hitFn = null;
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __rcbBridgeHitTest?: SceneHitFn | null }).__rcbBridgeHitTest = null;
+    }
+    return;
+  }
+  hitFn = (x, y, screen) => {
+    const result = fn(x, y, screen);
+    if (typeof window !== 'undefined' && import.meta.env.DEV) {
+      (window as unknown as { __rcbBridgeWrap?: unknown }).__rcbBridgeWrap = {
+        x,
+        y,
+        result,
+        hasTrace: Boolean(
+          (window as unknown as { __rcbHitTrace?: unknown }).__rcbHitTrace
+        ),
+        t: Date.now(),
+      };
+    }
+    return result;
+  };
+  if (typeof window !== 'undefined') {
+    (window as unknown as { __rcbBridgeHitTest?: SceneHitFn | null }).__rcbBridgeHitTest = hitFn;
+  }
+}
+
+/** Test/diag: last hit inputs when `__RCB_HIT_DEBUG__` is set. */
+export let lastHitDebug: {
+  x: number;
+  y: number;
+  orderLen: number;
+  orderHead: string[];
+  boxes: Array<{ id: string; box: SceneHitBox | null; hit: boolean }>;
+} | null = null;
+
+export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | null {
+  const {
+    document: doc,
+    order,
+    x,
+    y,
+    zoom,
+    screen,
+    getNodeBox,
+    nodeEls,
+    allowSvgDomHit = false,
+  } = opts;
+  const pad = sceneHitSlop(Math.max(0.05, zoom || 1));
+  const boxes: Array<{ id: string; box: SceneHitBox | null; hit: boolean }> = [];
+  for (const id of order) {
+    const node = doc?.deltaSetLike?.[id];
+    if (!node || isNodeHidden(node)) {
+      boxes.push({ id, box: null, hit: false });
+      continue;
+    }
+    const box = getNodeBox(id);
+    if (!box) {
+      boxes.push({ id, box: null, hit: false });
+      continue;
+    }
+    const hit = hitTestSceneNodeAt({
+      id,
+      node,
+      box,
+      x,
+      y,
+      zoom,
+      pad,
+      screen,
+      svgEl: allowSvgDomHit ? (nodeEls?.get(id) ?? null) : null,
+      allowSvgDomHit,
+    });
+    boxes.push({ id, box, hit });
+    if (hit) {
+      lastHitDebug = { x, y, orderLen: order.length, orderHead: order.slice(0, 8), boxes };
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __rcbLastHitDebug?: typeof lastHitDebug }).__rcbLastHitDebug =
+          lastHitDebug;
+      }
+      return id;
+    }
+  }
+  lastHitDebug = { x, y, orderLen: order.length, orderHead: [...order].slice(0, 8), boxes };
+  if (typeof window !== 'undefined') {
+    (window as unknown as { __rcbLastHitDebug?: typeof lastHitDebug }).__rcbLastHitDebug =
+      lastHitDebug;
+  }
+  return null;
 }
 
 export function bridgeSceneHitTest(
@@ -169,8 +331,9 @@ function hitTestPathLike(opts: {
   zoom: number;
   screen?: { clientX: number; clientY: number };
   svgEl?: Element | null;
+  allowSvgDomHit?: boolean;
 }): boolean {
-  const { id, node, shapeType, box, x, y, zoom, screen, svgEl } = opts;
+  const { id, node, shapeType, box, x, y, zoom, screen, svgEl, allowSvgDomHit } = opts;
   const sw = Math.max(
     1,
     Number(node.attrs?.borderWidth ?? node.attrs?.['border-width'] ?? 2) || 2
@@ -206,7 +369,8 @@ function hitTestPathLike(opts: {
     }
   }
 
-  if (svgEl && screen) {
+  // Optional SVG DOM lattice — off by default (ADR 0027 independent hit).
+  if (allowSvgDomHit && svgEl && screen) {
     const mode = shapeType === 'pencil' || fillHit ? 'auto' : 'stroke';
     const hitW = sw + pathPad * 2;
     if (
@@ -293,48 +457,29 @@ export function hitTestSceneNodeAt(opts: {
   pad: number;
   screen?: { clientX: number; clientY: number };
   svgEl?: Element | null;
+  allowSvgDomHit?: boolean;
 }): boolean {
-  const { id, node, box, x, y, zoom, pad, screen, svgEl } = opts;
+  const { id, node, box, x, y, zoom, pad, screen, svgEl, allowSvgDomHit } = opts;
   const shapeType = String(node.attrs?.shapeType || '');
   if (shapeType === 'line' || shapeType === 'arrow') {
     return hitTestLineOrArrow({ id, node, box, x, y, pad });
   }
   if (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'path') {
-    return hitTestPathLike({ id, node, shapeType, box, x, y, zoom, screen, svgEl });
+    return hitTestPathLike({
+      id,
+      node,
+      shapeType,
+      box,
+      x,
+      y,
+      zoom,
+      screen,
+      svgEl,
+      allowSvgDomHit,
+    });
   }
   if (isGeoShapeNode(node, shapeType)) {
     return hitTestGeoShape({ id, node, box, x, y, pad });
   }
   return hitTestVisualAabb({ node, box, x, y, pad });
-}
-
-/**
- * Walk top→bottom candidates; return first hit id.
- * Caller supplies spatially filtered `order` for large scenes.
- */
-export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | null {
-  const { document: doc, order, x, y, zoom, screen, getNodeBox, nodeEls } = opts;
-  const pad = sceneHitSlop(Math.max(0.05, zoom || 1));
-  for (const id of order) {
-    const node = doc?.deltaSetLike?.[id];
-    if (!node || isNodeHidden(node)) continue;
-    const box = getNodeBox(id);
-    if (!box) continue;
-    if (
-      hitTestSceneNodeAt({
-        id,
-        node,
-        box,
-        x,
-        y,
-        zoom,
-        pad,
-        screen,
-        svgEl: nodeEls?.get(id) ?? null,
-      })
-    ) {
-      return id;
-    }
-  }
-  return null;
 }

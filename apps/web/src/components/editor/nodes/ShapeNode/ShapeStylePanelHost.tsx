@@ -43,6 +43,7 @@ import {
   inflateBoxByVisualOutset,
   inflateBoxByTextSelectionPad,
   geometryPatchForStrokeVisibilityToggle,
+  geometryPatchForStrokeOutsetChange,
 } from '@/components/rcb/scene/document/sceneEffects';
 import {
   supportsFill,
@@ -411,14 +412,18 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
         t === 'arrow' ||
         t === 'pencil' ||
         ((t === 'pen' || t === 'path' || node.key === 'path') && !closed);
+      const attrs = strokeAttrsFromValue(next, {
+        writeSides: !openStroke,
+        visible,
+      });
+      // Keep outer ink on the same grid when width/align change (path insets).
+      const geom = geometryPatchForStrokeOutsetChange(node, attrs);
       dispatch(
         patchDocumentNode({
           nodeId: id,
           patch: {
-            attrs: strokeAttrsFromValue(next, {
-              writeSides: !openStroke,
-              visible,
-            }),
+            ...(geom || {}),
+            attrs,
           },
         })
       );

@@ -35,8 +35,8 @@ import AgentComposerInput, {
 import {
   ComposerAttachmentChip,
   composerAttachActionClass,
-} from '@/components/editor/panels/agent/AgentComposerShell';
-import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/ModelPickerPanel';
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { buildByokAwareModelList } from '@/components/editor/panels/agent/llmModelMeta';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import {
@@ -458,7 +458,9 @@ function AudioQuickEditComposer({
             type="file"
             accept="audio/*"
             className="hidden"
-            onChange={(e) => void onPickFile(e)}
+            onChange={(e) => {
+              onPickFile(e);
+            }}
           />
         </div>
 
@@ -476,7 +478,9 @@ function AudioQuickEditComposer({
             onContextsChange={(next) => setContexts([...attachments, ...next])}
             value={prompt}
             onChange={setPrompt}
-            onSubmit={() => void onGenerate()}
+            onSubmit={() => {
+              onGenerate();
+            }}
             disabled={sending}
             placeholder={t('editor.tools.audioGenPlaceholder')}
             className="min-h-full w-full text-[13px]"
@@ -526,7 +530,9 @@ function AudioQuickEditComposer({
             type="button"
             disabled={sending || !canSubmit}
             aria-label={t('agent.send')}
-            onClick={() => void onGenerate()}
+            onClick={() => {
+              onGenerate();
+            }}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ink)] text-[var(--on-brand)] disabled:opacity-40"
           >
             <HiArrowUp className="h-4 w-4" strokeWidth={2} />

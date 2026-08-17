@@ -55,6 +55,7 @@ export function setStroke(
         width: number;
         linecap?: string;
         linejoin?: string;
+        miterlimit?: number;
         dasharray?: string;
       }
 ): void {
@@ -67,6 +68,9 @@ export function setStroke(
   el.setAttribute('stroke-width', String(stroke.width));
   if (stroke.linecap) el.setAttribute('stroke-linecap', stroke.linecap);
   if (stroke.linejoin) el.setAttribute('stroke-linejoin', stroke.linejoin);
+  if (stroke.miterlimit != null && Number.isFinite(stroke.miterlimit) && stroke.miterlimit > 0) {
+    el.setAttribute('stroke-miterlimit', String(stroke.miterlimit));
+  }
   if (stroke.dasharray) el.setAttribute('stroke-dasharray', stroke.dasharray);
 }
 

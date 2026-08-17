@@ -18,6 +18,8 @@ import {
 import {
   clampShapeSides,
   DEFAULT_SHAPE_SIDES,
+  ellipseArcPercentFromAttrs,
+  ellipseInnerRatioFromAttrs,
   shapeVertexPoints,
   sidesFromAttrs,
   starInnerRatioFromAttrs,
@@ -102,6 +104,31 @@ function ellipseRingFallback(b: ShapeBox, segments?: number): Ring {
   }
   ring.push(ring[0]);
   return ring;
+}
+
+/**
+ * Full disk / donut in local box space (DOM-free).
+ * Outer + opposite-wound hole so polygon-clipping keeps ring topology —
+ * solid-only sampling used to turn donut−donut into a crescent.
+ */
+function ellipseLocalPolygon(b: ShapeBox): Polygon {
+  const segs = ellipseSegmentCount(b);
+  const outer = ellipseRingFallback({ ...b, left: 0, top: 0 }, segs);
+  const inner = ellipseInnerRatioFromAttrs(b.attrs);
+  if (inner <= 1e-4) return [outer];
+  const iw = Math.max(1, b.width * inner);
+  const ih = Math.max(1, b.height * inner);
+  const hole = ellipseRingFallback(
+    {
+      left: (b.width - iw) / 2,
+      top: (b.height - ih) / 2,
+      width: iw,
+      height: ih,
+      shapeType: b.shapeType,
+    },
+    Math.max(48, Math.ceil(segs * Math.max(0.25, inner)))
+  );
+  return [outer, [...hole].reverse()];
 }
 
 /**
@@ -587,14 +614,19 @@ function shapeToPolygon(b: ShapeBox): Polygon | null {
   const toWorld = (ring: Ring): Ring =>
     rotateRing(translateRing(ring, b.left, b.top), cx, cy, angle);
 
-  // Circles / ellipses: dense parametric rings (SVG A sampling + RDP flattened arcs).
+  // Circles / ellipses: dense parametric rings (incl. donut holes).
+  // Pie / annular sector still need painted baseline arcs.
   const t = String(b.shapeType || 'rect');
   if (t === 'circle' || t === 'ellipse') {
-    const local = ellipseRingFallback(
-      { ...b, left: 0, top: 0 },
-      ellipseSegmentCount(b)
-    );
-    return [toWorld(local)];
+    const arcPct = Math.abs(ellipseArcPercentFromAttrs(b.attrs));
+    if (arcPct < 99.95) {
+      const d = localBaselinePathD(b);
+      const localRings = d ? sampleLocalPathToRings(d, sampleStepForBox(b)) : [];
+      if (localRings.length && localRings[0] && localRings[0].length >= 4) {
+        return localRings.map((ring) => toWorld(ring));
+      }
+    }
+    return ellipseLocalPolygon(b).map((ring) => toWorld(ring));
   }
 
   // Rounded rect: parametric ring (no DOM). Detached SVG A-path length is often 0
@@ -691,6 +723,12 @@ function multipolygonToPath(mp: MultiPolygon, originX: number, originY: number):
 
 function multipolygonHasHoles(mp: MultiPolygon): boolean {
   return mp.some((poly) => poly.length > 1);
+}
+
+function multipolygonRingCount(mp: MultiPolygon): number {
+  let n = 0;
+  for (const poly of mp) n += poly.length;
+  return n;
 }
 
 function clipShapes(
@@ -839,8 +877,13 @@ export function computeShapeBoolean(
       y: minY,
       width,
       height,
-      // Holes from subtract / donut operands need evenodd when windings are mixed.
-      fillRule: multipolygonHasHoles(mp) || mode === 'exclude' ? 'evenodd' : 'nonzero',
+      // Holes / multi-ring results (donut operands, subtract pockets) need
+      // evenodd — polygon-clipping may emit holes as sibling polys, not
+      // only as poly[1+] rings, so ring count > 1 is the reliable signal.
+      fillRule:
+        multipolygonHasHoles(mp) || multipolygonRingCount(mp) > 1 || mode === 'exclude'
+          ? 'evenodd'
+          : 'nonzero',
     },
     usedFallback: false,
     hasNonRect,

@@ -1,23 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import {
-  snapBoxToGrid,
-  snapCoordToGrid,
-  snapMoveToSmartGuides,
-  snapResizeToGrid,
-  snapResizeToSmartGuides,
-} from '../alignGuides';
+import { snapBoxToGrid, snapCoordToGrid, snapResizeToGrid } from '../alignGuides';
 import {
   strokeChromeOutset,
   inflateBoxByVisualOutset,
   strokeVisualOutset,
 } from '../../scene/document/sceneEffects';
 import { resolveClosedDrawBoxes } from '../../tools/ShapeDrawFeature';
-import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /**
- * Production move policy when gridSize > 0:
- *   smart align (capped threshold, grid-compatible) → snapBoxToGrid → guides
- * Path may stay on *.5; ink outer stays on integer cells.
+ * Production move when gridSize > 0 (object magnets removed):
+ *   snapBoxToGrid on visual outer → apply delta to path → align guides (paint-only)
  */
 function moveSnapVisualOnly(opts: {
   path: { left: number; top: number; width: number; height: number };
@@ -60,8 +53,7 @@ function assertInkOnGrid(
 }
 
 describe('visual-outer move snap (1px grid)', () => {
-  // Real createShapeNode attrs — resolveStroke reads border-width, not borderWidth.
-  const centerStroke1 = {
+  const centerStroke1: SceneNodeInput = {
     key: 'shape',
     attrs: {
       shapeType: 'rect',
@@ -73,7 +65,7 @@ describe('visual-outer move snap (1px grid)', () => {
     },
   };
 
-  it('chrome stays on path; visual outer is separate (move/snap only)', () => {
+  it('chrome stays on stored geometry while stroke keeps its visual outset', () => {
     expect(strokeChromeOutset(centerStroke1)).toBe(0);
     expect(strokeVisualOutset(centerStroke1)).toBe(0.5);
     const path = { left: 10.5, top: 8.5, width: 3, height: 2 };
@@ -83,50 +75,18 @@ describe('visual-outer move snap (1px grid)', () => {
       width: path.width + 1,
       height: path.height + 1,
     };
-    // eslint-disable-next-line no-console
-    console.log('[test:chrome=path]', { path, visual, chromeOutset: 0 });
-    expect(visual.left).toBe(10);
-    expect(visual.top).toBe(8);
+    expect(inflateBoxByVisualOutset(path, centerStroke1)).toEqual(visual);
   });
 
-  it('draw → path *.5 → free drag keeps ink on integer grid (1px steps)', () => {
-    const { visual: drawnVis, geom } = resolveClosedDrawBoxes(
-      { left: 10.2, top: 8.4, width: 7.6, height: 7.1 },
-      true,
-      1,
-      'rect'
-    );
-    expect(drawnVis.left).toBe(snapCoordToGrid(drawnVis.left, 1));
-    expect(geom.left).toBe(drawnVis.left + 0.5);
-
-    const moved = moveSnapVisualOnly({
-      path: geom,
-      node: centerStroke1,
-      gridSize: 1,
-      dx: 2.37,
-      dy: -1.61,
-    });
-    // eslint-disable-next-line no-console
-    console.log('[test:draw→move]', {
-      drawnVis,
-      geom,
-      moved,
-      stepX: moved.sdx,
-      stepY: moved.sdy,
-    });
-    assertInkOnGrid(moved.path, centerStroke1, 1);
-    // Steps are whole grid cells (not sub-pixel crawl).
-    expect(Number.isInteger(moved.sdx)).toBe(true);
-    expect(Number.isInteger(moved.sdy)).toBe(true);
-    expect(moved.path.left).toBe(moved.visual.left + 0.5);
+  it('closed draw places path so ink lands on grid', () => {
+    const draft = { left: 10.2, top: 8.7, width: 12.4, height: 9.1 };
+    const { visual, geom } = resolveClosedDrawBoxes(draft, true, 1, 'rect');
+    assertInkOnGrid(geom, centerStroke1, 1);
+    expect(visual.left).toBe(snapCoordToGrid(visual.left, 1));
   });
 
-  it('old path-grid snap yanks ink off grid — must not be used', () => {
-    const path = { left: 10.5, top: 10.5, width: 7, height: 7 };
-    const wrong = snapBoxToGrid({ ...path, left: path.left + 2.3, top: path.top }, 1);
-    const wrongInk = inflateBoxByVisualOutset(wrong, centerStroke1);
-    expect(wrongInk.left).not.toBe(snapCoordToGrid(wrongInk.left, 1));
-
+  it('move keeps ink on grid with subpixel pointer noise', () => {
+    const path = { left: 10.5, top: 8.5, width: 7, height: 7 };
     const right = moveSnapVisualOnly({
       path,
       node: centerStroke1,
@@ -137,30 +97,18 @@ describe('visual-outer move snap (1px grid)', () => {
     assertInkOnGrid(right.path, centerStroke1, 1);
   });
 
-  it('smart gap "4" must not leave moved ink off-grid (regression)', () => {
-    // Left sibling already on-grid (visual 10..18). Right starts on-grid too.
+  it('gap drag with noise still lands ink on grid (no object magnets)', () => {
     const leftVis = { left: 10, top: 10, width: 8, height: 8 };
     const rightPath = { left: 22.5, top: 10.5, width: 7, height: 7 };
     const rightVis0 = inflateBoxByVisualOutset(rightPath, centerStroke1);
     expect(rightVis0.left).toBe(22);
 
-    // Pointer would place a ~4 cell gap, but with subpixel noise + smart pull.
     const noisy = {
       ...rightVis0,
       left: leftVis.left + leftVis.width + 4 + 0.37,
       top: rightVis0.top + 0.22,
     };
-    // Old messy judge: smart nudge first (could land off lattice), then optionally
-    // skip grid on that axis. New policy: grid only.
-    const smart = snapMoveToSmartGuides({
-      box: noisy,
-      targets: [leftVis],
-      threshold: 8,
-      gridSize: 1,
-    });
     const gridOnly = snapBoxToGrid(noisy, 1);
-    // eslint-disable-next-line no-console
-    console.log('[test:gap4]', { noisy, smart: smart.box, gridOnly });
 
     const moved = moveSnapVisualOnly({
       path: rightPath,
@@ -175,7 +123,6 @@ describe('visual-outer move snap (1px grid)', () => {
   });
 
   it('repair: path already integer (ink *.5) — one drag puts ink back on grid', () => {
-    // After old path-snap bug: path on integers → ink floats between cells.
     const brokenPath = { left: 14, top: 11, width: 7, height: 7 };
     const brokenInk = inflateBoxByVisualOutset(brokenPath, centerStroke1);
     expect(brokenInk.left).toBe(13.5);
@@ -188,23 +135,14 @@ describe('visual-outer move snap (1px grid)', () => {
       dx: 0.01,
       dy: 0.01,
     });
-    // eslint-disable-next-line no-console
-    console.log('[test:repair]', { brokenPath, fixed });
     assertInkOnGrid(fixed.path, centerStroke1, 1);
   });
 
   it('resize visual edge then inset path keeps ink on grid', () => {
     const path = { left: 10.5, top: 10.5, width: 7, height: 7 };
     const visual0 = inflateBoxByVisualOutset(path, centerStroke1);
-    const smart = snapResizeToSmartGuides({
-      box: { ...visual0, width: visual0.width + 2.4 },
-      handle: 'e',
-      targets: [],
-      threshold: 8,
-      min: 2,
-      gridSize: 1,
-    });
-    const gridVisual = snapResizeToGrid(smart.box, 'e', 1, 2);
+    const grown = { ...visual0, width: visual0.width + 2.4 };
+    const gridVisual = snapResizeToGrid(grown, 'e', 1, 2);
     const outset = strokeVisualOutset(centerStroke1);
     const pathNext = {
       left: gridVisual.left + outset,

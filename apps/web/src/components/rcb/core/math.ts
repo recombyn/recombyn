@@ -197,20 +197,31 @@ export function rcbScreenPxToScene(px: number, zoom: number) {
   return px / Math.max(0.05, zoom || 1);
 }
 
-/** Zoom about a stage-local point (keeps that screen point fixed). */
+/**
+ * Zoom about a stage-local point (keeps that screen point fixed).
+ * Must use the **display** lattice (`rcbCameraScreenOffset` + `rcbCameraCssZoom`) —
+ * the same pan/zoom written on world CSS, Canvas grid, and overlay chrome.
+ * Raw `camera.x/y` diverges under fractional DPR and makes ink dance off chrome/grid.
+ */
 export function rcbZoomAtPoint(
   camera: RcbCamera,
   nextZoom: number,
   localX: number,
-  localY: number
+  localY: number,
+  dpr: number = readDevicePixelRatio()
 ): RcbCamera {
-  const z0 = camera.zoom;
-  const z1 = rcbClampZoom(nextZoom);
+  const z0 = rcbCameraCssZoom(camera);
+  const z1 = rcbCameraCssZoom({ ...camera, zoom: rcbClampZoom(nextZoom) });
   if (z0 === z1) return camera;
-  // Use raw camera pan (state space). Display offset is precision-only (no DPR).
-  const sceneX = (localX - camera.x) / z0;
-  const sceneY = (localY - camera.y) / z0;
-  return { zoom: z1, x: localX - sceneX * z1, y: localY - sceneY * z1 };
+  const { x: panX, y: panY } = rcbCameraScreenOffset(camera, dpr);
+  const sceneX = (localX - panX) / z0;
+  const sceneY = (localY - panY) / z0;
+  // Store the ideal display pan; readers re-snap via rcbCameraScreenOffset.
+  return {
+    zoom: rcbClampZoom(nextZoom),
+    x: localX - sceneX * z1,
+    y: localY - sceneY * z1,
+  };
 }
 
 /** Fit scene bounds into the viewport (e.g. document open / Shift+1). */
@@ -240,15 +251,17 @@ export function rcbFitCamera(
   };
 }
 
-/** Visible scene AABB under the current camera. */
+/** Visible scene AABB under the current camera (snapped pan === world CSS). */
 export function rcbViewportSceneBounds(
   camera: RcbCamera,
-  stage: { width: number; height: number }
+  stage: { width: number; height: number },
+  dpr?: number
 ): RcbBox {
-  const z = Math.max(0.05, camera.zoom || 1);
+  const z = rcbCameraCssZoom(camera);
+  const { x: camX, y: camY } = rcbCameraScreenOffset(camera, dpr);
   return {
-    x: -camera.x / z,
-    y: -camera.y / z,
+    x: -camX / z,
+    y: -camY / z,
     width: Math.max(1, stage.width / z),
     height: Math.max(1, stage.height / z),
   };

@@ -8,7 +8,7 @@ import {
   formatGovernanceLaneItems,
   hasDesignIntelligence,
   pctLabel,
-} from '../ChatTurnList';
+} from '../messages/ChatTurnList';
 import { mergeDesignIntelligence } from '../designAgentEventRouter';
 
 describe('design intelligence panel', () => {

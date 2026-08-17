@@ -14,6 +14,11 @@ import {
   zoomAtPoint,
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
+import {
+  advanceBootProgress,
+  readBootProgress,
+  resetBootProgress,
+} from '@/components/base';
 import EditorBootOverlay from '@/components/editor/chrome/EditorBootOverlay';
 import {
   listSceneNodes,
@@ -146,7 +151,7 @@ function SharePage() {
   const [zoomFitActive, setZoomFitActive] = useState(true);
   const [bootOpen, setBootOpen] = useState(true);
   const [bootExiting, setBootExiting] = useState(false);
-  const [bootProgress, setBootProgress] = useState(8);
+  const [bootProgress, setBootProgress] = useState(() => Math.max(8, readBootProgress()));
   /** Narrow preview chrome: icon-only actions so title + buttons do not overlap. */
   const compactTopBar = useViewportMatch('(max-width: 900px)');
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -167,13 +172,14 @@ function SharePage() {
     bootFinishingRef.current = true;
     const wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootStartedAt.current));
     window.setTimeout(() => {
-      setBootProgress(100);
+      setBootProgress(advanceBootProgress(100));
       setBootExiting(true);
       bootExitTimer.current = window.setTimeout(() => {
         bootOpenRef.current = false;
         setBootOpen(false);
         setBootExiting(false);
         bootExitTimer.current = null;
+        resetBootProgress();
       }, BOOT_EXIT_MS);
     }, wait);
   }, []);
@@ -185,7 +191,8 @@ function SharePage() {
     bootStartedAt.current = Date.now();
     setBootOpen(true);
     setBootExiting(false);
-    setBootProgress(8);
+    resetBootProgress();
+    setBootProgress(Math.max(8, readBootProgress()));
     setZoomFitActive(true);
     setCamera(DEFAULT_CAMERA);
     if (bootExitTimer.current) {
@@ -206,7 +213,7 @@ function SharePage() {
     const id = window.setInterval(() => {
       setBootProgress((p) => {
         if (p >= 90) return p;
-        return Math.min(90, p + 4 + Math.random() * 10);
+        return advanceBootProgress(Math.min(90, p + 4 + Math.random() * 10));
       });
     }, 380);
     return () => window.clearInterval(id);

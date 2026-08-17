@@ -19,6 +19,7 @@ import {
   spawnImportPlaceholderNode,
   spawnImageUploadPlaceholderNode,
   spawnVideoUploadPlaceholderNode,
+  spawnAudioUploadPlaceholderNode,
   promoteImageGeneratorToImage,
   promoteVideoGeneratorToVideo,
   promoteLottieGeneratorToLottie,
@@ -500,7 +501,7 @@ const editorSlice = createSlice({
       syncLibraryOnEdit(state);
     },
     patchDocumentNode(state, action) {
-      const { nodeId, patch, skipHistory } = action.payload || {};
+      const { nodeId, patch, skipHistory, skipHostReload } = action.payload || {};
       if (!state.document || !nodeId) return;
       const id = String(nodeId);
       if (!state.document.deltaSetLike?.[id]) return;
@@ -509,7 +510,10 @@ const editorSlice = createSlice({
       state.document.deltaSetLike[id] = mergeNodePatch(state.document.deltaSetLike[id], patch);
       state.dirty = true;
       state.documentPatchToken += 1;
-      state.lastPatchedNodeIds = [id];
+      // Geometry already previewed against a mounted SVG must stay mounted. The
+      // document token still updates selection/chrome, but this id skips a host
+      // teardown that would briefly repaint the old centre-anchored box.
+      state.lastPatchedNodeIds = skipHostReload ? [] : [id];
       syncLibraryOnEdit(state);
     },
     /** Apply many node patches in one Redux write (align / distribute / flip). */
@@ -720,9 +724,9 @@ const editorSlice = createSlice({
     },
     renameArtboardFrame(state, action) {
       if (!state.document) return;
-      const { id, name } = action.payload || {};
+      const { id, name, skipHistory } = action.payload || {};
       if (!id) return;
-      pushHistory(state);
+      if (!skipHistory) pushHistory(state);
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? next.frames : [];
       const frame = frames.find((f) => f.id === id);
@@ -744,13 +748,15 @@ const editorSlice = createSlice({
       next.frames = frames;
       state.document = next;
       state.dirty = true;
-      // Position / lock / generating-chrome updates refresh HTML without SVG reload.
-      // If clipContent is on, x/y moves must remount so clip rects stay aligned.
+      // Frame plates repaint in place. Only geometry of a clipping frame needs a
+      // scene reload so dependent clip paths are rebuilt.
       // skipHistory previews (live drag) also skip SVG remount — commit bumps token.
       const keys = Object.keys(patch);
       const chromeKeys = new Set([
         'x',
         'y',
+        'width',
+        'height',
         'locked',
         'hidden',
         'processStatus',
@@ -760,7 +766,11 @@ const editorSlice = createSlice({
       const onlyChrome =
         keys.length > 0 &&
         keys.every((k) => chromeKeys.has(k)) &&
-        !(Boolean(frame?.clipContent) && (keys.includes('x') || keys.includes('y')));
+        !(Boolean(frame?.clipContent) &&
+          (keys.includes('x') ||
+            keys.includes('y') ||
+            keys.includes('width') ||
+            keys.includes('height')));
       if (!onlyChrome && !skipHistory) state.sceneReloadToken += 1;
       syncLibraryOnEdit(state);
     },
@@ -1771,6 +1781,32 @@ const editorSlice = createSlice({
       state.pendingImageSrc = null;
       state.activeTool = 'select';
     },
+    /** Spawn audio plate with local preview while remote upload runs (same sweep chrome). */
+    startAudioUploadPlaceholder(state, action) {
+      if (!state.document) return;
+      const src = String(action.payload?.src || '');
+      if (!src) return;
+      pushHistory(state);
+      const { document: next, id } = spawnAudioUploadPlaceholderNode(state.document, {
+        src,
+        width: Number(action.payload?.width) || 360,
+        height: Number(action.payload?.height) || 200,
+        label: action.payload?.label || '上传中',
+        x: action.payload?.x,
+        y: action.payload?.y,
+        name: action.payload?.name,
+        duration: action.payload?.duration,
+      });
+      if (!id) return;
+      state.document = next;
+      state.dirty = true;
+      state.sceneReloadToken += 1;
+      state.pendingImageProcessId = id;
+      state.selectedNodeId = id;
+      state.selectedNodeIds = [id];
+      state.pendingImageSrc = null;
+      state.activeTool = 'select';
+    },
     /** Spawn a right-side image processing node (original untouched). */
     startImageProcess(state, action) {
       if (!state.document) return;
@@ -2103,6 +2139,7 @@ export const {
   setCanvasMeta,
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
+  startAudioUploadPlaceholder,
   spawnImageGenerator,
   spawnVideoGenerator,
   spawnLottieGenerator,
