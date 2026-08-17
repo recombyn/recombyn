@@ -24,6 +24,7 @@ import {
   removeNodesFromDocument,
   reorderNodesInDocument
 } from '@/components/rcb/scene/document/sceneDocument';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import {
   createImageNode,
   createShapeNode,
@@ -65,7 +66,6 @@ import {
   canOutlineNode,
   outlineNodePatch,
 } from '@/components/rcb/scene/paint/outlineToPath';
-import { findPencilBrush } from '@/components/rcb/tools/pencilBrushes';
 
 const IMAGE_PLACEHOLDER =
   "data:image/svg+xml," +
@@ -809,47 +809,17 @@ function resolveCreateShapeBorderWidth(opts: {
   return 0;
 }
 
-/** Tip + vector brush ids Agent may emit (matches FE PENCIL_BRUSHES). */
-const PENCIL_TIP_BRUSH_IDS = new Set([
+const PENCIL_BRUSH_IDS = new Set([
   'vector-ink',
   'vector-even',
   'vector-calligraphy',
-  'solid',
-  'pencil-hb',
-  'soft',
-  'fountain',
-  'calligraphy',
-  'brushpen',
-  'marker',
-  'highlighter',
-  'chalk',
-  'charcoal',
-  'bristle',
-  'airbrush',
-  'watercolor',
-  'needle',
-  'bold',
+  'vector-pencil',
+  'vector-marker',
+  'vector-brush',
+  'vector-fountain',
+  'vector-technical',
+  'vector-soft',
 ]);
-
-/** Legacy freehand / seed ids → tip / vector brush (keep in sync with pencilBrushes). */
-const PENCIL_BRUSH_LEGACY_ALIAS: Record<string, string> = {
-  crayon: 'chalk',
-  dry: 'bristle',
-  ink: 'calligraphy',
-  sketch: 'pencil-hb',
-  'tip-soft': 'soft',
-  'tip-hard': 'solid',
-  'tip-chalk': 'chalk',
-  'tip-bristle': 'bristle',
-  freehand: 'vector-ink',
-  vector: 'vector-ink',
-  blob: 'vector-ink',
-  even: 'vector-even',
-  'vector-uniform': 'vector-even',
-  'vector-marker': 'vector-even',
-  'vector-brush': 'vector-calligraphy',
-  'vector-script': 'vector-calligraphy',
-};
 
 function resolvePencilBrushStyle(
   mapped: string,
@@ -857,19 +827,8 @@ function resolvePencilBrushStyle(
 ): string | undefined {
   if (mapped !== 'pencil') return undefined;
   const raw = args.brushStyle != null ? String(args.brushStyle).trim() : '';
-  if (!raw) return 'vector-ink';
-  const aliased = PENCIL_BRUSH_LEGACY_ALIAS[raw] || raw;
-  if (PENCIL_TIP_BRUSH_IDS.has(aliased)) return aliased;
-  // Unknown / custom — keep as-is; findPencilBrush falls back at paint time.
-  return aliased;
-}
-
-function normalizeBrushHardnessArg(raw: unknown): number | undefined {
-  if (raw == null || raw === '') return undefined;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return undefined;
-  const t = n > 0 && n <= 1 ? n * 100 : n;
-  return Math.min(100, Math.max(0, Math.round(t)));
+  if (!raw || !PENCIL_BRUSH_IDS.has(raw)) return 'vector-ink';
+  return raw;
 }
 
 function mapCreateShapeType(shapeType: string): string {
@@ -1001,30 +960,7 @@ export function nodeIdsInsideFramesOverlap(
   doc: SceneDocument,
   frameIds: string[]
 ): string[] {
-  if (!doc || !frameIds.length) return [];
-  const idSet = new Set(frameIds.map(String));
-  const frames = listFrames(doc).filter((f) => f?.id && idSet.has(String(f.id)));
-  if (!frames.length) return [];
-  const rootChildren: string[] = doc?.deltaSetLike?.ROOT?.children || [];
-  const out: string[] = [];
-  for (const id of rootChildren) {
-    const node = doc?.deltaSetLike?.[id];
-    if (!node || !id) continue;
-    const { left, top } = nodeLeftTop(doc, node);
-    const nw = Math.max(1, Number(node.width) || 1);
-    const nh = Math.max(1, Number(node.height) || 1);
-    const hits = frames.some((frame) => {
-      const fx = Number(frame.x) || 0;
-      const fy = Number(frame.y) || 0;
-      const fw = Math.max(1, Number(frame.width) || 1);
-      const fh = Math.max(1, Number(frame.height) || 1);
-      const ow = Math.max(0, Math.min(left + nw, fx + fw) - Math.max(left, fx));
-      const oh = Math.max(0, Math.min(top + nh, fy + fh) - Math.max(top, fy));
-      return ow * oh >= nw * nh * 0.35;
-    });
-    if (hits) out.push(id);
-  }
-  return out;
+  return nodeIdsBoundToFrames(doc, frameIds);
 }
 
 /** Single-frame helper (agent edit target / scene inventory). */
@@ -1972,19 +1908,11 @@ function execCreateShape(
   const brushStyle = resolvePencilBrushStyle(mapped, args);
   const pathPressure =
     mapped === 'pencil' ? normalizePathPressureArg(args.pathPressure) : undefined;
-  const brushHardness =
-    mapped === 'pencil'
-      ? normalizeBrushHardnessArg(args.brushHardness ?? args.hardness)
-      : undefined;
   const pressureEnabled =
     mapped === 'pencil'
       ? normalizePressureEnabledArg(args.pressureEnabled, {
           hasPathPressure: Boolean(pathPressure),
         })
-      : undefined;
-  const brushStampSrc =
-    mapped === 'pencil' && args.brushStampSrc != null
-      ? String(args.brushStampSrc).trim() || undefined
       : undefined;
   const { id, node } = createShapeNode({
     x: placed.x,
@@ -2000,8 +1928,6 @@ function execCreateShape(
     sides: args.sides != null ? num(args.sides, 5) : undefined,
     angle: args.rotation != null ? num(args.rotation) : undefined,
     brushStyle,
-    brushStampSrc,
-    brushHardness,
     pressureEnabled,
     pathPressure,
     opacity,
@@ -2178,11 +2104,8 @@ const UPDATE_NODE_STYLE_ARG_KEYS = [
   'name',
   'sides',
   'brushStyle',
-  'brushHardness',
-  'hardness',
   'pathPressure',
   'pressureEnabled',
-  'brushStampSrc',
   'text',
   'fontSize',
   'fontWeight',
@@ -2361,17 +2284,11 @@ function execUpdateNode(
   if (args.closed != null) shell.attrs.closed = truthy(args.closed) ? 'true' : 'false';
   if (args.name != null) shell.attrs.name = String(args.name);
 
-  if (args.brushStyle != null || args.brushHardness != null || args.hardness != null) {
+  if (args.brushStyle != null) {
     const nextStyle = resolveUpdateBrushStyle(args, shell.attrs);
     if (nextStyle) {
       shell.attrs.brushStyle = nextStyle;
-      // Tip texture bake is legacy — new tip strokes use SVG ribbon like vector ink.
-      delete shell.attrs.brushStampSrc;
     }
-  }
-  if (args.brushHardness != null || args.hardness != null) {
-    const hard = normalizeBrushHardnessArg(args.brushHardness ?? args.hardness);
-    if (hard != null) shell.attrs.brushHardness = hard;
   }
   if (args.pathPressure != null) {
     const pp = normalizePathPressureArg(args.pathPressure);
@@ -2387,12 +2304,6 @@ function execUpdateNode(
     });
     if (pe != null) shell.attrs.pressureEnabled = pe;
   }
-  if (args.brushStampSrc != null) {
-    const src = String(args.brushStampSrc).trim();
-    if (src) shell.attrs.brushStampSrc = src;
-    else delete shell.attrs.brushStampSrc;
-  }
-
   const shapeTypeRaw = args.shapeType ?? args.type;
   if (shapeTypeRaw != null && String(shapeTypeRaw).trim() && latest.key === 'shape') {
     const st = String(shapeTypeRaw).trim().toLowerCase();
@@ -3436,10 +3347,7 @@ function execDeleteFrame(
     if (!listFrames(docNow).some((f) => String(f.id) === fid)) {
       return { status: 'error', summary: `frame not found: ${fid}` };
     }
-    const childIds = nodeIdsInsideFramesOverlap(docNow, [fid]);
-    if (childIds.length) {
-      ctx.dispatch(setDocument(removeNodesFromDocument(ctx.getDocument(), childIds)));
-    }
+    const childIds = nodeIdsBoundToFrames(docNow, [fid]);
     ctx.dispatch(removeArtboardFrames([fid]));
     return {
       status: 'success',

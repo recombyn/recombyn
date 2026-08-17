@@ -11,6 +11,8 @@ import {
   LuImagePlus,
   LuImageUp,
   LuMinus,
+  LuFileJson,
+  LuMusic2,
   LuMousePointer2,
   LuPenTool,
   LuPencil,
@@ -37,6 +39,8 @@ import {
   setShapeKind,
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
+  spawnAudio,
+  spawnLottie,
   spawnImageGenerator,
   spawnVideoGenerator,
   finishImageProcess,
@@ -51,7 +55,8 @@ import {
 import {
   fitImageSize,
   measureImageNaturalSize,
-  prepareVideoUploadPreview
+  prepareVideoUploadPreview,
+  parseLottieAnimationData,
 } from '@/components/rcb/scene/document/nodeFactories';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import {
@@ -324,6 +329,8 @@ function EditorToolStrip({
   const document = useSelector((state: any) => state.editor.document);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const lottieInputRef = useRef<HTMLInputElement>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [pluginButtons, setPluginButtons] = useState<CanvasToolbarButton[]>([]);
   const toolsLocked = Boolean(selectOnly);
@@ -365,6 +372,12 @@ function EditorToolStrip({
       uploadImage: t('editor.tools.uploadImage'),
       uploadVideo: t('editor.tools.uploadVideo', {
         defaultValue: '视频上传',
+      }),
+      uploadAudio: t('editor.tools.uploadAudio', {
+        defaultValue: 'Upload audio',
+      }),
+      uploadLottie: t('editor.tools.uploadLottie', {
+        defaultValue: 'Upload Lottie',
       }),
       uploadMedia: t('editor.tools.uploadMedia', {
         defaultValue: '上传文件',
@@ -433,8 +446,26 @@ function EditorToolStrip({
           />
         ),
       },
+      {
+        key: 'audio',
+        label: (
+          <MenuLabel
+            label={L.uploadAudio}
+            icon={<LuMusic2 className={MENU_ICON_CLASS} strokeWidth={1.8} />}
+          />
+        ),
+      },
+      {
+        key: 'lottie',
+        label: (
+          <MenuLabel
+            label={L.uploadLottie}
+            icon={<LuFileJson className={MENU_ICON_CLASS} strokeWidth={1.8} />}
+          />
+        ),
+      },
     ],
-    [L.uploadImage, L.uploadVideo]
+    [L.uploadAudio, L.uploadImage, L.uploadLottie, L.uploadVideo]
   );
 
   const spawnImageGeneratorAtView = () => {
@@ -676,6 +707,65 @@ function EditorToolStrip({
     }
   };
 
+  const onPickAudio = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const preview = await readFileAsDataUrl(file);
+      const duration = await new Promise<number | undefined>((resolve) => {
+        const audio = new Audio();
+        audio.preload = 'metadata';
+        audio.onloadedmetadata = () => resolve(Number.isFinite(audio.duration) ? audio.duration : undefined);
+        audio.onerror = () => resolve(undefined);
+        audio.src = preview;
+      });
+      const uploaded = await uploadImageFile(file);
+      const { width, height, x, y } = placeAtViewportCenter({ width: 720, height: 400 });
+      dispatch(
+        spawnAudio({
+          src: uploaded.url || preview,
+          width,
+          height: Math.max(140, height),
+          x,
+          y,
+          name: file.name?.replace(/\.[^.]+$/, '') || 'Audio',
+          duration,
+          uploadKey: uploaded.key,
+        })
+      );
+    } catch (err: any) {
+      message.error(getHttpErrorMessage(err, L.uploadFail));
+    }
+  };
+
+  const onPickLottie = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const animationData = parseLottieAnimationData(await file.text());
+      if (!animationData) throw new Error('invalid lottie');
+      const natural = {
+        width: Math.max(1, Number(animationData.w) || 200),
+        height: Math.max(1, Number(animationData.h) || 200),
+      };
+      const { width, height, x, y } = placeAtViewportCenter(natural);
+      dispatch(
+        spawnLottie({
+          animationData,
+          width,
+          height,
+          x,
+          y,
+          name: file.name?.replace(/\.json$/i, '') || 'Lottie',
+        })
+      );
+    } catch {
+      message.error(t('editor.tools.lottieGenInvalidJson', { defaultValue: 'Invalid Lottie JSON' }));
+    }
+  };
+
   const openImageUpload = () => {
     imageInputRef.current?.click();
   };
@@ -684,10 +774,26 @@ function EditorToolStrip({
     videoInputRef.current?.click();
   };
 
+  const openAudioUpload = () => {
+    audioInputRef.current?.click();
+  };
+
+  const openLottieUpload = () => {
+    lottieInputRef.current?.click();
+  };
+
   const pickUpload = (key: string) => {
     setOpenMenu(null);
     if (key === 'video') {
       openVideoUpload();
+      return;
+    }
+    if (key === 'audio') {
+      openAudioUpload();
+      return;
+    }
+    if (key === 'lottie') {
+      openLottieUpload();
       return;
     }
     openImageUpload();
@@ -896,6 +1002,20 @@ function EditorToolStrip({
         accept="video/*"
         className="hidden"
         onChange={onPickVideo}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac"
+        className="hidden"
+        onChange={onPickAudio}
+      />
+      <input
+        ref={lottieInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={onPickLottie}
       />
       </FloatingToolbar>
     </div>

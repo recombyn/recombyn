@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildOutlinePath, outlineNodePatch } from '../outlineToPath';
-import { penSubpathsFromD } from '@/components/rcb/tools/penPath';
+import { boundsOfAnchors, penSubpathsFromD } from '@/components/rcb/tools/penPath';
 import { polylinePathD } from '@/components/rcb/tools/pencilBrushes';
 import { filterAnchorsForKnobPaint } from '@/components/rcb/tools/PenPathEditFeature';
 
@@ -15,6 +15,41 @@ function scribble(n = 40) {
 }
 
 describe('pen/pencil outline → path-edit paint', () => {
+  it('keeps the full rounded-rectangle box when arc sampling is unavailable', () => {
+    const node = {
+      key: 'rect' as const,
+      x: 204,
+      y: 102,
+      width: 293,
+      height: 118,
+      attrs: {
+        shapeType: 'roundRect',
+        radius: 24,
+        'fill-color': '#ffffff',
+        'stroke-enabled': 'false',
+        'border-width': 0,
+      },
+    };
+    const outline = buildOutlinePath(node, { zoom: 1 });
+    expect(outline?.pathD).toMatch(/[Aa]/);
+
+    // This is the parser fallback used when the browser cannot sample SVG
+    // arcs. Arc endpoints must still describe the original outer box.
+    const subpaths = penSubpathsFromD(String(outline?.pathD));
+    expect(subpaths).toHaveLength(1);
+    const bounds = boundsOfAnchors(subpaths[0].anchors, subpaths[0].closed);
+    expect(bounds.left).toBe(0);
+    expect(bounds.top).toBe(0);
+    expect(bounds.width).toBeCloseTo(node.width, 5);
+    expect(bounds.height).toBeCloseTo(node.height, 5);
+
+    const patch = outlineNodePatch(node, outline!);
+    expect(patch.x).toBe(node.x);
+    expect(patch.y).toBe(node.y);
+    expect(patch.width).toBeCloseTo(node.width, 5);
+    expect(patch.height).toBeCloseTo(node.height, 5);
+  });
+
   it('keeps fill ink and closed ribbon after outlineNodePatch', () => {
     const sw = 16;
     const node = {
@@ -29,7 +64,7 @@ describe('pen/pencil outline → path-edit paint', () => {
         'border-color': '#112233',
         'border-width': sw,
         borderWidth: sw,
-        brushStyle: 'solid',
+        brushStyle: 'vector-ink',
       },
     };
     const out = buildOutlinePath(node, { zoom: 1 });
@@ -65,7 +100,7 @@ describe('pen/pencil outline → path-edit paint', () => {
           shapeType: 'pencil',
           path: polylinePathD(scribble(80)),
           'border-width': 16,
-          brushStyle: 'solid',
+          brushStyle: 'vector-ink',
         },
       },
       { zoom: 1 }

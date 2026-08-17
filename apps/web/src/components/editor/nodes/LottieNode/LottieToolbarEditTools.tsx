@@ -9,11 +9,11 @@ import {
   HiOutlineArrowPath,
   HiOutlinePause,
   HiOutlinePlay,
-  HiOutlineSparkles,
 } from 'react-icons/hi2';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown';
 import Tooltip from '@/components/base/tooltip';
+import AppLogo from '@/components/base/AppLogo';
 import { ExportSelectionPopover } from '@/components/editor/panels/ExportSelectionPanel';
 import { imageToolBtn, ImageToolSep } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import { getLottieHost } from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
@@ -121,7 +121,7 @@ function LottieToolbarEditTools({
         tip={t('editor.imageToolbar.chat', { defaultValue: '快速编辑' })}
         onClick={() => dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))}
       >
-        <HiOutlineSparkles className="h-4 w-4" strokeWidth={2} />
+        <AppLogo size={16} />
       </Tool>
       <ImageToolSep />
       <Tool

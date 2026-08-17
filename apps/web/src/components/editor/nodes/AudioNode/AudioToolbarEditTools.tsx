@@ -3,8 +3,9 @@
  */
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineClock, HiOutlineScissors, HiOutlineSparkles } from 'react-icons/hi2';
+import { HiOutlineClock, HiOutlineScissors } from 'react-icons/hi2';
 import { cn } from '@/utils/classnames';
+import AppLogo from '@/components/base/AppLogo';
 import { videoToolBtn, VideoToolSep } from '@/components/editor/nodes/VideoNode/videoToolbarShared';
 
 const TOOL_ICON_SLOT =
@@ -54,7 +55,7 @@ function AudioToolbarEditTools({
       {onQuickEdit ? (
         <>
           <Tool label={t('editor.imageToolbar.chat')} onClick={onQuickEdit}>
-            <HiOutlineSparkles className="h-4 w-4" strokeWidth={2} />
+            <AppLogo size={16} />
           </Tool>
           <VideoToolSep />
         </>

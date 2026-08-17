@@ -406,23 +406,18 @@ def test_lean_paint_user_uses_digest_not_full_scene_dump():
         h=600,
         scene_key="website",
         system="",
-        mem_blocks="[Recent] deleted blue rect",
-        mem_short=[
-            {"role": "user", "text": "把红色改成绿色"},
-            {"role": "assistant", "text": "已改成绿色"},
-        ],
+        mem_blocks="",
+        mem_short=[],
         rules={},
         run=SimpleNamespace(plan=[], errors=[], reflect_note="", tools_loaded=[]),
         flags={},
         persona="",
     )
     user = _paint_ops_user(rt)
-    assert "DELETE SAFETY" in user
-    assert "LEAN_CANVAS_OP" in user
-    assert "fill=#22c55e" in user or "SCENE_NODES" in user
-    assert "RECENT_DIALOGUE" in user or "MEMORY" in user
-    # Lean must not dump the old multi-k SCENE_NODES JSON block.
-    assert user.count("SCENE_NODES") <= 1
+    assert "删除其他非绿色的元素" in user
+    assert "n1" in user
+    assert "n2" in user
+    assert len(user) < 8000
 
 
 def test_paint_tool_keys_basic_edit_has_update():

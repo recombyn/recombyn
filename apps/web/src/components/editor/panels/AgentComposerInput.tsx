@@ -390,6 +390,17 @@ export function libraryAssetAttachmentKey(assetId: string): string {
   return `attachment:asset:${assetId}`;
 }
 
+function attachedAssetPayload(
+  kind: 'image' | 'video' | 'audio',
+  id: string,
+  name: string
+): string {
+  let label = 'image';
+  if (kind === 'video') label = 'video';
+  else if (kind === 'audio') label = 'audio';
+  return `[Attached ${label}]\nid: ${id}\nname: ${name}`;
+}
+
 /**
  * Ensure a library asset is present as a composer attachment chip.
  * Used by generator `@` pickers (image/video/audio/lottie) so refs stay in the strip.
@@ -423,12 +434,11 @@ export function upsertLibraryAssetAttachment(
       key,
       label: promptLabel.slice(0, 48) || fallbackLabel,
       kind: 'attachment',
-      payload:
-        kind === 'video'
-          ? `[Attached video]\nid: ${asset.id}\nname: ${promptLabel || asset.id}`
-          : kind === 'audio'
-            ? `[Attached audio]\nid: ${asset.id}\nname: ${promptLabel || asset.id}`
-            : `[Attached image]\nid: ${asset.id}\nname: ${promptLabel || asset.id}`,
+      payload: attachedAssetPayload(
+        kind,
+        String(asset.id),
+        promptLabel || String(asset.id)
+      ),
       dataUrl: url,
       thumbUrl: url,
       uploadKey: asset.objectKey || undefined,
@@ -1162,6 +1172,21 @@ const AgentComposerInput = forwardRef<
     });
   };
 
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    const hasFiles = Array.from(e.dataTransfer?.types || []).some((type) => type === 'Files');
+    if (!hasFiles) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const files = clipboardMediaFiles(e.dataTransfer);
+    if (!files.length || !onPasteImagesRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onPasteImagesRef.current(files);
+  };
+
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       onEscape?.();
@@ -1214,6 +1239,8 @@ const AgentComposerInput = forwardRef<
         suppressContentEditableWarning
         onInput={handleInput}
         onPaste={handlePaste}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         onKeyDown={handleKeyDown}
         onKeyUp={rememberCaret}
         onClick={rememberCaret}

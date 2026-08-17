@@ -17,6 +17,7 @@ from app.services.design.runtime.graph.support import (
     _goto_cmd,
 )
 from app.services.design.runtime.models_route import (
+    build_design_plan,
     classify_user_intent,
     normalize_intent_decision,
     normalize_paint_lane,
@@ -98,6 +99,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         has_images=bool(rt.images),
         canvas_node_count=len(rt.scene_nodes or []),
         scene=rt.scene_key,
+        scene_nodes=rt.scene_nodes,
         interaction_mode=str(rt.flags.get("mode") or rt.mode or ""),
         pending_proposal=pending,
         memory_blocks=str(getattr(rt, "mem_blocks", "") or ""),
@@ -114,6 +116,21 @@ async def _node_intent_classify(state: GraphState) -> Command:
         getattr(decision, "session_action", None)
     )
     reply = (decision.reply or "").strip()
+    needs_clarification = bool(
+        getattr(decision, "needs_clarification", False) and paint_lane == "edit"
+    )
+    clarification = str(getattr(decision, "clarification", "") or "").strip()
+    clarification_options = [
+        {
+            "label": str(getattr(option, "label", "") or "").strip(),
+            "target_id": str(getattr(option, "target_id", "") or "").strip(),
+        }
+        for option in list(getattr(decision, "clarification_options", None) or [])[:4]
+        if str(getattr(option, "label", "") or "").strip()
+        and str(getattr(option, "target_id", "") or "").strip()
+    ]
+    if len(clarification_options) < 2:
+        needs_clarification = False
     if session_action:
         intent = "chat"
         paint_lane = ""
@@ -128,6 +145,19 @@ async def _node_intent_classify(state: GraphState) -> Command:
     rt.flags["intent"] = intent
     rt.flags["gate_intent"] = intent
     rt.flags["paint_lane"] = paint_lane
+    plan = build_design_plan(
+        prompt=rt.prompt,
+        intent=intent,
+        paint_lane=paint_lane,
+        focus_frame_id=rt.focus_id,
+        scene_nodes=rt.scene_nodes,
+    )
+    if plan is not None:
+        rt.design_plan = plan.model_dump()
+        rt.flags["design_plan"] = rt.design_plan
+    else:
+        rt.design_plan = None
+        rt.flags.pop("design_plan", None)
     if session_action:
         rt.flags["session_action"] = session_action
     st.push_log(
@@ -136,6 +166,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         paint_lane=paint_lane or None,
         proposal_action=action or None,
         session_action=session_action or None,
+        needs_clarification=needs_clarification or None,
         reply=(
             reply[:500]
             if intent == "chat" or action == "dismiss" or session_action
@@ -156,6 +187,11 @@ async def _node_intent_classify(state: GraphState) -> Command:
                     "paint_lane": paint_lane,
                     "proposal_action": action,
                     "session_action": session_action,
+                    "needs_clarification": needs_clarification,
+                    "clarification": clarification[:240] if needs_clarification else "",
+                    "clarification_options": clarification_options
+                    if needs_clarification
+                    else [],
                     "rationale": (decision.rationale or "")[:400],
                     "reply": reply[:400]
                     if intent == "chat" or action == "dismiss" or session_action
@@ -209,6 +245,26 @@ async def _node_intent_classify(state: GraphState) -> Command:
         if reply:
             st.reply = reply
             _emit({"type": "token", "text": reply})
+        return _goto_cmd(rt, frm="intent_classify", to="__settle__")
+
+    if needs_clarification:
+        # Choice labels become the user's next message and pass through this same
+        # intent gate with the live scene again; no speculative canvas operation.
+        st.reply = clarification
+        st.choice_ui = {
+            "mode": "single",
+            "options": [
+                {
+                    "label": option["label"],
+                    "action": "reply",
+                    "value": option["target_id"],
+                }
+                for option in clarification_options
+            ],
+        }
+        st.choices = [option["label"] for option in clarification_options]
+        rt.flags["await_user"] = True
+        _emit({"type": "token", "text": clarification})
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     # New design create without @ must not inherit memory/ambient FOCUS —

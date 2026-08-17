@@ -67,16 +67,11 @@ import { applyNodeEffects, applySvgFill } from './svgPaint';
 import {
   brushSize,
   findPencilBrush,
-  paintStampDabs,
   parsePathPressures,
   parseSimplePathPoints,
   pencilInkPathFromPoints,
-  buildStampDabs,
-  STAMP_MAX_DABS,
-  type StampDab,
 } from '@/components/rcb/tools/pencilBrushes';
 import { applyFrameContentClip, detachSceneNodeEl } from '@/components/rcb/frames/frameContentClip';
-import { getTintedStampSrc, STAMP_TINT_READY_EVENT } from '@/components/rcb/tools/stampTint';
 import { strokeDashForStyle } from '../document/sceneStrokeStyle';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import {
@@ -215,131 +210,6 @@ function strokeOptsFromNode(node: SceneNodeInput, color: string, width: number):
 function setSvgImageHref(img: SVGImageElement, href: string) {
   img.setAttributeNS(XLINK_NS, 'href', href);
   img.setAttribute('href', href);
-}
-
-const stampTipImageCache = new Map<string, HTMLImageElement>();
-
-function tipImageReady(src: string): HTMLImageElement | null {
-  if (!src || typeof Image === 'undefined') return null;
-  let img = stampTipImageCache.get(src);
-  if (!img) {
-    img = new Image();
-    img.decoding = 'async';
-    img.src = src;
-    stampTipImageCache.set(src, img);
-  }
-  if (img.complete && (img.naturalWidth || img.width)) return img;
-  // Upgrade multi-dab fallback → single bake once the tip finishes decoding.
-  if (!(img as HTMLImageElement & { __stampLoadNotify?: boolean }).__stampLoadNotify) {
-    (img as HTMLImageElement & { __stampLoadNotify?: boolean }).__stampLoadNotify = true;
-    img.addEventListener(
-      'load',
-      () => {
-        if (typeof window === 'undefined') return;
-        window.dispatchEvent(new CustomEvent(STAMP_TINT_READY_EVENT));
-      },
-      { once: true }
-    );
-  }
-  return null;
-}
-
-/**
- * Bake tip stamps into one PNG for the stroke host (keeps tip texture, 1 DOM image).
- * Supersamples to current screen density (DPR × zoom) so zoom-in stays sharp longer.
- * Prefers OffscreenCanvas worker; falls back to main-thread canvas.
- */
-async function rasterizeStampStrokeImage(
-  samples: StampDab[],
-  tipSrc: string,
-  strokeOpacity: number
-): Promise<{ href: string; x: number; y: number; width: number; height: number } | null> {
-  if (typeof document === 'undefined' || !samples.length || !tipSrc) return null;
-  const tip = tipImageReady(tipSrc);
-  if (!tip) return null;
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const d of samples) {
-    const r = d.size / 2;
-    minX = Math.min(minX, d.x - r);
-    minY = Math.min(minY, d.y - r);
-    maxX = Math.max(maxX, d.x + r);
-    maxY = Math.max(maxY, d.y + r);
-  }
-  if (!Number.isFinite(minX)) return null;
-
-  const pad = 2;
-  const width = Math.max(1, Math.ceil(maxX - minX + pad * 2));
-  const height = Math.max(1, Math.ceil(maxY - minY + pad * 2));
-  const zoom = paintCamera ? Math.max(0.25, rcbCameraCssZoom(paintCamera)) : 1;
-  const dpr = Math.max(1, paintDpr || 1);
-  // Screen px per scene unit, plus headroom for one zoom step before rebake.
-  const want = Math.min(8, Math.max(2.5, dpr * zoom * 1.35));
-  const maxSide = 8192;
-  const scale = Math.min(want, maxSide / Math.max(width, height));
-  const originX = -minX + pad;
-  const originY = -minY + pad;
-
-  try {
-    const tipBitmap = await createImageBitmap(tip);
-    // Dynamic import avoids sceneToSvg ↔ exportImage cycle (export uses loadSceneOntoSvg).
-    const { bakeStampStrokeInWorker } = await import('./exportImage');
-    const href = await bakeStampStrokeInWorker({
-      tip: tipBitmap,
-      dabs: samples.map((d) => ({
-        x: d.x,
-        y: d.y,
-        size: d.size,
-        opacity: d.opacity,
-      })),
-      strokeOpacity,
-      sceneWidth: width,
-      sceneHeight: height,
-      scale,
-      originX,
-      originY,
-    });
-    return { href, x: minX - pad, y: minY - pad, width, height };
-  } catch {
-    /* fall through to main-thread bake */
-  }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(width * scale));
-  canvas.height = Math.max(1, Math.ceil(height * scale));
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.setTransform(scale, 0, 0, scale, originX * scale, originY * scale);
-  paintStampDabs(ctx, samples, tip, strokeOpacity);
-  try {
-    return {
-      href: canvas.toDataURL('image/png'),
-      x: minX - pad,
-      y: minY - pad,
-      width,
-      height,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Zoom LOD bucket for tip-stroke rebake (1, 2, 4, 8…). */
-export function stampStrokeBakeZoomBucket(zoom?: number): number {
-  const z = Math.max(
-    0.25,
-    typeof zoom === 'number' && zoom > 0
-      ? zoom
-      : paintCamera
-        ? rcbCameraCssZoom(paintCamera)
-        : 1
-  );
-  return Math.pow(2, Math.max(0, Math.round(Math.log2(z))));
 }
 
 /**
@@ -1023,110 +893,40 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
   if (shapeType === 'path' || shapeType === 'pen' || shapeType === 'pencil') {
     const d = node.attrs?.path || `M 0 0 L ${width} ${height}`;
     const closed = boolEffectAttr(node.attrs?.closed, false) || /\sZ\s*$/i.test(String(d).trim());
-    const brushId = String(node.attrs?.brushStyle || 'solid');
+    const brushId = String(node.attrs?.brushStyle || 'vector-ink');
 
     if (shapeType === 'pencil') {
       const pts = parseSimplePathPoints(String(d));
       const ink = stroke && stroke !== 'transparent' ? stroke : '#333333';
-      const stampSrcAttr =
-        node.attrs?.brushStampSrc != null ? String(node.attrs.brushStampSrc) : '';
       const brush = findPencilBrush(brushId);
-      // Tip brushes always paint from their declared tip. `brushStampSrc` is
-      // persisted for custom uploads; builtins resolve from the brush id so
-      // existing documents do not silently fall back to a vector ribbon.
-      const stampSrc = stampSrcAttr || brush.stampSrc || '';
-      const useStamp = brush.kind === 'stamp' && Boolean(stampSrc) && pts.length >= 2;
-
-      if (useStamp) {
-        const src = stampSrc;
-        const hardnessRaw = Number(node.attrs?.brushHardness);
-        const hardness = Number.isFinite(hardnessRaw)
-          ? Math.max(0, Math.min(100, hardnessRaw))
-          : 80;
-        const pressures = parsePathPressures(node.attrs?.pathPressure, pts.length);
-        const ptsWithP =
-          pressures && pressures.length === pts.length
-            ? pts.map((p, i) => ({ ...p, pressure: pressures[i] }))
-            : pts;
-        const pressureOn = boolEffectAttr(node.attrs?.pressureEnabled, true);
-        const samples = buildStampDabs(ptsWithP, brush, strokeWidth, {
-          hardness,
-          pressureEnabled: pressureOn,
-          maxDabs: STAMP_MAX_DABS,
-          // Match live tip preview (endpoint taper rematerializes the whole stroke).
-          skipTaper: true,
-        });
-        const tinted = src ? getTintedStampSrc(src, ink, hardness) : '';
-        const g = appendChild(parent, svgEl('g'));
-        const strokeOp =
-          typeof node.attrs?.opacity === 'number'
-            ? Math.max(0, Math.min(1, Number(node.attrs.opacity)))
-            : 1;
-        const baked = tinted
-          ? await rasterizeStampStrokeImage(samples, tinted, strokeOp)
-          : null;
-        if (baked) {
-          const img = appendChild(
-            g,
-            svgEl('image', {
-              width: baked.width,
-              height: baked.height,
-              x: baked.x,
-              y: baked.y,
-              preserveAspectRatio: 'none',
-            })
-          );
-          setSvgImageHref(img, baked.href);
-        } else if (tinted) {
-          // Tip still decoding — temporary dense SVG tips until tint/load ready.
-          for (const p of samples) {
-            const img = appendChild(
-              g,
-              svgEl('image', {
-                width: p.size,
-                height: p.size,
-                x: p.x - p.size / 2,
-                y: p.y - p.size / 2,
-                opacity: String(Math.max(0.08, Math.min(1, p.opacity * strokeOp))),
-                preserveAspectRatio: 'none',
-              })
-            );
-            setSvgImageHref(img, tinted);
-          }
-        }
-        const hitSize = brushSize(brush, strokeWidth);
-        const hit = appendChild(g, svgEl('path', { d: String(d) }));
-        setFill(hit, 'none');
-        setStroke(hit, { color: 'transparent', width: Math.max(hitSize, strokeWidth) });
-        setAttrs(hit, { 'pointer-events': 'stroke', 'data-baseline': '1' });
-        tagNode(g, nodeId, 'shape', shapeType, left, top, width, height);
-        applyMeta(g, left, top, meta, width, height);
-        applyNodeEffects(root, g, node);
-        return g;
-      }
-
-      // Variable-width freehand silhouette (pressure + brush thinning / taper).
+      const pressures = parsePathPressures(node.attrs?.pathPressure, pts.length);
+      // All pencil brushes use the same perfect-freehand vector silhouette.
       // Outline is built around `pts` in place — do not translate relative to the path.
       // Keep an invisible centerline baseline for selection chrome hit-testing.
-      const pressures = parsePathPressures(node.attrs?.pathPressure, pts.length);
-      const hardnessRaw = Number(node.attrs?.brushHardness);
-      const freehandHardness = Number.isFinite(hardnessRaw)
-        ? Math.max(0, Math.min(100, hardnessRaw))
-        : 80;
-      const outlineD = pencilInkPathFromPoints(pts, strokeWidth, brushId, {
+      const customOutline = String(node.attrs?.pencilOutlinePath || '').trim();
+      const outlineD = customOutline || pencilInkPathFromPoints(pts, strokeWidth, brushId, {
         linecap: strokeOpen.linecap,
         dasharray: strokeFull.dasharray,
         pressures,
         pressureEnabled: boolEffectAttr(node.attrs?.pressureEnabled, true),
-        hardness: freehandHardness,
         // Centerline is already the capture path — RDP here kinked commits vs live.
         simplify: false,
       });
       const g = appendChild(parent, svgEl('g'));
       if (outlineD) {
         const inkPath = appendChild(g, svgEl('path', { d: outlineD }));
-        setFill(inkPath, ink);
-        setStroke(inkPath, 'none');
+        const fillOn = boolEffectAttr(node.attrs?.pencilFill, brush.fillEnabled !== false);
+        const outlineW = Number(node.attrs?.pencilOutlineWidth ?? brush.outlineStrokeWidth) || 0;
+        const outlineC = String(
+          node.attrs?.pencilOutlineColor || brush.outlineStrokeColor || ink
+        );
+        const customSilhouette = Boolean(customOutline);
+        setFill(inkPath, fillOn ? (customSilhouette ? String(node.attrs?.['fill-color'] || ink) : ink) : 'none');
+        if (outlineW > 0) {
+          setStroke(inkPath, { color: outlineC, width: outlineW, linejoin: 'round' });
+        } else {
+          setStroke(inkPath, 'none');
+        }
         setAttrs(inkPath, { 'pointer-events': 'none' });
       }
       const hit = appendChild(g, svgEl('path', { d: String(d) }));
@@ -2266,14 +2066,14 @@ export async function loadSceneOntoSvg(
   document: SceneDocument,
   loadSeq = 0,
   boardMeta?: { loadSeq?: number },
-  opts?: { infinite?: boolean; /** Skip generators + process-shimmer plates (export / cover). */ omitNonExportable?: boolean; /** @deprecated use omitNonExportable */ omitImageGenerators?: boolean }
+  opts?: { infinite?: boolean; /** Skip generators + process-shimmer plates (export / cover). */ omitNonExportable?: boolean }
 ) {
   if (!root || !layer || !document?.deltaSetLike?.ROOT) {
     return new Map<string, SVGElement>();
   }
 
   const infinite = Boolean(opts?.infinite);
-  const omitNonExportable = Boolean(opts?.omitNonExportable || opts?.omitImageGenerators);
+  const omitNonExportable = Boolean(opts?.omitNonExportable);
   const w = Math.round(document.width || 794);
   const h = Math.round(document.height || 1123);
   if (infinite) {

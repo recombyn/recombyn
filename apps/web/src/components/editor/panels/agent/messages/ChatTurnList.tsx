@@ -21,7 +21,10 @@ import {
   type VirtualListHandle,
 } from '@/components/base';
 import { cn } from '@/utils/classnames';
-import { setChatImageDragData } from '@/utils/chatImageDrag';
+import {
+  scheduleClearMediaAssetDragData,
+  setMediaAssetDragData,
+} from '@/utils/chatImageDrag';
 import { imageSrcToFile } from '@/utils/uploadImage';
 import VideoJsPlayer from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
 
@@ -97,7 +100,11 @@ export type ChatUiMessage = {
   /** Ask interaction UI — mode + options; text = freeform reply. */
   choiceUi?: {
     mode: 'confirm' | 'single' | 'multi' | 'buttons' | 'text';
-    options: Array<{ label: string; action: 'apply' | 'reply' | 'dismiss' }>;
+    options: Array<{
+      label: string;
+      action: 'apply' | 'reply' | 'dismiss';
+      value?: string;
+    }>;
     placeholder?: string;
   };
   /** Live-draw pipeline progress — kept for training UI; not shown in normal chat. */
@@ -203,6 +210,33 @@ function governanceHasLanes(
   return lanes.length > 0;
 }
 
+function governanceStatusLabel(
+  status: string | null | undefined,
+  t: (key: string) => string
+): string {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'pass') return t('agent.governancePass');
+  if (normalized === 'fail') return t('agent.governanceFail');
+  return String(status || '');
+}
+
+function governanceStatusMark(status: string): string {
+  if (status === 'pass') return '✓';
+  if (status === 'fail') return '✗';
+  if (status === 'warn') return '⚠';
+  return '·';
+}
+
+function governanceLaneStatusSuffix(
+  status: string,
+  t: (key: string) => string
+): string {
+  if (status === 'pass') return `：${t('agent.governanceLanePass')}`;
+  if (status === 'fail') return `：${t('agent.governanceLaneFail')}`;
+  if (status === 'warn') return `：${t('agent.governanceLaneWarn')}`;
+  return '';
+}
+
 export function formatGovernanceLaneItems(
   t: (key: string, opts?: Record<string, unknown>) => string,
   rows: Array<{
@@ -217,16 +251,13 @@ export function formatGovernanceLaneItems(
     const lane = String(row.lane || row.name || '').trim();
     const st = String(row.status || row.summary || '').toLowerCase();
     const laneLabel = t(`agent.governanceLane.${lane}`, { defaultValue: lane });
-    const stLabel =
-      st === 'pass'
-        ? t('agent.governanceLanePass')
-        : st === 'fail'
-          ? t('agent.governanceLaneFail')
-          : st === 'warn'
-            ? t('agent.governanceLaneWarn')
-            : st;
-    const tone: ExploreItemTone =
-      st === 'fail' ? 'error' : st === 'warn' ? 'warn' : 'ok';
+    let stLabel = st;
+    if (st === 'pass') stLabel = t('agent.governanceLanePass');
+    else if (st === 'fail') stLabel = t('agent.governanceLaneFail');
+    else if (st === 'warn') stLabel = t('agent.governanceLaneWarn');
+    let tone: ExploreItemTone = 'ok';
+    if (st === 'fail') tone = 'error';
+    else if (st === 'warn') tone = 'warn';
     return {
       id: String(row.id || `gov-lane-${lane || i}`),
       name: stLabel ? `${laneLabel}：${stLabel}` : laneLabel,
@@ -427,11 +458,7 @@ function DesignIntelligencePanel({
               {t('agent.governanceTitle')}
             </span>
             <span className="tabular-nums text-[13px] text-[var(--ink)]">
-              {String(intel.governance?.status || '').toLowerCase() === 'pass'
-                ? t('agent.governancePass')
-                : String(intel.governance?.status || '').toLowerCase() === 'fail'
-                  ? t('agent.governanceFail')
-                  : intel.governance?.status}
+              {governanceStatusLabel(intel.governance?.status, t)}
             </span>
           </div>
           {(intel.governance?.lanes || []).length ? (
@@ -439,8 +466,8 @@ function DesignIntelligencePanel({
               {(intel.governance?.lanes || []).map((row) => {
                 const lane = String(row.lane || '').trim();
                 const st = String(row.status || '').toLowerCase();
-                const mark =
-                  st === 'pass' ? '✓' : st === 'fail' ? '✗' : st === 'warn' ? '⚠' : '·';
+                const mark = governanceStatusMark(st);
+                const laneStatus = governanceLaneStatusSuffix(st, t);
                 return (
                   <li key={lane || `gov-${mark}`} className="flex items-start gap-2">
                     <span aria-hidden>{mark}</span>
@@ -448,13 +475,7 @@ function DesignIntelligencePanel({
                       {t(`agent.governanceLane.${lane}`, {
                         defaultValue: lane,
                       })}
-                      {st === 'pass'
-                        ? `：${t('agent.governanceLanePass')}`
-                        : st === 'fail'
-                          ? `：${t('agent.governanceLaneFail')}`
-                          : st === 'warn'
-                            ? `：${t('agent.governanceLaneWarn')}`
-                            : ''}
+                      {laneStatus}
                     </span>
                   </li>
                 );
@@ -1322,6 +1343,8 @@ type Props = {
 export type AskChoicePick = {
   label: string;
   action: 'apply' | 'reply' | 'dismiss';
+  /** Optional opaque value from a structured choice (for example a scene node id). */
+  value?: string;
   /** multi mode: all selected labels when submitting. */
   selectedLabels?: string[];
 };
@@ -1798,10 +1821,17 @@ function ChatResultImageCard({
         className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
         onDragStart={(e) => {
           draggedRef.current = true;
-          setChatImageDragData(e.dataTransfer, src);
+          setMediaAssetDragData(e.dataTransfer, {
+            kind: 'image',
+            src,
+            width: box.width,
+            height: box.height,
+            name: 'Image',
+          });
         }}
         onDragEnd={() => {
           // Click often follows a completed drag — ignore the next click once.
+          scheduleClearMediaAssetDragData(300);
           window.setTimeout(() => {
             draggedRef.current = false;
           }, 0);
@@ -1870,13 +1900,30 @@ function VideoGenGallery({
               className="group relative shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-black"
               style={{ width: box.width, height: box.height }}
             >
-              <VideoJsPlayer
-                src={src}
-                layout="fill"
-                controlsMode="always"
-                muted
-                className="h-full w-full"
-              />
+              <button
+                type="button"
+                draggable
+                aria-label="将视频拖到画布"
+                className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
+                onDragStart={(e) =>
+                  setMediaAssetDragData(e.dataTransfer, {
+                    kind: 'video',
+                    src,
+                    width: box.width,
+                    height: box.height,
+                    name: 'Video',
+                  })
+                }
+                onDragEnd={() => scheduleClearMediaAssetDragData(300)}
+              >
+                <VideoJsPlayer
+                  src={src}
+                  layout="fill"
+                  controlsMode="always"
+                  muted
+                  className="h-full w-full"
+                />
+              </button>
             </div>
           );
         }
@@ -1977,7 +2024,7 @@ function AskChoicePanel({
   const [picked, setPicked] = useState<string[]>([]);
   if (!ui?.options.length) return null;
 
-  const optionLabel = (opt: { label: string; action: string }) => {
+  const optionLabel = (opt: { label: string; action: string; value?: string }) => {
     if (opt.label) return opt.label;
     if (opt.action === 'apply') return t('common.confirm');
     if (opt.action === 'dismiss') return t('common.cancel');
@@ -2101,7 +2148,7 @@ function AskChoicePanel({
             type="button"
             disabled={sending}
             className={chipClass}
-            onClick={() => onChoice({ label, action: opt.action })}
+            onClick={() => onChoice({ label, action: opt.action, value: opt.value })}
           >
             {label}
           </button>
@@ -2154,8 +2201,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
         const canRestore = Boolean(m && hasCheckpoint(m.id));
         return (
           <div className="flex w-full min-w-0 flex-col gap-3">
-            {m ? (
-              isEditing ? (
+            {m && isEditing ? (
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <div className="overflow-hidden rounded-[22px] border border-[var(--line)] bg-[var(--canvas)] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
                     {editComposer}
@@ -2180,7 +2226,8 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : null}
+            {m && !isEditing ? (
                 <div className="group relative w-full min-w-0">
                   <button
                     type="button"
@@ -2222,8 +2269,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                     </button>
                   ) : null}
                 </div>
-              )
-            ) : null}
+              ) : null}
 
             {assistant && !isEditing ? (
               <AssistantTurn

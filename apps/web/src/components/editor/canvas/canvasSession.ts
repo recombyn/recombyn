@@ -5,7 +5,11 @@ import type { Dispatch } from '@reduxjs/toolkit';
 import {
   addNodeToDocument,
   patchDeltaSetLike,
+  updateNodesInDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  nodeIdsBoundToFrames,
+} from '@/components/rcb/scene/document/sceneClipboard';
 import {
   createImageNode,
   createShapeNode,
@@ -57,6 +61,7 @@ import {
   snapCoordToGrid,
 } from '@/components/rcb';
 import { parseFrameSelId } from '@/components/rcb/selection/frameSelectionIds';
+import { applyFrameContentClip } from '@/components/rcb/frames/frameContentClip';
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 import type { createDragWriteCoalescer } from './dragWriteCoalescer';
 import type { ArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
@@ -70,7 +75,7 @@ import {
   setSelectedNodeId,
   setSelectedNodeIds,
 } from '@/store/modules/editor';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 
 type DragWriteCoalescer = ReturnType<typeof createDragWriteCoalescer>;
 
@@ -192,6 +197,136 @@ export function hitTestFrameInDoc(doc: SceneDocument | null | undefined, x: numb
   return null;
 }
 
+function rectIntersectsFrame(
+  rect: { left: number; top: number; width: number; height: number },
+  frame: { x?: number; y?: number; width?: number; height?: number }
+) {
+  const right = rect.left + Math.max(1, rect.width);
+  const bottom = rect.top + Math.max(1, rect.height);
+  const frameLeft = Number(frame.x) || 0;
+  const frameTop = Number(frame.y) || 0;
+  const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
+  const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
+  return rect.left < frameRight && right > frameLeft && rect.top < frameBottom && bottom > frameTop;
+}
+
+function frameForNodePlacement(
+  doc: SceneDocument,
+  rect: { left: number; top: number; width: number; height: number }
+) {
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  for (let index = frames.length - 1; index >= 0; index -= 1) {
+    const frame = frames[index];
+    if (!frame || frame.hidden || !rectIntersectsFrame(rect, frame)) continue;
+    return String(frame.id);
+  }
+  return null;
+}
+
+/** Maintain one explicit artboard binding through node moves and resizes. */
+function applyNodeFrameBindings(
+  doc: SceneDocument,
+  patches: GeomPatch[],
+  detachedSink?: Set<string>
+): SceneDocument {
+  const bindingPatches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  for (const patch of patches) {
+    const node = doc.deltaSetLike?.[patch.nodeId];
+    if (!node) continue;
+    // Binding follows the geometry produced by this gesture. Reading the node
+    // first makes a moved node look like it is still at its old position and
+    // leaves a stale frameId after it has completely left the artboard.
+    const rect = {
+      left: Number(patch.left) || 0,
+      top: Number(patch.top) || 0,
+      width: Math.max(1, Number(patch.width) || 1),
+      height: Math.max(1, Number(patch.height) || 1),
+    };
+    const currentId = String(node.attrs?.frameId || '').trim();
+    let nextId = currentId || null;
+    if (currentId) {
+      const owner = frames.find((frame) => String(frame.id) === currentId);
+      if (owner && rectIntersectsFrame(rect, owner)) {
+        nextId = currentId;
+      } else {
+        nextId = frameForNodePlacement(doc, rect);
+      }
+    } else {
+      nextId = frameForNodePlacement(doc, rect);
+    }
+    if (nextId === currentId) continue;
+    const attrs = { ...(node.attrs || {}) };
+    if (nextId) {
+      attrs.frameId = nextId;
+      if (nextId !== currentId) {
+        const orders = Object.values(doc.deltaSetLike || {})
+          .filter((item) => String(item?.attrs?.frameId || '').trim() === nextId)
+          .map((item) => Number(item?.attrs?.frameOrder))
+          .filter(Number.isFinite);
+        attrs.frameOrder = orders.length ? Math.max(...orders) + 1 : 0;
+      }
+    } else {
+      delete attrs.frameId;
+      delete attrs.frameOrder;
+    }
+    bindingPatches.push({ nodeId: patch.nodeId, patch: { attrs } });
+  }
+  if (!bindingPatches.length) return doc;
+  const nodeReplacements: Record<string, SceneNode> = {};
+  for (const item of bindingPatches) {
+    const node = doc.deltaSetLike?.[item.nodeId];
+    if (!node) continue;
+    nodeReplacements[item.nodeId] = {
+      ...node,
+      attrs: item.patch.attrs,
+    };
+  }
+  let next = {
+    ...doc,
+    deltaSetLike: patchDeltaSetLike(doc.deltaSetLike, nodeReplacements),
+  };
+
+  // Detached nodes leave their frame-local stack. Put them at the top of the
+  // infinite-canvas stack so they cannot remain hidden behind the old frame
+  // plate or an unrelated world node after becoming visible again.
+  const detachedIds = bindingPatches
+    .filter(({ nodeId, patch }) => {
+      const before = doc.deltaSetLike?.[nodeId];
+      return Boolean(String(before?.attrs?.frameId || '').trim()) && !String(patch.attrs?.frameId || '').trim();
+    })
+    .map(({ nodeId }) => nodeId);
+  if (detachedIds.length) {
+    detachedIds.forEach((id) => detachedSink?.add(id));
+    const detachedKeys = new Set(detachedIds.map((id) => `node:${id}`));
+    const order = Array.isArray(next?.stackOrder) ? next.stackOrder.map(String) : [];
+    const remaining = order.filter((key) => !detachedKeys.has(key));
+    next = { ...next, stackOrder: [...remaining, ...detachedIds.map((id) => `node:${id}`)] };
+    console.warn('[frame-binding-detached]', JSON.stringify({
+      nodeIds: detachedIds,
+      nodes: detachedIds.map((id) => ({
+        nodeId: id,
+        frameId: next.deltaSetLike?.[id]?.attrs?.frameId,
+        frameOrder: next.deltaSetLike?.[id]?.attrs?.frameOrder,
+      })),
+      stackTail: next.stackOrder?.slice(-detachedIds.length),
+    }, null, 2));
+  }
+  return next;
+}
+
+function promoteNodesToWorldTop(doc: SceneDocument, nodeIds: Iterable<string>): SceneDocument {
+  const ids = [...new Set([...nodeIds].map(String).filter(Boolean))];
+  if (!ids.length) return doc;
+  const keys = new Set(ids.map((id) => `node:${id}`));
+  const order = Array.isArray(doc.stackOrder) ? doc.stackOrder.map(String) : [];
+  const remaining = order.filter((key) => !keys.has(key));
+  return {
+    ...doc,
+    stackOrder: [...remaining, ...ids.map((id) => `node:${id}`)],
+  };
+}
+
 export type CanvasSessionDeps = {
   getDocument: () => SceneDocument | null;
   setDocumentLocal: (doc: SceneDocument) => void;
@@ -218,6 +353,7 @@ export type ShapeCreateBox = {
   y0?: number;
   x1?: number;
   y1?: number;
+  frameId?: string | null;
 };
 
 export type CanvasSession = {
@@ -246,11 +382,14 @@ export type CanvasSession = {
     patches: GeomPatch[],
     options?: { textResizeMode?: 'scale' | 'wrap' }
   ) => void;
+  resetFrameMoveOwners: () => void;
   onAngleCommit: (nodeId: string, angleDeg: number, options?: { skipHistory?: boolean }) => void;
   onAnglePreview: (nodeId: string, angleDeg: number) => void;
 };
 
 export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
+  const frameMoveOwners = new Map<string, string[]>();
+  const detachedNodeIds = new Set<string>();
   const listNodeIds = () => listNodeIdsFromDoc(deps.getDocument());
 
   const getNodeBox = (nodeId: string) => getNodeBoxFromDoc(deps.getDocument(), nodeId);
@@ -307,11 +446,20 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         fill: 'transparent',
         angle: placed.angle,
       });
-      const next = addNodeToDocument(doc, id, node);
-      deps.setDocumentLocal(next);
+      const requestedFrameId = String(box.frameId || '').trim();
+      if (requestedFrameId && doc.frames?.some((frame) => String(frame.id) === requestedFrameId)) {
+        node.attrs.frameId = requestedFrameId;
+      }
+      const created = addNodeToDocument(doc, id, node);
+      const bound = requestedFrameId
+        ? created
+        : applyNodeFrameBindings(created, [
+            { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
+          ]);
+      deps.setDocumentLocal(bound);
       // History without sceneReloadToken — remounting every host caused a one-frame jump.
       deps.dispatch(pushEditorHistory());
-      deps.dispatch(setDocumentFromCanvas(next));
+      deps.dispatch(setDocumentFromCanvas(bound));
       deps.dispatch(setSelectedNodeIds([id]));
       deps.dispatch(setSelectedNodeId(id));
       finishToSelect();
@@ -330,10 +478,19 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       shapeType: kind,
       fill: '#FFFFFF',
     });
+    const requestedFrameId = String(box.frameId || '').trim();
+    if (requestedFrameId && doc.frames?.some((frame) => String(frame.id) === requestedFrameId)) {
+      node.attrs.frameId = requestedFrameId;
+    }
     const next = addNodeToDocument(doc, id, node);
-    deps.setDocumentLocal(next);
+    const bound = requestedFrameId
+      ? next
+      : applyNodeFrameBindings(next, [
+          { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
+        ]);
+    deps.setDocumentLocal(bound);
     deps.dispatch(pushEditorHistory());
-    deps.dispatch(setDocumentFromCanvas(next));
+    deps.dispatch(setDocumentFromCanvas(bound));
     deps.dispatch(setSelectedNodeIds([id]));
     deps.dispatch(setSelectedNodeId(id));
     finishToSelect();
@@ -365,8 +522,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       fontSize,
     });
     const next = addNodeToDocument(doc, id, node);
-    deps.setDocumentLocal(next);
-    deps.dispatch(setDocument(next));
+    const bound = applyNodeFrameBindings(next, [
+      { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
+    ]);
+    deps.setDocumentLocal(bound);
+    deps.dispatch(setDocument(bound));
     deps.dispatch(setSelectedNodeIds([id]));
     deps.dispatch(setSelectedNodeId(id));
     deps.setEditingTextId(id);
@@ -397,7 +557,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         height: placed.height,
         src,
       });
-      deps.dispatch(setDocument(addNodeToDocument(latest, id, node)));
+      const placedDoc = addNodeToDocument(latest, id, node);
+      const bound = applyNodeFrameBindings(placedDoc, [
+        { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
+      ]);
+      deps.dispatch(setDocument(bound));
       deps.dispatch(setSelectedNodeId(id));
       deps.dispatch(setPendingImageSrc(null));
       finishToSelect();
@@ -436,6 +600,34 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     return { nodePatches, frames };
   };
 
+  const translateFrameContent = (
+    doc: SceneDocument,
+    frames: Array<{ id: string; x: number; y: number }>,
+    owners: Map<string, string[]> = frameMoveOwners
+  ) => {
+    const patches: Array<{ nodeId: string; patch: { x: number; y: number } }> = [];
+    for (const framePatch of frames) {
+      const frame = (doc.frames || []).find((item) => String(item.id) === String(framePatch.id));
+      if (!frame) continue;
+      const dx = framePatch.x - (Number(frame.x) || 0);
+      const dy = framePatch.y - (Number(frame.y) || 0);
+      if (dx === 0 && dy === 0) continue;
+      const owned = owners.get(framePatch.id) || nodeIdsBoundToFrames(doc, [framePatch.id]);
+      for (const nodeId of owned) {
+        const node = doc.deltaSetLike?.[nodeId];
+        if (!node) continue;
+        patches.push({
+          nodeId,
+          patch: {
+            x: (Number(node.x) || 0) + dx,
+            y: (Number(node.y) || 0) + dy,
+          },
+        });
+      }
+    }
+    return patches.length ? updateNodesInDocument(doc, patches) : doc;
+  };
+
   const onGeometryCommit = (
     patches: GeomPatch[],
     options?: { textResizeMode?: 'scale' | 'wrap'; skipHistory?: boolean }
@@ -453,6 +645,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         fitTextBox: true,
         textResizeMode: options?.textResizeMode,
       });
+      next = applyNodeFrameBindings(next, normalized, detachedNodeIds);
+      next = promoteNodesToWorldTop(next, detachedNodeIds);
       // Sync SVG for node patches (below). Keep normalized in scope via rebuild from next.
       deps.setDocumentLocal(next);
       if (board) {
@@ -498,6 +692,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     }
     // Merge frame boxes into the same document write so nodes don't clobber frames.
     if (frames.length) {
+      next = translateFrameContent(next, frames, frameMoveOwners);
       const byId = new Map(frames.map((f) => [f.id, f]));
       next = {
         ...next,
@@ -518,6 +713,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     deps.clearVideoLiveGeom();
     deps.clearFrameGeometryPreview();
     clearNodeTransformPreviews();
+    frameMoveOwners.clear();
+    detachedNodeIds.clear();
   };
 
   const onGeometryPreview = (
@@ -527,13 +724,52 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     const doc = deps.getDocument();
     const board = deps.getBoard();
     if (!doc || deps.isReadOnly() || !patches.length) return;
-    const { nodePatches } = applyFrameGeometryPatches(patches, { preview: true });
-    if (!nodePatches.length || !board) return;
-    const normalized = normalizeGeomPatches(doc, toGeometryPatches(doc, nodePatches));
-    const next = patchNodesGeometry(doc, normalized, {
-      textResizeMode: options?.textResizeMode,
-    });
-    deps.setDocumentLocal(next);
+    const { nodePatches, frames } = applyFrameGeometryPatches(patches, { preview: true });
+    if (!board) return;
+    if (frames.length) {
+      for (const frame of frames) {
+        if (!frameMoveOwners.has(frame.id)) {
+          frameMoveOwners.set(frame.id, nodeIdsBoundToFrames(doc, [frame.id]));
+        }
+      }
+    }
+    const normalized = nodePatches.length
+      ? normalizeGeomPatches(doc, toGeometryPatches(doc, nodePatches))
+      : [];
+    let next = normalized.length
+      ? patchNodesGeometry(doc, normalized, {
+          textResizeMode: options?.textResizeMode,
+        })
+      : doc;
+    if (normalized.length) {
+      next = applyNodeFrameBindings(next, normalized, detachedNodeIds);
+      next = promoteNodesToWorldTop(next, detachedNodeIds);
+      if (detachedNodeIds.size) {
+        // Persist detachment immediately so the next render cannot restore the
+        // old Redux snapshot and make the artboard drag the node again.
+        deps.dispatch(setDocumentFromCanvas(next));
+        console.warn('[frame-binding-persist]', JSON.stringify({
+          nodeIds: [...detachedNodeIds],
+          nodes: [...detachedNodeIds].map((id) => ({
+            nodeId: id,
+            frameId: next.deltaSetLike?.[id]?.attrs?.frameId,
+            frameOrder: next.deltaSetLike?.[id]?.attrs?.frameOrder,
+          })),
+        }, null, 2));
+        detachedNodeIds.clear();
+      }
+    }
+    const translated = translateFrameContent(next, frames, frameMoveOwners);
+    const previewDocument = frames.length
+      ? {
+          ...translated,
+          frames: (Array.isArray(translated.frames) ? translated.frames : []).map((frame) => {
+            const patch = frames.find((item) => item.id === frame.id);
+            return patch ? { ...frame, ...patch } : frame;
+          }),
+        }
+      : next;
+    deps.setDocumentLocal(previewDocument);
     const videoOverrides: Record<string, VideoGeomOverride> = {};
     let hasVideo = false;
     const coalescer = deps.getDragWriteCoalescer();
@@ -546,7 +782,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       angle?: number;
     }> = [];
     normalized.forEach((p) => {
-      const node = next?.deltaSetLike?.[p.nodeId];
+      const node = previewDocument?.deltaSetLike?.[p.nodeId];
       const isText = node?.key === 'text';
       const box =
         isText && options?.textResizeMode === 'wrap'
@@ -594,7 +830,44 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         plainText: isText ? parseNodeText(node.attrs || {}) : undefined,
         textStyle: isText ? parseNodeTextStyle(node.attrs || {}) : undefined,
       });
+      const el = board.nodeEls.get(p.nodeId);
+      if (el && board.root) {
+        const previewNode = {
+          ...(previewDocument.deltaSetLike?.[p.nodeId] || node),
+          x: box.left,
+          y: box.top,
+          width: box.width,
+          height: box.height,
+        };
+        applyFrameContentClip(board.root, el, previewDocument, previewNode, {
+          zoom: deps.getZoom(),
+        });
+      }
     });
+    if (frames.length) {
+      const movedIds = new Set(
+        frames.flatMap((frame) => frameMoveOwners.get(frame.id) || [])
+      );
+      for (const nodeId of movedIds) {
+        const before = next.deltaSetLike?.[nodeId];
+        const after = previewDocument.deltaSetLike?.[nodeId];
+        if (!before || !after || (before.x === after.x && before.y === after.y)) continue;
+        const box = {
+          left: Number(after.x) || 0,
+          top: Number(after.y) || 0,
+          width: Math.max(1, Number(after.width) || 1),
+          height: Math.max(1, Number(after.height) || 1),
+        };
+        previewSvgNodeGeometry(board.nodeEls, nodeId, box, {
+          plainText: after.key === 'text' ? parseNodeText(after.attrs || {}) : undefined,
+          textStyle: after.key === 'text' ? parseNodeTextStyle(after.attrs || {}) : undefined,
+        });
+        const el = board.nodeEls.get(nodeId);
+        if (el && board.root) {
+          applyFrameContentClip(board.root, el, previewDocument, after, { zoom: deps.getZoom() });
+        }
+      }
+    }
     // Fact-layer preview for Canvas underlay / chrome (ADR 0027) — not SVG-DOM-only.
     setNodeTransformPreviews(previewPatches);
     // Keep HTML <video> plates glued to chrome (Redux doc is still pre-gesture).
@@ -708,6 +981,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     placeImageAt,
     onGeometryCommit,
     onGeometryPreview,
+    resetFrameMoveOwners: () => {
+      frameMoveOwners.clear();
+      detachedNodeIds.clear();
+    },
     onAngleCommit,
     onAnglePreview,
   };

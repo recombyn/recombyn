@@ -987,7 +987,9 @@ function bakeNodeAngleIntoOutline(
     .filter(Boolean)
     .join(' ');
   if (!rotated) return outline;
-  return { ...outline, pathD: rotated, bakeAngle: true };
+  // The original local bounds no longer describe the rotated path. Let the
+  // normal path-bound calculation derive the rotated AABB instead.
+  return { ...outline, pathD: rotated, bounds: undefined, bakeAngle: true };
 }
 
 function readStrokeLinecap(
@@ -1231,7 +1233,7 @@ function outlinePencilLocal(node: SceneNodeInput, _zoom = 1): OutlineResult | nu
   const raw = String(node.attrs?.path || node.attrs?.d || '').trim();
   if (!raw) return null;
   const sw = nodeStrokeWidth(node, 10);
-  const brushId = String(node.attrs?.brushStyle || 'solid');
+  const brushId = String(node.attrs?.brushStyle || 'vector-ink');
   const ink = nodeStrokeInk(node);
   const linecap = readStrokeLinecap(node.attrs, 'pencil');
   const pts = parseSimplePathPoints(raw);
@@ -1239,15 +1241,10 @@ function outlinePencilLocal(node: SceneNodeInput, _zoom = 1): OutlineResult | nu
 
   // Same silhouette as scene paint (keep Q; no linear flatten / RDP shred).
   const pressures = parsePathPressures(node.attrs?.pathPressure, pts.length);
-  const hardnessRaw = Number(node.attrs?.brushHardness);
-  const freehandHardness = Number.isFinite(hardnessRaw)
-    ? Math.max(0, Math.min(100, hardnessRaw))
-    : 80;
   const outlineD = pencilInkPathFromPoints(pts, sw, brushId, {
     linecap,
     pressures,
     pressureEnabled: true,
-    hardness: freehandHardness,
     simplify: false,
   });
   if (!outlineD.trim()) return null;
@@ -1351,6 +1348,9 @@ function outlineRectLocal(node: SceneNodeInput): OutlineResult | null {
     pathD: roundedRectPath(w, h, r),
     closed: true,
     fillColor: nodeFillColor(node),
+    // Arc-aware browser getBBox() can report only the first rounded corner.
+    // Rect geometry already owns this exact local box, so keep it explicit.
+    bounds: { minX: 0, minY: 0, width: w, height: h },
   });
 }
 
@@ -1638,7 +1638,7 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
 /** Normalize outline into node-local top-left space + tight bounds. */
 function fitOutlineResult(result: OutlineResult): OutlineResult | null {
   if (!result?.pathD) return null;
-  const bounds = pathDBounds(result.pathD);
+  const bounds = result.bounds ?? pathDBounds(result.pathD);
   if (!bounds) return result;
   const needShift = Math.abs(bounds.minX) > 0.01 || Math.abs(bounds.minY) > 0.01;
   const shifted = needShift
@@ -1752,7 +1752,6 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
   delete prev.DATA;
   delete prev.markdown;
   delete prev.brushStyle;
-  delete prev.brushStampSrc;
   delete prev.d;
   // Radius / side-stroke are baked into path geometry (or unsupported on path).
   // Leaving them makes filletPathD re-round densified verts and confuse stroke.

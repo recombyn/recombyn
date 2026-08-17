@@ -102,7 +102,7 @@ function clampOpacityPct(n: number): number {
 }
 
 /** Mini two-circle preview — monochrome so it matches the rest of the toolbar. */
-function BlendModeIcon({ mode, className }: { mode: BlendModeId; className?: string }) {
+export function BlendModeIcon({ mode, className }: { mode: BlendModeId; className?: string }) {
   const cssMode: CSSProperties['mixBlendMode'] =
     mode === 'pass-through' ? 'normal' : (mode as CSSProperties['mixBlendMode']);
   return (
@@ -293,7 +293,7 @@ function BlendModeControl({
 
         {!onOpacityOpen && opacityOpen ? (
           <div
-            className="absolute left-1/2 top-[calc(100%+8px)] z-[80] w-[240px] -translate-x-1/2 overflow-hidden rounded-xl bg-[var(--surface)] text-left shadow-[0_8px_28px_rgba(15,23,42,0.14)] ring-1 ring-[var(--line)]"
+            className="absolute left-1/2 top-[calc(100%+8px)] z-[90] w-[240px] -translate-x-1/2 overflow-hidden rounded-xl bg-[var(--surface)] text-left shadow-[0_8px_28px_rgba(15,23,42,0.14)] ring-1 ring-[var(--line)]"
             onPointerDown={(e) => {
               e.stopPropagation();
               e.nativeEvent.stopImmediatePropagation?.();

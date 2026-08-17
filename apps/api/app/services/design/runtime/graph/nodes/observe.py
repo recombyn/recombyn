@@ -658,6 +658,41 @@ def _clear_active_transaction(st: AgentRunState, snap: dict[str, Any] | None) ->
     )
 
 
+def _op_receipt_issues(
+    emitted_ops: list[dict[str, Any]] | None,
+    op_results: list[dict[str, Any]] | None,
+) -> list[str]:
+    """Return missing or invalid client receipts for this emitted operation batch."""
+    expected: dict[str, str] = {}
+    for op in emitted_ops or []:
+        if not isinstance(op, dict):
+            continue
+        oid = str(op.get("op_id") or (op.get("args") or {}).get("op_id") or "").strip()
+        if oid:
+            expected[oid] = str(op.get("name") or "op").strip() or "op"
+    if not expected:
+        return []
+    received: dict[str, dict[str, Any]] = {}
+    for result in op_results or []:
+        if not isinstance(result, dict):
+            continue
+        oid = str(result.get("op_id") or "").strip()
+        if oid:
+            received[oid] = result
+    issues: list[str] = []
+    missing = [f"{name} ({oid})" for oid, name in expected.items() if oid not in received]
+    unknown = [oid for oid in received if oid not in expected]
+    if missing:
+        issues.append("missing operation receipts: " + ", ".join(missing[:8]))
+    if unknown:
+        issues.append("unknown operation receipts: " + ", ".join(unknown[:8]))
+    for oid, name in expected.items():
+        result = received.get(oid)
+        if result and str(result.get("name") or "").strip() not in ("", name):
+            issues.append(f"receipt operation mismatch: {oid}")
+    return issues
+
+
 def _critique_enabled(rt: Any | None = None) -> bool:
     """Prefer AgentProfile / rules overlay, then settings.design_critique_enabled."""
     rules = getattr(rt, "rules", None) if rt is not None else None
@@ -1044,6 +1079,24 @@ async def _node_observe(
         op_results = [
             r for r in (snap.get("op_results") or []) if isinstance(r, dict)
         ]
+        receipt_issues = _op_receipt_issues(rt.paint_ops, op_results)
+        if receipt_issues:
+            reason = "; ".join(receipt_issues[:3])
+            st.note_error(f"scene_receipt_unconfirmed: {reason}")
+            st.push_log(
+                phase="observe",
+                ok=False,
+                error="scene_receipt_unconfirmed",
+                summary=f"observe unconfirmed: {reason}"[:240],
+            )
+            _emit_ux_tip(rt, "observe_scene_timeout", params={})
+            rt.terminal = True
+            rt.flags["ok"] = False
+            rt.flags["scene_ready"] = False
+            rt.flags["scene_unconfirmed"] = True
+            rt.flags["op_receipt_unconfirmed"] = True
+            rt.flags["retry"] = False
+            return Command(update=_bump(rt), goto="__settle__")
         op_failures = [r for r in op_results if not r.get("ok", True)]
         _clear_active_transaction(st, snap)
         fail_bits = [
@@ -1064,7 +1117,7 @@ async def _node_observe(
             ),
         )
     else:
-        st.note_error("scene_feedback_timeout: FE did not post scene; assume ops applied")
+        st.note_error("scene_feedback_timeout: FE did not confirm canvas changes")
         st.push_log(
             phase="observe",
             ok=False,
@@ -1072,15 +1125,17 @@ async def _node_observe(
             summary="observe timeout: FE did not post scene",
         )
         # Stale inventory must NOT drive critique → paint retry (empty board /
-        # placement false positives). Assume applied and settle.
+        # placement false positives). Preserve the canvas, but do not claim the
+        # client applied the transaction without an explicit acknowledgement.
         if rt.skip_loop:
             if st.reply:
                 _emit({"type": "token", "text": st.reply})
         _emit_ux_tip(rt, "observe_scene_timeout", params={})
         rt.terminal = True
-        rt.flags["ok"] = True
+        rt.flags["ok"] = False
         rt.flags["scene_ready"] = False
         rt.flags["scene_timeout"] = True
+        rt.flags["scene_unconfirmed"] = True
         rt.flags["op_failed"] = False
         rt.flags["retry"] = False
         return Command(update=_bump(rt), goto="__settle__")

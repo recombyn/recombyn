@@ -1495,6 +1495,7 @@ function AgentDock({
   const handleAttachFiles = async (files: File[], opts?: { mention?: boolean }) => {
     const MAX_IMAGE = 10 * 1024 * 1024;
     const MAX_VIDEO = 100 * 1024 * 1024;
+    const MAX_AUDIO = 100 * 1024 * 1024;
     const pickedModel = models.find((m) => m.id === model);
     const isVideoMode =
       interactionMode === 'video' ||
@@ -1532,11 +1533,15 @@ function AgentDock({
       const mime = (file.type || '').toLowerCase();
       const isVideo = mime.startsWith('video/');
       const isImage = mime.startsWith('image/');
-      if (!isImage && !isVideo) {
+      const isAudio = mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || '');
+      const isLottie = mime === 'application/json' || mime === 'text/json' || /\.json$/i.test(file.name || '');
+      if (!isImage && !isVideo && !isAudio && !isLottie) {
         message.warning(t('agent.attachImageOnly', { name: file.name }));
         continue;
       }
-      const maxBytes = isVideo ? MAX_VIDEO : MAX_IMAGE;
+      let maxBytes = MAX_IMAGE;
+      if (isVideo) maxBytes = MAX_VIDEO;
+      else if (isAudio) maxBytes = MAX_AUDIO;
       if (file.size > maxBytes) {
         message.warning(t('agent.attachTooLarge', { name: file.name }));
         continue;
@@ -1578,13 +1583,21 @@ function AgentDock({
     }> = readable.map(({ file, preview, thumb }) => {
       const key = `attachment:${file.name}:${file.size}:${file.lastModified}:${Math.random().toString(36).slice(2, 8)}`;
       const isVideo = file.type.startsWith('video/');
+      const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || '');
+      const isLottie = file.type === 'application/json' || file.type === 'text/json' || /\.json$/i.test(file.name || '');
+      let attachmentPayload = `[Attached image]\nname: ${file.name}\nmime: ${file.type}`;
+      if (isVideo) {
+        attachmentPayload = `[Attached video]\nname: ${file.name}\nmime: ${file.type}`;
+      } else if (isAudio) {
+        attachmentPayload = `[Attached audio]\nname: ${file.name}\nmime: ${file.type}`;
+      } else if (isLottie) {
+        attachmentPayload = `[Attached lottie]\nname: ${file.name}\nmime: ${file.type || 'application/json'}`;
+      }
       const pending: ComposerContext = {
         key,
         label: file.name,
         kind: 'attachment',
-        payload: isVideo
-          ? `[Attached video]\nname: ${file.name}\nmime: ${file.type}`
-          : `[Attached image]\nname: ${file.name}\nmime: ${file.type}`,
+        payload: attachmentPayload,
         dataUrl: preview,
         thumbUrl: thumb,
         uploadStatus: 'uploading',
@@ -1592,16 +1605,17 @@ function AgentDock({
       pinnedContextKeysRef.current.add(key);
       mentionOrdinal += 1;
       const n = mentionOrdinal;
-      const mentionCtx: ComposerContext | null = opts?.mention
-        ? {
-            key: `attach-ref:${chipBaseKey(key)}`,
-            label: t('agent.mentionAttachImageN', { n }),
-            kind: 'image',
-            payload: pending.payload || `[User attachment ${n}]`,
-            dataUrl: preview,
-            thumbUrl: thumb,
-          }
-        : null;
+      let mentionCtx: ComposerContext | null = null;
+      if (opts?.mention) {
+        mentionCtx = {
+          key: `attach-ref:${chipBaseKey(key)}`,
+          label: t('agent.mentionAttachImageN', { n }),
+          kind: 'image',
+          payload: pending.payload || `[User attachment ${n}]`,
+          dataUrl: preview,
+          thumbUrl: thumb,
+        };
+      }
       return { file, key, preview, pending, mentionCtx };
     });
 
@@ -1856,6 +1870,8 @@ function AgentDock({
         ...contextChips.map((c) => {
           if (c.kind === 'attachment') {
             attachIdx += 1;
+            const payload = String(c.payload || '').trim();
+            if (payload) return `${payload}\nattachment_index: ${attachIdx}`;
             return `[Attached image ${attachIdx}]\nname: ${c.label}`;
           }
           return c.payload;
@@ -2845,7 +2861,7 @@ function AgentDock({
         });
         return;
       case 'reply':
-        send({ text: next.text, raw: true, displayContent: next.text });
+        send({ text: next.text, raw: true, displayContent: next.displayText || next.text });
         return;
       default:
         return;
@@ -3246,6 +3262,8 @@ function AgentDock({
   });
   const mentionDismiss = useDismiss(mentionFloating.context);
   const mentionIx = useInteractions([mentionDismiss]);
+  const mentionSetPositionReference = useRef(mentionFloating.refs.setPositionReference);
+  mentionSetPositionReference.current = mentionFloating.refs.setPositionReference;
 
   const skillFloating = useFloating({
     open: skillPanelOpen,
@@ -3265,28 +3283,23 @@ function AgentDock({
   });
   const skillDismiss = useDismiss(skillFloating.context);
   const skillIx = useInteractions([skillDismiss]);
+  const skillSetPositionReference = useRef(skillFloating.refs.setPositionReference);
+  skillSetPositionReference.current = skillFloating.refs.setPositionReference;
 
-  /** Anchor attach picker to the `@` glyph / caret — not the whole composer chrome. */
+  /** Anchor pickers to the caret without updating the reference on every keystroke. */
   useLayoutEffect(() => {
     if (!mentionPanelOpen) return;
-    // Prefer Agent land — never the first canvas generator `[data-agent-composer]`.
     const editor =
       (window.document.querySelector(
         '[data-fly-land="agent"] [data-agent-composer], [data-fly-land="agent"][data-agent-composer-root]'
       ) as HTMLElement | null) ||
-      (window.document.querySelector(
-        '[data-tour="editor-agent"] [data-agent-composer]'
-      ) as HTMLElement | null) ||
-      undefined;
-    mentionFloating.refs.setPositionReference({
+      (window.document.querySelector('[data-tour="editor-agent"] [data-agent-composer]') as HTMLElement | null);
+    mentionSetPositionReference.current({
       contextElement: editor,
       getBoundingClientRect: () =>
-        inputRef.current?.getAtMentionAnchorRect?.() ??
-        editor?.getBoundingClientRect() ??
-        new DOMRect(),
+        inputRef.current?.getAtMentionAnchorRect?.() ?? editor?.getBoundingClientRect() ?? new DOMRect(),
     });
-    mentionFloating.update();
-  }, [mentionPanelOpen, mentionQuery, input, editDraft, mentionFloating.refs, mentionFloating.update, mentionFloating]);
+  }, [mentionPanelOpen]);
 
   useLayoutEffect(() => {
     if (!skillPanelOpen) return;
@@ -3294,19 +3307,13 @@ function AgentDock({
       (window.document.querySelector(
         '[data-fly-land="agent"] [data-agent-composer], [data-fly-land="agent"][data-agent-composer-root]'
       ) as HTMLElement | null) ||
-      (window.document.querySelector(
-        '[data-tour="editor-agent"] [data-agent-composer]'
-      ) as HTMLElement | null) ||
-      undefined;
-    skillFloating.refs.setPositionReference({
+      (window.document.querySelector('[data-tour="editor-agent"] [data-agent-composer]') as HTMLElement | null);
+    skillSetPositionReference.current({
       contextElement: editor,
       getBoundingClientRect: () =>
-        inputRef.current?.getSlashMentionAnchorRect?.() ??
-        editor?.getBoundingClientRect() ??
-        new DOMRect(),
+        inputRef.current?.getSlashMentionAnchorRect?.() ?? editor?.getBoundingClientRect() ?? new DOMRect(),
     });
-    skillFloating.update();
-  }, [skillPanelOpen, skillQuery, input, editDraft, skillFloating.refs, skillFloating.update, skillFloating]);
+  }, [skillPanelOpen]);
 
   if (!open) return null;
 

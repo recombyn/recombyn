@@ -104,6 +104,9 @@ Pick intent among: chat | canvas_op | design (schema-constrained).
 Prefer canvas_op whenever catalog tools are enough (add a rectangle, recolor text).
 Greetings (你好 / hi / 谢谢) are chat. Posters, login pages, multi-section layouts are design.
 
+## Clarification (only for ambiguous existing-node edits)
+Set needs_clarification=true only when edit/delete/reorder has multiple plausible live-scene targets and no explicit Target element / selection resolves it. Use SCENE_TARGETS as the source of truth; provide clarification (short question) plus 2-4 concrete `{label, target_id}` clarification_options from it. target_id must exactly match a SCENE_TARGETS id. Never clarify creates or an explicit/unambiguous target. reply stays empty when clarifying.
+
 ## Pending proposal (only when PENDING_PROPOSAL is in the user message)
 Also set proposal_action:
 - apply — user confirms the held ops (确认 / ok / yes / 可以 / 就这样 / apply)

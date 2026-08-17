@@ -5,11 +5,11 @@ import {
   HiOutlineCamera,
   HiOutlineChevronDown,
   HiOutlineScissors,
-  HiOutlineSparkles,
 } from 'react-icons/hi2';
 import { LuCrop } from 'react-icons/lu';
 import { MdOutlineFlip } from 'react-icons/md';
 import { Dropdown, message } from '@/components/base';
+import AppLogo from '@/components/base/AppLogo';
 import type { MenuItemType } from '@/components/base/dropdown';
 import {
   captureVideoPosterFrame
@@ -423,7 +423,7 @@ function VideoToolbarEditTools({
       {onQuickEdit ? (
         <>
           <Tool label={t('editor.imageToolbar.chat')} onClick={onQuickEdit}>
-            <HiOutlineSparkles className="h-4 w-4" strokeWidth={2} />
+            <AppLogo size={16} />
           </Tool>
           <VideoToolSep />
         </>

@@ -122,6 +122,7 @@ describe('humanizeDesignError', () => {
     expect(humanizeDesignError(t, 'paint_ops_failed')).toBe('agent.designExecFailed');
     expect(humanizeDesignError(t, 'cancelled')).toBe('agent.stopped');
     expect(humanizeDesignError(t, 'timeout')).toBe('agent.requestFailed');
+    expect(humanizeDesignError(t, 'scene_unconfirmed')).toBe('agent.uxTipObserveSceneTimeout');
     expect(humanizeDesignError(t, 'internal_error')).toBe('agent.designExecFailed');
   });
 

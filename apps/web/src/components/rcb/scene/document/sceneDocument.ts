@@ -83,7 +83,7 @@ function listRootNodeIds(doc: SceneDocument): string[] {
 
 /**
  * Keep `doc.stackOrder` in sync with frames + root nodes.
- * Empty → migrate legacy paint (frames under nodes).
+ * Empty → frames first, then root nodes.
  * Missing frames insert under content; missing nodes append on top.
  */
 export function reconcileStackOrder(doc: SceneDocument): string[] {
@@ -147,11 +147,33 @@ export function reconcileStackOrder(doc: SceneDocument): string[] {
 }
 
 /** 1-based CSS z-index from unified stack (0 if missing). */
+const STACK_GROUP_STRIDE = 100000;
+
 export function stackZIndex(doc: SceneDocument, kind: 'frame' | 'node', id: string): number {
   const order = Array.isArray(doc?.stackOrder) ? doc.stackOrder : [];
   const key = kind === 'frame' ? stackFrameKey(id) : stackNodeKey(id);
   const i = order.indexOf(key);
-  return i >= 0 ? i + 1 : 0;
+  if (i < 0) return 0;
+  const groupBase = (i + 1) * STACK_GROUP_STRIDE;
+  if (kind !== 'node') return groupBase;
+  const node = doc.deltaSetLike?.[id];
+  const frameId = String(node?.attrs?.frameId || '').trim();
+  if (!frameId) return groupBase + Math.floor(STACK_GROUP_STRIDE / 2);
+  const frameIndex = order.indexOf(stackFrameKey(frameId));
+  if (frameIndex < 0) return groupBase + Math.floor(STACK_GROUP_STRIDE / 2);
+  const siblings = listRootNodeIds(doc)
+    .map((nodeId) => doc.deltaSetLike?.[nodeId])
+    .filter((item) => String(item?.attrs?.frameId || '').trim() === frameId);
+  const explicitOrder = Number(node?.attrs?.frameOrder);
+  const localIndex = Number.isFinite(explicitOrder)
+    ? explicitOrder
+    : Math.max(0, siblings.findIndex((item) => item?.id === id));
+  // Keep frame children between their plate and the next world-level item.
+  const localSlot = Math.min(
+    STACK_GROUP_STRIDE - 2,
+    Math.max(1, Math.round(localIndex) + 1)
+  );
+  return (frameIndex + 1) * STACK_GROUP_STRIDE + localSlot;
 }
 
 function reorderKeysInList(
@@ -299,7 +321,7 @@ export function flattenDeltaSetLike(delta: SceneDeltaSet | null | undefined): Sc
   return { ...delta };
 }
 
-/** Ensure older saved docs still work; keep a single logical page for editing */
+/** Fill defaults; keep a single logical page for editing. */
 export function normalizeDocument(doc: unknown): SceneDocument {
   if (!doc || typeof doc !== 'object') return createEmptyDocument({ emptyWorld: true });
   const src = doc as SceneDocument;
@@ -320,19 +342,38 @@ export function normalizeDocument(doc: unknown): SceneDocument {
       : src.pages,
     stackOrder: Array.isArray(src.stackOrder) ? [...src.stackOrder] : src.stackOrder,
   };
+  // Uploaded/generated video plates use pixel-aligned geometry. Older
+  // documents and external imports may contain .5 dimensions, which makes
+  // the HTML video surface and SVG selection chrome land on different edges.
+  // Normalize the shared node record once so paint, hit-test and chrome all
+  // consume the same integer box.
+  const delta = next.deltaSetLike;
+  let normalizedDelta: SceneDeltaSet | null = null;
+  for (const [id, node] of Object.entries(delta)) {
+    if (!node || node.key !== 'video') continue;
+    const x = Math.round(Number(node.x) || 0);
+    const y = Math.round(Number(node.y) || 0);
+    const width = Math.max(1, Math.round(Number(node.width) || 1));
+    const height = Math.max(1, Math.round(Number(node.height) || 1));
+    if (node.x === x && node.y === y && node.width === width && node.height === height) {
+      continue;
+    }
+    normalizedDelta ||= { ...delta };
+    normalizedDelta[id] = { ...node, x, y, width, height };
+  }
+  if (normalizedDelta) next.deltaSetLike = normalizedDelta;
   next.width = Math.max(100, Math.round(Number(next.width) || DEFAULT_CANVAS.width));
   next.height = Math.max(100, Math.round(Number(next.height) || DEFAULT_CANVAS.height));
-  // Keep empty / legacy light defaults; EditorPage maps them to theme `--canvas`.
+  // Empty bg follows theme `--canvas` in EditorPage.
   if (next.backgroundColor == null) next.backgroundColor = '';
-  delete next.orientation;
   if (!Array.isArray(next.frames)) next.frames = [];
   next.frames = next.frames.map((f) => {
     if (!f || typeof f !== 'object') return f;
     const bg = String(f.backgroundColor || '').trim();
     const withBg: ArtboardFrame =
       !bg || bg === 'none' ? { ...f, backgroundColor: '#FFFFFF' } : { ...f };
-    // Default: show overflow for legacy frames that never set the flag.
-    if (withBg.clipContent === undefined) withBg.clipContent = false;
+    // Artboards clip their content by default; users can explicitly show overflow.
+    if (withBg.clipContent === undefined) withBg.clipContent = true;
     return withBg;
   });
   // Keep activeFrameId nullable — null means no frame selected (do not force frames[0]).

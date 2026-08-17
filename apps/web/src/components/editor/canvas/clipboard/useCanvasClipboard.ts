@@ -73,6 +73,7 @@ type UseCanvasClipboardArgs = {
     name?: string;
     anchor?: { x: number; y: number } | null;
   }) => void | Promise<void>;
+  getPasteAnchor?: () => { x: number; y: number } | null;
 };
 
 export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboardApi {
@@ -94,6 +95,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     onVideoFile,
     onAudioFile,
     onLottiePaste,
+    getPasteAnchor,
   } = args;
   const dispatch = useDispatch();
 
@@ -369,6 +371,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       data?: DataTransfer | null;
     }) => {
       if (readOnly) return;
+      const anchor = opts?.anchor ?? getPasteAnchor?.() ?? null;
       const hasInternal = Boolean(
         clipboardRef.current?.nodes?.length || clipboardRef.current?.frames?.length
       );
@@ -391,17 +394,17 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         (!system || internalClipboardAtRef.current >= osClipboardMetaRef.current.at);
 
       if (preferInternal) {
-        pasteClipboard(opts?.anchor ? { anchor: opts.anchor } : undefined);
+        pasteClipboard(anchor ? { anchor } : undefined);
         return;
       }
 
       if (system) {
-        const ok = await pasteSystemPayload(system, { anchor: opts?.anchor });
+        const ok = await pasteSystemPayload(system, { anchor });
         if (ok) return;
       }
 
       if (hasInternal) {
-        pasteClipboard(opts?.anchor ? { anchor: opts.anchor } : undefined);
+        pasteClipboard(anchor ? { anchor } : undefined);
       }
     },
     [
@@ -411,6 +414,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       pasteClipboard,
       pasteSystemPayload,
       readOnly,
+      getPasteAnchor,
     ]
   );
 
