@@ -563,7 +563,7 @@ function PenStrokeToolbar({
             step={1}
             className="h-full w-10 min-w-0 bg-transparent text-[11px] leading-none tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
-          <span className="shrink-0 text-[10px] text-[var(--muted)]">Px</span>
+          <span className="shrink-0 text-[10px] text-[var(--muted)]">{t('editor.unitPx')}</span>
         </label>
 
         {!isPencil ? (

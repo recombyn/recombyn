@@ -850,6 +850,7 @@ const en = {
     pathEditCurve: 'Curve',
     pathEditExit: 'Exit edit',
     pathEditDone: 'Exit edit (Esc)',
+    unitPx: 'px',
     minimap: 'Minimap',
     grid: 'Grid snap',
     shortcuts: {

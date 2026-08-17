@@ -822,6 +822,7 @@ const zhTW = {
     pathEditCurve: '曲線',
     pathEditExit: '退出編輯',
     pathEditDone: '退出編輯 (Esc)',
+    unitPx: '像素',
     minimap: '小地圖',
     grid: '網格吸附',
     shortcuts: {
