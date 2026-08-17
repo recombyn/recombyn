@@ -36,7 +36,6 @@ import {
   rcbViewportSceneBounds,
   zoomAtPoint,
   PENCIL_CURSOR,
-  ERASER_CURSOR,
   PEN_CURSOR,
   BUCKET_CURSOR,
   type RcbCamera as CanvasCamera,
@@ -300,12 +299,11 @@ function computeStageBackground(
 function resolveEditorCanvasCursor(
   frameMode: boolean,
   activeTool: string,
-  pencilEraseMode: boolean,
   pickMode: { active: boolean; blocked: boolean }
 ): string | undefined {
   if (pickMode.active) return pickMode.blocked ? 'not-allowed' : 'copy';
   if (frameMode) return 'crosshair';
-  if (activeTool === 'pencil') return pencilEraseMode ? ERASER_CURSOR : PENCIL_CURSOR;
+  if (activeTool === 'pencil') return PENCIL_CURSOR;
   if (activeTool === 'pen') return PEN_CURSOR;
   if (activeTool === 'bucket') return BUCKET_CURSOR;
   return undefined;
@@ -649,7 +647,6 @@ function EditorPage() {
   }, [currentId, document]);
 
   const activeTool = useSelector((state: any) => state.editor.activeTool);
-  const pencilEraseMode = useSelector((state: any) => Boolean(state.editor.pencilEraseMode));
   const canvasAttachPick = useSelector(
     (state: any) => state.editor.canvasAttachPick as null | { target: string }
   );
@@ -700,7 +697,7 @@ function EditorPage() {
   const isDevMode = workspaceMode === 'dev';
   const panMode = activeTool === 'pan';
   const frameMode = !isDevMode && activeTool === 'frame';
-  const canvasCursor = resolveEditorCanvasCursor(frameMode, activeTool, pencilEraseMode, {
+  const canvasCursor = resolveEditorCanvasCursor(frameMode, activeTool, {
     active: Boolean(canvasAttachPick),
     blocked: canvasAttachPickBlocked,
   });

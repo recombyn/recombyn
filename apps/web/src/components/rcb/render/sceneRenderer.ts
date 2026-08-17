@@ -30,6 +30,7 @@ import {
   starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
 import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hexWithOpacity, boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
+import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import {
   resolveFill,
   resolveLinearCoords,
@@ -127,12 +128,18 @@ export function hitTestWithSpatialIndex(
         allIds,
       })
     : [];
+  const hitOrder = doc
+    ? order.slice().sort((a, b) => {
+        const zDiff = stackZIndex(doc, 'node', b) - stackZIndex(doc, 'node', a);
+        return zDiff || order.indexOf(b) - order.indexOf(a);
+      })
+    : order;
   const allowSvgDomHit = deps.allowSvgDomHit === true;
   const hit =
     doc
       ? hitTestSceneAtPoint({
           document: doc,
-          order,
+          order: hitOrder,
           x: point.x,
           y: point.y,
           zoom,
@@ -273,11 +280,7 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       const gridSize = resolveGridSize();
 
       if (paintGrid && shouldShowGrid(z)) {
-        drawSceneGrid(ctx, view, gridSize, z, {
-          panX: pan.x,
-          panY: pan.y,
-          dpr,
-        });
+        drawSceneGrid(ctx, view, gridSize, z);
       }
 
       if (drawLod || drawBasic || drawProxies) {
@@ -374,13 +377,6 @@ export function sceneGridLineWidth(gridSize: number, zoom: number): number {
   return Math.min(g * 0.35, 1 / z);
 }
 
-export type DrawSceneGridOpts = {
-  /** @deprecated Kept for call-site compat; grid axes stay on the snap lattice. */
-  panX?: number;
-  panY?: number;
-  dpr?: number;
-};
-
 /**
  * Scene-space lattice for the Canvas underlay (camera already applied on ctx).
  * Axes are exact multiples of `gridSize` — same lattice as `snapCoordToGrid` /
@@ -391,8 +387,7 @@ export function drawSceneGrid(
   ctx: CanvasRenderingContext2D,
   view: RcbBox,
   gridSize: number,
-  zoom = 1,
-  _opts?: DrawSceneGridOpts
+  zoom = 1
 ) {
   const g = gridSize > 0 ? gridSize : 1;
   const z = Math.max(0.05, zoom || 1);

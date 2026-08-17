@@ -15,17 +15,6 @@ export const projectThumbFrameClass = (extra?: string) =>
 export const projectThumbZoomLayerClass =
   'h-full w-full origin-center transition-transform duration-300 ease-out will-change-transform group-hover:scale-[1.06]';
 
-const LEGACY_CUSTOM_THUMB_KEY = 'recombyn:custom-project-thumbs';
-
-/** Drop the old sticky localStorage set that blocked auto covers forever. */
-export function purgeLegacyCustomThumbCache(): void {
-  try {
-    localStorage.removeItem(LEGACY_CUSTOM_THUMB_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
 /** Project list/publish covers served publicly via uploads route (no Bearer). */
 const PROJECT_COVER_PATH =
   /^projects\/[^/]+\/[^/]+\/thumb[^/]*\.(?:jpe?g|png|webp|gif)$/i;

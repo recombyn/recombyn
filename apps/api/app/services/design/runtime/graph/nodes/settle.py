@@ -304,6 +304,9 @@ async def _node_settle(state: GraphState) -> Command:
             task_id=st.task_id,
         )
     has_proposal = bool(st.proposed_ops)
+    flags = rt.flags if isinstance(rt.flags, dict) else {}
+    scene_unconfirmed = bool(flags.get("scene_unconfirmed"))
+    tool_ops_confirmed = bool(st.painted) and not scene_unconfirmed
     settle_intent = (
         normalize_user_intent(rt.classified_intent)
         if rt.classified_intent
@@ -317,7 +320,7 @@ async def _node_settle(state: GraphState) -> Command:
     rt.decision.apply(
         intent=settle_intent,
         paint_lane=settle_lane or None,
-        tool_ops_applied=st.painted,
+        tool_ops_applied=tool_ops_confirmed,
         edit_in_place=bool(rt.scene_nodes) and settle_lane == "edit",
         is_chitchat=not st.painted
         and not has_proposal
@@ -334,6 +337,7 @@ async def _node_settle(state: GraphState) -> Command:
     )
     failed_attempt = (
         governance_failed
+        or scene_unconfirmed
         or (bool(st.errors) and not st.painted and not has_proposal)
     )
     settle_status = "error" if failed_attempt else "success"
@@ -351,6 +355,7 @@ async def _node_settle(state: GraphState) -> Command:
             "billing_meters": dict(st.billing_meters or {}),
             "usage_events": list(st.usage_events or [])[:64],
             "governance_failed": bool(governance_failed),
+            "scene_unconfirmed": scene_unconfirmed,
             "charged_credits": spend,
         },
     )
@@ -366,9 +371,10 @@ async def _node_settle(state: GraphState) -> Command:
     balance = await asyncio.to_thread(get_user_tokens, rt.user_id)
     _emit({"type": "execution_log", **exec_payload})
     fail_summary = ""
-    if failed_attempt and st.errors:
+    if scene_unconfirmed:
+        fail_summary = "Canvas changes could not be confirmed."
+    elif failed_attempt and st.errors:
         fail_summary = str(st.errors[-1])[:240]
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
     hist = flags.get("optimization_history")
     snap = rt.visual_snapshot if isinstance(rt.visual_snapshot, dict) else {}
     diff = rt.visual_diff if isinstance(rt.visual_diff, dict) else {}
@@ -475,7 +481,8 @@ async def _node_settle(state: GraphState) -> Command:
             "summary": (st.reply[:500] if st.reply else "") or fail_summary,
             "charged_credits": spend,
             "total_tokens": st.total_tokens,
-            "tool_ops_applied": st.painted,
+            "tool_ops_applied": tool_ops_confirmed,
+            **({"error_code": "scene_unconfirmed"} if scene_unconfirmed else {}),
             "intent": rt.decision.intent,
             "edit_in_place": rt.decision.edit_in_place,
             **({"choices": st.choices} if st.choices else {}),
@@ -492,7 +499,6 @@ async def _node_settle(state: GraphState) -> Command:
     try:
         from app.services.agent_memory.episodes import maybe_write_episode
 
-        failed_attempt = bool(st.errors) and not st.painted
         await asyncio.to_thread(
             maybe_write_episode,
             user_id=rt.user_id,
@@ -512,7 +518,7 @@ async def _node_settle(state: GraphState) -> Command:
             },
             outcome="failed" if failed_attempt else "success",
             chat_only=not st.painted and not failed_attempt,
-            tool_ops_applied=st.painted,
+            tool_ops_applied=tool_ops_confirmed,
             has_reflexion_errors=bool(st.errors),
             rules=rt.rules,
         )
@@ -567,7 +573,7 @@ async def _node_settle(state: GraphState) -> Command:
             and _resolve_paint_want(rt) == "edit",
             blank_artboard=False,
             summary=st.reply[:400],
-            tool_ops_applied=st.painted,
+            tool_ops_applied=tool_ops_confirmed,
             critique_notes="; ".join(st.errors[-3:]) if st.errors else None,
             scene_key=rt.scene_key,
             canvas_size=f"{rt.w}x{rt.h}" if rt.w and rt.h else (rt.canvas_size or ""),

@@ -104,5 +104,27 @@
       "prompt": "把标题改成更大一点，别重做整张",
       "expect": ["update_not_rebuild", "no_delete_all"]
     }
+  ],
+  "agent_cases": [
+    {
+      "id": "agent_receipt_missing",
+      "focus": "two emitted operations, one client receipt",
+      "expect": ["scene_unconfirmed", "no_review", "no_assumed_success"]
+    },
+    {
+      "id": "agent_reconnect_ack",
+      "focus": "SSE reconnect after durable canvas command acknowledgement",
+      "expect": ["replay_after_ack_cursor", "no_duplicate_tool_ops"]
+    },
+    {
+      "id": "agent_ambiguous_edit",
+      "focus": "edit request with two plausible text targets",
+      "expect": ["clarification_choices", "verified_target_id", "no_speculative_paint"]
+    },
+    {
+      "id": "agent_worker_resume",
+      "focus": "expired Worker lease and eligible checkpoint resume",
+      "expect": ["owner_authorized", "resumable_error", "no_cross_user_events"]
+    }
   ]
 }

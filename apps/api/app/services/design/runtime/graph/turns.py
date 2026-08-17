@@ -452,8 +452,21 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
         pending_blocks = pending_blocks[:6_000] + "\n…(pending truncated)\n\n"
 
     plan_block = ""
+    execution_plan = (getattr(rt, "flags", None) or {}).get("design_plan")
+    if isinstance(execution_plan, dict):
+        target_ids = [str(value)[:64] for value in execution_plan.get("target_node_ids", []) if str(value).strip()][:8]
+        plan_block += (
+            "EXECUTION_PLAN (authoritative):\n"
+            f"goal={str(execution_plan.get('goal') or '')[:1200]}\n"
+            f"intent={str(execution_plan.get('intent') or '')} "
+            f"lane={str(execution_plan.get('paint_lane') or '')}\n"
+            f"target_frame_id={str(execution_plan.get('target_frame_id') or '')[:64]}\n"
+            f"target_node_ids={', '.join(target_ids) or '(none)'}\n"
+            f"constraints={'; '.join(str(value)[:160] for value in execution_plan.get('constraints', [])[:6]) or '(none)'}\n"
+            f"acceptance={'; '.join(str(value)[:160] for value in execution_plan.get('acceptance_criteria', [])[:6]) or '(none)'}\n\n"
+        )
     if st.plan:
-        plan_block = (
+        plan_block += (
             "PLAN:\n"
             + "\n".join(f"{i+1}. {s}" for i, s in enumerate(st.plan[:12]))
             + "\n\n"

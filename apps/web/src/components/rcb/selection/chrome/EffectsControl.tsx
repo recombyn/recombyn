@@ -1,4 +1,4 @@
-import { useState, memo } from 'react';
+import { useState, memo, type ReactNode } from 'react';
 import {
   autoUpdate,
   flip,
@@ -123,8 +123,7 @@ function ShadowSection({
   );
 }
 
-function EffectsControl({ attrs, onChange }: Props) {
-  const [open, setOpen] = useState(false);
+export function EffectsForm({ attrs, onChange }: Props) {
   const objectMode = String(attrs?.['blur-mode'] || 'backdrop') === 'object';
   const backdropEnabled = enabled(attrs, 'backdrop-blur-enabled');
   const objectEnabled = enabled(attrs, 'blur-enabled');
@@ -141,6 +140,87 @@ function EffectsControl({ attrs, onChange }: Props) {
       'backdrop-blur-enabled': !nextObjectMode,
     });
   };
+
+  let blurSliders: ReactNode = null;
+  if (blurEnabled && objectMode) {
+    blurSliders = (
+      <div className="mt-3 space-y-1.5">
+        <Slider
+          min={0}
+          max={64}
+          step={1}
+          value={objectAmount}
+          onChange={(value) => onChange({ 'blur-amount': value })}
+        />
+        <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+          <span>模糊</span>
+          <span className="tabular-nums text-[var(--ink)]">{objectAmount}</span>
+        </div>
+      </div>
+    );
+  } else if (blurEnabled) {
+    blurSliders = (
+      <div className="mt-3 space-y-2.5">
+        <Slider
+          min={0}
+          max={64}
+          step={1}
+          value={amount}
+          onChange={(value) => onChange({ 'backdrop-blur-amount': value })}
+        />
+        <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+          <span>模糊</span>
+          <span className="tabular-nums text-[var(--ink)]">{amount}</span>
+        </div>
+        <Slider
+          min={0}
+          max={200}
+          step={1}
+          value={brightness}
+          onChange={(value) => onChange({ 'backdrop-blur-brightness': value })}
+        />
+        <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+          <span>亮度</span>
+          <span className="tabular-nums text-[var(--ink)]">{brightness}%</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <ShadowSection title="内阴影" prefix="inner-shadow-" attrs={attrs} onChange={onChange} />
+      <ShadowSection title="投影" prefix="shadow-" attrs={attrs} onChange={onChange} />
+      <section className="px-2 py-2 last:border-b-0">
+        <div className="flex h-8 items-center justify-between gap-3">
+          <button
+            type="button"
+            aria-label={`切换为${objectMode ? '背景模糊' : '对象模糊'}`}
+            className="inline-flex min-w-0 items-center gap-1.5 text-left text-[12px] text-[var(--ink)] hover:text-[var(--accent)]"
+            onClick={switchBlurMode}
+            title="切换模糊类型"
+          >
+            <HiOutlineArrowsRightLeft className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" aria-hidden />
+            {blurLabel}
+          </button>
+          <Switch
+            checked={blurEnabled}
+            onChange={(next) =>
+              onChange({
+                [objectMode ? 'blur-enabled' : 'backdrop-blur-enabled']: next,
+              })
+            }
+            className="h-4 w-7 p-[2px] [&>span]:h-3 [&>span]:w-3"
+          />
+        </div>
+        {blurSliders}
+      </section>
+    </>
+  );
+}
+
+function EffectsControl({ attrs, onChange }: Props) {
+  const [open, setOpen] = useState(false);
   const { refs, floatingStyles, context } = useFloating({
     open,
     onOpenChange: setOpen,
@@ -186,54 +266,7 @@ function EffectsControl({ attrs, onChange }: Props) {
             {...getFloatingProps()}
           >
             <div className="flex h-9 items-center px-3 text-[13px] font-medium text-[var(--ink)]">效果</div>
-            <ShadowSection title="内阴影" prefix="inner-shadow-" attrs={attrs} onChange={onChange} />
-            <ShadowSection title="投影" prefix="shadow-" attrs={attrs} onChange={onChange} />
-            <section className="px-2 py-2 last:border-b-0">
-              <div className="flex h-8 items-center justify-between gap-3">
-                <button
-                  type="button"
-                  aria-label={`切换为${objectMode ? '背景模糊' : '对象模糊'}`}
-                  className="inline-flex min-w-0 items-center gap-1.5 text-left text-[12px] text-[var(--ink)] hover:text-[var(--accent)]"
-                  onClick={switchBlurMode}
-                  title="切换模糊类型"
-                >
-                  <HiOutlineArrowsRightLeft className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" aria-hidden />
-                  {blurLabel}
-                </button>
-                <Switch
-                  checked={blurEnabled}
-                  onChange={(next) =>
-                    onChange({
-                      [objectMode ? 'blur-enabled' : 'backdrop-blur-enabled']: next,
-                    })
-                  }
-                  className="h-4 w-7 p-[2px] [&>span]:h-3 [&>span]:w-3"
-                />
-              </div>
-              {blurEnabled && objectMode ? (
-                <div className="mt-3 space-y-1.5">
-                  <Slider
-                    min={0}
-                    max={64}
-                    step={1}
-                    value={objectAmount}
-                    onChange={(value) => onChange({ 'blur-amount': value })}
-                  />
-                  <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
-                    <span>模糊</span>
-                    <span className="tabular-nums text-[var(--ink)]">{objectAmount}</span>
-                  </div>
-                </div>
-              ) : null}
-              {blurEnabled && !objectMode ? (
-                <div className="mt-3 space-y-2.5">
-                  <Slider min={0} max={64} step={1} value={amount} onChange={(value) => onChange({ 'backdrop-blur-amount': value })} />
-                  <div className="flex items-center justify-between text-[11px] text-[var(--muted)]"><span>模糊</span><span className="tabular-nums text-[var(--ink)]">{amount}</span></div>
-                  <Slider min={0} max={200} step={1} value={brightness} onChange={(value) => onChange({ 'backdrop-blur-brightness': value })} />
-                  <div className="flex items-center justify-between text-[11px] text-[var(--muted)]"><span>亮度</span><span className="tabular-nums text-[var(--ink)]">{brightness}%</span></div>
-                </div>
-              ) : null}
-            </section>
+            <EffectsForm attrs={attrs} onChange={onChange} />
           </DropdownPanel>
         ) : null}
       </FloatingPortal>

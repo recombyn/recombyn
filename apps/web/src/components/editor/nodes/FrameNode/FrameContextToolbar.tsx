@@ -29,6 +29,8 @@ import { cn } from '@/utils/classnames';
 
 type Props = {
   frame: ArtboardFrame;
+  frames?: ArtboardFrame[];
+  box?: { left: number; top: number; width: number; height: number };
 };
 
 /** Matches shape / selection toolbar field chrome. */
@@ -36,12 +38,13 @@ const field =
   'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]';
 
 /** Floating toolbar for the active artboard / frame (shown after draw / select). */
-function FrameContextToolbar({ frame }: Props) {
+function FrameContextToolbar({ frame, frames, box }: Props) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const [presetOpen, setPresetOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
   const canvasLocked = Boolean(frame.locked);
+  const multiFrame = Boolean(frames && frames.length > 1);
   const aspectLocked = Boolean(frame.lockAspect);
   const clipContent = Boolean(frame.clipContent);
   const presetKey = matchFramePreset(frame.width, frame.height);
@@ -86,12 +89,19 @@ function FrameContextToolbar({ frame }: Props) {
 
   const fill = frame.backgroundColor || '#FFFFFF';
   const fillHex = fill === 'transparent' ? '#FFFFFF' : fill;
-  const fillOpacity = fill === 'transparent' ? 0 : 100;
+  const fillOpacity = fill === 'transparent'
+    ? 0
+    : Math.max(0, Math.min(100, Number(frame.backgroundOpacity ?? 100)));
+  const resolveFrameColorForOpacity = (opacity: number) => {
+    if (opacity <= 0) return 'transparent';
+    if (frame.backgroundColor === 'transparent') return '#FFFFFF';
+    return frame.backgroundColor || '#FFFFFF';
+  };
 
   return (
     <SelectionToolbarShell
-      box={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
-      hasTitleLabel
+      box={box || { left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
+      hasTitleLabel={!multiFrame}
       isFrameToolbar
       zIndexClassName="z-[30]"
     >
@@ -101,14 +111,19 @@ function FrameContextToolbar({ frame }: Props) {
         showAlpha
         presets={FILL_ALPHA_PRESETS}
         onChange={(hex) => {
-          if (hex === 'transparent') patch({ backgroundColor: 'transparent' });
-          else patch({ backgroundColor: hex });
+          if (hex === 'transparent') {
+            patch({ backgroundColor: 'transparent', backgroundOpacity: 0 });
+            return;
+          }
+          patch({
+            backgroundColor: hex,
+            backgroundOpacity: fillOpacity > 0 ? fillOpacity : 100,
+          });
         }}
         onOpacityChange={(opacity) => {
-          if (opacity <= 0) patch({ backgroundColor: 'transparent' });
-          else if (frame.backgroundColor === 'transparent') {
-            patch({ backgroundColor: '#FFFFFF' });
-          }
+          const nextOpacity = Math.max(0, Math.min(100, Math.round(opacity)));
+          const nextColor = resolveFrameColorForOpacity(nextOpacity);
+          patch({ backgroundColor: nextColor, backgroundOpacity: nextOpacity });
         }}
         title={t('editor.frameToolbar.canvasColor')}
         placement="bottom-start"

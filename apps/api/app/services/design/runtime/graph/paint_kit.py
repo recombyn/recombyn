@@ -408,6 +408,24 @@ def _paint_ops_user(rt: Any) -> str:
     focus_frame = _focus_frame_from_rt(rt)
     spatial_hint = _format_spatial_placement(spatial, focus_frame=focus_frame)
     lean = _is_lean_paint_turn(rt)
+    raw_plan = (getattr(rt, "flags", None) or {}).get("design_plan")
+    plan = raw_plan if isinstance(raw_plan, dict) else {}
+    plan_block = ""
+    if plan:
+        target_ids = [str(value)[:64] for value in plan.get("target_node_ids", []) if str(value).strip()][:8]
+        constraints = [str(value)[:160] for value in plan.get("constraints", []) if str(value).strip()][:6]
+        acceptance = [str(value)[:160] for value in plan.get("acceptance_criteria", []) if str(value).strip()][:6]
+        plan_block = "\n".join(
+            [
+                "EXECUTION_PLAN (authoritative):",
+                f"goal={str(plan.get('goal') or '')[:1200]}",
+                f"intent={str(plan.get('intent') or '')} lane={str(plan.get('paint_lane') or '')}",
+                f"target_frame_id={str(plan.get('target_frame_id') or '')[:64]}",
+                f"target_node_ids={', '.join(target_ids) or '(none)'}",
+                f"constraints={'; '.join(constraints) or '(none)'}",
+                f"acceptance={'; '.join(acceptance) or '(none)'}",
+            ]
+        )
     # Lean: tools + scene digest only — drop full SCENE_NODES JSON dump.
     if lean:
         pending = str(getattr(rt, "pending_tool_details", "") or "").strip()
@@ -421,6 +439,7 @@ def _paint_ops_user(rt: Any) -> str:
         f"SCENE: {vars_['scene']}",
         vars_["scene_digest"],
         spatial_hint,
+        plan_block,
         pending,
     ]
     brief = str(getattr(rt, "design_brief", "") or "").strip()
@@ -436,13 +455,6 @@ def _paint_ops_user(rt: Any) -> str:
         if edit_ctx:
             parts.append(edit_ctx[:2500])
     else:
-        # Always keep a slim memory/dialogue strip on lean — no keyword gate.
-        mem = str(vars_.get("memory_block") or "").strip()
-        if mem:
-            parts.append(mem[:1500])
-        dial = str(vars_.get("recent_dialogue") or "").strip()
-        if dial:
-            parts.append(dial[:1200])
         parts.append(
             "LEAN_CANVAS_OP: do NOT emit create_frame / open a new artboard. "
             "Infinite canvas — place create_* with free-canvas world x/y "

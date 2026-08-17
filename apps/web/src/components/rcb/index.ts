@@ -168,15 +168,12 @@ export type { ShapeDrawCommit } from './tools/ShapeDrawFeature';
 export { default as PenDrawFeature } from './tools/PenDrawFeature';
 export { default as PenPathEditFeature } from './tools/PenPathEditFeature';
 export { default as PencilDrawFeature } from './tools/PencilDrawFeature';
-export type { PencilEraseTarget, PencilEraseStroke } from './tools/PencilDrawFeature';
-export { PENCIL_CURSOR, ERASER_CURSOR, PEN_CURSOR, BUCKET_CURSOR } from './tools/PencilDrawFeature';
+export { PENCIL_CURSOR, PEN_CURSOR, BUCKET_CURSOR } from './tools/PencilDrawFeature';
 export { default as BucketFillFeature } from './tools/BucketFillFeature';
 export { default as TextPlaceFeature } from './tools/TextPlaceFeature';
 export { default as ImagePlaceFeature } from './tools/ImagePlaceFeature';
 export * from './tools/penPath';
 export * from './tools/pencilBrushes';
-export * from './tools/pencilErase';
-export { STAMP_TINT_READY_EVENT, getTintedStampSrc } from './tools/stampTint';
 
 // Selection engine + chrome (toolbars/menus under selection/chrome/)
 export { default as SelectionFeature } from './selection/SelectionFeature';

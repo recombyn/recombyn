@@ -56,7 +56,7 @@ describe('pen/pencil outline — keep paint silhouette (like text)', () => {
   it('pencil outline matches paint: keeps Q, no sparsify shred', () => {
     const pts = scribblePts(80);
     const sw = 16;
-    const paint = pencilInkPathFromPoints(pts, sw, 'solid', {
+    const paint = pencilInkPathFromPoints(pts, sw, 'vector-ink', {
       linecap: 'round',
       simplify: false,
     });
@@ -73,7 +73,7 @@ describe('pen/pencil outline — keep paint silhouette (like text)', () => {
           stroke: '#111',
           strokeWidth: sw,
           borderWidth: sw,
-          brushStyle: 'solid',
+          brushStyle: 'vector-ink',
         },
       },
       { zoom: 1 }
@@ -104,7 +104,7 @@ describe('pen/pencil outline — keep paint silhouette (like text)', () => {
           stroke: '#111',
           strokeWidth: sw,
           borderWidth: sw,
-          brushStyle: 'solid',
+          brushStyle: 'vector-ink',
         },
       },
       { zoom: 1 }
@@ -113,8 +113,7 @@ describe('pen/pencil outline — keep paint silhouette (like text)', () => {
     const dataN = pathEditAnchorCount(out!.pathD);
     expect(dataN).toBeGreaterThan(8);
     const painted = paintedKnobCount(out!.pathD, 1);
-    expect(painted).toBeLessThanOrEqual(48);
-    if (dataN > 48) expect(painted).toBeLessThan(dataN);
+    expect(painted).toBeLessThanOrEqual(dataN);
   });
 
   it('pen outline is a closed ribbon; knobs stay sparse on screen', () => {

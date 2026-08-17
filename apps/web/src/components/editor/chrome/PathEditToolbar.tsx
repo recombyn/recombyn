@@ -25,11 +25,11 @@ function PathEditToolbar({
   onExit: () => void;
 }): ReactNode {
   const { t } = useTranslation();
-  const selectLabel = t('editor.pathEditSelect', { defaultValue: '选择' });
-  const penLabel = t('editor.pathEditPen', { defaultValue: '钢笔' });
-  const addAnchorLabel = t('editor.pathEditAddAnchor', { defaultValue: '增加锚点' });
-  const curveLabel = t('editor.pathEditCurve', { defaultValue: '曲线' });
-  const doneLabel = t('editor.pathEditExit', { defaultValue: '退出编辑' });
+  const selectLabel = t('editor.pathEditSelect');
+  const penLabel = t('editor.pathEditPen');
+  const addAnchorLabel = t('editor.pathEditAddAnchor');
+  const curveLabel = t('editor.pathEditCurve');
+  const doneLabel = t('editor.pathEditExit');
   return (
     <FloatingToolbar className="pointer-events-auto h-8 gap-1.5 px-3 py-0">
       <Tooltip tip={selectLabel} placement="bottom">

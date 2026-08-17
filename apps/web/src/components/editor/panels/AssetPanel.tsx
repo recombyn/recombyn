@@ -27,7 +27,10 @@ import {
 } from '@/components/home/UserAssetMediaCard';
 import type { UserAsset } from '@/models/assets';
 import { apiQuery } from '@/service/client';
-import { setMediaAssetDragData, clearMediaAssetDragData } from '@/utils/chatImageDrag';
+import {
+  setMediaAssetDragData,
+  scheduleClearMediaAssetDragData,
+} from '@/utils/chatImageDrag';
 import { cn } from '@/utils/classnames';
 
 const ASSET_DOCK_WIDTH_KEY = 'asset-dock-width';
@@ -223,7 +226,8 @@ function AssetPanel({
 
   const onCardDragStart = (e: ReactDragEvent<HTMLElement>, asset: UserAsset) => {
     const url = String(asset.url || '').trim();
-    if (!isDraggableMediaKind(asset.kind) || !url) {
+    const uploadKey = String(asset.objectKey || '').trim();
+    if (!isDraggableMediaKind(asset.kind) || (!url && !uploadKey)) {
       e.preventDefault();
       return;
     }
@@ -232,7 +236,7 @@ function AssetPanel({
     setMediaAssetDragData(e.dataTransfer, {
       kind: asset.kind,
       src: url,
-      uploadKey: asset.objectKey || undefined,
+      uploadKey: uploadKey || undefined,
       width: asset.width,
       height: asset.height,
       prompt: prompt || undefined,
@@ -337,11 +341,11 @@ function AssetPanel({
                 isDraggableMediaKind(asset.kind) ? onCardDragStart : undefined
               }
               onDragEnd={() => {
-                // drop → dragend; defer clear so drop still sees pending payload.
-                window.setTimeout(() => {
-                  clearMediaAssetDragData();
-                  draggedRef.current = false;
-                }, 0);
+                // Some browsers dispatch dragend before the contenteditable drop
+                // handler finishes reading custom MIME data. Keep the in-memory
+                // payload alive through that handoff.
+                scheduleClearMediaAssetDragData(300);
+                draggedRef.current = false;
               }}
             />
           ))}

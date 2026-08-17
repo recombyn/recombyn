@@ -10,6 +10,7 @@ import {
   pushEditorHistory,
   startImageProcess,
   type ImageToolPanelKind,
+  isImageToolExternalSessionKind,
 } from '@/store/modules/editor';
 import { buildNodeAdjustFilterCss } from '@/components/rcb/scene/document/sceneFill';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -23,6 +24,7 @@ import { uploadImageFromSrc } from '@/utils/uploadImage';
 import {
   layerOpacityToPct,
   parseLayerOpacity,
+  type BlendModeId,
 } from '@/components/rcb/selection/chrome/BlendModeControl';
 import EraserMaskOverlay, { type EraserMaskOverlayHandle } from './EraserMaskOverlay';
 import EraserToolPanel from './EraserToolPanel';
@@ -33,6 +35,8 @@ import AdjustToolPanel, {
   type AdjustValues,
 } from './AdjustToolPanel';
 import ReplaceTextToolPanel from './ReplaceTextToolPanel';
+import EffectsToolPanel, { EFFECTS_RESET } from './EffectsToolPanel';
+import BlendModeToolPanel from './BlendModeToolPanel';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /** Local erase → right-side cutout node (source image untouched), same pattern as 抠图. */
@@ -138,6 +142,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
   const adjustHistoryPushedRef = useRef(false);
   const adjustBaselineRef = useRef<{ cssFilter: string; adjustValues: unknown } | null>(null);
   const opacityBaselineRef = useRef(1);
+  const liveHistoryPushedRef = useRef(false);
 
   useEffect(() => {
     if (!panel) return;
@@ -148,19 +153,8 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
 
   useEffect(() => {
     if (!panel) return;
-    // Crop / expand / flipRotate / media quick-edit are owned outside this host
-    // (selection chrome). Do not force `node.key === 'image'` for those.
-    if (
-      panel.kind === 'crop' ||
-      panel.kind === 'expand' ||
-      panel.kind === 'upscale' ||
-      panel.kind === 'flipRotate' ||
-      panel.kind === 'quickEdit' ||
-      panel.kind === 'lottieEdit' ||
-      panel.kind === 'mark'
-    ) {
-      return;
-    }
+    // Crop / expand / flipRotate / media quick-edit are owned outside this host.
+    if (isImageToolExternalSessionKind(panel.kind)) return;
     const node = document?.deltaSetLike?.[panel.nodeId];
     if (!node || node.key !== 'image') dispatch(closeImageToolPanel());
   }, [document, panel, dispatch]);
@@ -207,6 +201,11 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel?.kind, panel?.nodeId]);
 
+  useEffect(() => {
+    if (panel?.kind !== 'effects' && panel?.kind !== 'blendMode') return;
+    liveHistoryPushedRef.current = false;
+  }, [panel?.kind, panel?.nodeId]);
+
   const box = useMemo(() => {
     if (!panel) return null;
     return nodeBox(document, document?.deltaSetLike?.[panel.nodeId]);
@@ -214,15 +213,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
 
   if (!panel || !box) return null;
   // Flip/rotate + Chat quick-edit use the selection floating toolbar; crop/expand use on-canvas frame.
-  if (
-    panel.kind === 'flipRotate' ||
-    panel.kind === 'quickEdit' ||
-    panel.kind === 'lottieEdit' ||
-    panel.kind === 'crop' ||
-    panel.kind === 'expand' ||
-    panel.kind === 'upscale' ||
-    panel.kind === 'mark'
-  ) {
+  if (isImageToolExternalSessionKind(panel.kind)) {
     return null;
   }
 
@@ -298,6 +289,26 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
           attrs: {
             ...(node?.attrs || {}),
             opacity: next01,
+          },
+        },
+      })
+    );
+  };
+
+  const writeAttrPatch = (patch: Record<string, unknown>, mode: 'preview' | 'commit') => {
+    const node = document?.deltaSetLike?.[panel.nodeId];
+    if (mode === 'preview' && !liveHistoryPushedRef.current) {
+      liveHistoryPushedRef.current = true;
+      dispatch(pushEditorHistory());
+    }
+    dispatch(
+      patchDocumentNode({
+        nodeId: panel.nodeId,
+        skipHistory: mode === 'preview' || liveHistoryPushedRef.current,
+        patch: {
+          attrs: {
+            ...(node?.attrs || {}),
+            ...patch,
           },
         },
       })
@@ -452,6 +463,32 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
       );
       break;
     }
+    case 'effects': {
+      const node = document?.deltaSetLike?.[panel.nodeId];
+      body = (
+        <EffectsToolPanel
+          key={`${panel.nodeId}-effects`}
+          attrs={node?.attrs}
+          onChange={(patch) => writeAttrPatch(patch, 'preview')}
+          onReset={() => writeAttrPatch(EFFECTS_RESET, 'preview')}
+          onClose={close}
+        />
+      );
+      break;
+    }
+    case 'blendMode': {
+      const node = document?.deltaSetLike?.[panel.nodeId];
+      body = (
+        <BlendModeToolPanel
+          key={`${panel.nodeId}-blendMode`}
+          blendMode={node?.attrs?.blendMode}
+          onChange={(mode: BlendModeId) => writeAttrPatch({ blendMode: mode }, 'preview')}
+          onReset={() => writeAttrPatch({ blendMode: 'normal' }, 'preview')}
+          onClose={close}
+        />
+      );
+      break;
+    }
     case 'replaceText': {
       const node = document?.deltaSetLike?.[panel.nodeId];
       const initialOriginal = String(
@@ -502,6 +539,9 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
           onPointerDown={(e) => {
             // Stop bubble so canvas selection/pan does not run; do not use capture —
             // capture stopPropagation blocks panel internals (e.g. angle-editor drag).
+            e.stopPropagation();
+          }}
+          onWheel={(e) => {
             e.stopPropagation();
           }}
         >

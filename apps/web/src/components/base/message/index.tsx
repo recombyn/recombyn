@@ -103,12 +103,9 @@ function ToastMark({
   type: Exclude<ToastType, 'loading'>;
   color: string;
 }) {
-  const name =
-    type === 'success' || type === 'destructive'
-      ? 'base-toast-check'
-      : type === 'error'
-        ? 'base-toast-x'
-        : 'base-toast-info';
+  let name = 'base-toast-info';
+  if (type === 'success' || type === 'destructive') name = 'base-toast-check';
+  else if (type === 'error') name = 'base-toast-x';
   return <Icon name={name} width={12} height={12} className="block" color={color} />;
 }
 
@@ -143,12 +140,15 @@ const ToastItemRow: React.FC<{ item: ToastItem }> = ({ item }) => {
     }
   }, [item.duration, handleClose]);
 
-  const diskColor =
-    item.type === 'success' || item.type === 'loading'
-      ? SUCCESS_MARK
-      : item.type === 'error' || item.type === 'warning' || item.type === 'destructive'
-        ? '#ffffff'
-        : 'var(--color-text-on-button-base)';
+  let diskColor = 'var(--color-text-on-button-base)';
+  if (item.type === 'success' || item.type === 'loading') diskColor = SUCCESS_MARK;
+  else if (
+    item.type === 'error' ||
+    item.type === 'warning' ||
+    item.type === 'destructive'
+  ) {
+    diskColor = '#ffffff';
+  }
 
   return (
     <div

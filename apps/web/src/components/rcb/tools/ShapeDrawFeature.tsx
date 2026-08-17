@@ -47,6 +47,7 @@ type ShapeDrawSession = {
   /** Ctrl/Cmd held — skip grid snap for this gesture. */
   skipGrid: boolean;
   pointerId: number;
+  frameId: string | null;
 };
 
 /**
@@ -171,6 +172,8 @@ export type ShapeDrawCommit = {
   y0?: number;
   x1?: number;
   y1?: number;
+  /** Artboard under the pointer when the gesture started. */
+  frameId?: string | null;
 };
 
 type ShapeDrawFeatureProps = {
@@ -180,6 +183,7 @@ type ShapeDrawFeatureProps = {
   paperEl: HTMLElement | null;
   stageEl?: HTMLElement | null;
   onCreate: (kind: string, box: ShapeDrawCommit) => void;
+  hitTestFrame?: (x: number, y: number) => string | null;
   /**
    * Snap draw corners to document grid (default 1px).
    * Hold Ctrl/Cmd to draw free (integer px still via createShapeNode).
@@ -200,6 +204,7 @@ function ShapeDrawFeature({
   paperEl,
   stageEl = null,
   onCreate,
+  hitTestFrame,
   gridSnap = true,
   gridSize = 10,
 }: ShapeDrawFeatureProps) {
@@ -210,11 +215,13 @@ function ShapeDrawFeature({
   const shapeKindRef = useRef(shapeKind);
   const gridSnapRef = useRef(gridSnap);
   const gridSizeRef = useRef(gridSize);
+  const hitTestFrameRef = useRef(hitTestFrame);
   toSceneRef.current = toScene;
   onCreateRef.current = onCreate;
   shapeKindRef.current = shapeKind;
   gridSnapRef.current = gridSnap;
   gridSizeRef.current = gridSize;
+  hitTestFrameRef.current = hitTestFrame;
   const session = useRef<ShapeDrawSession | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
@@ -268,6 +275,7 @@ function ShapeDrawFeature({
       const skipGrid = e.ctrlKey || e.metaKey;
       const p = pointerScene(e.clientX, e.clientY);
       const origin = snapPoint(p.x, p.y, skipGrid);
+      const frameId = hitTestFrameRef.current?.(origin.x, origin.y) || null;
       const metrics = rcbViewportMetrics(hitEl);
       const kind = shapeKindRef.current || 'rect';
       const isStroke = kind === 'line' || kind === 'arrow';
@@ -287,6 +295,7 @@ function ShapeDrawFeature({
         shift: e.shiftKey,
         skipGrid,
         pointerId: e.pointerId,
+        frameId,
       };
       if (isStroke) {
         setPreview({ mode: 'stroke', x0: origin.x, y0: origin.y, x1: origin.x, y1: origin.y });
@@ -348,7 +357,7 @@ function ShapeDrawFeature({
         const y1 = s.y1;
         if (Math.hypot(x1 - x0, y1 - y0) < 3) return;
         const box = normalizeBox(x0, y0, x1, y1);
-        onCreateRef.current(kind, { ...box, x0, y0, x1, y1 });
+        onCreateRef.current(kind, { ...box, x0, y0, x1, y1, frameId: s.frameId });
         return;
       }
 
@@ -361,7 +370,7 @@ function ShapeDrawFeature({
         gridSizeRef.current,
         kind
       );
-      onCreateRef.current(kind, geom);
+      onCreateRef.current(kind, { ...geom, frameId: s.frameId });
     };
 
     hitEl.addEventListener('pointerdown', onDown);

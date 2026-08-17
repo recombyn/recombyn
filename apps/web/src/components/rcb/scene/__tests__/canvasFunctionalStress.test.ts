@@ -110,8 +110,7 @@ describe('canvas functional stress (可用性)', () => {
         ctx as unknown as CanvasRenderingContext2D,
         { x: -2.3, y: 4.7, width: 40, height: 30 },
         GRID,
-        zoom,
-        { panX: 12.25, panY: -3.5, dpr: 1.25 }
+        zoom
       );
       expect(moves.length).toBeGreaterThan(0);
       for (const [x, y] of moves) {

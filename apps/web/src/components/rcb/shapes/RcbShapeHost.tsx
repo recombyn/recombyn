@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, memo } from 'react';
 import { useRcbCamera } from '@/components/rcb/camera/context';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
-import { applyFrameContentClip } from '@/components/rcb/frames/frameContentClip';
+import {
+  applyFrameContentClip,
+  clearFrameContentClip,
+} from '@/components/rcb/frames/frameContentClip';
 import {
   createSvgBoard,
   nodeToSvgElement,
@@ -45,22 +48,28 @@ type Props = {
   zIndex: number;
   /** Bumps force a full remount / redraw of this host. */
   reloadToken?: number | string;
+  /** Changes when frame geometry or clipping settings change. */
+  frameClipToken?: string;
   /** Keep SVG paint invisible (inline text editor owns the glyphs). */
   forceHidden?: boolean;
+  /** Selected nodes show their full paint while crossing an artboard edge. */
+  revealOverflow?: boolean;
 };
 
 /**
  * A geometry commit creates a new document shell, while every untouched node
  * keeps its object identity. Comparing the whole document here made every
  * mounted brush host render on each drag commit, which is costly enough for
- * dense stamped strokes to visibly shake. A host only needs its own node.
+ * dense pencil strokes to visibly shake. A host only needs its own node.
  */
 export function shapeHostPropsEqual(previous: Props, next: Props): boolean {
   return (
     previous.nodeId === next.nodeId &&
     previous.zIndex === next.zIndex &&
     previous.reloadToken === next.reloadToken &&
+    previous.frameClipToken === next.frameClipToken &&
     previous.forceHidden === next.forceHidden &&
+    previous.revealOverflow === next.revealOverflow &&
     previous.document?.deltaSetLike?.[previous.nodeId] ===
       next.document?.deltaSetLike?.[next.nodeId]
   );
@@ -87,7 +96,9 @@ function RcbShapeHost({
   document,
   zIndex,
   reloadToken = 0,
+  frameClipToken = '',
   forceHidden = false,
+  revealOverflow = false,
 }: Props) {
   const camera = useRcbCamera();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -108,9 +119,11 @@ function RcbShapeHost({
     []
   );
   const node = document?.deltaSetLike?.[nodeId];
+  const clipGeometryToken = [node?.x, node?.y, node?.width, node?.height].join('|');
   const blendMode = parseBlendMode(node?.attrs?.blendMode, { allowPassThrough: false });
   const layerOpacity = parseLayerOpacity(node?.attrs?.opacity, 1);
   const blendCss = blendModeToCss(blendMode);
+  const paintZIndex = revealOverflow ? 2_000_000_000 + zIndex : zIndex;
   // Remount when stroke/fill paint attrs change — not on every geometry nudge.
   const paintToken = [
     node?.attrs?.hidden,
@@ -141,7 +154,6 @@ function RcbShapeHost({
     node?.attrs?.['fill-image-adjust'],
     node?.attrs?.opacity,
     node?.attrs?.blendMode,
-    node?.attrs?.brushStampSrc,
     node?.attrs?.markdown ?? node?.attrs?.DATA,
     node?.attrs?.fontSize,
     node?.attrs?.fontFamily,
@@ -206,7 +218,7 @@ function RcbShapeHost({
     });
     layerRef.current = layer;
     layer.setAttribute('data-rcb-shape-id', nodeId);
-    layer.setAttribute('data-z', String(zIndex));
+    layer.setAttribute('data-z', String(paintZIndex));
     layer.style.opacity = forceHiddenRef.current ? '0' : String(layerOpacity);
     if (blendCss) layer.style.mixBlendMode = blendCss;
     else layer.style.removeProperty('mix-blend-mode');
@@ -230,7 +242,11 @@ function RcbShapeHost({
           el.style.opacity = '1';
           el.setAttribute('opacity', '1');
           if (forceHiddenRef.current) setHostPaintOpacity(el, true);
-          applyFrameContentClip(root, el, document, n, { zoom: camera.zoom });
+          if (revealOverflow) {
+            clearFrameContentClip(el);
+          } else {
+            applyFrameContentClip(root, el, document, n, { zoom: camera.zoom });
+          }
           const sharedMap = getSharedNodeEls();
           if (sharedMap) sharedMap.set(nodeId, el);
           else nodeEls.set(nodeId, el);
@@ -256,6 +272,19 @@ function RcbShapeHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeId, reloadToken, paintToken, worldEpoch]);
 
+  useEffect(() => {
+    const el =
+      getSharedNodeEls()?.get(nodeId) ||
+      (hostRef.current?.querySelector?.('[data-scene-node-id]') as SVGElement | null);
+    const root = getSceneWorldRoot();
+    if (!el || !root) return;
+    if (revealOverflow) {
+      clearFrameContentClip(el);
+    } else {
+      applyFrameContentClip(root, el, document, node, { zoom: camera.zoom });
+    }
+  }, [camera.zoom, clipGeometryToken, document, frameClipToken, node, nodeId, revealOverflow, worldEpoch]);
+
   // Toggle hide without remounting (enter / leave inline text edit).
   useEffect(() => {
     const el =
@@ -278,10 +307,10 @@ function RcbShapeHost({
     const layer = layerRef.current;
     const mount = getSceneShapesMount();
     if (!layer) return;
-    layer.setAttribute('data-z', String(zIndex));
+    layer.setAttribute('data-z', String(paintZIndex));
     if (!mount || layer.parentNode !== mount) return;
     syncSharedMountPaintOrder(mount);
-  }, [zIndex, paintToken, worldEpoch]);
+  }, [paintZIndex, paintToken, worldEpoch]);
 
   return (
     <div

@@ -615,63 +615,6 @@ function encodeBitmapInWorker(
   });
 }
 
-export type StampBakeDabInput = {
-  x: number;
-  y: number;
-  size: number;
-  opacity: number;
-};
-
-/**
- * Bake tip stamps → PNG data URL on the raster worker.
- * Caller supplies tip ImageBitmap (transferred); falls back to rejection when worker missing.
- */
-export function bakeStampStrokeInWorker(opts: {
-  tip: ImageBitmap;
-  dabs: StampBakeDabInput[];
-  strokeOpacity: number;
-  sceneWidth: number;
-  sceneHeight: number;
-  scale: number;
-  originX: number;
-  originY: number;
-}): Promise<string> {
-  const w = getRasterWorker();
-  if (!w) {
-    opts.tip.close();
-    return Promise.reject(new Error('no-raster-worker'));
-  }
-  const id = rasterWorkerId++;
-  return new Promise<string>((resolve, reject) => {
-    rasterWorkerWaiters.set(id, { resolve, reject });
-    try {
-      w.postMessage(
-        {
-          kind: 'stampBake',
-          id,
-          tip: opts.tip,
-          dabs: opts.dabs,
-          strokeOpacity: opts.strokeOpacity,
-          sceneWidth: opts.sceneWidth,
-          sceneHeight: opts.sceneHeight,
-          scale: opts.scale,
-          originX: opts.originX,
-          originY: opts.originY,
-        },
-        [opts.tip]
-      );
-    } catch (err) {
-      rasterWorkerWaiters.delete(id);
-      try {
-        opts.tip.close();
-      } catch {
-        /* ignore */
-      }
-      reject(err instanceof Error ? err : new Error(String(err)));
-    }
-  });
-}
-
 function paintBitmapToCanvas(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   bitmap: CanvasImageSource,

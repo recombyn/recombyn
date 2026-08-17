@@ -2,7 +2,7 @@ import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import { maxRadius, radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { parseNodeText, parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
-import { nodeIdsInsideFrame } from './designTools';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { frameIsEmpty } from './agentMemory';
 /** Pick artboard for edit context: @ chip → last agent frame → active → sole frame. */
 export function resolveDesignTargetFrame(
@@ -41,29 +41,9 @@ export function frameIdContainingNode(
   if (!doc || !nodeId) return null;
   const node = doc?.deltaSetLike?.[nodeId];
   if (!node) return null;
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  if (!frames.length) return null;
-  const { left, top } = nodeLeftTop(doc, node);
-  const nw = Math.max(1, Number(node.width) || 1);
-  const nh = Math.max(1, Number(node.height) || 1);
-  let bestId: string | null = null;
-  let bestArea = 0;
-  for (const frame of frames) {
-    if (!frame?.id) continue;
-    const fx = Number(frame.x) || 0;
-    const fy = Number(frame.y) || 0;
-    const fw = Math.max(1, Number(frame.width) || 1);
-    const fh = Math.max(1, Number(frame.height) || 1);
-    const ow = Math.max(0, Math.min(left + nw, fx + fw) - Math.max(left, fx));
-    const oh = Math.max(0, Math.min(top + nh, fy + fh) - Math.max(top, fy));
-    const area = ow * oh;
-    if (area > bestArea) {
-      bestArea = area;
-      bestId = String(frame.id);
-    }
-  }
-  if (!bestId || bestArea < nw * nh * 0.35) return null;
-  return bestId;
+  const frameId = String(node.attrs?.frameId || '').trim();
+  if (!frameId) return null;
+  return nodeIdsBoundToFrames(doc, [frameId]).includes(nodeId) ? frameId : null;
 }
 
 export type SceneNodeInventoryItem = {
@@ -284,7 +264,7 @@ export function buildSceneNodesForEdit(
   const forced = new Set(
     (forceIds || []).filter((id) => id && doc?.deltaSetLike?.[id]).map(String)
   );
-  const idSet = new Set(nodeIdsInsideFrame(doc, frameId));
+  const idSet = new Set(nodeIdsBoundToFrames(doc, [frameId]));
   for (const id of forced) idSet.add(id);
   const items: SceneNodeInventoryItem[] = [];
   for (const id of idSet) {

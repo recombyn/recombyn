@@ -27,13 +27,12 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   resolveSelectionNodeIds,
-  nodeIdsInsideFrames,
+  nodeIdsBoundToFrames,
   type SceneClipboardPayload,
 } from '@/components/rcb/scene/document/sceneClipboard';
 import {
   loadSceneOntoSvg,
   nodeLeftTop,
-  stampStrokeBakeZoomBucket,
 } from '@/components/rcb/scene/paint/sceneToSvg';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import { strokeCenterlineToFilledOutline } from '@/components/rcb/scene/paint/outlineToPath';
@@ -110,6 +109,8 @@ import {
   setCanvasAttachPickBlocked,
   setPendingCanvasAttach,
   EMPTY_ID_LIST,
+  isImageToolSidePanelKind,
+  isImageToolCropSessionKind,
 } from '@/store/modules/editor';
 import { requestProjectFlush } from '@/components/editor/useProjectCloudSync';
 import {
@@ -155,9 +156,10 @@ import {
   PenPathEditFeature,
   BucketFillFeature,
   DEFAULT_PENCIL_BRUSH_ID,
-  STAMP_TINT_READY_EVENT,
+  findPencilBrush,
   rcbCenterOnPoint,
   getDocumentGridSize,
+  snapCoordToGrid,
 } from '@/components/rcb';
 import ImageProcessOverlay from '@/components/editor/nodes/ImageNode/ImageProcessOverlay';
 import ImageGeneratorOverlay from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorOverlay';
@@ -173,8 +175,6 @@ import VideoNodeOverlay, {
 import LottieNodeOverlay, {
   type LottieGeomOverride,
 } from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
-import type { PencilEraseStroke } from '@/components/rcb';
-import { erasePencilNode } from '@/components/rcb';
 import type { SceneDocument, ScenePage } from '@/components/rcb/sceneNode';
 import TextInlineEditor from '@/components/editor/nodes/TextNode/TextInlineEditor';
 import CanvasContextMenu, {
@@ -222,26 +222,6 @@ type SvgCanvasProps = {
    */
   viewRect?: { x: number; y: number; width: number; height: number } | null;
 };
-
-/** True when a full-bleed plate still has the legacy agent default #333 stroke. */
-function isLegacyDefaultPlateStroke(attrs: Record<string, unknown> | undefined | null): boolean {
-  if (!attrs) return false;
-  const border = String(attrs['border-color'] || '')
-    .replace(/\s/g, '')
-    .toLowerCase();
-  const bw = Number(attrs['border-width'] ?? 1);
-  const strokeOn = String(attrs['stroke-enabled'] ?? 'true') !== 'false';
-  if (!strokeOn || !(bw > 0)) return false;
-  return border === '#333333' || border === '#333' || border === 'rgb(51,51,51)';
-}
-
-function legacyPlateStrokeHealAttrs(): Record<string, unknown> {
-  return {
-    'stroke-enabled': 'false',
-    'stroke-visible': 'false',
-    'border-width': 0,
-  };
-}
 
 function ctxMenuCanReplace(opts: {
   readOnly: boolean;
@@ -316,14 +296,9 @@ function SvgCanvas({
   const pencilBrushId = useSelector((s: RootState) =>
     String(s.editor.pencilBrushId || DEFAULT_PENCIL_BRUSH_ID)
   );
-  const pencilEraseMode = useSelector((s: RootState) => Boolean(s.editor.pencilEraseMode));
   const pencilPressureEnabled = useSelector((s: RootState) =>
     s.editor.pencilPressureEnabled !== false
   );
-  const pencilHardness = useSelector((s: RootState) => {
-    const n = Number(s.editor.pencilHardness);
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 80;
-  });
   const penStrokeOpacity = useSelector((s: RootState) => {
     const n = Number(s.editor.penStrokeOpacity);
     return Number.isFinite(n) ? Math.max(1, Math.min(100, n)) : 100;
@@ -348,36 +323,20 @@ function SvgCanvas({
   const hitTestRef = useRef<(x: number, y: number, screen?: { clientX: number; clientY: number }) => string | null>(
     () => null
   );
-  const [stampTintEpoch, setStampTintEpoch] = useState(0);
   const reduxCanUndo = useSelector((s: RootState) => (s.editor.historyPast?.length || 0) > 0);
   const reduxCanRedo = useSelector((s: RootState) => (s.editor.historyFuture?.length || 0) > 0);
   useSyncExternalStore(subscribeCollabUndo, getCollabUndoEpoch, getCollabUndoEpoch);
   // Collab prefers Yjs undo; if that stack is empty (pre-seed / sync lag), fall
   // back to Redux so the menu and Ctrl+Z stay usable. View-only never undoes.
-  const canUndo = isCollabViewOnly()
-    ? false
-    : isCollabActive()
-      ? canCollabUndo() || reduxCanUndo
-      : reduxCanUndo;
-  const canRedo = isCollabViewOnly()
-    ? false
-    : isCollabActive()
-      ? canCollabRedo() || reduxCanRedo
-      : reduxCanRedo;
+  const viewOnly = isCollabViewOnly();
+  const collabActive = isCollabActive();
+  const canUndo = !viewOnly && (collabActive ? canCollabUndo() || reduxCanUndo : reduxCanUndo);
+  const canRedo = !viewOnly && (collabActive ? canCollabRedo() || reduxCanRedo : reduxCanRedo);
   const imageToolPanelKind = useSelector((s: RootState) => s.editor.imageToolPanel?.kind as string | undefined);
   const shapeStylePanel = useSelector((s: RootState) => s.editor.shapeStylePanel as null | { kind: string });
   const shapeStylePanelOpen = Boolean(shapeStylePanel);
-  const cropExpandOpen =
-    imageToolPanelKind === 'crop' ||
-    imageToolPanelKind === 'expand' ||
-    imageToolPanelKind === 'upscale';
-  // Side panels (Eraser / Replace text / …) — hide selection toolbar like Eraser.
-  const imageToolSidePanelOpen =
-    imageToolPanelKind === 'eraser' ||
-    imageToolPanelKind === 'replaceText' ||
-    imageToolPanelKind === 'multiAngle' ||
-    imageToolPanelKind === 'adjust' ||
-    imageToolPanelKind === 'mark';
+  const cropExpandOpen = isImageToolCropSessionKind(imageToolPanelKind);
+  const imageToolSidePanelOpen = isImageToolSidePanelKind(imageToolPanelKind);
   const videoToolPanelKind = useSelector(
     (s: RootState) => s.editor.videoToolPanel?.kind as string | undefined
   );
@@ -423,7 +382,9 @@ function SvgCanvas({
   const keepSelectAfterTextEditRef = useRef<string | null>(null);
   /** Frames painted directly during a mixed transform; restored on cancellation. */
   const frameGeometryPreviewIdsRef = useRef(new Set<string>());
+  const resetFrameMoveOwnersRef = useRef<() => void>(() => undefined);
   const [geometryTransforming, setGeometryTransforming] = useState(false);
+  const geometryTransformingRef = useRef(false);
   /** Live video plate boxes while dragging — Redux only commits on gesture end. */
   const [videoLiveGeom, setVideoLiveGeom] = useState<Record<string, VideoGeomOverride> | null>(
     null
@@ -454,6 +415,7 @@ function SvgCanvas({
   }, []);
 
   const onGeometryTransformingChange = useCallback((next: boolean) => {
+    geometryTransformingRef.current = next;
     setGeometryTransforming(next);
     onTransformingChange?.(next);
     if (!next) {
@@ -462,9 +424,34 @@ function SvgCanvas({
       // possible. Soft-click / cancelled transforms still need a clear here.
       setVideoLiveGeom(null);
       clearFrameGeometryPreview();
+      resetFrameMoveOwnersRef.current();
     }
   }, [clearFrameGeometryPreview, onTransformingChange]);
-  documentRef.current = document;
+  // Geometry previews update documentRef before Redux commits on pointer-up.
+  // Do not overwrite that live document with the previous Redux snapshot while
+  // a transform is active, otherwise cleared frame bindings reappear.
+  if (!geometryTransformingRef.current) {
+    const previous = documentRef.current;
+    const changedBindingIds = Object.keys(document?.deltaSetLike || {}).filter((id) => {
+      const before = previous?.deltaSetLike?.[id]?.attrs?.frameId;
+      const after = document?.deltaSetLike?.[id]?.attrs?.frameId;
+      return String(before || '') !== String(after || '');
+    });
+    if (changedBindingIds.length) {
+      console.warn('[frame-binding-redux-sync]', JSON.stringify({
+        changedBindingIds,
+        previous: changedBindingIds.map((id) => ({
+          nodeId: id,
+          frameId: previous?.deltaSetLike?.[id]?.attrs?.frameId,
+        })),
+        incoming: changedBindingIds.map((id) => ({
+          nodeId: id,
+          frameId: document?.deltaSetLike?.[id]?.attrs?.frameId,
+        })),
+      }, null, 2));
+    }
+    documentRef.current = document;
+  }
   selectedIdsRef.current = ctxMenuSeedNodeIds(selectedNodeIds || [], selectedNodeId);
   activeFrameIdRef.current = activeFrameId;
   selectedFrameIdsRef.current = selectedFrameIds;
@@ -568,52 +555,6 @@ function SvgCanvas({
     });
   }, [documentPatchToken, lastPatchedNodeIds, geometryTransforming, boardRef]);
 
-  // Stamp tip tint may resolve after first paint ? refresh pencil stamp strokes.
-  useEffect(() => {
-    const onReady = () => setStampTintEpoch((n) => n + 1);
-    window.addEventListener(STAMP_TINT_READY_EVENT, onReady);
-    return () => window.removeEventListener(STAMP_TINT_READY_EVENT, onReady);
-  }, []);
-
-  useEffect(() => {
-    if (!stampTintEpoch) return;
-    const board = boardRef.current;
-    const doc = documentRef.current;
-    if (!board || !doc) return;
-    listSceneNodes(doc).forEach(({ id, node }) => {
-      if (node?.key !== 'shape') return;
-      if (String(node.attrs?.shapeType || '') !== 'pencil') return;
-      const stamp = node.attrs?.brushStampSrc;
-      if (!stamp) return;
-      void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
-    });
-  }, [stampTintEpoch, boardRef]);
-
-  // Tip strokes are raster baked — rebake at higher zoom so they don't go soft.
-  const stampBakeZoomRef = useRef(0);
-  useEffect(() => {
-    const bucket = stampStrokeBakeZoomBucket(camera.zoom);
-    if (stampBakeZoomRef.current === 0) {
-      stampBakeZoomRef.current = bucket;
-      return;
-    }
-    if (bucket <= stampBakeZoomRef.current) return;
-    stampBakeZoomRef.current = bucket;
-    const t = window.setTimeout(() => {
-      const board = boardRef.current;
-      const doc = documentRef.current;
-      if (!board || !doc) return;
-      listSceneNodes(doc).forEach(({ id, node }) => {
-        if (node?.key !== 'shape') return;
-        if (String(node.attrs?.shapeType || '') !== 'pencil') return;
-        const stamp = node.attrs?.brushStampSrc;
-        if (!stamp) return;
-        void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
-      });
-    }, 140);
-    return () => window.clearTimeout(t);
-  }, [camera.zoom, boardRef]);
-
   const cameraZoomRef = useRef(camera.zoom);
   cameraZoomRef.current = camera.zoom;
   const readOnlyRef = useRef(readOnly);
@@ -675,6 +616,7 @@ function SvgCanvas({
       }),
     [dispatch, clearFrameGeometryPreview]
   );
+  resetFrameMoveOwnersRef.current = session.resetFrameMoveOwners;
   const {
     listNodeIds,
     getNodeBox,
@@ -725,12 +667,12 @@ function SvgCanvas({
     const page: ScenePage | undefined =
       doc?.pages?.find((p) => p.id === doc?.activePageId) || doc?.pages?.[0];
     const fromPage = page?.children;
-    const childrenSrc: string[] =
-      Array.isArray(fromPage) && fromPage.length
-        ? fromPage
-        : Array.isArray(doc?.deltaSetLike?.ROOT?.children)
-          ? doc.deltaSetLike.ROOT.children
-          : [];
+    let childrenSrc: string[] = [];
+    if (Array.isArray(fromPage) && fromPage.length) {
+      childrenSrc = fromPage;
+    } else if (Array.isArray(doc?.deltaSetLike?.ROOT?.children)) {
+      childrenSrc = doc.deltaSetLike.ROOT.children;
+    }
     return runtime.sync({
       document: doc,
       childrenIds: childrenSrc,
@@ -963,17 +905,6 @@ function SvgCanvas({
       if (!opts?.additive && ids.length === 1) {
         const plateFrame = frameForFullBleedPlate(doc, ids[0]);
         if (plateFrame) {
-          const plate = doc?.deltaSetLike?.[ids[0]];
-          // Heal legacy agent plates that used the old default #333 stroke.
-          if (isLegacyDefaultPlateStroke(plate?.attrs)) {
-            dispatch(
-              patchDocumentNode({
-                nodeId: ids[0],
-                skipHistory: true,
-                patch: { attrs: legacyPlateStrokeHealAttrs() },
-              })
-            );
-          }
           dispatch(setSelectedNodeIds([]));
           dispatch(setActiveFrameId(plateFrame.id));
           return;
@@ -1145,7 +1076,11 @@ function SvgCanvas({
     (
       pathD: string,
       box: { left: number; top: number; width: number; height: number },
-      meta?: { pathPressure?: string; brushHardness?: number; brushStampSrc?: string }
+      meta?: {
+        pathPressure?: string;
+        brushCategory?: string;
+        frameId?: string | null;
+      }
     ) => {
       const doc = documentRef.current;
       if (!doc || readOnly) return;
@@ -1167,13 +1102,20 @@ function SvgCanvas({
       if (meta?.pathPressure) {
         (node.attrs as Record<string, unknown>).pathPressure = meta.pathPressure;
       }
-      if (meta?.brushHardness != null && Number.isFinite(meta.brushHardness)) {
-        (node.attrs as Record<string, unknown>).brushHardness = meta.brushHardness;
+      if (meta?.brushCategory) {
+        (node.attrs as Record<string, unknown>).brushCategory = meta.brushCategory;
       }
-      if (meta?.brushStampSrc) {
-        (node.attrs as Record<string, unknown>).brushStampSrc = meta.brushStampSrc;
+      const frameId = String(meta?.frameId || '').trim();
+      if (frameId && doc.frames?.some((frame) => String(frame.id) === frameId)) {
+        (node.attrs as Record<string, unknown>).frameId = frameId;
       }
       (node.attrs as Record<string, unknown>).pressureEnabled = pencilPressureEnabled;
+      const inkBrush = findPencilBrush(pencilBrushId || DEFAULT_PENCIL_BRUSH_ID);
+      (node.attrs as Record<string, unknown>).pencilFill = inkBrush.fillEnabled !== false;
+      (node.attrs as Record<string, unknown>).pencilOutlineWidth =
+        Number(inkBrush.outlineStrokeWidth) || 0;
+      (node.attrs as Record<string, unknown>).pencilOutlineColor =
+        inkBrush.outlineStrokeColor || penStrokeColor;
       const next = addNodeToDocument(doc, id, node);
       documentRef.current = next;
       dispatch(pushEditorHistory());
@@ -1219,115 +1161,12 @@ function SvgCanvas({
     [dispatch, readOnly]
   );
 
-  const pencilEraseTargets = useMemo(() => {
-    const doc = document;
-    if (!doc) return [];
-    return listSceneNodes(doc)
-      .filter(({ node }) => {
-        if (node?.key !== 'shape') return false;
-        return String(node.attrs?.shapeType || '') === 'pencil';
-      })
-      .map(({ id, node }) => {
-        const { left, top } = nodeLeftTop(doc, node);
-        return {
-          id,
-          left,
-          top,
-          width: Math.max(1, Number(node.width) || 1),
-          height: Math.max(1, Number(node.height) || 1),
-        };
-      });
-  }, [document]);
-
-  const onPencilErase = useCallback(
-    (stroke: PencilEraseStroke) => {
-      const doc = documentRef.current;
-      if (!doc || readOnly || !stroke.points.length) return;
-
-      const pencils = listSceneNodes(doc).filter(({ node }) => {
-        if (node?.key !== 'shape') return false;
-        return String(node.attrs?.shapeType || '') === 'pencil';
-      });
-      if (!pencils.length) return;
-
-      let next = doc;
-      let changed = false;
-      for (const { id, node } of pencils) {
-        const { left, top } = nodeLeftTop(next, node);
-        const strokeWidth =
-          Number(node.attrs?.['border-width'] ?? node.attrs?.strokeWidth ?? 10) || 10;
-        const brushId = String(node.attrs?.brushStyle || 'solid');
-        const srcPressure =
-          node.attrs?.pathPressure != null ? String(node.attrs.pathPressure) : undefined;
-        const fragments = erasePencilNode({
-          pathD: String(node.attrs?.path || ''),
-          left,
-          top,
-          strokeWidth,
-          brushId,
-          pathPressure: srcPressure,
-          eraseScene: stroke.points,
-          eraseRadius: stroke.radius,
-        });
-        if (fragments == null) continue;
-
-        changed = true;
-        next = removeNodesFromDocument(next, [id]);
-        for (const frag of fragments) {
-          const origin = sceneToDocumentCoords(next, frag.left, frag.top);
-          const { id: nid, node: nnode } = createShapeNode({
-            x: origin.x,
-            y: origin.y,
-            width: frag.width,
-            height: frag.height,
-            shapeType: 'pencil',
-            fill: 'transparent',
-            stroke: String(node.attrs?.['border-color'] || node.attrs?.stroke || '#333333'),
-            borderWidth: strokeWidth,
-            path: frag.pathD,
-            closed: false,
-            brushStyle: brushId,
-            brushStampSrc:
-              node.attrs?.brushStampSrc != null ? String(node.attrs.brushStampSrc) : undefined,
-          });
-          nnode.z = Number(node.z) || 0;
-          // Keep stroke visibility / opacity attrs from the source stroke.
-          const src = node.attrs || {};
-          for (const key of [
-            'stroke-enabled',
-            'stroke-visible',
-            'stroke-opacity',
-            'opacity',
-            'blendMode',
-            'strokeLinecap',
-            'stroke-linecap',
-            'strokeLinejoin',
-            'stroke-linejoin',
-          ]) {
-            if (src[key] != null) nnode.attrs[key] = src[key];
-          }
-          if (frag.pathPressure) {
-            (nnode.attrs as Record<string, unknown>).pathPressure = frag.pathPressure;
-          }
-          next = addNodeToDocument(next, nid, nnode);
-        }
-      }
-
-      if (!changed) return;
-      documentRef.current = next;
-      dispatch(setDocument(next));
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setSelectedNodeId(null));
-    },
-    [dispatch, readOnly]
-  );
-
   const onPenCommit = useCallback(
     (
       pathD: string,
       box: { left: number; top: number; width: number; height: number },
       closed: boolean,
-      opts?: { replaceNodeId?: string }
+      opts?: { replaceNodeId?: string; frameId?: string | null }
     ) => {
       const doc = documentRef.current;
       if (!doc || readOnly) return;
@@ -1371,6 +1210,10 @@ function SvgCanvas({
         path: pathD,
         closed,
       });
+      const frameId = String(opts?.frameId || '').trim();
+      if (frameId && doc.frames?.some((frame) => String(frame.id) === frameId)) {
+        (node.attrs as Record<string, unknown>).frameId = frameId;
+      }
       const next = addNodeToDocument(doc, id, node);
       documentRef.current = next;
       dispatch(pushEditorHistory());
@@ -1579,8 +1422,10 @@ function SvgCanvas({
       }
       if (!nodeIds.length && !frameIds.length) return false;
 
-      const inside = frameIds.length ? nodeIdsInsideFrames(doc0, frameIds) : [];
-      const allNodes = [...new Set([...nodeIds, ...inside])];
+      // A clipped node can have its center outside the frame. Deletion must
+      // use visible overlap so all content belonging to the artboard is removed.
+      const bound = frameIds.length ? nodeIdsBoundToFrames(doc0, frameIds) : [];
+      const allNodes = [...new Set([...nodeIds, ...bound])];
       allNodes.forEach((id) => abortNodeUpload(id));
 
       dispatch(removeDocumentNodes({ nodeIds: allNodes, frameIds }));
@@ -1655,7 +1500,12 @@ function SvgCanvas({
       if (!doc) return null;
       if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
         const placed = rcbCenterOnPoint({ x: anchor.x, y: anchor.y }, size);
-        return sceneToDocumentCoords(doc, placed.left, placed.top);
+        const origin = sceneToDocumentCoords(doc, placed.left, placed.top);
+        const grid = getDocumentGridSize(doc);
+        return {
+          x: snapCoordToGrid(origin.x, grid),
+          y: snapCoordToGrid(origin.y, grid),
+        };
       }
       const view =
         overlayRoot?.getBoundingClientRect() ||
@@ -1669,12 +1519,28 @@ function SvgCanvas({
           view.top + view.height / 2
         );
         const placed = rcbCenterOnPoint(center, size);
-        return sceneToDocumentCoords(doc, placed.left, placed.top);
+        const origin = sceneToDocumentCoords(doc, placed.left, placed.top);
+        const grid = getDocumentGridSize(doc);
+        return {
+          x: snapCoordToGrid(origin.x, grid),
+          y: snapCoordToGrid(origin.y, grid),
+        };
       }
       return { x: 40, y: 40 };
     },
     [artboard, camera, overlayRoot, paperEl, stageEl, viewportEl]
   );
+
+  const getPasteAnchor = useCallback(() => {
+    const point = lastPointerClientRef.current;
+    if (!point.x && !point.y) return null;
+    return pointerToWorld(
+      camera,
+      { viewportEl, stageEl, paperEl, artboard },
+      point.x,
+      point.y
+    );
+  }, [artboard, camera, paperEl, stageEl, viewportEl]);
 
   const onImageFile = async (file: File | null) => {
     if (!file) return;
@@ -1917,6 +1783,7 @@ function SvgCanvas({
     onVideoFile,
     onAudioFile,
     onLottiePaste,
+    getPasteAnchor,
   });
   clipboardApiRef.current = clipboardApi;
 
@@ -2103,7 +1970,10 @@ function SvgCanvas({
         ) : null}
         {/* Upload / process status is content chrome, not selection chrome. Render its
             portal before selection so the selected outline and its controls stay on top. */}
-        <ImageProcessOverlay document={document} geometryOverrides={videoLiveGeom} />
+        <ImageProcessOverlay
+          document={document}
+          geometryOverrides={videoLiveGeom}
+        />
         {/* Scene-space HTML overlays (selection / draw previews). Origin matches SVG. */}
         {/* Above frame/node stackOrder so preview select/hover strokes aren't covered. */}
         {/* Above HostPathChrome (z=1e6) so poly/star/radius knobs receive hits
@@ -2195,6 +2065,7 @@ function SvgCanvas({
             paperEl={paperEl}
             stageEl={stageEl}
             onCreate={onCreateShape}
+            hitTestFrame={hitTestFrame}
             // Draw always snaps to the document grid; overlay visibility is separate.
             gridSnap
             gridSize={getDocumentGridSize(document)}
@@ -2224,11 +2095,8 @@ function SvgCanvas({
             strokeOpacity={penStrokeOpacity / 100}
             brushId={pencilBrushId}
             pressureEnabled={pencilPressureEnabled}
-            hardness={pencilHardness}
-            eraseMode={pencilEraseMode}
-            eraseTargets={pencilEraseTargets}
             onCommit={onPencilCommit}
-            onErase={onPencilErase}
+            hitTestFrame={hitTestFrame}
           />
           <BucketFillFeature
             enabled={!readOnly && activeTool === 'bucket'}
@@ -2249,6 +2117,7 @@ function SvgCanvas({
             gridSnap
             gridSize={getDocumentGridSize(document)}
             onCommit={onPenCommit}
+            hitTestFrame={hitTestFrame}
             onCancel={finishToSelect}
             hitTest={hitTest}
             document={document}

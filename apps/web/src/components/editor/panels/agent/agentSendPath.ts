@@ -139,7 +139,7 @@ export type AskChoiceSend =
       proposalId?: string;
       proposalTaskId?: string;
     }
-  | { kind: 'reply'; text: string };
+  | { kind: 'reply'; text: string; displayText?: string };
 
 export function resolveAskChoiceSend(
   messages: ChatUiMessage[],
@@ -165,7 +165,14 @@ export function resolveAskChoiceSend(
     ? pick.selectedLabels.join('、')
     : pick.label;
   if (!text) return { kind: 'noop' };
-  return { kind: 'reply', text };
+  const targetId = String(pick.value || '').trim();
+  return targetId
+    ? {
+        kind: 'reply',
+        text: `${text}\n\n[Target element — selected from clarification]\nid: ${targetId}`,
+        displayText: text,
+      }
+    : { kind: 'reply', text };
 }
 
 export function splitBubbleContexts(chips: ComposerContext[]) {

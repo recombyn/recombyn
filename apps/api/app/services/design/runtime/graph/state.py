@@ -1678,6 +1678,8 @@ class AgentRuntime:
     classified_intent: str = ""
     classified_paint_lane: str = ""
     classified_reply: str = ""
+    # Typed intent → execution hand-off. Kept in flags for checkpoint compatibility.
+    design_plan: dict[str, Any] | None = None
     # Decide → paint/review execution contract (not craft curricula).
     design_brief: str = ""
     # PR10 Observe QA snapshot (facts only; never SceneDocument).

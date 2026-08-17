@@ -101,6 +101,9 @@ function paintFramePlate(
       : frame.backgroundColor && frame.backgroundColor !== 'transparent'
         ? frame.backgroundColor
         : '#FFFFFF';
+  const backgroundOpacity = generating
+    ? 1
+    : Math.max(0, Math.min(100, Number(frame.backgroundOpacity ?? 100))) / 100;
 
   const g = svgEl('g');
   append(layer, g);
@@ -131,6 +134,7 @@ function paintFramePlate(
   });
   append(g, plate);
   setFill(plate, bg);
+  setAttrs(plate, { 'fill-opacity': backgroundOpacity });
   // Idle: ~1 CSS px hairline after CSS camera scale (not non-scaling-stroke —
   // that still thickens under parent `scale(zoom)` and AA-fringes off-grid).
   // Selected: host chrome owns the blue box.

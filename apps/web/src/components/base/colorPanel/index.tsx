@@ -44,9 +44,6 @@ export const FILL_SOLID_PRESETS = [
   '#AC33C1',
 ];
 
-/** Same grid + transparent (artboard / alpha-capable pickers). */
-export const FILL_ALPHA_PRESETS = ['transparent', ...FILL_SOLID_PRESETS];
-
 /** Fixed panel width — same as opacity / eraser / font / blend popovers. */
 export const COLOR_PANEL_WIDTH = 240;
 /** Preset grid: 9 square swatches per row (2×9). */
@@ -57,6 +54,12 @@ export const COLOR_PANEL_PAD_X_PX = 12; // p-3
 export const COLOR_PANEL_CONTENT_WIDTH =
   COLOR_PANEL_PRESET_COLS * COLOR_PANEL_SWATCH_PX +
   (COLOR_PANEL_PRESET_COLS - 1) * COLOR_PANEL_SWATCH_GAP_PX;
+
+/** Same 2×9 grid, first cell transparent — artboard / other alpha surfaces that opt in. */
+export const FILL_ALPHA_PRESETS = [
+  'transparent',
+  ...FILL_SOLID_PRESETS.slice(0, COLOR_PANEL_PRESET_COLS * 2 - 1),
+];
 
 const CHECKER = 'linear-gradient(45deg, #d0d0d0 25%, transparent 25%), linear-gradient(-45deg, #d0d0d0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d0d0d0 75%), linear-gradient(-45deg, transparent 75%, #d0d0d0 75%)';
 
@@ -174,8 +177,8 @@ function ColorPanel({
   showColorPreview = true,
   className,
 }: ColorPanelProps) {
-  // One swatch set everywhere — artboard / fill / stroke stay visually identical.
-  const presetList = presets ?? (showAlpha ? FILL_ALPHA_PRESETS : FILL_SOLID_PRESETS);
+  // One swatch set everywhere — 2×9 solids. Alpha lives on the slider, not an extra chip.
+  const presetList = presets ?? FILL_SOLID_PRESETS;
   const hex = normalizeHex(value, '#333333');
   const solidHex = hex === 'transparent' ? '#333333' : hex;
   const opacityPct = clampOpacity(opacity);
@@ -517,8 +520,11 @@ function ColorPanelPopover({
         {open ? (
           <div
             ref={refs.setFloating}
+            data-color-panel
+            data-rcb-overlay="1"
             style={{ ...floatingStyles, ...floatingStyle }}
             className="z-[80]"
+            onPointerDown={(e) => e.stopPropagation()}
             {...getFloatingProps()}
           >
             <ColorPanel

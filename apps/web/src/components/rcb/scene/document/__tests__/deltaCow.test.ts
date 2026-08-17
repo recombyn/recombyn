@@ -106,4 +106,25 @@ describe('patchDeltaSetLike Immer COW', () => {
     expect((next.deltaSetLike as any).a).toBe(node);
     expect(next.width).toBeGreaterThan(0);
   });
+
+  it('normalizes fractional video upload geometry to one pixel lattice', () => {
+    const doc = createEmptyDocument({ emptyWorld: true });
+    const video = {
+      id: 'video-1',
+      key: 'video',
+      x: 10.5,
+      y: 20.5,
+      width: 175.5,
+      height: 389.5,
+      attrs: { src: 'blob:video' },
+    } as any;
+    (doc.deltaSetLike as any)[video.id] = video;
+    doc.deltaSetLike.ROOT.children = [video.id];
+    doc.pages[0].children = [video.id];
+
+    const next = normalizeDocument(doc);
+    const normalized = (next.deltaSetLike as any)[video.id];
+    expect(normalized).toMatchObject({ x: 11, y: 21, width: 176, height: 390 });
+    expect(normalized).not.toBe(video);
+  });
 });

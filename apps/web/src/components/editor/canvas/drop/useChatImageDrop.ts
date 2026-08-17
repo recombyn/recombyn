@@ -32,6 +32,7 @@ import {
   startImageUploadPlaceholder,
 } from '@/store/modules/editor';
 import { pointerToWorld, type ArtboardRect } from '../pointerToWorld';
+import { getDocumentGridSize, snapCoordToGrid } from '@/components/rcb';
 
 type UseChatImageDropArgs = {
   readOnly: boolean;
@@ -160,7 +161,12 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
       const placed = rcbCenterOnPoint(world, { width, height });
       const latest = documentRef.current;
       if (!latest) return;
-      const origin = sceneToDocumentCoords(latest, placed.left, placed.top);
+      const rawOrigin = sceneToDocumentCoords(latest, placed.left, placed.top);
+      const grid = getDocumentGridSize(latest);
+      const origin = {
+        x: snapCoordToGrid(rawOrigin.x, grid),
+        y: snapCoordToGrid(rawOrigin.y, grid),
+      };
       const prompt = String(placePayload.prompt || '').trim();
       dispatch(
         placeMediaAsset({
@@ -197,7 +203,12 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
       const placed = rcbCenterOnPoint(world, { width, height });
       const latest = documentRef.current;
       if (!latest) return;
-      const origin = sceneToDocumentCoords(latest, placed.left, placed.top);
+      const rawOrigin = sceneToDocumentCoords(latest, placed.left, placed.top);
+      const grid = getDocumentGridSize(latest);
+      const origin = {
+        x: snapCoordToGrid(rawOrigin.x, grid),
+        y: snapCoordToGrid(rawOrigin.y, grid),
+      };
       dispatch(
         startImageUploadPlaceholder({
           src: url,
