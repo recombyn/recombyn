@@ -10,6 +10,7 @@ from app.services.design.runtime.graph.nodes import observe as observe_mod
 from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime
 from app.services.design.runtime.decision_log import DesignRunDecision
 from tests.design_harness import (
+    agent_trace_metrics,
     critique_ok,
     eval_checkpoint,
     event_types,
@@ -79,6 +80,33 @@ def test_eval_checkpoint_shape():
     assert "tool_ops" in event_types(events)
 
 
+def test_agent_trace_metrics_measures_receipts_and_visible_wait():
+    events = [
+        {
+            "type": "tool_ops",
+            "ops": [{"op_id": "a", "name": "create_text"}, {"op_id": "b", "name": "update_node"}],
+            "agent_event": {"elapsed_ms": 0},
+        },
+        {
+            "type": "scene_feedback",
+            "op_results": [
+                {"op_id": "a", "ok": True},
+                {"op_id": "b", "ok": False},
+            ],
+            "agent_event": {"elapsed_ms": 1800},
+        },
+        {"type": "result", "status": "error", "error_code": "scene_unconfirmed", "agent_event": {"elapsed_ms": 2600}},
+    ]
+
+    metrics = agent_trace_metrics(events)
+
+    assert metrics["completed"] is False
+    assert metrics["emitted_ops"] == 2
+    assert metrics["receipt_coverage"] == 1
+    assert metrics["operation_correctness"] == 0.5
+    assert metrics["max_visible_silence_ms"] == 1800
+
+
 def test_spatial_stacked_creates(monkeypatch):
     monkeypatch.setattr(observe_mod, "_critique_enabled", lambda: True)
     rt = _rt(
@@ -100,6 +128,37 @@ def test_spatial_stacked_creates(monkeypatch):
     issues = observe_mod._spatial_grounding_issues(rt)
     assert any("stacked" in x for x in issues)
     assert not any("cramped" in x for x in issues)
+
+
+def test_operation_receipts_require_every_emitted_op_and_reject_unknown_ids():
+    emitted = [
+        {"name": "create_text", "op_id": "create-1", "args": {}},
+        {"name": "update_node", "op_id": "update-1", "args": {"nodeId": "title"}},
+    ]
+
+    missing = observe_mod._op_receipt_issues(
+        emitted,
+        [{"op_id": "create-1", "name": "create_text", "ok": True}],
+    )
+    assert any("update_node (update-1)" in issue for issue in missing)
+
+    unknown = observe_mod._op_receipt_issues(
+        emitted,
+        [
+            {"op_id": "create-1", "name": "create_text", "ok": True},
+            {"op_id": "update-1", "name": "update_node", "ok": True},
+            {"op_id": "not-emitted", "name": "delete_nodes", "ok": True},
+        ],
+    )
+    assert any("unknown operation receipts" in issue for issue in unknown)
+
+    assert observe_mod._op_receipt_issues(
+        emitted,
+        [
+            {"op_id": "create-1", "name": "create_text", "ok": True},
+            {"op_id": "update-1", "name": "update_node", "ok": True},
+        ],
+    ) == []
 
 
 def test_ask_proposal_resolve_roundtrip(monkeypatch):
@@ -133,6 +192,96 @@ def test_normalize_proposal_action():
     assert normalize_proposal_action("apply", has_pending=False) == ""
     assert normalize_proposal_action("nope", has_pending=True) == ""
     assert normalize_proposal_action("", has_pending=True) == ""
+
+
+def test_scene_target_catalog_exposes_only_target_identity_and_geometry():
+    from app.services.design.runtime.models_route import scene_target_catalog
+
+    catalog = scene_target_catalog(
+        [
+            {"id": "title", "type": "text", "text": "Summer sale", "x": 24, "y": 48},
+            {"id": "card", "type": "rect", "w": 320, "h": 180, "fill": "#fff"},
+        ]
+    )
+
+    assert 'id=title type=text name="Summer sale" x=24 y=48' in catalog
+    assert "id=card type=rect w=320 h=180" in catalog
+    assert "#fff" not in catalog
+
+
+def test_direct_edit_design_plan_keeps_only_the_selected_live_target():
+    from app.services.design.runtime.models_route import build_design_plan
+
+    plan = build_design_plan(
+        prompt="改成红色\n\n[Target element — selected from clarification]\nid: title_top",
+        intent="canvas_op",
+        paint_lane="edit",
+        focus_frame_id="frame-a",
+        scene_nodes=[{"id": "title_top"}, {"id": "title_bottom"}],
+    )
+
+    assert plan is not None
+    assert plan.target_node_ids == ["title_top"]
+    assert plan.target_frame_id == "frame-a"
+    assert plan.candidate_operations == ["update_node"]
+    assert plan.acceptance_criteria == ["tool_operations_confirmed", "scene_feedback_confirmed"]
+
+
+def test_canvas_topology_audit_distinguishes_registered_stages_from_optional_modules():
+    from app.services.design.runtime.graph.build import audit_canvas_ops_v1_topology
+
+    audit = audit_canvas_ops_v1_topology()
+
+    assert audit["registered_nodes"]["design_agent"] == "decide"
+    assert "review" in audit["registered_modules"]
+    assert "candidates" in audit["unregistered_modules"]
+    assert "autonomous" in audit["unregistered_modules"]
+
+
+def test_normalize_clarification_rejects_unknown_target_ids():
+    from app.services.design.runtime.models_route import normalize_clarification
+
+    ok, question, options = normalize_clarification(
+        True,
+        "要改哪一个标题？",
+        [
+            {"label": "顶部标题", "target_id": "title_top"},
+            {"label": "伪造节点", "target_id": "not-in-scene"},
+        ],
+        has_target=False,
+        intent="canvas_op",
+        scene_nodes=[{"id": "title_top", "type": "text"}],
+    )
+
+    assert ok is False
+    assert question == ""
+    assert options == []
+
+
+def test_normalize_clarification_keeps_verified_target_ids():
+    from app.services.design.runtime.models_route import normalize_clarification
+
+    ok, question, options = normalize_clarification(
+        True,
+        "要改哪一个标题？",
+        [
+            {"label": "顶部标题", "target_id": "title_top"},
+            {"label": "页脚标题", "target_id": "title_footer"},
+        ],
+        has_target=False,
+        intent="canvas_op",
+        scene_nodes=[
+            {"id": "title_top", "type": "text"},
+            {"id": "title_footer", "type": "text"},
+        ],
+    )
+
+    assert ok is True
+    assert question == "要改哪一个标题？"
+    assert options == [
+        {"label": "顶部标题", "target_id": "title_top"},
+        {"label": "页脚标题", "target_id": "title_footer"},
+    ]
 
 
 def test_bind_pending_ask_proposal(monkeypatch):
@@ -235,6 +384,82 @@ def test_intent_classify_dismiss_pending_settles(monkeypatch):
     assert rt.run.reply == "已取消这次改动"
     assert cleared == ["T1"]
     assert "pending_proposal" not in rt.flags
+
+
+def test_intent_classify_ambiguous_edit_asks_before_paint(monkeypatch):
+    import asyncio
+
+    from app.services.design.runtime.graph.nodes import intent as intent_mod
+    from app.services.design.runtime.models_route import IntentClassifyDecision
+
+    async def _classify(**_kwargs):
+        return IntentClassifyDecision(
+            intent="canvas_op",
+            paint_lane="edit",
+            needs_clarification=True,
+            clarification="你想修改哪一个标题？",
+            clarification_options=[
+                {"label": "顶部标题", "target_id": "title_top"},
+                {"label": "页脚标题", "target_id": "title_footer"},
+            ],
+            rationale="two_text_targets",
+        )
+
+    events: list[dict] = []
+    monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    monkeypatch.setattr(intent_mod, "_emit", lambda event: events.append(event))
+    monkeypatch.setattr(intent_mod, "_emit_design_loading_artboard", lambda *_a, **_k: None)
+
+    rt = _rt(
+        prompt="把标题改成红色",
+        scene_nodes=[
+            {"id": "title_top", "type": "text"},
+            {"id": "title_footer", "type": "text"},
+        ],
+    )
+    cmd = asyncio.run(intent_mod._node_intent_classify({"rt": rt}))
+
+    assert cmd.goto == "__settle__"
+    assert rt.run.reply == "你想修改哪一个标题？"
+    assert rt.run.choice_ui == {
+        "mode": "single",
+        "options": [
+            {"label": "顶部标题", "action": "reply", "value": "title_top"},
+            {"label": "页脚标题", "action": "reply", "value": "title_footer"},
+        ],
+    }
+    assert rt.flags["await_user"] is True
+    assert all(event.get("type") != "tool_ops" for event in events)
+
+
+def test_intent_classify_create_ignores_clarification(monkeypatch):
+    import asyncio
+
+    from app.services.design.runtime.graph.nodes import intent as intent_mod
+    from app.services.design.runtime.models_route import IntentClassifyDecision
+
+    async def _classify(**_kwargs):
+        return IntentClassifyDecision(
+            intent="canvas_op",
+            paint_lane="create",
+            needs_clarification=True,
+            clarification="你想添加在哪个区域？",
+            clarification_options=[
+                {"label": "顶部", "target_id": "top"},
+                {"label": "底部", "target_id": "bottom"},
+            ],
+            rationale="create_shape",
+        )
+
+    monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    monkeypatch.setattr(intent_mod, "_emit", lambda *_a, **_k: None)
+    monkeypatch.setattr(intent_mod, "_emit_design_loading_artboard", lambda *_a, **_k: None)
+
+    rt = _rt(prompt="添加一个红色矩形")
+    cmd = asyncio.run(intent_mod._node_intent_classify({"rt": rt}))
+
+    assert cmd.goto == "paint_ops"
+    assert rt.run.choice_ui is None
 
 
 def test_chat_persists_ask_fields(tmp_path, monkeypatch):

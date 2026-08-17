@@ -236,8 +236,7 @@ describe('scene grid (Canvas underlay)', () => {
       ctx as unknown as CanvasRenderingContext2D,
       { x: 0.2, y: 0.2, width: 10, height: 10 },
       1,
-      100,
-      { panX: 12.3, panY: -4.5, dpr: 1 }
+      100
     );
     // First vertical line starts at floor(0.2)=0 — not shifted by stroke snap.
     expect(moves.some(([x, y]) => x === 0 && y === 0)).toBe(true);
@@ -893,5 +892,48 @@ describe('hitTestWithSpatialIndex', () => {
         { x: 0, y: 0 }
       )
     ).toBeNull();
+  });
+
+  it('uses stackOrder instead of root child order for overlapping nodes', () => {
+    const doc = {
+      stackOrder: ['node:back', 'node:front'],
+      deltaSetLike: {
+        ROOT: { children: ['front', 'back'] },
+        front: {
+          id: 'front',
+          key: 'shape',
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', fill: '#fff' },
+        },
+        back: {
+          id: 'back',
+          key: 'shape',
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', fill: '#fff' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const spatial = new SceneSpatialRuntime(64);
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['front', 'back'],
+          getNodeBox: (id) => {
+            const node = doc.deltaSetLike[id];
+            return { left: node.x, top: node.y, width: node.width, height: node.height };
+          },
+        },
+        { x: 30, y: 30 }
+      )
+    ).toBe('front');
   });
 });

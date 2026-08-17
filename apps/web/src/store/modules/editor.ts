@@ -47,12 +47,10 @@ import {
   type EditorLibraryItem,
   type TemplateSource,
 } from '@/utils/templatesStorage';
-import {
-  purgeLegacyCustomThumbCache,
-} from '@/utils/projectThumb';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import {
   asHistoryEntry,
   cloneDocument,
@@ -67,7 +65,7 @@ import {
 export type { ArtboardFrame } from '@/components/rcb/frames/types';
 export type { SceneDocument } from '@/components/rcb/sceneNode';
 
-/** Import / hydrate: Zod at boundary, then align/normalize for legacy. */
+/** Import / hydrate: Zod at boundary, then align origin + normalize. */
 function documentFromExternalPayload(raw: unknown): SceneDocument {
   return alignImportedDocumentOrigin(coerceSceneDocumentInput(raw));
 }
@@ -80,12 +78,81 @@ export type ImageToolPanelKind =
   | 'expand'
   | 'crop'
   | 'adjust'
+  | 'effects'
+  | 'blendMode'
   | 'flipRotate'
   | 'quickEdit'
   | 'replaceText'
   | 'lottieEdit'
   | 'mark'
   | 'upscale';
+
+const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
+  eraser: true,
+  opacity: true,
+  replaceText: true,
+  multiAngle: true,
+  adjust: true,
+  effects: true,
+  blendMode: true,
+  mark: true,
+};
+
+const IMAGE_TOOL_CROP_SESSION_KIND: Record<string, true> = {
+  crop: true,
+  expand: true,
+  upscale: true,
+};
+
+const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
+  crop: true,
+  expand: true,
+  upscale: true,
+  flipRotate: true,
+  quickEdit: true,
+  lottieEdit: true,
+  mark: true,
+};
+
+const TRANSIENT_NODE_ATTR_KEYS = new Set([
+  'processStatus',
+  'processKind',
+  'processLabel',
+  'processMeta',
+  'processSourceId',
+  'processTargetWidth',
+  'processTargetHeight',
+]);
+
+const TRANSIENT_FRAME_KEYS = new Set(['processStatus', 'processKind', 'processLabel']);
+
+function isTransientNodePatch(patch: unknown): boolean {
+  if (!patch || typeof patch !== 'object') return false;
+  const patchKeys = Object.keys(patch as Record<string, unknown>);
+  if (patchKeys.length !== 1 || patchKeys[0] !== 'attrs') return false;
+  const attrs = (patch as { attrs?: unknown }).attrs;
+  if (!attrs || typeof attrs !== 'object') return false;
+  const keys = Object.keys(attrs as Record<string, unknown>);
+  return keys.length > 0 && keys.every((key) => TRANSIENT_NODE_ATTR_KEYS.has(key));
+}
+
+function isTransientFramePatch(patch: unknown): boolean {
+  if (!patch || typeof patch !== 'object') return false;
+  const keys = Object.keys(patch as Record<string, unknown>);
+  return keys.length > 0 && keys.every((key) => TRANSIENT_FRAME_KEYS.has(key));
+}
+
+export function isImageToolSidePanelKind(kind: string | undefined | null): boolean {
+  return Boolean(kind && kind in IMAGE_TOOL_SIDE_PANEL_KIND);
+}
+
+export function isImageToolCropSessionKind(kind: string | undefined | null): boolean {
+  return Boolean(kind && kind in IMAGE_TOOL_CROP_SESSION_KIND);
+}
+
+export function isImageToolExternalSessionKind(kind: string | undefined | null): boolean {
+  return Boolean(kind && kind in IMAGE_TOOL_EXTERNAL_SESSION_KIND);
+}
 
 /** On-canvas video tool sessions (trim timeline). Spatial crop reuses image crop panel. */
 export type VideoToolPanelKind = 'trim';
@@ -106,7 +173,8 @@ function createFrame(partial?: Partial<ArtboardFrame>): ArtboardFrame {
     width,
     height,
     backgroundColor: partial?.backgroundColor ?? '#FFFFFF',
-    clipContent: partial?.clipContent ?? false,
+    backgroundOpacity: partial?.backgroundOpacity ?? 100,
+    clipContent: partial?.clipContent ?? true,
   };
 }
 
@@ -214,12 +282,8 @@ const initialState = {
   },
   /** Pencil brush wheel selection (default = first: 矢量墨线). */
   pencilBrushId: 'vector-ink' as string,
-  /** When true, pencil tool erases existing pencil strokes instead of drawing. */
-  pencilEraseMode: false,
-  /** When true, pencil uses stylus/touch pressure (+ brush speed sim). */
+  /** When true, pencil uses stylus/touch pressure for width. */
   pencilPressureEnabled: true,
-  /** Tip hardness 0–100. Soft = feathered edge + denser dabs. */
-  pencilHardness: 80,
   /** Design = edit; Dev = inspect spacing / margins. */
   workspaceMode: 'design' as 'design' | 'dev',
   /** Dev-mode node under pointer (inspect panel + spacing overlay). */
@@ -316,6 +380,23 @@ function bumpSceneRevisionForRemoteCollab(state: typeof initialState) {
 function pushHistory(state: typeof initialState) {
   snapshotEditorHistory(state);
   bumpSceneRevisionIfUnlocked(state);
+}
+
+/**
+ * Record the document before a transient node becomes real content.
+ * Loading/process nodes are deliberately excluded so Undo returns directly
+ * to the user's pre-upload document instead of resurrecting the shimmer plate.
+ */
+function pushHistoryBeforeTransientNodeCommit(
+  state: typeof initialState,
+  nodeId: string
+) {
+  const current = state.document;
+  if (!current?.deltaSetLike?.[nodeId]) return false;
+  state.document = removeNodesFromDocument(current, [nodeId]);
+  pushHistory(state);
+  state.document = current;
+  return true;
 }
 
 function pushNodePatchHistory(state: typeof initialState, nodeIds: string[]) {
@@ -505,7 +586,9 @@ const editorSlice = createSlice({
       if (!state.document || !nodeId) return;
       const id = String(nodeId);
       if (!state.document.deltaSetLike?.[id]) return;
-      if (!skipHistory) pushNodePatchHistory(state, [id]);
+      if (!skipHistory && !isTransientNodePatch(patch)) {
+        pushNodePatchHistory(state, [id]);
+      }
       // Immer draft: single-key write — O(1) structural share, no custom Proxy.
       state.document.deltaSetLike[id] = mergeNodePatch(state.document.deltaSetLike[id], patch);
       state.dirty = true;
@@ -522,10 +605,11 @@ const editorSlice = createSlice({
       if (!state.document || !Array.isArray(patches) || !patches.length) return;
       const ids: string[] = [];
       for (const item of patches) {
-        if (item?.nodeId && item?.patch) ids.push(String(item.nodeId));
+        if (item?.nodeId && item?.patch && !isTransientNodePatch(item.patch)) {
+          ids.push(String(item.nodeId));
+        }
       }
-      if (!ids.length) return;
-      if (!skipHistory) pushNodePatchHistory(state, ids);
+      if (!skipHistory && ids.length) pushNodePatchHistory(state, ids);
       const applied: string[] = [];
       for (const item of patches) {
         const id = item?.nodeId ? String(item.nodeId) : '';
@@ -687,17 +771,24 @@ const editorSlice = createSlice({
         nodeIds.every((id: string) => panelIds.includes(id));
       if (!same) state.shapeStylePanel = null;
     },
-    /** Remove one or more artboard frames. Contained scene nodes are cleared by the canvas delete path. */
+    /** Remove artboards and every scene node bound to them (`attrs.frameId`). */
     removeArtboardFrames(state, action) {
       if (!state.document) return;
       const ids: string[] = Array.isArray(action.payload)
-        ? action.payload.filter(Boolean)
+        ? action.payload.filter(Boolean).map(String)
         : action.payload
-          ? [action.payload]
+          ? [String(action.payload)]
           : [];
       if (!ids.length) return;
+
+      const nodeIds = nodeIdsBoundToFrames(state.document, ids);
+      const ephemeralIds = nodeIds.filter((id) =>
+        isEphemeralUploadNode(state.document?.deltaSetLike?.[id])
+      );
       pushHistory(state);
-      const next = normalizeDocument(state.document);
+
+      let next = removeNodesFromDocument(state.document, nodeIds);
+      next = normalizeDocument(next);
       const idSet = new Set(ids);
       const frames = (Array.isArray(next.frames) ? next.frames : []).filter(
         (f) => f && !idSet.has(f.id)
@@ -717,7 +808,32 @@ const editorSlice = createSlice({
       if (next.activeFrameId && !state.selectedFrameIds.includes(next.activeFrameId)) {
         state.selectedFrameIds = next.activeFrameId ? [next.activeFrameId] : [];
       }
+
+      const nodeIdSet = new Set(nodeIds);
+      if (state.selectedNodeId && nodeIdSet.has(state.selectedNodeId)) {
+        state.selectedNodeId = null;
+      }
+      state.selectedNodeIds = (state.selectedNodeIds || []).filter(
+        (id) => !nodeIdSet.has(id)
+      );
+      if (state.imageToolPanel && nodeIdSet.has(state.imageToolPanel.nodeId)) {
+        state.imageToolPanel = null;
+      }
+      if (state.videoToolPanel && nodeIdSet.has(state.videoToolPanel.nodeId)) {
+        state.videoToolPanel = null;
+      }
+      if (state.audioToolPanel && nodeIdSet.has(state.audioToolPanel.nodeId)) {
+        state.audioToolPanel = null;
+      }
+      if (
+        state.pendingImportPlaceholderId &&
+        nodeIdSet.has(state.pendingImportPlaceholderId)
+      ) {
+        state.pendingImportPlaceholderId = null;
+      }
+      if (ephemeralIds.length) scrubNodeIdsFromHistory(state, ephemeralIds);
       state.document = next;
+      clearPendingProcessIfNodeGone(state);
       state.dirty = true;
       state.sceneReloadToken += 1;
       syncLibraryOnEdit(state);
@@ -740,7 +856,7 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const { id, patch, skipHistory } = action.payload || {};
       if (!id || !patch) return;
-      if (!skipHistory) pushHistory(state);
+      if (!skipHistory && !isTransientFramePatch(patch)) pushHistory(state);
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? next.frames : [];
       const frame = frames.find((f) => f.id === id);
@@ -779,7 +895,10 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const { patches, skipHistory } = action.payload || {};
       if (!Array.isArray(patches) || !patches.length) return;
-      if (!skipHistory) pushHistory(state);
+      const hasUndoablePatch = patches.some((item: { patch?: unknown }) => {
+        return Boolean(item?.patch) && !isTransientFramePatch(item.patch);
+      });
+      if (!skipHistory && hasUndoablePatch) pushHistory(state);
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? next.frames : [];
       const byId = new Map<string, ArtboardFrame>(frames.map((f) => [String(f?.id), f]));
@@ -1069,7 +1188,6 @@ const editorSlice = createSlice({
     /** Spawn blank loading plate for file import (image). */
     startImportPlaceholder(state, action) {
       if (!state.document) return;
-      pushHistory(state);
       const { document: next, id } = spawnImportPlaceholderNode(state.document, {
         label: action.payload?.label || '解析设计文件中',
         width: action.payload?.width,
@@ -1104,8 +1222,9 @@ const editorSlice = createSlice({
           offsetX = Number(ph.x) || offsetX;
           offsetY = Number(ph.y) || offsetY;
         }
-        pushHistory(state);
         state.document = removeNodesFromDocument(state.document, [id]);
+        scrubNodeIdsFromHistory(state, [id]);
+        if (incoming) pushHistory(state);
       } else if (incoming) {
         pushHistory(state);
       }
@@ -1136,6 +1255,7 @@ const editorSlice = createSlice({
       const id = state.pendingImportPlaceholderId;
       if (state.document && id) {
         state.document = removeNodesFromDocument(state.document, [id]);
+        scrubNodeIdsFromHistory(state, [id]);
         state.dirty = true;
         state.sceneReloadToken += 1;
         if (state.selectedNodeId === id) clearSelection(state);
@@ -1251,7 +1371,6 @@ const editorSlice = createSlice({
      * Home / Mine lists live in Query — do not keep owned rows after sign-out.
      */
     clearProjectsLibrary(state) {
-      purgeLegacyCustomThumbCache();
       state.templates = [];
       state.currentId = null;
       state.document = null;
@@ -1333,7 +1452,6 @@ const editorSlice = createSlice({
     setActiveTool(state, action) {
       state.activeTool = action.payload;
       if (action.payload !== 'image') state.pendingImageSrc = null;
-      if (action.payload !== 'pencil') state.pencilEraseMode = false;
     },
     setGridMode(state, action: PayloadAction<boolean>) {
       state.isGridMode = Boolean(action.payload);
@@ -1734,7 +1852,6 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const src = String(action.payload?.src || '');
       if (!src) return;
-      pushHistory(state);
       const { document: next, id } = spawnImageUploadPlaceholderNode(state.document, {
         src,
         width: Number(action.payload?.width) || 200,
@@ -1759,7 +1876,6 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const src = String(action.payload?.src || '');
       if (!src) return;
-      pushHistory(state);
       const { document: next, id } = spawnVideoUploadPlaceholderNode(state.document, {
         src,
         poster: action.payload?.poster,
@@ -1786,7 +1902,6 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const src = String(action.payload?.src || '');
       if (!src) return;
-      pushHistory(state);
       const { document: next, id } = spawnAudioUploadPlaceholderNode(state.document, {
         src,
         width: Number(action.payload?.width) || 360,
@@ -1812,7 +1927,6 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const { sourceId, kind, label, targetWidth, targetHeight, meta } = action.payload || {};
       if (!sourceId || !kind) return;
-      pushHistory(state);
       const { document: next, id } = spawnImageProcessNode(state.document, sourceId, {
         kind,
         label: label || '处理中',
@@ -1843,6 +1957,11 @@ const editorSlice = createSlice({
       if (!state.document.deltaSetLike?.[nodeId]) {
         if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
         return;
+      }
+
+      const isTransientCommit = isEphemeralUploadNode(state.document.deltaSetLike[nodeId]);
+      if (isTransientCommit) {
+        pushHistoryBeforeTransientNodeCommit(state, nodeId);
       }
 
       // editText / editElements: replace placeholder with split layers (grouped).
@@ -1898,6 +2017,7 @@ const editorSlice = createSlice({
       if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
       if (!state.document?.deltaSetLike?.[nodeId]) return;
       state.document = removeNodesFromDocument(state.document, [nodeId]);
+      scrubNodeIdsFromHistory(state, [nodeId]);
       state.dirty = true;
       state.sceneReloadToken += 1;
       if (state.selectedNodeId === nodeId) {
@@ -1998,16 +2118,8 @@ const editorSlice = createSlice({
       const id = String(action.payload || '').trim();
       if (id) state.pencilBrushId = id;
     },
-    setPencilEraseMode(state, action) {
-      state.pencilEraseMode = Boolean(action.payload);
-    },
     setPencilPressureEnabled(state, action) {
       state.pencilPressureEnabled = Boolean(action.payload);
-    },
-    setPencilHardness(state, action) {
-      const n = Number(action.payload);
-      if (!Number.isFinite(n)) return;
-      state.pencilHardness = Math.max(0, Math.min(100, Math.round(n)));
     },
     setWorkspaceMode(state, action) {
       const mode = action.payload;
@@ -2169,9 +2281,7 @@ export const {
   setPenStrokeOpacity,
   setBucketFill,
   setPencilBrushId,
-  setPencilEraseMode,
   setPencilPressureEnabled,
-  setPencilHardness,
   setWorkspaceMode,
   setDevHoverNodeId,
   setAgentBusy,

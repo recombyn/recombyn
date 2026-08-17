@@ -192,13 +192,20 @@ describe('selectionLogic marquee helpers', () => {
       deltaSetLike: {
         n1: { id: 'n1', key: 'rect', x: 10, y: 10, width: 20, height: 20, attrs: {}, children: [] },
         n2: { id: 'n2', key: 'rect', x: 210, y: 210, width: 10, height: 10, attrs: {}, children: [] },
+        n3: { id: 'n3', key: 'rect', x: 120, y: 10, width: 20, height: 20, attrs: {}, children: [] },
+        n4: { id: 'n4', key: 'rect', x: 80, y: 10, width: 50, height: 20, attrs: { frameId: 'f1' }, children: [] },
       },
     } satisfies Partial<SceneDocument> as SceneDocument;
-    const hits = framesHittingMarquee(doc, { left: 0, top: 0, width: 80, height: 80 });
+    const hits = framesHittingMarquee(doc, { left: 0, top: 0, width: 120, height: 120 });
     expect(hits.map((h) => h.id)).toEqual(['f1']);
 
-    const filtered = filterMarqueeContentHits(doc, ['n1', 'n2'], new Set(['f1']));
+    const partialHits = framesHittingMarquee(doc, { left: 0, top: 0, width: 80, height: 80 });
+    expect(partialHits).toEqual([]);
+
+    const filtered = filterMarqueeContentHits(doc, ['n1', 'n2', 'n3', 'n4'], new Set(['f1']));
     expect(filtered).toContain('n1');
+    expect(filtered).not.toContain('n3');
+    expect(filtered).toContain('n4');
     expect(Array.isArray(filtered)).toBe(true);
 
     const selected: { nodes: string[]; frames: string[] } = { nodes: [], frames: [] };
@@ -218,8 +225,54 @@ describe('selectionLogic marquee helpers', () => {
         selected.frames = frames;
       },
     });
-    expect(selected.frames).toContain('f1');
+    expect(selected.frames).toEqual([]);
     expect(selected.nodes).toContain('n1');
+
+    const emptyFrameSelection: { nodes: string[]; frames: string[] } = {
+      nodes: [],
+      frames: [],
+    };
+    commitMarqueeSelection({
+      contentHits: [],
+      frameHits: ['f1'],
+      rawHits: [],
+      shiftKey: false,
+      onSelectMixed: (nodes, frames) => {
+        emptyFrameSelection.nodes = nodes;
+        emptyFrameSelection.frames = frames;
+      },
+      onSelect: (nodes) => {
+        emptyFrameSelection.nodes = nodes;
+      },
+      onSelectFrames: (frames) => {
+        emptyFrameSelection.frames = frames;
+      },
+    });
+    expect(emptyFrameSelection.nodes).toEqual([]);
+    expect(emptyFrameSelection.frames).toEqual(['f1']);
+
+    const multipleFrameSelection: { nodes: string[]; frames: string[] } = {
+      nodes: [],
+      frames: [],
+    };
+    commitMarqueeSelection({
+      contentHits: ['n1', 'n2'],
+      frameHits: ['f1', 'f2'],
+      rawHits: ['n1', 'n2'],
+      shiftKey: false,
+      onSelectMixed: (nodes, frames) => {
+        multipleFrameSelection.nodes = nodes;
+        multipleFrameSelection.frames = frames;
+      },
+      onSelect: (nodes) => {
+        multipleFrameSelection.nodes = nodes;
+      },
+      onSelectFrames: (frames) => {
+        multipleFrameSelection.frames = frames;
+      },
+    });
+    expect(multipleFrameSelection.nodes).toEqual([]);
+    expect(multipleFrameSelection.frames).toEqual(['f1', 'f2']);
   });
 });
 
@@ -493,6 +546,53 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
 });
 
 describe('selectionLogic computeResizedUnion', () => {
+  it('keeps text width fixed when dragging top or bottom edge, even if locked', () => {
+    const box = { left: 10, top: 20, width: 100, height: 50 };
+    const drag = makeDragSeed(
+      'resize',
+      { clientX: 60, clientY: 20 },
+      { x: 60, y: 20 },
+      {
+        handle: 's',
+        origins: [{ nodeId: 'text', box }],
+        union: box,
+        angle0: 0,
+        aspectRatio: 2,
+      }
+    );
+    const result = computeResizedUnion({
+      document: {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        deltaSetLike: {
+          text: {
+            id: 'text',
+            key: 'text',
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+            attrs: { lockAspect: true },
+            children: [],
+          },
+        },
+      } as SceneDocument,
+      drag,
+      dx: 0,
+      dy: 20,
+      shiftKey: false,
+      disableSnap: true,
+      gridSize: 1,
+      targets: [],
+      threshold: 8,
+    });
+    expect(result.lockAspect).toBe(false);
+    expect(result.next.width).toBe(100);
+    expect(result.next.height).toBe(70);
+  });
+
   it('grows from se handle', () => {
     const box = { left: 10, top: 20, width: 100, height: 50 };
     const drag = makeDragSeed(

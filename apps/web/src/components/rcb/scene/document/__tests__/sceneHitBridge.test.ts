@@ -100,4 +100,25 @@ describe('hitTestSceneAtPoint', () => {
       })
     ).toBeNull();
   });
+
+  it('does not pick the clipped part of a node outside an artboard', () => {
+    const doc = {
+      frames: [{ id: 'frame', x: 0, y: 0, width: 100, height: 100, clipContent: true }],
+      deltaSetLike: {
+        ROOT: { children: ['p'] },
+        p: {
+          id: 'p',
+          key: 'shape',
+          x: 40,
+          y: 40,
+          width: 100,
+          height: 40,
+          attrs: { shapeType: 'rect', 'fill-color': '#fff', 'fill-enabled': 'true' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const getNodeBox = () => ({ left: 40, top: 40, width: 100, height: 40 });
+    expect(hitTestSceneAtPoint({ document: doc, order: ['p'], x: 120, y: 60, zoom: 1, getNodeBox })).toBeNull();
+    expect(hitTestSceneAtPoint({ document: doc, order: ['p'], x: 80, y: 60, zoom: 1, getNodeBox })).toBe('p');
+  });
 });

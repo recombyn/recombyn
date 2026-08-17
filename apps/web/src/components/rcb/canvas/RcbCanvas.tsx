@@ -376,6 +376,11 @@ function RcbCanvas({
     };
 
     const onWheel = (e: WheelEvent) => {
+      const target = e.target as Element | null;
+      // Overlay HTML (tool panels, menus) owns its own scroll — do not pan/zoom
+      // the camera or preventDefault, or the list cannot scroll and the node
+      // appears to drag because the panel is camera-anchored to it.
+      if (target?.closest?.('[data-rcb-overlay="1"]')) return;
       e.preventDefault();
       const local = rcbClientToStageLocal(el, e.clientX, e.clientY);
       const cam = cameraRef.current;

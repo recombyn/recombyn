@@ -550,8 +550,13 @@ async def _node_design_agent(state: GraphState) -> Command:
         if runner is not None:
             await runner(rt)
 
-    await intel.review(rt)
-    await intel.optimize(rt)
+    # Review/optimization are expensive and may trigger another design loop.
+    # Keep them for explicit quality work or high-risk, multi-stage creation.
+    quality = str((rt.flags or {}).get("design_quality") or "standard").strip().lower()
+    review_required = intensity in {"high", "extreme", "max"} or quality in {"high", "strict"}
+    if review_required:
+        await intel.review(rt)
+        await intel.optimize(rt)
     await intel.autonomous_sync(rt)
     if write_principle:
         await intel.write_principle(rt)

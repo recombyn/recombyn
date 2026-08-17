@@ -77,6 +77,64 @@ PROPOSAL_ACTIONS = ("apply", "dismiss", "revise")
 SESSION_ACTIONS = ("clear_context", "stop")
 
 
+class ClarificationOption(BaseModel):
+    """A visible target choice with its verified scene-node identity."""
+
+    label: str = Field(description="Human-readable target label")
+    target_id: str = Field(description="Matching id from SCENE_TARGETS")
+
+
+class DesignPlan(BaseModel):
+    """Typed hand-off from intent classification to execution.
+
+    This is deliberately deterministic for direct canvas edits. Creative design
+    still expands it in the design stage, while all stages share the same
+    target, constraint and acceptance vocabulary.
+    """
+
+    goal: str
+    intent: Literal["canvas_op", "design"]
+    paint_lane: Literal["create", "edit"]
+    target_node_ids: list[str] = Field(default_factory=list)
+    target_frame_id: str = ""
+    constraints: list[str] = Field(default_factory=list)
+    candidate_operations: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+
+
+def build_design_plan(
+    *,
+    prompt: str,
+    intent: str,
+    paint_lane: str,
+    focus_frame_id: str | None,
+    scene_nodes: list[dict[str, Any]] | None,
+) -> DesignPlan | None:
+    """Create the stable minimal plan used by deterministic edit execution."""
+    if intent not in CANVAS_WORK_INTENTS or paint_lane not in PAINT_LANES:
+        return None
+    text = str(prompt or "").strip()
+    target_ids: list[str] = []
+    # Choice chips write this exact, machine-readable marker into the next turn.
+    match = re.search(r"(?:^|\n)id:\s*([^\s]+)", text)
+    if match:
+        candidate = match.group(1).strip()[:64]
+        live_ids = {str(node.get("id") or "").strip() for node in (scene_nodes or []) if isinstance(node, dict)}
+        if candidate in live_ids:
+            target_ids.append(candidate)
+    operation = "create_node" if paint_lane == "create" else "update_node"
+    return DesignPlan(
+        goal=text[:1200],
+        intent=intent,
+        paint_lane=paint_lane,
+        target_node_ids=target_ids,
+        target_frame_id=str(focus_frame_id or "").strip()[:64],
+        constraints=["preserve_unselected_nodes"] if paint_lane == "edit" else [],
+        candidate_operations=[operation],
+        acceptance_criteria=["tool_operations_confirmed", "scene_feedback_confirmed"],
+    )
+
+
 class IntentClassifyDecision(BaseModel):
     """Narrow intent gate before decide / paint.
 
@@ -122,6 +180,27 @@ class IntentClassifyDecision(BaseModel):
         description=(
             "Short reply in the user's language when intent=chat or "
             "proposal_action=dismiss; empty otherwise"
+        ),
+    )
+    needs_clarification: bool = Field(
+        default=False,
+        description=(
+            "True only when an edit/delete/reorder request has multiple plausible "
+            "scene targets and neither selection nor target chip resolves it."
+        ),
+    )
+    clarification: str = Field(
+        default="",
+        description=(
+            "One short, user-language question when needs_clarification=true; "
+            "empty otherwise."
+        ),
+    )
+    clarification_options: list[ClarificationOption] = Field(
+        default_factory=list,
+        description=(
+            "Up to four concrete target labels from the live scene when "
+            "needs_clarification=true; empty otherwise."
         ),
     )
     rationale: str = Field(
@@ -772,6 +851,65 @@ def _user_request_core(prompt: str) -> str:
     return p
 
 
+def scene_target_catalog(scene_nodes: list[dict[str, Any]] | None) -> str:
+    """Compact, factual target inventory for intent disambiguation only."""
+    rows: list[str] = []
+    for node in list(scene_nodes or [])[:24]:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or "").strip()[:64]
+        node_type = str(node.get("type") or node.get("kind") or "node").strip()[:32]
+        if not node_id:
+            continue
+        name = ""
+        for key in ("name", "title", "text", "content", "label"):
+            value = str(node.get(key) or "").strip().replace("\n", " ")
+            if value:
+                name = value[:80]
+                break
+        geometry = " ".join(
+            f"{key}={node[key]}"
+            for key in ("x", "y", "w", "h")
+            if isinstance(node.get(key), (int, float))
+        )
+        detail = f' name="{name}"' if name else ""
+        rows.append(f"- id={node_id} type={node_type}{detail} {geometry}".strip())
+    return "\n".join(rows)
+
+
+def normalize_clarification(
+    raw_needed: Any,
+    raw_question: Any,
+    raw_options: Any,
+    *,
+    has_target: bool,
+    intent: str,
+    scene_nodes: list[dict[str, Any]] | None,
+) -> tuple[bool, str, list[dict[str, str]]]:
+    """Validate an intent-gate clarification without inventing target choices."""
+    if has_target or intent not in CANVAS_WORK_INTENTS or raw_needed is not True:
+        return False, "", []
+    question = str(raw_question or "").strip()[:240]
+    if not question or not isinstance(raw_options, list):
+        return False, "", []
+    live_ids = {
+        str(node.get("id") or "").strip()
+        for node in list(scene_nodes or [])
+        if isinstance(node, dict) and str(node.get("id") or "").strip()
+    }
+    seen: set[str] = set()
+    options: list[dict[str, str]] = []
+    for raw in raw_options[:4]:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or "").strip()[:80]
+        target_id = str(raw.get("target_id") or "").strip()[:64]
+        if label and target_id in live_ids and target_id not in seen:
+            seen.add(target_id)
+            options.append({"label": label, "target_id": target_id})
+    return len(options) >= 2, question, options
+
+
 def heuristic_user_intent(
     prompt: str,
     *,
@@ -821,6 +959,7 @@ async def classify_user_intent(
     has_images: bool = False,
     canvas_node_count: int = 0,
     scene: str | None = None,
+    scene_nodes: list[dict[str, Any]] | None = None,
     interaction_mode: str | None = None,
     pending_proposal: dict[str, Any] | None = None,
     memory_blocks: str | None = None,
@@ -859,17 +998,21 @@ async def classify_user_intent(
     )
     mem = str(memory_blocks or "").strip()[:1800]
     dialogue = str(recent_dialogue or "").strip()[:1600]
-    user_blob = (
-        f"scene={scene or 'unknown'}\n"
-        f"has_images={bool(has_images)}\n"
-        f"canvas_node_count={int(canvas_node_count)}\n"
-        f"interaction_mode={mode or 'agent'}\n"
-        f"has_pending_proposal={has_pending}\n"
-        f"{tools_catalog}\n\n"
-        f"{pending_block}"
-        + (f"MEMORY:\n{mem}\n\n" if mem else "")
-        + (f"RECENT_DIALOGUE:\n{dialogue}\n\n" if dialogue else "")
-        + f"user_prompt:\n{(prompt or '').strip()[:4000]}"
+    targets = scene_target_catalog(scene_nodes)
+    user_blob = "".join(
+        (
+            f"scene={scene or 'unknown'}\n",
+            f"has_images={bool(has_images)}\n",
+            f"canvas_node_count={int(canvas_node_count)}\n",
+            f"interaction_mode={mode or 'agent'}\n",
+            f"has_pending_proposal={has_pending}\n",
+            f"SCENE_TARGETS:\n{targets}\n\n" if targets else "",
+            f"{tools_catalog}\n\n",
+            pending_block,
+            f"MEMORY:\n{mem}\n\n" if mem else "",
+            f"RECENT_DIALOGUE:\n{dialogue}\n\n" if dialogue else "",
+            f"user_prompt:\n{(prompt or '').strip()[:4000]}",
+        )
     )
     try:
         from app.services.design.prompts.prompt_pack_store import render_prompt_body
@@ -899,6 +1042,11 @@ async def classify_user_intent(
             reply = structured.reply
             raw_action = structured.proposal_action
             raw_session = structured.session_action
+            raw_clarification_needed = structured.needs_clarification
+            raw_clarification = structured.clarification
+            raw_clarification_options = [
+                option.model_dump() for option in structured.clarification_options
+            ]
             raw_grade = None
         elif isinstance(structured, dict):
             raw_intent = structured.get("intent")
@@ -912,6 +1060,9 @@ async def classify_user_intent(
             raw_session = structured.get("session_action") or structured.get(
                 "sessionAction"
             )
+            raw_clarification_needed = structured.get("needs_clarification")
+            raw_clarification = structured.get("clarification")
+            raw_clarification_options = structured.get("clarification_options")
         else:
             _log.warning(
                 "intent_classify structured empty/unparsed type=%s; using heuristic",
@@ -941,12 +1092,27 @@ async def classify_user_intent(
         if session_action:
             intent = "chat"
             lane = ""
+        needs_clarification, clarification, clarification_options = (
+            normalize_clarification(
+                raw_clarification_needed,
+                raw_clarification,
+                raw_clarification_options,
+                has_target=("[Target element" in prompt or "Target element —" in prompt),
+                intent=intent,
+                scene_nodes=scene_nodes,
+            )
+        )
+        if session_action or action == "apply":
+            needs_clarification, clarification, clarification_options = False, "", []
         return IntentClassifyDecision(
             intent=intent,  # type: ignore[arg-type]
             paint_lane=lane if intent != "chat" else "",  # type: ignore[arg-type]
             proposal_action=action,  # type: ignore[arg-type]
             session_action=session_action,  # type: ignore[arg-type]
             reply=reply_s[:500],
+            needs_clarification=needs_clarification,
+            clarification=clarification,
+            clarification_options=clarification_options,
             rationale=str(rationale or "").strip() or "llm_intent",
         )
     except Exception:

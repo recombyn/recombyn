@@ -45,7 +45,7 @@ describe('curve-edit / corner sites stay on the path (verification)', () => {
         { x: 180, y: 40 },
       ],
       14,
-      'solid',
+      'vector-ink',
       { linecap: 'round', simplify: false }
     );
     expect(paint).toMatch(/[QqCc]/);
@@ -162,7 +162,7 @@ describe('curve-edit / corner sites stay on the path (verification)', () => {
       { x: 110, y: 15 },
       { x: 150, y: 45 },
     ];
-    const outline = pencilInkPathFromPoints(pts, 12, 'solid', {
+    const outline = pencilInkPathFromPoints(pts, 12, 'vector-ink', {
       linecap: 'round',
       simplify: false,
     });

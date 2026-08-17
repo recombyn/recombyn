@@ -745,7 +745,7 @@ function ComposerAttachmentChip({
 
   return (
     <Dropdown
-      trigger="hover"
+      trigger="click"
       placement="top"
       strategy="fixed"
       offset={8}
@@ -1128,6 +1128,16 @@ function AgentComposerShell({
     onAttachFiles(files);
   };
 
+  let fileAccept =
+    'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,video/*,audio/*,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
+  if (isVideoMode) {
+    fileAccept =
+      'image/*,video/*,audio/*,application/json,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
+  } else if (interactionMode === 'ask' || isImageMode) {
+    fileAccept =
+      'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,.png,.jpg,.jpeg,.webp,.gif,.svg';
+  }
+
   const attachPlusBtn = buildAttachPlusButton({
     genMediaMode: isGenMediaMode,
     disabled,
@@ -1496,13 +1506,7 @@ function AgentComposerShell({
           <input
             ref={fileInputRef}
             type="file"
-            accept={
-              isVideoMode
-                ? 'image/*,video/*,.mp4,.webm,.mov,.m4v'
-                : interactionMode === 'ask' || isImageMode
-                  ? 'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,.png,.jpg,.jpeg,.webp,.gif,.svg'
-                  : 'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,video/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.webm,.mov,.m4v'
-            }
+            accept={fileAccept}
             multiple
             className="hidden"
             onChange={onFileChange}

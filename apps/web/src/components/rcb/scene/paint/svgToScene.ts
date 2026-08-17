@@ -179,9 +179,6 @@ export function svgObjectsToScene(document: SceneDocument, objects: SvgSceneObje
           ...(prev?.attrs?.closed != null ? { closed: prev.attrs.closed } : {}),
           ...(prev?.attrs?.sides != null ? { sides: prev.attrs.sides } : {}),
           ...(prev?.attrs?.brushStyle != null ? { brushStyle: prev.attrs.brushStyle } : {}),
-          ...(prev?.attrs?.brushStampSrc != null
-            ? { brushStampSrc: prev.attrs.brushStampSrc }
-            : {}),
         },
         children: [],
       };
@@ -306,7 +303,10 @@ export function patchNodeGeometry(
     }
 
     // Hug ink height; never shrink wrap width back to content (that broke edge resize).
-    if (options?.fitTextBox || mode === 'wrap') {
+    // Geometry resizing owns the requested box. Re-measuring in scale mode
+    // changes the box again after the drag and makes the control frame diverge
+    // from the text. Wrapping is the only mode that should recompute height.
+    if (mode === 'wrap') {
       const plain = parseNodeText(attrs || node.attrs || {}) || ' ';
       const prevAuto =
         String((attrs || node.attrs || {}).autoSize ?? 'true') !== 'false';

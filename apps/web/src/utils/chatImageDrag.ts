@@ -93,18 +93,20 @@ export function setMediaAssetDragData(
   payload: MediaAssetDragPayload
 ): void {
   const src = String(payload.src || '').trim();
+  const uploadKey = String(payload.uploadKey || '').trim();
   const kind = payload.kind;
   if (
-    !src ||
+    (!src && !uploadKey) ||
     (kind !== 'image' && kind !== 'video' && kind !== 'audio' && kind !== 'lottie')
   ) {
     return;
   }
 
+  const resolvedSrc = src || `/api/v1/uploads/files/${encodeURIComponent(uploadKey)}`;
   pendingMediaAssetDrag = {
     kind,
-    src,
-    uploadKey: payload.uploadKey || undefined,
+    src: resolvedSrc,
+    uploadKey: uploadKey || undefined,
     width: payload.width || undefined,
     height: payload.height || undefined,
     prompt: payload.prompt || undefined,
@@ -139,6 +141,14 @@ export function setMediaAssetDragData(
 
 export function clearMediaAssetDragData(): void {
   pendingMediaAssetDrag = null;
+}
+
+/**
+ * `dragend` can fire before the drop handler has consumed the in-memory payload.
+ * Keep it available for one event loop handoff so same-tab drops are reliable.
+ */
+export function scheduleClearMediaAssetDragData(delayMs = 300): number {
+  return window.setTimeout(() => clearMediaAssetDragData(), delayMs);
 }
 
 export function readMediaAssetDragPayload(

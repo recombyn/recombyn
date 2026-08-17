@@ -75,5 +75,16 @@ def test_eval_suite_ids_unique_across_pools():
     suite = _suite()
     ids = [c["id"] for c in (suite.get("cases") or [])] + [
         c["id"] for c in (suite.get("system_cases") or [])
-    ]
+    ] + [c["id"] for c in (suite.get("agent_cases") or [])]
     assert len(ids) == len(set(ids))
+
+
+def test_eval_suite_agent_cases_cover_transport_and_recovery_contracts():
+    suite = _suite()
+    cases = suite.get("agent_cases") or []
+    assert len(cases) >= 4
+    required = {"agent_receipt_missing", "agent_reconnect_ack", "agent_ambiguous_edit", "agent_worker_resume"}
+    assert {str(case.get("id") or "") for case in cases} >= required
+    for case in cases:
+        assert str(case.get("focus") or "").strip()
+        assert isinstance(case.get("expect"), list) and case["expect"]

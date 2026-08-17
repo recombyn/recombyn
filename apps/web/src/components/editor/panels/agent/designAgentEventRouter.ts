@@ -239,6 +239,7 @@ const DESIGN_ERROR_I18N: Record<string, string> = {
   vision_unavailable: 'agent.designExecFailed',
   blocked: 'agent.requestFailed',
   timeout: 'agent.requestFailed',
+  scene_unconfirmed: 'agent.uxTipObserveSceneTimeout',
   cancelled: 'agent.stopped',
   task_not_found: 'agent.requestFailed',
   auth_forbidden: 'agent.requestFailed',

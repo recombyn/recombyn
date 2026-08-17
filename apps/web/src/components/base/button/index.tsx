@@ -110,26 +110,32 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       );
     };
 
-    const buttonContent =
-      shape === 'circle' ? (
-        loading ? renderLoadingIcon() : icon || children ? (
-          <span className={disabled || loading ? 'opacity-40' : ''}>
-            {icon || children}
-          </span>
-        ) : null
-      ) : (
+    let buttonContent: React.ReactNode;
+    if (shape === 'circle') {
+      if (loading) {
+        buttonContent = renderLoadingIcon();
+      } else if (icon || children) {
+        buttonContent = (
+          <span className={disabled ? 'opacity-40' : ''}>{icon || children}</span>
+        );
+      } else {
+        buttonContent = null;
+      }
+    } else {
+      let iconContent: React.ReactNode = null;
+      if (icon && !loading) {
+        iconContent = children
+          ? <span className={cn('mr-2', disabled && 'opacity-40')}>{icon}</span>
+          : <span className={disabled ? 'opacity-40' : ''}>{icon}</span>;
+      }
+      buttonContent = (
         <>
-          {loading && !icon && renderLoadingIcon()}
-          {icon && !loading && (
-            !children ? (
-              <span className={disabled || loading ? 'opacity-40' : ''}>{icon}</span>
-            ) : (
-              <span className={cn('mr-2', (disabled || loading) && 'opacity-40')}>{icon}</span>
-            )
-          )}
+          {loading && !icon ? renderLoadingIcon() : null}
+          {iconContent}
           {children}
         </>
       );
+    }
 
     return (
       <HeadlessButton

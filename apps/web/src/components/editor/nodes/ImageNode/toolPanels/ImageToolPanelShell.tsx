@@ -65,6 +65,12 @@ function ImageToolPanelShell({
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation?.();
       }}
+      onWheel={(e) => {
+        e.stopPropagation();
+      }}
+      onTouchMove={(e) => {
+        e.stopPropagation();
+      }}
       data-image-tool-panel
     >
       <div className="flex items-center justify-between gap-2 px-4 pb-1 pt-3.5">

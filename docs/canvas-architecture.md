@@ -63,10 +63,10 @@ Node and artboard titles are native-input edits: the browser owns the active inp
 Pen, pencil, shape, and frame tools portal preview into a shared scene SVG mount (`getSceneDrawPreviewMount` in `shapeHostRegistry.ts`):
 
 - **Pen / path edit** — SVG `<g>` preview (`PenDrawFeature`, `PenPathEditFeature`)
-- **Pencil** — filled **SVG ribbon** outline from `outlinePathFromPoints` (`pencilBrushes.ts`); same lattice as commit. Comment in code: tip-stamp Canvas bake lagged/jittered; preview now matches commit SVG
+- **Pencil** — filled **SVG ribbon** from `outlinePathFromPoints` (`pencilBrushes.ts`); preview and commit share that outline
 - **Shape / frame draw** — SVG stroke/box preview portals
 
-The former per-tool `RcbSceneOverlayCanvas` was removed. Live drawing portals into the shared camera group.
+Live drawing portals into the shared camera group.
 
 ### Path2D role (not main paint)
 
@@ -82,13 +82,31 @@ Used for:
 
 ### Pencil “ribbon”
 
-Vector freehand is a **path-centered filled outline** (pressure + taper), not a thin `stroke`:
+Vector freehand is a **path-centered filled outline** (pressure + taper):
 
-1. Centerline points (gap-filled)
-2. `ribbonRadiiAlongPath` → `centeredRibbonOutline`
-3. Closed SVG `d` filled with brush color
+1. Centerline points (gap-filled). Shift+pencil snaps an octant-straight segment
+2. `outlinePathFromPoints` builds a closed SVG `d`
+3. Fill with the ink color; optional silhouette stroke (`pencilOutlineWidth` / `pencilOutlineColor`)
 
-Same path builder for live preview and commit (`outlinePathFromPoints`).
+Same path builder for live preview and commit.
+
+Built-in `brushStyle` ids (`PENCIL_BRUSHES` in `pencilBrushes.ts`; default `vector-ink`):
+
+| Id | Role |
+|----|------|
+| `vector-ink` | Balanced ink; width follows hardware pressure |
+| `vector-even` | Near-constant width |
+| `vector-calligraphy` | Strong pressure range |
+| `vector-pencil` | Lighter sketch |
+| `vector-marker` | Broad marks |
+| `vector-brush` | Broad pressure-sensitive |
+| `vector-fountain` | Fine ink |
+| `vector-technical` | Even linework |
+| `vector-soft` | Soft wide marks |
+
+Toolbar: fill color, Size (Px = `penStrokeWidth` / node `borderWidth`), settings (thinning, streamline, smoothing, easing, taper/cap start+end, fill, silhouette stroke, reset). Pen mode also has 退出编辑.
+
+Committed attrs include centerline `path`, `pathPressure`, `brushStyle`, `pressureEnabled`, `pencilFill`, `pencilOutlineWidth`, `pencilOutlineColor`.
 
 ## Viewport cull + LOD
 

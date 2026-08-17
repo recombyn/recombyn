@@ -445,28 +445,7 @@ function shouldSkipRadiusHandles(node: SceneNodeInput, shapeType: string): boole
   if (shapeType === 'circle' || shapeType === 'ellipse') return true;
   // 轮廓化结果：一律不显示圆角控制点（含钢笔 / 线 / 箭头 / 文字等）.
   if (isOutlinedPath(node)) return true;
-  // Legacy stroke-bake without `outlined` flag.
-  const strokeOff =
-    node?.attrs?.['stroke-enabled'] === false || node?.attrs?.['stroke-enabled'] === 'false';
-  const bw = Number(
-    node?.attrs?.['border-width'] ??
-      node?.attrs?.borderWidth ??
-      node?.attrs?.strokeWidth ??
-      0
-  );
-  if (
-    strokeOff &&
-    Number.isFinite(bw) &&
-    bw > 0 &&
-    (shapeType === 'path' || node?.key === 'path')
-  ) {
-    return true;
-  }
-  // Outlined text (many M rings) without the flag (legacy): still skip.
-  const d = String(node?.attrs?.path || node?.attrs?.d || '').trim();
-  if (!d) return false;
-  const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
-  return rings >= 4;
+  return false;
 }
 
 /**

@@ -60,6 +60,10 @@ export type ToolOpResult = {
   name: string;
   ok: boolean;
   error?: string;
+  /** Intended and observed scene ids; tool input itself remains in the task event log. */
+  operation?: 'create' | 'update' | 'delete' | 'other';
+  expected_node_ids?: string[];
+  actual_node_ids?: string[];
 };
 
 export type AiQueueStatus =
@@ -270,6 +274,66 @@ export type ToolOpsExecutionResult = {
   historyPushed: boolean;
   revisionAction?: 'apply' | 'rebase' | 'reject';
 };
+
+function uniqueReceiptNodeIds(values: unknown[]): string[] {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 32);
+}
+
+function expectedNodeIds(args: Record<string, unknown>): string[] {
+  const values: unknown[] = [args.id, args.nodeId, args.node_id];
+  for (const candidate of [args.ids, args.nodeIds, args.node_ids]) {
+    if (Array.isArray(candidate)) values.push(...candidate);
+  }
+  return uniqueReceiptNodeIds(values);
+}
+
+function operationKind(name: string): ToolOpResult['operation'] {
+  if (name.startsWith('create_')) return 'create';
+  if (name.startsWith('delete_')) return 'delete';
+  if (name.startsWith('update_') || name === 'outline_text') return 'update';
+  return 'other';
+}
+
+function artifactNodeIds(artifacts: Record<string, unknown> | undefined): string[] {
+  if (!artifacts) return [];
+  const values: unknown[] = [artifacts.nodeId, artifacts.frameId];
+  for (const candidate of [artifacts.nodeIds, artifacts.frameIds]) {
+    if (Array.isArray(candidate)) values.push(...candidate);
+  }
+  return uniqueReceiptNodeIds(values);
+}
+
+function completeOperationReceipts(
+  ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>,
+  results: ToolOpResult[]
+): ToolOpResult[] {
+  const sourceById = new Map<string, { name?: string; args?: Record<string, unknown>; op_id?: string }>();
+  for (const op of ops) {
+    const opId = String(op.op_id || '').trim();
+    if (opId) sourceById.set(opId, op);
+  }
+  return results.map((result) => {
+    const source = sourceById.get(String(result.op_id || '').trim());
+    const args = source?.args && typeof source.args === 'object' ? source.args : {};
+    return {
+      ...result,
+      operation: result.operation || operationKind(String(result.name || source?.name || '')),
+      expected_node_ids: result.expected_node_ids || expectedNodeIds(args),
+      actual_node_ids: result.actual_node_ids || [],
+    };
+  });
+}
+
+function hasCompleteOperationReceipts(
+  ops: Array<{ op_id?: string }>,
+  results: ToolOpResult[]
+): boolean {
+  const expected = ops.map((op) => String(op.op_id || '').trim()).filter(Boolean);
+  if (!expected.length) return false;
+  const received = new Set(results.map((result) => String(result.op_id || '').trim()).filter(Boolean));
+  return expected.every((opId) => received.has(opId));
+}
+
 export async function applyAgentToolOps(opts: {
   ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
   dispatch: Dispatch;
@@ -398,6 +462,12 @@ export async function applyAgentToolOps(opts: {
     }
     const opId = String((op as { op_id?: string })?.op_id || '');
     const args = op?.args && typeof op.args === 'object' ? { ...op.args } : {};
+    const receiptBase = {
+      op_id: opId,
+      name,
+      operation: operationKind(name),
+      expected_node_ids: expectedNodeIds(args),
+    } as const;
     if (
       name.startsWith('create_') &&
       name !== 'create_frame' &&
@@ -453,14 +523,19 @@ export async function applyAgentToolOps(opts: {
     if (res.status === 'error') {
       console.warn('[tool_ops error]', { i, name, args, summary: res.summary });
       opResults.push({
-        op_id: opId,
-        name,
+        ...receiptBase,
         ok: false,
         error: String(res.summary || 'failed').slice(0, 200),
+        actual_node_ids: [],
       });
       continue;
     }
-    opResults.push({ op_id: opId, name, ok: true });
+    const actualNodeIds = artifactNodeIds(res.artifacts);
+    opResults.push({
+      ...receiptBase,
+      ok: true,
+      actual_node_ids: actualNodeIds.length ? actualNodeIds : receiptBase.expected_node_ids,
+    });
     if (name === 'update_node' || name === 'outline_text') {
       updated += 1;
       const outlined = Array.isArray(res.artifacts?.nodeIds)
@@ -503,13 +578,14 @@ export async function applyAgentToolOps(opts: {
       deleted: 0,
       nodeIds: [],
       frameId: outFrameId,
-      opResults: mutation.opResults,
+      opResults: completeOperationReceipts(ops, mutation.opResults),
       historyPushed: false,
       revisionAction: mutation.revisionAction,
     };
   }
   return {
     ...mutation.result,
+    opResults: completeOperationReceipts(ops, mutation.opResults),
     historyPushed: mutation.historyPushed,
     revisionAction: mutation.revisionAction,
   };
@@ -1472,7 +1548,11 @@ export {
 export type { SceneFrameSnapshot, SceneNodeInventoryItem, SpatialSummary } from './agentSceneContext';
 type AskChoiceUi = {
   mode: 'confirm' | 'single' | 'multi' | 'buttons' | 'text';
-  options: Array<{ label: string; action: 'apply' | 'reply' | 'dismiss' }>;
+  options: Array<{
+    label: string;
+    action: 'apply' | 'reply' | 'dismiss';
+    value?: string;
+  }>;
   placeholder?: string;
 };
 
@@ -1519,7 +1599,7 @@ function normalizeChoiceUi(raw: unknown): AskChoiceUi | undefined {
   const options: AskChoiceUi['options'] = [];
   for (const item of obj.options || []) {
     if (!item || typeof item !== 'object') continue;
-    const row = item as { label?: string; action?: string };
+    const row = item as { label?: string; action?: string; value?: string };
     let action = String(row.action || 'reply').trim().toLowerCase();
     if (action === 'cancel' || action === 'close') action = 'dismiss';
     if (action === 'ok' || action === 'confirm') action = 'apply';
@@ -1528,7 +1608,12 @@ function normalizeChoiceUi(raw: unknown): AskChoiceUi | undefined {
     }
     const label = String(row.label || '').trim();
     if (!label && action === 'reply') continue;
-    options.push({ label, action: action as AskChoiceUi['options'][number]['action'] });
+    const value = String(row.value || '').trim() || undefined;
+    options.push({
+      label,
+      action: action as AskChoiceUi['options'][number]['action'],
+      ...(value ? { value } : {}),
+    });
     if (options.length >= 8) break;
   }
   const placeholder = String(obj.placeholder || obj.hint || '').trim() || undefined;
@@ -1563,12 +1648,7 @@ export async function captureFocusFramePreview(
   const outW = Math.max(64, Math.round(fw * scale));
   const outH = Math.max(64, Math.round(fh * scale));
 
-  const bg = String(
-    (frame as { fill?: string; background?: string } | undefined)?.fill ||
-      (frame as { fill?: string; background?: string } | undefined)?.background ||
-      frame?.backgroundColor ||
-      '#ffffff'
-  );
+  const bg = String(frame?.backgroundColor || '#ffffff');
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${outH}" viewBox="0 0 ${fw} ${fh}">`,
     `<rect width="${fw}" height="${fh}" fill="${bg.replace(/"/g, '') || '#fff'}"/>`,
@@ -1686,7 +1766,7 @@ export async function captureCritiquePreview(
           width: w,
           height: h,
         },
-        backgroundColor: String(frame.backgroundColor || frame.fill || '#FFFFFF'),
+        backgroundColor: String(frame.backgroundColor || '#FFFFFF'),
       });
       if (rendered?.kind === 'raster' && rendered.dataUrl?.startsWith('data:image/')) {
         // Drop oversized payloads (API caps ~1.5MB text).
@@ -2249,6 +2329,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   const aiQueue = createAiOperationQueue();
   let latestMemory: TaskState | null = params.memory?.medium || null;
   let liveTaskId: string | null = null;
+  let terminalErrorCode: string | null = null;
 
   if (typeof console !== 'undefined') {
     console.info('[designAgent] start', {
@@ -2952,9 +3033,28 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             baseRevision: aiQueue.baseRevision,
             currentRevision: sceneRevisionNow(),
           });
+          // The host can create the target artboard before its matching
+          // create_frame command arrives. Record that as an explicit receipt
+          // instead of leaving the server to treat the operation as missing.
+          const hostHandledResults: ToolOpResult[] = chunk
+            .filter((op) => !paintOps.includes(op))
+            .map((op) => {
+              const name = String(op.name || '').trim();
+              const args = op.args && typeof op.args === 'object' ? op.args : {};
+              return {
+                op_id: String(op.op_id || '').trim(),
+                name,
+                ok: Boolean(live.frameId),
+                ...(live.frameId ? {} : { error: 'host_frame_unavailable' }),
+                operation: operationKind(name),
+                expected_node_ids: expectedNodeIds(args),
+                actual_node_ids: live.frameId ? [live.frameId] : [],
+              };
+            });
+          const receiptResults = [...applied.opResults, ...hostHandledResults];
           aiQueueMarkApplied(aiQueue, {
             historyPushed: applied.historyPushed,
-            opResults: applied.opResults,
+            opResults: receiptResults,
           });
           if (applied.revisionAction === 'rebase') {
             activitySeq += 1;
@@ -2997,7 +3097,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               }
             );
           }
-          const failures = applied.opResults.filter((r) => !r.ok);
+          const failures = receiptResults.filter((r) => !r.ok);
           if (failures.length) {
             // Correct the backend's pre-emitted counts — user must see the truth.
             activitySeq += 1;
@@ -3010,8 +3110,10 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               detail: `${failures.length} op(s) not applied: ${failures[0].error || 'target missing'}`,
             });
           }
-          const anyOk = applied.opResults.some((r) => r.ok);
-          if (!failures.length) acknowledgeAppliedDesignCommand(liveTaskId, ev.command_seq, params.signal);
+          const anyOk = receiptResults.some((r) => r.ok);
+          if (hasCompleteOperationReceipts(chunk, receiptResults)) {
+            acknowledgeAppliedDesignCommand(liveTaskId, ev.command_seq, params.signal);
+          }
           toolOpsApplied = true;
           painted = painted || anyOk;
           if (applied.frameId && bindToBoard) {
@@ -3220,6 +3322,18 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       paintSvgProgressive(ev.svg, ev.svg_patch);
     }
     if (ev.summary) resultSummary = ev.summary;
+    if (String(ev.status || '').toLowerCase() !== 'success') {
+      terminalErrorCode = String((ev as { error_code?: string }).error_code || 'design_failed');
+      params.onEvent({
+        type: 'activity',
+        id: `result-error-${activitySeq++}`,
+        kind: 'skipped',
+        status: 'error',
+        detail: resultSummary || undefined,
+        stage: 'scene_check',
+      });
+      return;
+    }
     if (Array.isArray(ev.choices) && ev.choices.length) {
       resultChoices = ev.choices.map((c) => String(c).trim()).filter(Boolean).slice(0, 6);
     }
@@ -3786,6 +3900,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     // Only clear cover when the full Design→Review(+retry) run has finished.
     params.dispatch(cancelImportPlaceholder());
     clearProcessPill();
+
+    if (terminalErrorCode) {
+      params.onEvent({ type: 'error', code: terminalErrorCode });
+      return;
+    }
 
     if (pendingDone) {
       const summary = (pendingDone.summary || resultSummary || '').trim();

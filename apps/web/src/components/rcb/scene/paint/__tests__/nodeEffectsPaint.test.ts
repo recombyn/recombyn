@@ -45,4 +45,39 @@ describe('node SVG effects', () => {
       root.remove();
     }
   );
+
+  it('does not paint zero-geometry shadows', async () => {
+    const { root, layer } = svgRoot();
+    const node = {
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 32,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#fff',
+        'shadow-enabled': true,
+        'shadow-visible': true,
+        'shadow-x': 0,
+        'shadow-y': 0,
+        'shadow-blur': 0,
+        'inner-shadow-enabled': true,
+        'inner-shadow-visible': true,
+        'inner-shadow-x': 0,
+        'inner-shadow-y': 0,
+        'inner-shadow-blur': 0,
+        'backdrop-blur-enabled': true,
+        'backdrop-blur-amount': 0,
+        'backdrop-blur-brightness': 0,
+      },
+    };
+
+    const el = await nodeToSvgElement(root, layer, { x: 0, y: 0, deltaSetLike: {} } as any, node as any, 'rect');
+
+    expect(el).toBeTruthy();
+    expect(el!.style.filter).toBe('');
+    expect(root.querySelector('filter')).toBeNull();
+    root.remove();
+  });
 });

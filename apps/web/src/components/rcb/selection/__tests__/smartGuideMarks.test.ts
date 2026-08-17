@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { collectMoveSnapIndicators } from '../alignGuides';
+import { snapPenAnchorPoint } from '../../tools/PenDrawFeature';
 
 /**
  * Edge-align guides must mark corners AND edge midpoints.
@@ -110,22 +111,19 @@ describe('smart guide marks (corners + edge mids, continuous line)', () => {
 });
 
 describe('snap tip lattice (1px mouse bias)', () => {
-  it('snapped tip lands on nearest cell perimeter target', async () => {
-    const { snapPenAnchorPoint } = await import('../../tools/PenDrawFeature');
+  it('snapped tip lands on nearest cell perimeter target', () => {
     const raw = { x: 14.6, y: 11.4 };
     const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);
     expect(tip).toEqual({ x: 14.5, y: 11 });
   });
 
-  it('when pointer already on corner, tip equals pointer (0 bias)', async () => {
-    const { snapPenAnchorPoint } = await import('../../tools/PenDrawFeature');
+  it('when pointer already on corner, tip equals pointer (0 bias)', () => {
     const raw = { x: 20, y: 30 };
     const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);
     expect(tip).toEqual(raw);
   });
 
-  it('edge midpoint remains an exact target', async () => {
-    const { snapPenAnchorPoint } = await import('../../tools/PenDrawFeature');
+  it('edge midpoint remains an exact target', () => {
     const raw = { x: 14, y: 11.5 };
     const tip = snapPenAnchorPoint(raw.x, raw.y, 1, false);
     expect(tip).toEqual(raw);

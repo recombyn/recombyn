@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
@@ -8,7 +8,6 @@ import {
   HiOutlineItalic,
   HiOutlineLink,
   HiOutlineLinkSlash,
-  HiOutlineSparkles,
   HiOutlineStrikethrough,
   HiOutlineUnderline,
 } from 'react-icons/hi2';
@@ -18,6 +17,7 @@ import {
   MdFormatAlignRight,
   MdFormatOverline,
 } from 'react-icons/md';
+import AppLogo from '@/components/base/AppLogo';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
 import { DropdownPanel, DropdownPanelItem } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
@@ -28,6 +28,7 @@ import {
   openImageToolPanel,
   openVideoToolPanel,
   openAudioToolPanel,
+  isImageToolSidePanelKind,
 } from '@/store/modules/editor';
 import FlipRotateToolbar from '@/components/editor/nodes/ImageNode/FlipRotateToolbar';
 import ImageQuickEditComposer from '@/components/editor/nodes/ImageNode/ImageQuickEditComposer';
@@ -68,12 +69,13 @@ import {
   SEL_ICON_BTN_ACTIVE,
   SEL_TOOL_BTN,
 } from './ToolbarValueSlider';
-import { IconCornerRadius } from './StyleToolbarIcons';
 import FontFamilyPicker from '@/components/editor/nodes/TextNode/FontFamilyPicker';
 import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
-import ImageToolbarMoreDownload from '@/components/editor/nodes/ImageNode/ImageToolbarMoreDownload';
+import ImageToolbarMoreDownload, {
+  type ImageMoreAction,
+} from '@/components/editor/nodes/ImageNode/ImageToolbarMoreDownload';
 import ImageFullscreenPreviewButton from '@/components/editor/nodes/ImageNode/ImageFullscreenPreviewButton';
 import {
   VideoDownloadButton,
@@ -87,11 +89,6 @@ import {
 } from '@/components/editor/nodes/AudioNode';
 import ShapeSelectionToolbar from '@/components/editor/nodes/ShapeNode/ShapeSelectionToolbar';
 import { SelectionToolbarShell } from './SelectionToolbarShell';
-import {
-  cornerRadiusToolbarDisplay,
-  getLiveCornerRadiusPreview,
-  subscribeLiveCornerRadiusPreview,
-} from '@/components/rcb/scene/document/sceneRadii';
 import {
   buildOutlinePathAsync,
   canOutlineNode,
@@ -258,25 +255,38 @@ function TextDecorationMenuItems({
   ));
 }
 
+function isPanelKindOnNode(
+  panel: { nodeId: string; kind: string } | null | undefined,
+  nodeId: string,
+  kind: string,
+  nodeKey: string,
+  allowedKeys: readonly string[]
+): boolean {
+  if (!panel || panel.nodeId !== nodeId || panel.kind !== kind) return false;
+  return allowedKeys.includes(nodeKey);
+}
+
 function openImageMoreTool(
   dispatch: ReturnType<typeof useDispatch>,
   nodeId: string,
-  key: string
+  key: ImageMoreAction
 ) {
-  if (key === 'expand') {
-    dispatch(openImageToolPanel({ nodeId, kind: 'expand' }));
+  if (key === 'cornerRadius') {
+    dispatch(openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] }));
     return;
   }
-  if (key === 'crop') {
-    dispatch(openImageToolPanel({ nodeId, kind: 'crop' }));
-    return;
-  }
-  if (key === 'adjust') {
-    dispatch(openImageToolPanel({ nodeId, kind: 'adjust' }));
-    return;
-  }
-  if (key === 'flipRotate') {
-    dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }));
+  switch (key) {
+    case 'expand':
+    case 'crop':
+    case 'adjust':
+    case 'blendMode':
+    case 'effects':
+    case 'flipRotate':
+    case 'opacity':
+      dispatch(openImageToolPanel({ nodeId, kind: key }));
+      return;
+    default:
+      return;
   }
 }
 
@@ -328,40 +338,35 @@ function SelectionContextToolbar(props: Props): ReactNode {
   );
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
-  const flipRotateOpen =
-    (kind === 'image' || kind === 'video') &&
-    imageToolPanel?.kind === 'flipRotate' &&
-    imageToolPanel?.nodeId === nodeId;
-  const quickEditOpen =
-    imageToolPanel?.kind === 'quickEdit' &&
-    imageToolPanel?.nodeId === nodeId &&
-    (kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'lottie');
-  const lottieEditOpen =
-    kind === 'lottie' &&
-    imageToolPanel?.kind === 'lottieEdit' &&
-    imageToolPanel?.nodeId === nodeId;
-  // Side panels (Eraser / Opacity / Replace text / …) own the chrome — hide the selection pill.
+  const flipRotateOpen = isPanelKindOnNode(
+    imageToolPanel,
+    nodeId,
+    'flipRotate',
+    kind,
+    ['image', 'video']
+  );
+  const quickEditOpen = isPanelKindOnNode(
+    imageToolPanel,
+    nodeId,
+    'quickEdit',
+    kind,
+    ['image', 'video', 'audio', 'lottie']
+  );
+  const lottieEditOpen = isPanelKindOnNode(
+    imageToolPanel,
+    nodeId,
+    'lottieEdit',
+    kind,
+    ['lottie']
+  );
   const imageSidePanelOpen =
-    Boolean(imageToolPanel?.nodeId) &&
-    (imageToolPanel?.kind === 'eraser' ||
-      imageToolPanel?.kind === 'opacity' ||
-      imageToolPanel?.kind === 'replaceText' ||
-      imageToolPanel?.kind === 'multiAngle' ||
-      imageToolPanel?.kind === 'adjust' ||
-      imageToolPanel?.kind === 'mark');
+    imageToolPanel?.nodeId != null && isImageToolSidePanelKind(imageToolPanel.kind);
   const [mdOpen, setMdOpen] = useState(false);
   const [fontCatalogTick, setFontCatalogTick] = useState(0);
   const style = useMemo(
     () => (kind === 'text' ? parseNodeTextStyle(node?.attrs || {}) : null),
     [kind, node?.attrs]
   );
-  const liveCornerRadius = useSyncExternalStore(
-    subscribeLiveCornerRadiusPreview,
-    () => getLiveCornerRadiusPreview(nodeId),
-    () => null
-  );
-  const toolbarCornerRadius =
-    liveCornerRadius ?? cornerRadiusToolbarDisplay(node?.attrs);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,8 +444,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
     );
   };
 
-  const showBlend = !(kind === 'image' && isIconImageNode(node));
-  const supportsEffects = !['video', 'audio', 'lottie', 'frame', 'group'].includes(kind);
+  const showBlend = kind !== 'image';
+  const supportsEffects = !['image', 'video', 'audio', 'lottie', 'frame', 'group'].includes(kind);
   const effectControl = supportsEffects ? (
     <EffectsControl
       attrs={node.attrs}
@@ -458,11 +463,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
       }
       onOpacityChange={(opacity) =>
         dispatch(patchDocumentNode({ nodeId, patch: { attrs: { opacity } } }))
-      }
-      onOpacityOpen={
-        kind === 'image'
-          ? () => dispatch(openImageToolPanel({ nodeId, kind: 'opacity' }))
-          : undefined
       }
     />
   ) : null;
@@ -512,7 +512,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
             className={imageToolBtn}
             onClick={() => dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))}
           >
-            <HiOutlineSparkles className="h-4 w-4" strokeWidth={2} />
+            <AppLogo size={16} />
             <span>{t('editor.imageToolbar.chat')}</span>
           </button>
           <ImageToolSep />
@@ -543,52 +543,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
               dispatch(openImageToolPanel({ nodeId, kind: 'multiAngle' }))
             }
           />
-          {showBlend ? (
-            <>
-              <Sep />
-              <BlendModeControl
-                blendMode={node?.attrs?.blendMode}
-                opacity={node?.attrs?.opacity}
-                onBlendModeChange={(mode) =>
-                  dispatch(
-                    patchDocumentNode({ nodeId, patch: { attrs: { blendMode: mode } } })
-                  )
-                }
-                onOpacityChange={(opacity) =>
-                  dispatch(patchDocumentNode({ nodeId, patch: { attrs: { opacity } } }))
-                }
-                onOpacityOpen={() =>
-                  dispatch(openImageToolPanel({ nodeId, kind: 'opacity' }))
-                }
-                afterBlendSlot={
-                  supportsCornerRadius(node) ? (
-                    <Tooltip tip={t('editor.imageToolbar.cornerRadius')} placement="top">
-                      <button
-                        type="button"
-                        aria-label={t('editor.imageToolbar.cornerRadius')}
-                        className={SEL_TOOL_BTN}
-                        onClick={() =>
-                          dispatch(
-                            openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] })
-                          )
-                        }
-                      >
-                        <IconCornerRadius className="h-4 w-4" />
-                        <span className="tabular-nums">{toolbarCornerRadius}</span>
-                      </button>
-                    </Tooltip>
-                  ) : null
-                }
-              />
-            </>
-          ) : null}
-          {effectControl ? (
-            <>
-              <Sep />
-              {effectControl}
-            </>
-          ) : null}
           <ImageToolbarMoreDownload
+            showCornerRadius={supportsCornerRadius(node)}
             onAction={(key) => openImageMoreTool(dispatch, nodeId, key)}
           />
           <Sep />
@@ -877,11 +833,11 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 </button>
               </Tooltip>
               {canOutlineNode(node) ? (
-                <Tooltip tip="Outline" placement="top">
+                <Tooltip tip={t('editor.imageToolbar.outline')} placement="top">
                   <button
                     type="button"
-                    aria-label="Outline"
-                    className={SEL_ICON_BTN}
+                    aria-label={t('editor.imageToolbar.outline')}
+                    className={SEL_TOOL_BTN}
                     onClick={() => {
                       outlineSelectedNode({
                         node,
@@ -894,6 +850,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     }}
                   >
                     <TbVectorBezier className="h-4 w-4" />
+                    <span>{t('editor.imageToolbar.outline')}</span>
                   </button>
                 </Tooltip>
               ) : null}

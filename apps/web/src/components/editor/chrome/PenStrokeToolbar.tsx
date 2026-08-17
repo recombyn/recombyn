@@ -1,254 +1,391 @@
 import { useEffect, useRef, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineArrowDownTray, HiOutlineCheck, HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
-import { LuEraser } from 'react-icons/lu';
+import { HiOutlineAdjustmentsHorizontal } from 'react-icons/hi2';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
-import { DropdownPanel } from '@/components/base';
+import { Checkbox, DropdownPanel, Select, Slider } from '@/components/base';
 import { Icon } from '@/components/base/icon';
 import Tooltip from '@/components/base/tooltip';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
+import { FillColorSwatch } from '@/components/rcb/selection/chrome';
 import {
-  brushPreviewPath,
-  BRUSH_PREVIEW_POINTS,
-  buildStampDabs,
   DEFAULT_PENCIL_BRUSH_ID,
   findPencilBrush,
-  isBrushPackFileName,
-  listPencilBrushes,
-  makeCustomStampBrush,
-  parseBrushPackJson,
-  serializeBrushPack,
-  setCustomPencilBrushes,
+  isPencilEasingId,
+  PENCIL_EASING_IDS,
+  resetPencilBrushOptions,
+  updatePencilBrushEasing,
+  updatePencilBrushInk,
+  updatePencilBrushOptions,
   type PencilBrushDef,
   type PencilBrushId,
 } from '@/components/rcb/tools/pencilBrushes';
-import { getTintedStampSrc, preloadStampSrc, STAMP_TINT_READY_EVENT } from '@/components/rcb/tools/stampTint';
 import {
   setActiveTool,
   setPenStrokeColor,
   setPenStrokeOpacity,
   setPenStrokeWidth,
-  setPencilBrushId,
-  setPencilEraseMode,
-  setPencilHardness,
-  setPencilPressureEnabled,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 
-const CUSTOM_BRUSH_STORAGE_KEY = 'recombine-custom-pencil-brushes-v3';
-const MAX_CUSTOM_BRUSHES = 48;
-const MAX_BRUSH_FILE_BYTES = 2.5 * 1024 * 1024;
-const LEGACY_CUSTOM_BRUSH_KEYS = [
-  'recombine-custom-pencil-brushes-v1',
-  'recombine-custom-pencil-brushes-v2',
-];
-
-type StoredBrush = {
-  id: string;
-  label: string;
-  kind?: 'freehand' | 'stamp';
-  stampSrc?: string;
-  sizeFactor?: number;
-  spacingFactor?: number;
-  simulatePressure?: boolean;
-  options?: PencilBrushDef['options'];
-  createdAt?: number;
-};
-
-function parseStoredBrushes(raw: string | null): StoredBrush[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((b) => {
-      if (!b || typeof b.id !== 'string') return false;
-      if (b.kind === 'freehand') return true;
-      return typeof b.stampSrc === 'string' && String(b.stampSrc).startsWith('data:');
-    });
-  } catch {
-    return [];
-  }
+function formatBrushValue(value: number, digits: number): string {
+  return Number(value).toFixed(digits);
 }
 
-function brushesToDefs(list: StoredBrush[]): PencilBrushDef[] {
-  return list.map((b) => {
-    if (b.kind === 'freehand' || (!b.stampSrc && b.options)) {
-      return {
-        id: b.id,
-        label: b.label || 'Brush',
-        custom: true,
-        kind: 'freehand' as const,
-        sizeFactor: b.sizeFactor ?? 1,
-        simulatePressure: Boolean(b.simulatePressure),
-        options: {
-          thinning: Number(b.options?.thinning ?? 0.05),
-          smoothing: Number(b.options?.smoothing ?? 0.45),
-          streamline: Number(b.options?.streamline ?? 0.35),
-          easing: (t: number) => t,
-          start: {
-            taper: Number((b.options?.start as any)?.taper ?? 0),
-            cap: (b.options?.start as any)?.cap !== false,
-          },
-          end: {
-            taper: Number((b.options?.end as any)?.taper ?? 0),
-            cap: (b.options?.end as any)?.cap !== false,
-          },
-        },
-      };
-    }
-    return makeCustomStampBrush({
-      id: b.id,
-      label: b.label || 'Brush',
-      stampSrc: String(b.stampSrc || ''),
-      sizeFactor: b.sizeFactor,
-      spacingFactor: b.spacingFactor,
-    });
-  });
+function formatPx(value: number): string {
+  return String(Math.round(Number(value) || 0));
 }
 
-function defToStored(b: PencilBrushDef): StoredBrush {
-  return {
-    id: b.id,
-    label: b.label,
-    kind: b.kind === 'stamp' ? 'stamp' : 'freehand',
-    stampSrc: b.stampSrc,
-    sizeFactor: b.sizeFactor,
-    spacingFactor: b.spacingFactor,
-    simulatePressure: b.simulatePressure,
-    options: b.options,
-    createdAt: Date.now(),
-  };
+function pencilEasingI18nKey(id: string): string {
+  if (id === 'linear') return 'editor.pencilEasingLinear';
+  return `editor.pencilEasing${id[0].toUpperCase()}${id.slice(1)}`;
 }
 
-function persistCustomBrushes(list: StoredBrush[]) {
-  localStorage.setItem(CUSTOM_BRUSH_STORAGE_KEY, JSON.stringify(list.slice(0, MAX_CUSTOM_BRUSHES)));
-  const defs = brushesToDefs(list);
-  setCustomPencilBrushes(defs);
-  defs.forEach((d) => {
-    if (d.stampSrc) preloadStampSrc(d.stampSrc);
-  });
-  return defs;
-}
-
-function hydrateCustomPencilBrushes(): PencilBrushDef[] {
-  // Drop legacy custom stores — old tip/freehand leftovers were cluttering the wheel.
-  try {
-    for (const key of LEGACY_CUSTOM_BRUSH_KEYS) {
-      localStorage.removeItem(key);
-    }
-  } catch {
-    /* ignore */
-  }
-  return persistCustomBrushes(parseStoredBrushes(localStorage.getItem(CUSTOM_BRUSH_STORAGE_KEY)));
-}
-
-function listStoredCustomBrushes(): StoredBrush[] {
-  return parseStoredBrushes(localStorage.getItem(CUSTOM_BRUSH_STORAGE_KEY));
-}
-
-function addCustomPencilBrushes(incoming: PencilBrushDef[]): PencilBrushDef[] {
-  const prev = listStoredCustomBrushes().filter((b) => !incoming.some((n) => n.id === b.id));
-  const next: StoredBrush[] = [...incoming.map(defToStored), ...prev].slice(0, MAX_CUSTOM_BRUSHES);
-  return persistCustomBrushes(next);
-}
-
-function addCustomPencilBrush(brush: PencilBrushDef): PencilBrushDef[] {
-  return addCustomPencilBrushes([brush]);
-}
-
-function removeCustomPencilBrush(id: string): PencilBrushDef[] {
-  return persistCustomBrushes(listStoredCustomBrushes().filter((b) => b.id !== id));
-}
-
-function readBrushImageFile(file: File): Promise<{ dataUrl: string; name: string }> {
-  return new Promise((resolve, reject) => {
-    if (!file || !file.type.startsWith('image/')) {
-      reject(new Error('invalid-type'));
-      return;
-    }
-    if (file.size > MAX_BRUSH_FILE_BYTES) {
-      reject(new Error('too-large'));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || '');
-      if (!dataUrl.startsWith('data:image/')) {
-        reject(new Error('unreadable'));
-        return;
-      }
-      const name = file.name.replace(/\.[^.]+$/, '') || 'Brush';
-      resolve({ dataUrl, name: name.slice(0, 24) });
-    };
-    reader.onerror = () => reject(new Error('read-failed'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function readTextFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (file.size > MAX_BRUSH_FILE_BYTES) {
-      reject(new Error('too-large'));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('read-failed'));
-    reader.readAsText(file);
-  });
-}
-
-function BrushStrokePreview({
-  brushId,
-  color,
-  hardness = 80,
-  className,
+function BrushSettingsPanel({
+  brush,
+  fillColor,
+  strokeColor,
+  strokeWidth,
+  opacity,
+  onFillColorChange,
+  onStrokeColorChange,
+  onStrokeWidthChange,
+  onOpacityChange,
+  onChanged,
 }: {
-  brushId: string;
-  color: string;
-  hardness?: number;
-  className?: string;
+  brush: PencilBrushDef;
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+  onFillColorChange: (value: string) => void;
+  onStrokeColorChange: (value: string) => void;
+  onStrokeWidthChange: (value: number) => void;
+  onOpacityChange: (pct: number) => void;
+  onChanged: () => void;
 }) {
-  const brush = findPencilBrush(brushId);
-  const d = brushPreviewPath(brush, 9, hardness);
-  const dabs =
-    brush.kind === 'stamp' && brush.stampSrc
-      ? buildStampDabs(BRUSH_PREVIEW_POINTS, brush, 8, {
-          hardness,
-          pressureEnabled: true,
-          maxDabs: 160,
-          skipTaper: true,
-        })
-      : [];
-  const stampSrc = brush.stampSrc ? getTintedStampSrc(brush.stampSrc, color, hardness) : '';
+  const { t } = useTranslation();
+  const options = brush.options;
+  const start = typeof options.start === 'object' ? options.start : {};
+  const end = typeof options.end === 'object' ? options.end : {};
+  const thinning = Number(options.thinning ?? 0.5);
+  const streamline = Number(options.streamline ?? 0.5);
+  const smoothing = Number(options.smoothing ?? 0.5);
+  const startTaper = Number(start?.taper ?? 0);
+  const endTaper = Number(end?.taper ?? 0);
+  const easingOptions = PENCIL_EASING_IDS.map((value) => ({
+    value,
+    label: t(pencilEasingI18nKey(value)),
+  }));
+
+  function patchOptions(patch: Partial<PencilBrushDef['options']>) {
+    updatePencilBrushOptions(brush.id, patch);
+    onChanged();
+  }
+
+  function setTaper(side: 'start' | 'end', value: number) {
+    patchOptions({ [side]: { taper: value } });
+  }
+
+  function setCap(side: 'start' | 'end', cap: boolean) {
+    patchOptions({ [side]: { cap } });
+  }
+
+  function setEasing(which: 'easing' | 'start' | 'end', value: string) {
+    if (!isPencilEasingId(value)) return;
+    updatePencilBrushEasing(brush.id, which, value);
+    onChanged();
+  }
+
   return (
-    <svg
-      className={className}
-      viewBox="0 0 120 28"
-      width="100%"
-      height="100%"
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      {dabs.length > 0 && stampSrc ? (
-        dabs.map((dab, index) => (
-          <image
-            key={`${index}-${dab.x.toFixed(2)}-${dab.y.toFixed(2)}`}
-            href={stampSrc}
-            x={dab.x - dab.size / 2}
-            y={dab.y - dab.size / 2}
-            width={dab.size}
-            height={dab.size}
-            opacity={Math.max(0.08, Math.min(1, dab.opacity))}
-            preserveAspectRatio="none"
-            transform={`rotate(${dab.angle} ${dab.x} ${dab.y})`}
+    <div className="flex max-h-[min(72vh,560px)] flex-col gap-3 overflow-y-auto px-4 pb-3 pt-2 text-[12px]">
+      <SettingRange
+        label={t('editor.pencilBrushSize')}
+        min={1}
+        max={200}
+        step={1}
+        value={strokeWidth}
+        display={formatPx(strokeWidth)}
+        onChange={onStrokeWidthChange}
+      />
+      <SettingRange
+        label={t('editor.pencilBrushThinning')}
+        min={-1}
+        max={1}
+        step={0.01}
+        value={thinning}
+        display={formatBrushValue(thinning, 2)}
+        fillFromZero
+        onChange={(value) => patchOptions({ thinning: value })}
+      />
+      <SettingRange
+        label={t('editor.pencilBrushStreamline')}
+        min={0}
+        max={1}
+        step={0.01}
+        value={streamline}
+        display={formatBrushValue(streamline, 2)}
+        onChange={(value) => patchOptions({ streamline: value })}
+      />
+      <SettingRange
+        label={t('editor.pencilBrushSmoothing')}
+        min={0}
+        max={1}
+        step={0.01}
+        value={smoothing}
+        display={formatBrushValue(smoothing, 2)}
+        onChange={(value) => patchOptions({ smoothing: value })}
+      />
+      <SettingSelect
+        label={t('editor.pencilBrushEasing')}
+        value={brush.easingId || 'linear'}
+        options={easingOptions}
+        onChange={(value) => setEasing('easing', value)}
+      />
+
+      <div className="border-t border-[var(--line)] pt-3">
+        <SettingRange
+          label={t('editor.pencilBrushTaperStart')}
+          min={0}
+          max={100}
+          step={1}
+          value={startTaper}
+          display={String(Math.round(startTaper))}
+          onChange={(value) => setTaper('start', value)}
+        />
+        <div className="mt-2">
+          <SettingSelect
+            label={t('editor.pencilBrushEasingStart')}
+            value={brush.startEasingId || 'linear'}
+            options={easingOptions}
+            onChange={(value) => setEasing('start', value)}
           />
-        ))
-      ) : (
-        <path d={d} fill={color} stroke="none" />
-      )}
-    </svg>
+        </div>
+        <div className="mt-2">
+          <SettingCheck
+            label={t('editor.pencilBrushCapStart')}
+            checked={start?.cap !== false}
+            onChange={(checked) => setCap('start', checked)}
+          />
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-3">
+        <SettingRange
+          label={t('editor.pencilBrushTaperEnd')}
+          min={0}
+          max={100}
+          step={1}
+          value={endTaper}
+          display={String(Math.round(endTaper))}
+          onChange={(value) => setTaper('end', value)}
+        />
+        <div className="mt-2">
+          <SettingSelect
+            label={t('editor.pencilBrushEasingEnd')}
+            value={brush.endEasingId || 'linear'}
+            options={easingOptions}
+            onChange={(value) => setEasing('end', value)}
+          />
+        </div>
+        <div className="mt-2">
+          <SettingCheck
+            label={t('editor.pencilBrushCapEnd')}
+            checked={end?.cap !== false}
+            onChange={(checked) => setCap('end', checked)}
+          />
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-3">
+        <SettingCheck
+          label={t('editor.pencilBrushFill')}
+          checked={brush.fillEnabled !== false}
+          onChange={(checked) => {
+            updatePencilBrushInk(brush.id, { fillEnabled: checked });
+            onChanged();
+          }}
+        />
+        <div className="mt-2">
+          <SettingColorRow
+            label={t('editor.pencilBrushFillColor')}
+            color={fillColor}
+            opacity={opacity}
+            onChange={onFillColorChange}
+            onOpacityChange={onOpacityChange}
+          />
+        </div>
+        <div className="mt-3">
+          <SettingRange
+            label={t('editor.pencilBrushStroke')}
+            min={0}
+            max={200}
+            step={1}
+            value={Math.round(Number(brush.outlineStrokeWidth) || 0)}
+            display={formatPx(Number(brush.outlineStrokeWidth) || 0)}
+            onChange={(value) => {
+              updatePencilBrushInk(brush.id, { outlineStrokeWidth: value });
+              onChanged();
+            }}
+          />
+        </div>
+        <div className="mt-2">
+          <SettingColorRow
+            label={t('editor.pencilBrushStrokeColor')}
+            color={strokeColor}
+            opacity={opacity}
+            onChange={onStrokeColorChange}
+            onOpacityChange={onOpacityChange}
+          />
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] pt-3 text-[var(--muted)]">
+        <button
+          type="button"
+          className="hover:text-[var(--accent)]"
+          onClick={() => {
+            resetPencilBrushOptions(brush.id);
+            onChanged();
+          }}
+        >
+          {t('editor.pencilBrushReset')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SettingRange({
+  label,
+  min,
+  max,
+  step,
+  value,
+  display,
+  fillFromZero = false,
+  inline = false,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  display: string;
+  fillFromZero?: boolean;
+  inline?: boolean;
+  onChange: (value: number) => void;
+}) {
+  const slider = (
+    <Slider
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={onChange}
+      fillFromZero={fillFromZero}
+      trackHeight={4}
+      thumbWidth={14}
+      thumbHeight={14}
+    />
+  );
+  const readout = (
+    <span className="w-10 shrink-0 text-right tabular-nums text-[var(--muted)]">{display}</span>
+  );
+  if (inline) {
+    return (
+      <label className="flex items-center gap-2 text-[12px] text-[var(--ink)]">
+        <span className="w-[72px] shrink-0">{label}</span>
+        <span className="min-w-0 flex-1">{slider}</span>
+        {readout}
+      </label>
+    );
+  }
+  return (
+    <label className="flex flex-col gap-1.5 text-[12px] text-[var(--ink)]">
+      <span>{label}</span>
+      <div className="flex items-center gap-2">
+        {slider}
+        {readout}
+      </div>
+    </label>
+  );
+}
+
+function SettingSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 text-[12px] text-[var(--ink)]">
+      <span>{label}</span>
+      <Select
+        size="small"
+        type="filled"
+        value={value}
+        options={options}
+        onChange={(next) => onChange(String(next))}
+        className="w-full"
+      />
+    </label>
+  );
+}
+
+function SettingCheck({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex h-6 items-center justify-between gap-2 text-[12px] text-[var(--ink)]">
+      <span>{label}</span>
+      <Checkbox
+        size="small"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+    </div>
+  );
+}
+
+function SettingColorRow({
+  label,
+  color,
+  opacity,
+  onChange,
+  onOpacityChange,
+}: {
+  label: string;
+  color: string;
+  opacity: number;
+  onChange: (value: string) => void;
+  onOpacityChange: (pct: number) => void;
+}) {
+  return (
+    <div className="flex h-6 items-center justify-between gap-2 text-[12px] text-[var(--ink)]">
+      <span>{label}</span>
+      <ColorPanelPopover
+        value={color}
+        onChange={onChange}
+        opacity={opacity}
+        onOpacityChange={onOpacityChange}
+        showAlpha
+        title={label}
+        placement="right"
+      />
+    </div>
   );
 }
 
@@ -264,7 +401,7 @@ type PenStrokeToolbarProps = {
 };
 
 /**
- * Pen / pencil stroke bar: color + inline width slider (+ brush / eraser for pencil).
+ * Pen / pencil stroke bar: fill color, Size (Px), and pencil settings.
  */
 function PenStrokeToolbar({
   mode,
@@ -283,130 +420,40 @@ function PenStrokeToolbar({
   const color = useSelector((s: any) => String(s.editor.penStrokeColor || '#333333'));
   const width = useSelector((s: any) => {
     const n = Number(s.editor.penStrokeWidth);
-    return Number.isFinite(n) && n > 0 ? n : 1;
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 1;
   });
   const brushId = useSelector((s: any) =>
     String(s.editor.pencilBrushId || DEFAULT_PENCIL_BRUSH_ID)
   ) as PencilBrushId;
-  const eraseMode = useSelector((s: any) => Boolean(s.editor.pencilEraseMode));
-  const pressureEnabled = useSelector((s: any) => s.editor.pencilPressureEnabled !== false);
-  const hardness = useSelector((s: any) => {
-    const n = Number(s.editor.pencilHardness);
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 80;
-  });
-  /** Local while dragging so list previews don't re-tint every pointer move. */
-  const [hardnessDraft, setHardnessDraft] = useState(hardness);
-  useEffect(() => {
-    setHardnessDraft(hardness);
-  }, [hardness]);
   const opacity = useSelector((s: any) => {
     const n = Number(s.editor.penStrokeOpacity);
     return Number.isFinite(n) ? Math.max(1, Math.min(100, n)) : 100;
   });
-  const [brushRev, setBrushRev] = useState(0);
-  const brushes = listPencilBrushes();
   const brush = findPencilBrush(brushId);
+  const strokeColor = brush.outlineStrokeColor || color;
+  const barWidth = width;
+  const barWidthTip = isPencil ? t('editor.pencilBrushSize') : t('editor.pencilBrushWidth');
+  const [, setBrushRev] = useState(0);
   const [brushOpen, setBrushOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const brushCloseTimer = useRef<number | null>(null);
-  const brushOpenTimer = useRef<number | null>(null);
-  const customFileRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    hydrateCustomPencilBrushes();
-    setBrushRev((n) => n + 1);
-  }, []);
-
-  useEffect(() => {
-    const refresh = () => setBrushRev((n) => n + 1);
-    window.addEventListener(STAMP_TINT_READY_EVENT, refresh);
-    return () => window.removeEventListener(STAMP_TINT_READY_EVENT, refresh);
-  }, []);
-
-  const clearTimer = (ref: { current: number | null }) => {
-    if (ref.current != null) {
-      window.clearTimeout(ref.current);
-      ref.current = null;
-    }
-  };
-
-  const openBrushMenu = () => {
-    if (eraseMode) return;
-    clearTimer(brushCloseTimer);
-    clearTimer(brushOpenTimer);
-    // Delay so the "画笔" tip can show before the panel opens.
-    brushOpenTimer.current = window.setTimeout(() => setBrushOpen(true), 280);
-  };
-  const scheduleCloseBrush = () => {
-    clearTimer(brushOpenTimer);
-    clearTimer(brushCloseTimer);
-    brushCloseTimer.current = window.setTimeout(() => setBrushOpen(false), 160);
-  };
-
-  useEffect(() => {
-    return () => {
-      clearTimer(brushCloseTimer);
-      clearTimer(brushOpenTimer);
-    };
-  }, []);
 
   useEffect(() => {
     if (!isPencil) setBrushOpen(false);
   }, [isPencil]);
 
   useEffect(() => {
-    if (eraseMode) setBrushOpen(false);
-  }, [eraseMode]);
-
-  const onDeleteCustom = (id: string) => {
-    removeCustomPencilBrush(id);
-    setBrushRev((n) => n + 1);
-    if (brushId === id) dispatch(setPencilBrushId(DEFAULT_PENCIL_BRUSH_ID));
-  };
-
-  const onAddCustomBrush = async (file: File | null) => {
-    if (!file) return;
-    try {
-      if (isBrushPackFileName(file.name) || file.type === 'application/json') {
-        const text = await readTextFile(file);
-        const pack = parseBrushPackJson(text);
-        const defs = pack.brushes.map((b, i) => ({
-          ...b,
-          id: b.custom ? b.id : `pack_${Date.now().toString(36)}_${i}_${b.id}`,
-          custom: true,
-          label: b.label || pack.name,
-        }));
-        addCustomPencilBrushes(defs);
-        setBrushRev((n) => n + 1);
-        if (defs[0]) dispatch(setPencilBrushId(defs[0].id));
-        setBrushOpen(false);
-        return;
-      }
-      const { dataUrl, name } = await readBrushImageFile(file);
-      const id = `custom_${Date.now().toString(36)}`;
-      const def = makeCustomStampBrush({ id, label: name, stampSrc: dataUrl });
-      addCustomPencilBrush(def);
-      setBrushRev((n) => n + 1);
-      dispatch(setPencilBrushId(id));
+    if (!brushOpen) return;
+    function onDocPointer(e: PointerEvent) {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (rootRef.current?.contains(target)) return;
+      if (target.closest('[data-select-dropdown]')) return;
+      if (target.closest('[data-color-panel]')) return;
       setBrushOpen(false);
-    } catch {
-      /* ignore invalid file */
     }
-  };
-
-  const onExportCustomPack = () => {
-    const customs = listPencilBrushes().filter((b) => b.custom);
-    if (!customs.length) return;
-    const blob = new Blob([serializeBrushPack(customs, 'My brushes')], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'brushes.brushpack.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+    document.addEventListener('pointerdown', onDocPointer, true);
+    return () => document.removeEventListener('pointerdown', onDocPointer, true);
+  }, [brushOpen]);
 
   const menuPos = docked
     ? 'absolute left-1/2 top-[calc(100%+8px)] z-40 -translate-x-1/2'
@@ -429,164 +476,67 @@ function PenStrokeToolbar({
           opacity={opacity}
           onOpacityChange={(pct) => dispatch(setPenStrokeOpacity(pct))}
           showAlpha={isPencil}
-          title="颜色"
+          title={isPencil ? t('editor.pencilBrushFill') : t('editor.pencilBrushColor')}
           placement={docked ? 'bottom' : 'top'}
           offset={10}
           shiftMainAxis={false}
-          className="inline-flex"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--accent-soft)]"
         >
-          {({ open, hex, opacity: swatchOpacity }) => (
-            <Tooltip tip={'颜色'} placement={docked ? 'bottom' : 'top'}>
-              <span
-                className={cn(
-                  'inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors',
-                  open ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--accent-soft)]',
-                  eraseMode && 'opacity-40'
-                )}
-              >
-                <span
-                  className="h-3.5 w-3.5 rounded-full border border-black/15"
-                  style={{
-                    background: hex,
-                    opacity: isPencil ? Math.max(0.05, swatchOpacity / 100) : 1,
-                  }}
-                />
-              </span>
-            </Tooltip>
-          )}
+          <FillColorSwatch color={color} />
         </ColorPanelPopover>
 
         <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden />
 
         {isPencil ? (
-          <div
-            className="relative"
-            onMouseEnter={openBrushMenu}
-            onMouseLeave={scheduleCloseBrush}
-          >
+          <div className="relative">
             <Tooltip
-              tip={`画笔：${brush.label}`}
+              tip={t('editor.pencilBrushTitle')}
               placement={docked ? 'bottom' : 'top'}
-              disabled={eraseMode}
             >
               <button
                 type="button"
-                aria-label={`画笔：${brush.label}`}
+                aria-label={t('editor.pencilBrushTitle')}
                 aria-expanded={brushOpen}
-                disabled={eraseMode}
                 onClick={() => {
-                  if (eraseMode) return;
-                  clearTimer(brushOpenTimer);
-                  clearTimer(brushCloseTimer);
-                  setBrushOpen((v) => !v);
+                  setBrushOpen((open) => !open);
                 }}
                 className={cn(
-                  'inline-flex h-6 w-[7.5rem] shrink-0 items-center justify-center overflow-hidden rounded-md px-1.5 transition-colors',
-                  brushOpen ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--accent-soft)]',
-                  eraseMode && 'cursor-not-allowed opacity-40'
+                  'inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors',
+                  brushOpen ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--accent-soft)]'
                 )}
               >
-                <BrushStrokePreview
-                  brushId={brush.id}
-                  color={color}
-                  hardness={hardnessDraft}
-                  className="pointer-events-none block h-3.5 w-full"
-                />
+                <HiOutlineAdjustmentsHorizontal className="h-3.5 w-3.5" />
               </button>
             </Tooltip>
 
-            {brushOpen && !eraseMode ? (
+            {brushOpen ? (
               <DropdownPanel
-                className={cn(menuPos, 'w-[160px]')}
+                className={cn(menuPos, 'w-[280px] rounded-xl p-0')}
+                data-rcb-overlay="1"
                 onPointerDown={(e) => e.stopPropagation()}
-                onMouseEnter={openBrushMenu}
-                onMouseLeave={scheduleCloseBrush}
               >
-                <ul
-                  key={brushRev}
-                  className="flex max-h-[320px] w-full flex-col gap-0.5 overflow-y-auto overflow-x-hidden p-1"
-                >
-                  <li className="flex w-full items-center gap-0.5">
-                    <Tooltip tip="导入 tip 图 / 笔刷包 (.brushpack.json)" placement="right">
-                      <button
-                        type="button"
-                        aria-label="导入画笔"
-                        className="inline-flex h-8 flex-1 items-center justify-center rounded-lg text-[var(--ink)] transition hover:bg-[var(--accent-soft)]"
-                        onClick={() => customFileRef.current?.click()}
-                      >
-                        <HiOutlinePlus className="h-4 w-4" />
-                      </button>
-                    </Tooltip>
-                    <Tooltip tip="导出自定义笔刷包" placement="right">
-                      <button
-                        type="button"
-                        aria-label="导出画笔包"
-                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-                        onClick={onExportCustomPack}
-                      >
-                        <HiOutlineArrowDownTray className="h-3.5 w-3.5" />
-                      </button>
-                    </Tooltip>
-                    <input
-                      ref={customFileRef}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/svg+xml,.json,.brushpack,application/json"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0] || null;
-                        e.target.value = '';
-                        onAddCustomBrush(f);
-                      }}
-                    />
-                  </li>
-                  {brushes.map((b) => {
-                    const active = b.id === brush.id;
-                    return (
-                      <li key={b.id} className="group relative w-full">
-                        <Tooltip tip={b.label} placement="right">
-                          <button
-                            type="button"
-                            aria-label={b.label}
-                            aria-pressed={active}
-                            className={cn(
-                              'relative flex h-9 w-full shrink-0 items-center overflow-hidden rounded-lg bg-white/[0.04] px-1.5 transition-colors',
-                              active
-                                ? 'bg-[var(--accent-soft)]'
-                                : 'hover:bg-[var(--accent-soft)]',
-                              b.custom && 'pr-7'
-                            )}
-                            onClick={() => {
-                              dispatch(setPencilBrushId(b.id));
-                              setBrushOpen(false);
-                            }}
-                          >
-                            <BrushStrokePreview
-                              brushId={b.id}
-                              color={color}
-                              hardness={hardnessDraft}
-                              className="pointer-events-none block h-7 w-full"
-                            />
-                          </button>
-                        </Tooltip>
-                        {b.custom ? (
-                          <Tooltip tip="删除" placement="right">
-                            <button
-                              type="button"
-                              aria-label={`删除 ${b.label}`}
-                              className="absolute right-0.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--muted)] opacity-0 transition-opacity hover:bg-black/5 hover:text-[var(--ink)] group-hover:opacity-100"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteCustom(b.id);
-                              }}
-                            >
-                              <HiOutlineTrash className="h-3.5 w-3.5" />
-                            </button>
-                          </Tooltip>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <div className="flex w-full flex-col overflow-hidden">
+                  <header className="flex items-center px-4 pb-1 pt-3.5">
+                    <span className="text-[15px] font-semibold tracking-tight text-[var(--ink)]">
+                      {t('editor.pencilBrushTitle')}
+                    </span>
+                  </header>
+                  <BrushSettingsPanel
+                    brush={brush}
+                    fillColor={color}
+                    strokeColor={strokeColor}
+                    strokeWidth={width}
+                    opacity={opacity}
+                    onFillColorChange={(value) => dispatch(setPenStrokeColor(value))}
+                    onStrokeColorChange={(value) => {
+                      updatePencilBrushInk(brush.id, { outlineStrokeColor: value });
+                      setBrushRev((revision) => revision + 1);
+                    }}
+                    onStrokeWidthChange={(value) => dispatch(setPenStrokeWidth(value))}
+                    onOpacityChange={(pct) => dispatch(setPenStrokeOpacity(pct))}
+                    onChanged={() => setBrushRev((revision) => revision + 1)}
+                  />
+                </div>
               </DropdownPanel>
             ) : null}
           </div>
@@ -594,116 +544,44 @@ function PenStrokeToolbar({
 
         {isPencil ? <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden /> : null}
 
-        {/* Width */}
+        {/* Width — pencil Size and pen stroke width share the same Px field. */}
         <label
           className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[4px] bg-[var(--accent-soft)] px-1.5"
           onPointerDown={(e) => e.stopPropagation()}
-          title={eraseMode ? '橡皮尺寸' : '粗细'}
+          title={barWidthTip}
         >
           <Icon name="editor-stroke-weight" className="h-3.5 w-3.5 shrink-0 text-[var(--ink)]" />
           <input
             type="number"
             min={1}
             max={200}
-            value={width}
-            onChange={(e) =>
-              dispatch(
-                setPenStrokeWidth(
-                  Math.max(1, Math.min(200, Math.round(Number(e.target.value) || 1)))
-                )
-              )
-            }
+            value={barWidth}
+            onChange={(e) => {
+              const n = Math.round(Number(e.target.value));
+              dispatch(setPenStrokeWidth(n || 1));
+            }}
+            step={1}
             className="h-full w-10 min-w-0 bg-transparent text-[11px] leading-none tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
           <span className="shrink-0 text-[10px] text-[var(--muted)]">Px</span>
         </label>
 
-        {isPencil ? (
-          <>
-            <span className="mx-0.5 h-4 w-px bg-[var(--line)]" aria-hidden />
-            {/* Hardness: tip edge for stamps; pressure width / taper for vector ink. */}
-            <label
-              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[4px] bg-[var(--accent-soft)] px-1.5"
-              onPointerDown={(e) => e.stopPropagation()}
-              title={
-                brush.kind === 'stamp'
-                  ? '硬度（笔尖边缘软硬）'
-                  : '硬度（软=压感粗细更明显，硬=更均匀）'
-              }
-            >
-              <span className="shrink-0 text-[10px] text-[var(--muted)]">硬</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={hardnessDraft}
-                disabled={eraseMode}
-                onChange={(e) => setHardnessDraft(Math.round(Number(e.target.value) || 0))}
-                onPointerUp={() => dispatch(setPencilHardness(hardnessDraft))}
-                onBlur={() => dispatch(setPencilHardness(hardnessDraft))}
-                className="h-1 w-14 cursor-pointer accent-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="硬度"
-              />
-              <span className="w-6 shrink-0 text-right text-[10px] tabular-nums text-[var(--muted)]">
-                {hardnessDraft}
-              </span>
-            </label>
-            <span className="mx-0.5 h-4 w-px bg-[var(--line)]" aria-hidden />
-            <Tooltip
-              tip={pressureEnabled ? '\u538b\u611f\uff1a\u5f00' : '\u538b\u611f\uff1a\u5173'}
-              placement={docked ? 'bottom' : 'top'}
-            >
-              <button
-                type="button"
-                aria-label={'\u538b\u611f'}
-                aria-pressed={pressureEnabled}
-                disabled={eraseMode}
-                onClick={() => dispatch(setPencilPressureEnabled(!pressureEnabled))}
-                className={cn(
-                  'inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors',
-                  pressureEnabled
-                    ? 'bg-[var(--ink)] text-[var(--on-brand)]'
-                    : 'text-[var(--ink)] hover:bg-[var(--accent-soft)]',
-                  eraseMode && 'cursor-not-allowed opacity-40'
-                )}
-              >
-                <Icon name="editor-pressure" className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-            <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden />
-            <Tooltip tip={'\u64e6\u76ae\u64e6'} placement={docked ? 'bottom' : 'top'}>
-              <button
-                type="button"
-                aria-label={'\u64e6\u76ae\u64e6'}
-                aria-pressed={eraseMode}
-                onClick={() => dispatch(setPencilEraseMode(!eraseMode))}
-                className={cn(
-                  'inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors',
-                  eraseMode
-                    ? 'bg-[var(--ink)] text-[var(--on-brand)]'
-                    : 'text-[var(--ink)] hover:bg-[var(--accent-soft)]'
-                )}
-              >
-                <LuEraser className="h-3.5 w-3.5" strokeWidth={1.5} />
-              </button>
-            </Tooltip>
-          </>
-        ) : (
+        {!isPencil ? (
           <>
             <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden />
-            <Tooltip tip={`${t('editor.exitPenEdit')} (Esc)`} placement={docked ? 'bottom' : 'top'}>
+            <Tooltip tip={t('editor.pathEditDone')} placement={docked ? 'bottom' : 'top'}>
               <button
                 type="button"
-                aria-label={t('editor.exitPenEdit')}
+                aria-label={t('editor.pathEditExit')}
                 onClick={exitPenEdit}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--ink)] text-[var(--on-brand)] transition-opacity hover:opacity-90"
+                className="inline-flex h-6 items-center justify-center rounded-md px-2 text-[12px] text-[var(--ink)] transition-colors hover:bg-[var(--accent-soft)]"
               >
-                <HiOutlineCheck className="h-3.5 w-3.5" strokeWidth={2} />
+                {t('editor.pathEditExit')}
               </button>
             </Tooltip>
           </>
-        )}
+        ) : null}
       </FloatingToolbar>
     </div>
   );

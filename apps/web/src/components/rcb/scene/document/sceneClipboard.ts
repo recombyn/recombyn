@@ -21,32 +21,47 @@ export function nodeIdsInsideFrames(
   doc: SceneDocument | null | undefined,
   frameIds: string[]
 ): string[] {
+  return nodeIdsBoundToFrames(doc, frameIds);
+}
+
+/** Nodes explicitly bound to the requested frames. */
+export function nodeIdsIntersectingFrames(
+  doc: SceneDocument | null | undefined,
+  frameIds: string[]
+): string[] {
+  return nodeIdsBoundToFrames(doc, frameIds);
+}
+
+/** Snapshot of explicit frame ownership used while moving artboards. */
+export function nodeIdsOwnedByFrames(
+  doc: SceneDocument | null | undefined,
+  frameIds: string[]
+): string[] {
+  return nodeIdsBoundToFrames(doc, frameIds);
+}
+
+/** Stable ownership snapshot used for the duration of a frame drag. */
+export function nodeIdsOwnedByFrame(
+  doc: SceneDocument | null | undefined,
+  frameId: string
+): string[] {
+  return nodeIdsOwnedByFrames(doc, [frameId]);
+}
+
+/**
+ * Nodes explicitly bound to an artboard.
+ * Does not infer ownership from overlap or center containment.
+ */
+export function nodeIdsBoundToFrames(
+  doc: SceneDocument | null | undefined,
+  frameIds: string[]
+): string[] {
   if (!doc || !frameIds?.length) return [];
   const wanted = new Set(frameIds.filter(Boolean).map(String));
   if (!wanted.size) return [];
-  const frames = (Array.isArray(doc.frames) ? doc.frames : []).filter(
-    (f) => f?.id && wanted.has(String(f.id))
-  );
-  if (!frames.length) return [];
-  const out: string[] = [];
-  for (const { id, node } of listSceneNodes(doc)) {
-    if (!node) continue;
-    const left = Number(node.x) || 0;
-    const top = Number(node.y) || 0;
-    const w = Math.max(1, Number(node.width) || 1);
-    const h = Math.max(1, Number(node.height) || 1);
-    const cx = left + w / 2;
-    const cy = top + h / 2;
-    const inside = frames.some((f) => {
-      const fx = Number(f.x) || 0;
-      const fy = Number(f.y) || 0;
-      const fw = Math.max(1, Number(f.width) || 1);
-      const fh = Math.max(1, Number(f.height) || 1);
-      return cx >= fx && cx <= fx + fw && cy >= fy && cy <= fy + fh;
-    });
-    if (inside) out.push(id);
-  }
-  return out;
+  return listSceneNodes(doc)
+    .filter(({ node }) => wanted.has(String(node?.attrs?.frameId || '').trim()))
+    .map(({ id }) => id);
 }
 
 /**
@@ -58,7 +73,7 @@ export function resolveSelectionNodeIds(
   nodeIds: string[],
   frameIds: string[] = []
 ): string[] {
-  const inside = nodeIdsInsideFrames(doc, frameIds);
+  const inside = nodeIdsBoundToFrames(doc, frameIds);
   return [...new Set([...(nodeIds || []).filter(Boolean), ...inside])];
 }
 
@@ -259,6 +274,14 @@ export function pasteClipboardIntoDocument(
     if (gid) {
       if (!groupMap.has(gid)) groupMap.set(gid, nanoid(8));
       node.attrs = { ...(node.attrs || {}), groupId: groupMap.get(gid) };
+    }
+    const sourceFrameId = String(node.attrs?.frameId || '').trim();
+    if (sourceFrameId) {
+      const mappedFrameId = frameIdMap.get(sourceFrameId);
+      node.attrs = {
+        ...(node.attrs || {}),
+        ...(mappedFrameId ? { frameId: mappedFrameId } : { frameId: undefined }),
+      };
     }
     next = addNodeToDocument(next, newId, node);
     newIds.push(newId);

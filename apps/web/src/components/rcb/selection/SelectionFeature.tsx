@@ -120,13 +120,13 @@ import {
   sceneFromClientGesture,
   screenDragDistSq,
   evaluateBrushGate,
-  softSelectFrameAt,
   isSelectionOriginsLocked,
   isRecentNodeDoubleTap,
   buildMoveOriginsForHit,
   filterMarqueeContentHits,
   resolveMarqueeCandidates,
   commitMarqueeSelection,
+  fallbackVisibleNodeHit,
   visualGuideBoxForNode,
   computeMovedUnion,
   computeResizedUnion,
@@ -302,6 +302,17 @@ type SelectionFeatureProps = {
    */
   attachPickActive?: boolean;
 };
+
+function guidesForSelection(
+  frameIds: string[],
+  transforming: boolean,
+  smartGuides: SmartGuideLine[],
+  idleGuides: SmartGuideLine[]
+) {
+  if (frameIds.length > 0) return [];
+  if (transforming) return smartGuides;
+  return idleGuides;
+}
 
 
 function SelectionFeature({
@@ -1084,14 +1095,12 @@ function SelectionFeature({
         liveOriginsNow?.some((o) => parseFrameSelId(o.nodeId))
       );
 
-      // Frame / mixed selection: move via oriented box geometry (not data-sel-box DOM).
-      if (selectionHasFrame && !attachPickActive && pointInLiveUnion && beginMoveSelection()) {
-        return;
-      }
-
       // Hit-test scene nodes (selection chrome is non-blocking so empty clicks pass through).
-      const hitId = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
+      let hitId = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
       const selectedIds = liveOriginsNow?.map((o) => o.nodeId) ?? [];
+      if (!hitId && selectedIds.some((id) => parseFrameSelId(id))) {
+        hitId = fallbackVisibleNodeHit(sceneDoc, p, listNodeIds(), getNodeBox);
+      }
       const plateFrameId = hitId ? frameForFullBleedPlate(sceneDoc, hitId) : null;
 
       // Composer pick: attach node or artboard; never move / never treat frame as blank cancel.
@@ -1118,24 +1127,6 @@ function SelectionFeature({
         dragRef.current = seed('blank', e, p, { skipSelectOnUp: true });
         capture(e.pointerId);
         return;
-      }
-
-      // Clicking a selected artboard (or its plate) moves the whole selection ??like a rect.
-      if (
-        !readOnly &&
-        selectionHasFrame &&
-        pointInLiveUnion &&
-        (!hitId ||
-          plateFrameId ||
-          (hitId && selectedIds.includes(hitId)))
-      ) {
-        // Unselected content under the brush still gets normal select/move below.
-        const plateSelected =
-          plateFrameId &&
-          liveOriginsNow!.some((o) => parseFrameSelId(o.nodeId) === plateFrameId);
-        const emptyOrSelectedPlate = !hitId || Boolean(plateFrameId && plateSelected);
-        const selectedNodeHit = Boolean(hitId && selectedIds.includes(hitId));
-        if ((emptyOrSelectedPlate || selectedNodeHit) && beginMoveSelection()) return;
       }
 
       // Full-bleed background plate looks empty — start marquee, don't drag the plate.
@@ -1230,13 +1221,14 @@ function SelectionFeature({
       }
 
       // Empty canvas / artboard interior — PointingCanvas → marquee after brush gate.
-      // Soft-click on artboard selects the frame (on pointerup). Frame move is via title label
-      // or by dragging inside an existing selection union (handled above).
+      // Artboard body clicks are ordinary canvas clicks. Frame movement is via
+      // the title label only.
       e.preventDefault();
       // Sparse path / star ink often misses hit-test inside a large control box.
       // Clicking empty space still inside the selection union should move, not clear.
       if (
         !readOnly &&
+        !selectionHasFrame &&
         pointInLiveUnion &&
         (liveOriginsNow?.length ?? 0) > 0 &&
         beginMoveSelection()
@@ -1539,15 +1531,10 @@ function SelectionFeature({
       if (drag.mode === 'pointing_canvas') {
         setMarquee(null);
         lastTextClickRef.current = null;
-        const abs = toScene(clientX, clientY);
-        const frameId = hitTestFrame?.(abs.x, abs.y) ?? null;
-        if (frameId) {
-          softSelectFrameAt(toScene, hitTestFrame, onSelectFrame, clientX, clientY);
-        } else {
-          // Truly empty — ensure selection stays cleared (down already cleared; re-assert).
-          onSelectFrame?.(null);
-          onSelect([]);
-        }
+        // Artboard bodies are ordinary canvas space. Only the title selects or
+        // moves an artboard; an empty body click clears the current selection.
+        onSelectFrame?.(null);
+        onSelect([]);
         endTransform();
         return;
       }
@@ -1562,23 +1549,21 @@ function SelectionFeature({
           clientY,
           e.pointerType || 'mouse'
         );
-        // Still under brush gate — treat as soft click (select artboard if any).
+        // Still under brush gate — treat as an empty click, not an artboard pick.
         if (!passed) {
-          const abs = toScene(clientX, clientY);
-          const frameId = hitTestFrame?.(abs.x, abs.y) ?? null;
-          if (frameId) {
-            softSelectFrameAt(toScene, hitTestFrame, onSelectFrame, clientX, clientY);
-          } else {
-            onSelectFrame?.(null);
-            onSelect([]);
-          }
+          onSelectFrame?.(null);
+          onSelect([]);
           endTransform();
           return;
         }
         // Pad spatial prefilter the same as fine hit — tiny nodes near the brush edge.
         const queryPad = marqueeHitPadScene(zoom) + MARQUEE_MIN_HIT_SCREEN_PX / Math.max(0.05, zoom);
         const queryBox = expandSceneBox(box, queryPad);
-        const candidates = resolveMarqueeCandidates(queryIdsInRect?.(queryBox), listNodeIds());
+        const allNodeIds = listNodeIds();
+        const indexedCandidates = resolveMarqueeCandidates(queryIdsInRect?.(queryBox), allNodeIds);
+        // The spatial index is only a broad-phase hint. A stale/incomplete
+        // index must never make a visible intersecting node unselectable.
+        const candidates = Array.from(new Set([...indexedCandidates, ...allNodeIds]));
         const rawHits = candidates.filter((id) =>
           nodeHitsMarquee(sceneDoc, id, box, getNodeBox, toScene, zoom)
         );
@@ -2057,7 +2042,14 @@ function SelectionFeature({
     return collectPairSpacingGuides(measurePrimaryBox, measurePairBox);
   }, [inspectDev, transforming, measurePrimaryBox, measurePairBox]);
 
-  const displayGuides = transforming ? smartGuides : idleMeasureGuides;
+  // Artboard movement already has a stable frame boundary. Object guides add
+  // extra lines and repaint churn while the frame and its contents translate.
+  const displayGuides = guidesForSelection(
+    selectedFrameIds,
+    transforming,
+    smartGuides,
+    idleMeasureGuides
+  );
   // WxH under the box: inspect/preview only — edit already has the title size label.
   const measureSizeBox =
     inspectDev && inspectPrimaryId && !suppressChrome
@@ -2178,6 +2170,8 @@ function SelectionFeature({
   // used for spacing/toolbar clearance, never as the control-box position.
   const selectionChromeBox =
     hostInjectedSelection && !lineChrome ? chromeGeomBox || chromeUnion : chromeUnion;
+  const hideMultiMoveChrome =
+    !single && transforming && dragRef.current?.mode === 'move';
 
   const hoverImageVariantsId = resolveHoverImageVariantsId({
     inspectDev,
@@ -2204,7 +2198,6 @@ function SelectionFeature({
       <BrushOverlay box={marquee} />
       <SmartGuidesOverlay
         guides={displayGuides}
-        mirrorNodeId={liveOrigins?.[0]?.nodeId ?? selectedNodeIds[0] ?? null}
         sizeBox={measureSizeBox}
       />
 
@@ -2214,6 +2207,7 @@ function SelectionFeature({
       !suppressChrome &&
       selectionCount > 0 &&
       !skipWorldSelectionChrome &&
+      !hideMultiMoveChrome &&
       (!transforming || !single) ? (
         <SelectionChrome
           box={selectionChromeBox}

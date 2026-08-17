@@ -34,6 +34,9 @@
 - Prior chat in history does NOT turn a canvas request into chat.
 - intent=chat → short reply in the user's language; paint_lane=""
 - intent≠chat → reply must be empty; rationale should mention which catalog tools apply when canvas_op
+- Set needs_clarification=true only for edit/delete/reorder requests when there are multiple plausible live-scene targets and no explicit selection / Target element chip resolves them. Use SCENE_TARGETS as the source of truth. Keep intent and paint_lane for the requested work, put a short user-language question in clarification, and put 2-4 concrete `{label, target_id}` choices in clarification_options. target_id must exactly match a SCENE_TARGETS id.
+- Never ask for clarification for creates, a single unambiguous target, or a request with an explicit selection / Target element chip. Do not invent targets or use generic options such as "the first one".
+- When needs_clarification=true, reply remains empty and no canvas work will run until the user chooses a clarification option.
 - When intent=chat and the user asks about prior canvas work / "记得吗" / "你怎么删了":
   use RECENT_DIALOGUE + MEMORY. If canvas_node_count is 0 after deletes, acknowledge that
   earlier turns removed nodes — do NOT pretend you never touched the canvas or invent that

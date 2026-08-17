@@ -22,8 +22,8 @@ export type ArtboardFrame = {
   width: number;
   height: number;
   backgroundColor: string;
-  /** Legacy alias some exporters still read; prefer backgroundColor. */
-  fill?: string;
+  /** Artboard fill alpha, stored as a percentage from 0 to 100. */
+  backgroundOpacity?: number;
   layoutMode?: 'auto' | 'manual';
   /** When true, frame cannot be moved or resized. */
   locked?: boolean;

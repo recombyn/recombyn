@@ -124,8 +124,10 @@ function ProcessNodeChrome({
     <RcbOverlayPortal>
       <div
         data-scene-node-id={nodeId}
-        className="pointer-events-none absolute z-0"
-        style={frameStyle}
+        className="pointer-events-none absolute"
+        // Keep the colored process plate visible for selected nodes. Selection
+        // chrome owns the higher layer, so this never hides handles or controls.
+        style={{ ...frameStyle, zIndex: 0 }}
       >
       <SoftGlowSurface
         data-image-process-shimmer

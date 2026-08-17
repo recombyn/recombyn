@@ -48,6 +48,7 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { nodeIdsInsideFrames } from '@/components/rcb/scene/document/sceneClipboard';
+import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import {
   TEXT_SELECTION_PAD,
   deflateSelectionBox,
@@ -192,6 +193,10 @@ export function resolveLockAspect(
   if (origins.length === 1) {
     const node = document?.deltaSetLike?.[origins[0].nodeId];
     const key = node?.key;
+    // Text side handles have independent semantics: L/R change wrap width,
+    // N/S change height only. A persisted aspect lock must not turn a vertical
+    // text-edge drag into a diagonal resize; only corners scale proportionally.
+    if (key === 'text' && (handle === 'n' || handle === 's')) return false;
     // Text corners: default scale; Shift temporarily unlocks for free reshape.
     if (key === 'text' && CORNER_HANDLES.has(handle)) return !shiftKey;
     return combineAspectLock(readNodeAspectLocked(node), shiftKey);
@@ -302,7 +307,10 @@ export function ensureMinScreenHitBox(box: SceneBox, zoom: number): SceneBox {
   };
 }
 
-/** Frame AABB ??marquee ??same idea as selecting a rectangle. Locked frames are skipped. */
+/**
+ * Return frames fully enclosed by the marquee. A frame is not a normal content
+ * node: merely crossing its plate must not select it while selecting children.
+ */
 export function framesHittingMarquee(doc: SceneDocument, marquee: SceneBox): Array<{ id: string; area: number }> {
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
   const out: Array<{ id: string; area: number }> = [];
@@ -314,12 +322,13 @@ export function framesHittingMarquee(doc: SceneDocument, marquee: SceneBox): Arr
       width: Math.max(1, Number(f.width) || 1),
       height: Math.max(1, Number(f.height) || 1),
     };
-    if (!boxesIntersect(marquee, fb)) continue;
-    const ix0 = Math.max(marquee.left, fb.left);
-    const iy0 = Math.max(marquee.top, fb.top);
-    const ix1 = Math.min(marquee.left + marquee.width, fb.left + fb.width);
-    const iy1 = Math.min(marquee.top + marquee.height, fb.top + fb.height);
-    out.push({ id: String(f.id), area: Math.max(0, ix1 - ix0) * Math.max(0, iy1 - iy0) });
+    const contains =
+      marquee.left <= fb.left &&
+      marquee.top <= fb.top &&
+      marquee.left + marquee.width >= fb.left + fb.width &&
+      marquee.top + marquee.height >= fb.top + fb.height;
+    if (!contains) continue;
+    out.push({ id: String(f.id), area: fb.width * fb.height });
   }
   out.sort((a, b) => b.area - a.area);
   return out;
@@ -460,6 +469,8 @@ export function nodeHitsMarquee(
   const dataBox = getNodeBox(nodeId);
   const domBox = sceneBoxFromMountedNode(nodeId, toScene);
   let box = dataBox && domBox ? unionSceneBoxes(dataBox, domBox) : domBox || dataBox;
+  if (!box) return false;
+  box = visibleNodeBoxWithinFrames(doc, node, box);
   if (!box) return false;
   box = ensureMinScreenHitBox(box, zoom);
   const hitMarquee = expandSceneBox(marquee, marqueeHitPadScene(zoom));
@@ -777,12 +788,134 @@ export function buildMoveOriginsForHit(opts: {
 }
 
 export function filterMarqueeContentHits(document: SceneDocument, rawHits: string[], frameHitSet: Set<string>) {
+  const selectedFrames = (document.frames || []).filter((frame) =>
+    frameHitSet.has(String(frame.id))
+  );
   return rawHits.filter((id) => {
+    if (selectedFrames.length) {
+      const node = document.deltaSetLike?.[id];
+      if (node) {
+        const ownerId = String(node.attrs?.frameId || '').trim();
+        if (ownerId) return frameHitSet.has(ownerId);
+        const left = Number(node.x) || 0;
+        const top = Number(node.y) || 0;
+        const width = Math.max(1, Number(node.width) || 1);
+        const height = Math.max(1, Number(node.height) || 1);
+        const centerX = left + width / 2;
+        const centerY = top + height / 2;
+        const insideSelectedFrame = selectedFrames.some((frame) => {
+          const frameLeft = Number(frame.x) || 0;
+          const frameTop = Number(frame.y) || 0;
+          const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
+          const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
+          return (
+            centerX >= frameLeft &&
+            centerX <= frameRight &&
+            centerY >= frameTop &&
+            centerY <= frameBottom
+          );
+        });
+        if (!insideSelectedFrame) return false;
+      }
+    }
     const plateFrame = frameForFullBleedPlate(document, id);
     if (!plateFrame) return true;
-    if (frameHitSet.has(plateFrame)) return true;
+    // A full-bleed plate is the artboard background, not user content. When
+    // the marquee encloses that artboard, let the frame selection own it.
+    if (frameHitSet.has(plateFrame)) return false;
     return rawHits.some((other) => other !== id && !frameForFullBleedPlate(document, other));
   });
+}
+
+/**
+ * Conservative fallback for clicks while an artboard is selected. The normal
+ * Path2D hit can briefly miss during a live frame repaint; use the visible
+ * node box so a node click cannot fall back to the artboard.
+ */
+export function fallbackVisibleNodeHit(
+  document: SceneDocument,
+  point: { x: number; y: number },
+  nodeIds: readonly string[],
+  getNodeBox: (id: string) => SceneBox | null
+): string | null {
+  const frames = Array.isArray(document?.frames) ? document.frames : [];
+  const nodeIntersectsFrame = (node: any, frame: any) => {
+    const left = Number(node.x) || 0;
+    const top = Number(node.y) || 0;
+    const right = left + Math.max(1, Number(node.width) || 1);
+    const bottom = top + Math.max(1, Number(node.height) || 1);
+    const frameLeft = Number(frame.x) || 0;
+    const frameTop = Number(frame.y) || 0;
+    const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
+    const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
+    return left < frameRight && right > frameLeft && top < frameBottom && bottom > frameTop;
+  };
+  const frameBox = (frame: any): SceneBox => ({
+    left: Number(frame.x) || 0,
+    top: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  });
+  const orderedNodeIds = [...nodeIds].sort((a, b) => {
+    return stackZIndex(document, 'node', String(b)) - stackZIndex(document, 'node', String(a));
+  });
+  for (const rawId of orderedNodeIds) {
+    const id = String(rawId || '');
+    const node = document?.deltaSetLike?.[id];
+    if (!id || !node || isNodeHidden(node) || frameForFullBleedPlate(document, id)) continue;
+    const box = getNodeBox(id);
+    if (!box || !pointInBox(point.x, point.y, box)) continue;
+    const clippingFrames = frames.filter((frame) => {
+      if (!frame || frame.clipContent === false || frame.hidden) return false;
+      return nodeIntersectsFrame(node, frame);
+    });
+    if (clippingFrames.length && !clippingFrames.some((frame) => pointInBox(point.x, point.y, frameBox(frame)))) continue;
+    return id;
+  }
+  return null;
+}
+
+function visibleNodeBoxWithinFrames(
+  doc: SceneDocument,
+  node: any,
+  box: SceneBox
+): SceneBox | null {
+  const frames = (doc.frames || []).filter((frame) => frame?.clipContent !== false);
+  const left = Number(node.x) || 0;
+  const top = Number(node.y) || 0;
+  const right = left + Math.max(1, Number(node.width) || 1);
+  const bottom = top + Math.max(1, Number(node.height) || 1);
+  const clipping = frames.filter((frame) => {
+    const frameLeft = Number(frame.x) || 0;
+    const frameTop = Number(frame.y) || 0;
+    const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
+    const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
+    return left < frameRight && right > frameLeft && top < frameBottom && bottom > frameTop;
+  });
+  if (!clipping.length) return box;
+  const visibleParts = clipping
+    .map((frame) => {
+      const frameBox = {
+        left: Number(frame.x) || 0,
+        top: Number(frame.y) || 0,
+        width: Math.max(1, Number(frame.width) || 1),
+        height: Math.max(1, Number(frame.height) || 1),
+      };
+      const leftEdge = Math.max(box.left, frameBox.left);
+      const topEdge = Math.max(box.top, frameBox.top);
+      const rightEdge = Math.min(box.left + box.width, frameBox.left + frameBox.width);
+      const bottomEdge = Math.min(box.top + box.height, frameBox.top + frameBox.height);
+      if (rightEdge <= leftEdge || bottomEdge <= topEdge) return null;
+      return {
+        left: leftEdge,
+        top: topEdge,
+        width: rightEdge - leftEdge,
+        height: bottomEdge - topEdge,
+      };
+    })
+    .filter((part): part is SceneBox => Boolean(part));
+  if (!visibleParts.length) return null;
+  return visibleParts.reduce((acc, part) => unionSceneBoxes(acc, part));
 }
 
 /**
@@ -821,20 +954,37 @@ export function commitMarqueeSelection(opts: {
     onSelectFrame,
     onSelect,
   } = opts;
-  if (!contentHits.length && !frameHits.length) {
-    onSelect(rawHits, { additive: shiftKey });
+  const uniqueFrameHits = [...new Set(frameHits.filter(Boolean))];
+  const selectedContent = contentHits.length ? contentHits : rawHits;
+
+  // A marquee enclosing multiple artboards selects the artboards as units;
+  // their children must not leak into a mixed selection.
+  if (uniqueFrameHits.length > 1) {
+    if (onSelectMixed) {
+      onSelectMixed([], uniqueFrameHits, { additive: shiftKey });
+    } else if (onSelectFrames) {
+      onSelectFrames(uniqueFrameHits);
+    }
     return;
   }
-  if (onSelectMixed) {
-    onSelectMixed(contentHits, frameHits, { additive: shiftKey });
+
+  // A single fully enclosed artboard is selected only when no scene content
+  // was hit. If content is present, the user is selecting that content.
+  if (uniqueFrameHits.length === 1 && contentHits.length === 0) {
+    if (onSelectFrame) onSelectFrame(uniqueFrameHits[0]);
+    else if (onSelectFrames) onSelectFrames(uniqueFrameHits);
     return;
   }
-  if (frameHits.length && !contentHits.length) {
-    if (onSelectFrames) onSelectFrames(frameHits);
-    else if (onSelectFrame) onSelectFrame(frameHits[0]);
+
+  if (selectedContent.length) {
+    onSelect(selectedContent, { additive: shiftKey });
     return;
   }
-  onSelect(contentHits.length ? contentHits : rawHits, { additive: shiftKey });
+  if (uniqueFrameHits.length && onSelectFrames) {
+    onSelectFrames(uniqueFrameHits);
+    return;
+  }
+  onSelect([], { additive: shiftKey });
 }
 
 export type MoveSnapContext = {
@@ -1030,7 +1180,14 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
     width: Math.max(1, next.width),
     height: Math.max(1, next.height),
   };
-  if (ctx.drag.origins.length === 1) {
+  const singleTextMode =
+    ctx.drag.origins.length === 1 &&
+    String(ctx.document?.deltaSetLike?.[ctx.drag.origins[0].nodeId]?.key || '') === 'text'
+      ? textResizeModeForHandle(handle)
+      : undefined;
+  // Only horizontal edge resizing changes wrapping. Corner and vertical
+  // resizing must preserve the requested control-box height while scaling text.
+  if (singleTextMode === 'wrap') {
     next = applyTextWrapHeight(ctx.document, ctx.drag.origins[0].nodeId, next);
   }
   // Text wrap / path inflate can nudge size — pin opposite again when rotated.
@@ -1042,12 +1199,7 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
       resizeOppositeWorld(ctx.drag.union, handle, angle0)
     );
   }
-  const textMode =
-    ctx.drag.origins.length === 1 &&
-    String(ctx.document?.deltaSetLike?.[ctx.drag.origins[0].nodeId]?.key || '') === 'text'
-      ? textResizeModeForHandle(handle)
-      : undefined;
-  return { next, textMode, lockAspect, guides };
+  return { next, textMode: singleTextMode, lockAspect, guides };
 }
 
 /** Sibling **visual-outer** AABBs for align guides (exclude selection + hidden/locked). */
@@ -1736,7 +1888,8 @@ export function resolveSelectionEdgeHandles(opts: {
   if (opts.selectedIsImageGen || opts.selectedIsVideoGen || opts.selectedIsLottieGen) return 'none';
   // Video scrubber on bottom — keep L/R only so S handle does not steal events.
   if (opts.selectedIsVideo) return 'horizontal';
-  if (!opts.lineChrome && opts.nodeKey === 'text') return 'horizontal';
+  // Text supports width and height wrapping/scaling from all four edges.
+  if (!opts.lineChrome && opts.nodeKey === 'text') return 'all';
   return 'all';
 }
 
