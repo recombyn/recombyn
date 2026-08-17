@@ -40,7 +40,7 @@ Useful scripts:
 
 Use [Conventional Commits](https://www.conventionalcommits.org/): `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`.
 
-`husky` + `commitlint` run on `commit-msg`. Examples:
+`husky` + `commitlint` run on `commit-msg` (also **strips** `Co-authored-by: Cursor`). `pre-push` **rejects** that trailer if it still lands — same as GitHub `no-cursor-coauthor`. Examples:
 
 ```bash
 feat(canvas): show mark-region live preview while dragging
@@ -61,9 +61,12 @@ Cross-cutting changes need an ADR under [`docs/adr/`](./docs/adr/README.md) (cop
 1. **Sync default branch**
 
 ```bash
-git checkout master
-git pull origin master
+git fetch origin main
+git checkout main
+git pull origin main
 ```
+
+Work from **this** `main` (or a branch created from `origin/main`). A local `main` that lagged remote is not “latest.” GitHub CI only runs **pushed commits**; untracked `??` files under `apps/` never reach CI.
 
 2. **Create a topic branch**
 
@@ -139,7 +142,7 @@ EOF
 
 Use the checklist in [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md).
 
-8. **Address review**, then push again on the same branch (`git push`). Prefer **rebase** onto `master` if asked; avoid rewriting commits that others already based work on.
+8. **Address review**, then push again on the same branch (`git push`). Prefer **rebase** onto `main` if asked; avoid rewriting commits that others already based work on.
 
 ## Do / don’t
 
@@ -147,7 +150,7 @@ Use the checklist in [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST
 |----|--------|
 | Small, focused PRs | Mix unrelated refactors with features |
 | Verify email before first push | Commit `.env`, keys, or local IDE folders (`.cursor/`) |
-| Link issues in the PR body | Force-push `master` / rewrite published history without maintainers |
+| Link issues in the PR body | Force-push `main` / rewrite published history without maintainers |
 | Update docs when behavior changes | Leave failing tests on the default branch |
 | Document open protocols / SDKs / BasicLocal | Document proprietary intelligence backends, private datasets, closed prompts, or private service layouts in this repo |
 
