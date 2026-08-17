@@ -40,6 +40,19 @@ def get_design_task(*, session: Session, task_id: str) -> DesignTask | None:
     return session.get(DesignTask, tid)
 
 
+def get_design_task_for_update(*, session: Session, task_id: str) -> DesignTask | None:
+    """Load task row with ``FOR UPDATE`` when the dialect supports it."""
+    tid = (task_id or "").strip()
+    if not tid:
+        return None
+    stmt = select(DesignTask).where(DesignTask.id == tid)
+    try:
+        stmt = stmt.with_for_update()
+        return session.exec(stmt).first()
+    except Exception:
+        return session.get(DesignTask, tid)
+
+
 def create_design_task(*, session: Session, row: dict[str, Any]) -> DesignTask:
     task = DesignTask(
         id=str(row["id"]),
