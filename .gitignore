@@ -109,6 +109,7 @@ packages/contracts/openapi-ts-error-*.log
 **/canvasStress.results.json
 **/canvas.stress.browser.results.json
 e2e/tests/*.results.json
+e2e/.*.txt
 
 # Cursor IDE local (rules / skills / plans — do not publish)
 .cursor/

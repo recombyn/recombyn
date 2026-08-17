@@ -29,7 +29,7 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 
 | Phase | Status | Goal |
 |-------|--------|------|
-| 1 | Done (core) | CameraTransform API; ink and selection chrome share the same SVG root and camera `<g>`; geometry-first chrome hit; shared spatial; union AABB chrome. Follow-up conversion and browser regression work remains tracked in [canvas-lattice-conversion-fix-plan.md](../canvas-lattice-conversion-fix-plan.md). |
+| 1 | Done (core) | CameraTransform API; ink and selection chrome share the same SVG root and camera `<g>`; geometry-first chrome hit; shared spatial; union AABB chrome. |
 | 2 | In progress | `SceneRenderer` (`svg` adapter + `canvas2d` underlay); idle Canvas ink (`canIdlePaintOnCanvas`) |
 | 3 | In progress | Migrate hot nodes off SVG hosts (grid/guides/chrome → shapes/images → paths → idle text); media stays DOM when active |
 | 4 | Next | Canvas2D → WebGL (atlas, dirty regions, batching) behind the same renderer interface |
@@ -67,9 +67,6 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 ## References
 
 - [docs/canvas-architecture.md](../canvas-architecture.md)
-- [docs/canvas-lattice-conversion-fix-plan.md](../canvas-lattice-conversion-fix-plan.md)
-- [ADR 0027 附录 A：统一命中 / CameraTransform / 压测约束](./0027-appendix-unified-hit-camera-stress.md)
-- [docs/canvas-unified-pipeline-checklist.md](../canvas-unified-pipeline-checklist.md)
 - `apps/web/src/components/rcb/camera/transform.ts`
 - `apps/web/src/components/rcb/render/sceneRenderer.ts`
 - `apps/web/src/components/rcb/core/spatialIndex.ts`
