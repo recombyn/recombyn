@@ -23,7 +23,7 @@ RCB is Recombyn’s infinite vector canvas. This note is for people changing pai
 
 **Fact layer (ADR 0027):** `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SVG/`sceneToSvg` is export + transitional live paint — not the interaction substrate.
 
-**Normative constraints (hit / camera / stress):** [ADR 0027 附录 A](./adr/0027-appendix-unified-hit-camera-stress.md) · [unified pipeline checklist](./canvas-unified-pipeline-checklist.md)
+**Normative constraints (hit / camera):** [ADR 0027](./adr/0027-canvas-layered-runtime.md) — one CameraTransform, one hit pipeline, visual = hit = lattice.
 
 ## Document shape
 
@@ -39,7 +39,7 @@ There is **no hard max node count** on the document. Capacity is governed by pai
 
 ### Pixel grid → Canvas2D underlay
 
-At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes stay on `gℤ` — same as `snapCoordToGrid` / pen tips; do **not** device-shift axes off the snap lattice). SVG no longer carries the grid `<path>`. See [canvas-lattice-conversion-fix-plan.md](./canvas-lattice-conversion-fix-plan.md).
+At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes stay on `gℤ` — same as `snapCoordToGrid` / pen tips; do **not** device-shift axes off the snap lattice). SVG no longer carries the grid `<path>`.
 
 LOD overflow and **idle Canvas-capable nodes** (`canIdlePaintOnCanvas`: solid fill, **center** stroke, no shadow — rect·roundRect·circle·ellipse, line/arrow, light pen/path) are published by `RcbShapesLayer` through `setSceneLodPaint` and painted on the **same** stage underlay. Non-center `strokeAlign`, gradients, image/diffuse fills, heavy paths, text, polygons/stars, and **media plates** keep SVG hosts (or editor `forceFullSet`). There is no separate world-space `[data-rcb-lod-layer]` canvas.
 
