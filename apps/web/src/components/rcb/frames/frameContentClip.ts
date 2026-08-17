@@ -28,35 +28,19 @@ export function findClippingFrameForNode(
   const nw = Math.max(1, num(node.width, 1));
   const nh = Math.max(1, num(node.height, 1));
 
-  let best: ArtboardFrame | null = null;
-  let bestInter = -1;
-  let bestArea = Infinity;
-
-  for (let i = frames.length - 1; i >= 0; i -= 1) {
-    const f = frames[i];
-    if (!f || !f.clipContent || f.hidden) continue;
-    const fw = Math.max(1, num(f.width, 1));
-    const fh = Math.max(1, num(f.height, 1));
-    const fx = num(f.x);
-    const fy = num(f.y);
-
-    const ix0 = Math.max(nx, fx);
-    const iy0 = Math.max(ny, fy);
-    const ix1 = Math.min(nx + nw, fx + fw);
-    const iy1 = Math.min(ny + nh, fy + fh);
-    const iw = ix1 - ix0;
-    const ih = iy1 - iy0;
-    if (iw <= 0 || ih <= 0) continue;
-
-    const inter = iw * ih;
-    const area = fw * fh;
-    if (inter > bestInter || (inter === bestInter && area < bestArea)) {
-      best = f;
-      bestInter = inter;
-      bestArea = area;
-    }
-  }
-  return best;
+  const explicitOwner = String(
+    (node.attrs as Record<string, unknown> | undefined)?.frameId || ''
+  ).trim();
+  if (!explicitOwner) return null;
+  const ownedFrame = frames.find((frame) => String(frame.id) === explicitOwner);
+  if (!ownedFrame || !ownedFrame.clipContent || ownedFrame.hidden) return null;
+  const fx = num(ownedFrame.x);
+  const fy = num(ownedFrame.y);
+  const fw = Math.max(1, num(ownedFrame.width, 1));
+  const fh = Math.max(1, num(ownedFrame.height, 1));
+  const overlapWidth = Math.min(nx + nw, fx + fw) - Math.max(nx, fx);
+  const overlapHeight = Math.min(ny + nh, fy + fh) - Math.max(ny, fy);
+  return overlapWidth > 0 && overlapHeight > 0 ? ownedFrame : null;
 }
 
 /** Scene-space origin (matches nodeLeftTop / shape paint). */
@@ -65,21 +49,25 @@ function sceneOrigin(document: { x?: number; y?: number } | null | undefined) {
 }
 
 function unwrapFrameClip(el: SVGElement) {
-  const wrap = el.parentElement;
-  if (wrap?.getAttribute('data-frame-clip-wrap') !== '1') {
-    el.removeAttribute('clip-path');
-    return;
+  let current: Element = el;
+  // A preview can apply a new clip while React is reconciling the shared SVG.
+  // Remove every stale wrapper around the node, including when another SVG
+  // group sits between the host element and the wrapper.
+  while (current.parentElement) {
+    const wrapper = current.closest('[data-frame-clip-wrap="1"]');
+    if (!wrapper || !wrapper.contains(current)) break;
+    const parent = wrapper.parentNode;
+    if (!parent) break;
+    parent.insertBefore(current, wrapper);
+    wrapper.remove();
   }
-  const parent = wrap.parentNode;
-  if (parent) {
-    parent.insertBefore(el, wrap);
-    try {
-      wrap.remove();
-    } catch {
-      /* ignore */
-    }
-  }
-  el.removeAttribute('clip-path');
+  current.removeAttribute('clip-path');
+}
+
+/** Remove any artboard clip wrapper without changing the painted node. */
+export function clearFrameContentClip(el: SVGElement | null | undefined) {
+  if (!el) return;
+  unwrapFrameClip(el);
 }
 
 /** Remove a painted node (and its frame-clip wrap, if any). */

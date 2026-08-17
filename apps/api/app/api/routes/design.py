@@ -7,7 +7,6 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -20,35 +19,12 @@ from app.services.agent_memory.long_term import insert_long_memory
 from app.services.design.readpath.catalog import ensure_design_catalog, get_catalog_payload
 from app.services.design.runtime.orchestrator import run_design_job_from_snapshot
 from app.services.design.runtime.pipeline_support import _run_error_code
+from app.services.design.runtime.pipeline_progress import PipelineSseState
 from app.services.design.runtime.sse_transport import local_run_sse as _transport_local_run_sse, worker_run_sse as _worker_run_sse
 from app.services.design.prompts.rules_text import _safe_print
 
 router = APIRouter(prefix="/design", tags=["design"])
 _log = logging.getLogger("design.run_api")
-
-_DESIGN_ARM_STAGES = frozenset(
-    {
-        "lookup",
-        "validate",
-        "ops",
-        "scene_check",
-        "critic",
-        "refine",
-        "scene",
-        "failed",
-    }
-)
-_EARLY_EXPLORE_STAGES = frozenset(
-    {"prompt", "prepare", "model_wait", "model_stream"}
-)
-_PAINT_EVENT_TYPES = frozenset({"tool_ops", "svg_delta", "drawing"})
-_PAINT_ACTIVITY_KINDS = frozenset({"tool", "added", "updated", "deleted"})
-_TERMINAL_STAGES = frozenset({"done", "failed"})
-
-
-
-
-
 
 _SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
@@ -74,61 +50,14 @@ async def _local_run_sse(
         persist=state.persist_event,
         heartbeat=state.heartbeat_stage_event,
         terminal=state.terminal_stage_event,
+        decorate=state.decorate,
         error_code=_run_error_code,
     ):
         yield frame
     return
 
-@dataclass
-class _PipelineSseState:
-    """Mutable Explored-pipeline bookkeeping for one /run SSE stream."""
-
-    current_stage: str | None = None
-    pipeline_armed: bool = False
-    saw_paint: bool = False
-    chat_divert: bool = False
-    result_failed: bool = False
-    out_n: int = 0
-    task_id: str | None = None
-    t0: float = field(default_factory=time.time)
-
-    def arm(self, stage: str | None = "prepare") -> None:
-        if self.chat_divert or self.pipeline_armed:
-            return
-        self.pipeline_armed = True
-        self.current_stage = stage or "prepare"
-
-    def mark_chat_divert(self) -> None:
-        self.chat_divert = True
-        self.current_stage = "done"
-
-    def terminal_stage_event(self) -> dict[str, Any] | None:
-        from app.services.design.runtime.progress_stages import thought_stage_event
-
-        if not self.pipeline_armed or self.chat_divert:
-            return None
-        if self.current_stage in _TERMINAL_STAGES:
-            return None
-        if self.result_failed:
-            return thought_stage_event("failed", status="error")
-        return thought_stage_event("done", status="done")
-
-    def heartbeat_stage_event(self) -> dict[str, Any] | None:
-        from app.services.design.runtime.progress_stages import thought_stage_event
-
-        if not self.pipeline_armed or self.chat_divert:
-            return None
-        if not self.current_stage or self.current_stage in _TERMINAL_STAGES:
-            return None
-        elapsed = int(time.time() - self.t0)
-        return thought_stage_event(self.current_stage, elapsed_s=elapsed)
-
-    def remember_task_id(self, payload: Any) -> None:
-        if not isinstance(payload, dict) or self.task_id:
-            return
-        task_id = str(payload.get("task_id") or "").strip()
-        if task_id:
-            self.task_id = task_id
+class _PipelineSseState(PipelineSseState):
+    """Route-owned persistence adapter for the shared SSE progress state."""
 
     def persist_event(self, payload: Any) -> None:
         self.remember_task_id(payload)
@@ -141,120 +70,10 @@ class _PipelineSseState:
         except Exception:
             _log.exception("design event persistence failed task=%s", self.task_id)
 
-def _should_chat_divert(payload: dict[str, Any]) -> bool:
-    et = str(payload.get("type") or "")
-    if et == "chat_done":
-        return True
-    if et == "result":
-        if str(payload.get("status") or "") == "error":
-            return False
-        return str(payload.get("intent") or "") == "chat"
-    if et != "decision":
-        return False
-    return (
-        payload.get("is_chitchat") is True
-        or str(payload.get("route") or "") == "chitchat"
-        or str(payload.get("intent") or "") == "chat"
-    )
-
-
-def _arm_stage_from_activity(payload: dict[str, Any]) -> str | None:
-    kind = str(payload.get("kind") or "")
-    stage = str(payload.get("stage") or "").strip()
-    if kind in _PAINT_ACTIVITY_KINDS:
-        return "ops"
-    if stage in _DESIGN_ARM_STAGES:
-        return stage
-    if kind == "explored" and stage and stage not in _EARLY_EXPLORE_STAGES:
-        return stage
-    return None
-
-
-def _maybe_arm_pipeline(state: _PipelineSseState, payload: dict[str, Any]) -> None:
-    if state.chat_divert:
-        return
-    et = str(payload.get("type") or "")
-    if et in _PAINT_EVENT_TYPES:
-        state.arm("ops")
-        return
-    if et != "activity":
-        return
-    stage = _arm_stage_from_activity(payload)
-    if stage:
-        state.arm(stage)
-
-
-def _is_paint_signal(payload: dict[str, Any]) -> bool:
-    et = str(payload.get("type") or "")
-    if et in _PAINT_EVENT_TYPES or et == "result":
-        return True
-    if et != "activity":
-        return False
-    return str(payload.get("kind") or "") in _PAINT_ACTIVITY_KINDS
-
-
-def _stage_advance_events(
-    state: _PipelineSseState, payload: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """Advance Explored stage and return any stage SSE frames to emit."""
-    from app.services.design.runtime.progress_stages import (
-        maybe_advance_stage,
-        stage_for_event,
-        thought_stage_event,
-    )
-
-    if not state.pipeline_armed or state.chat_divert:
-        return []
-    nxt = stage_for_event(payload)
-    advanced = maybe_advance_stage(state.current_stage, nxt)
-    if not advanced or advanced == state.current_stage:
-        return []
-    state.current_stage = advanced
-    elapsed = int(time.time() - state.t0)
-    if advanced == "done":
-        if state.result_failed:
-            state.current_stage = "failed"
-            return [thought_stage_event("failed", status="error")]
-        return [thought_stage_event("done", status="done")]
-    if not state.saw_paint or advanced in ("ops", "refine"):
-        return [thought_stage_event(advanced, elapsed_s=elapsed)]
-    return []
-
-
-def _result_terminal_event(
-    state: _PipelineSseState,
-) -> dict[str, Any] | None:
-    from app.services.design.runtime.progress_stages import thought_stage_event
-
-    if not state.pipeline_armed or state.current_stage in _TERMINAL_STAGES:
-        return None
-    if state.result_failed:
-        state.current_stage = "failed"
-        return thought_stage_event("failed", status="error")
-    state.current_stage = "done"
-    return None
-
-
 def _pipeline_side_effects(
     state: _PipelineSseState, payload: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Update pipeline state for one agent event; return extra stage frames."""
-    extra: list[dict[str, Any]] = []
-    if _should_chat_divert(payload):
-        state.mark_chat_divert()
-    if str(payload.get("type") or "") == "result" and str(
-        payload.get("status") or ""
-    ) == "error":
-        state.result_failed = True
-    _maybe_arm_pipeline(state, payload)
-    extra.extend(_stage_advance_events(state, payload))
-    if _is_paint_signal(payload):
-        state.saw_paint = True
-    if str(payload.get("type") or "") == "result":
-        term = _result_terminal_event(state)
-        if term:
-            extra.append(term)
-    return extra
+    return state.observe(payload)
 
 
 def _should_log_sse(et: str | None, out_n: int) -> bool:

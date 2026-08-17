@@ -181,6 +181,10 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       boxes.push({ id, box: null, hit: false });
       continue;
     }
+    if (!isPointVisibleForFrameClip(doc, node, x, y)) {
+      boxes.push({ id, box: null, hit: false });
+      continue;
+    }
     const box = getNodeBox(id);
     if (!box) {
       boxes.push({ id, box: null, hit: false });
@@ -214,6 +218,31 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       lastHitDebug;
   }
   return null;
+}
+
+/** Artboards clip intersecting content by default; hidden overflow must not be pickable. */
+function isPointVisibleForFrameClip(doc: SceneDocument, node: SceneNode, x: number, y: number) {
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  const left = Number(node.x) || 0;
+  const top = Number(node.y) || 0;
+  const right = left + Math.max(1, Number(node.width) || 1);
+  const bottom = top + Math.max(1, Number(node.height) || 1);
+  const clippingFrames = frames.filter((frame) => {
+    if (frame?.clipContent === false) return false;
+    const frameLeft = Number(frame.x) || 0;
+    const frameTop = Number(frame.y) || 0;
+    const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
+    const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
+    return left < frameRight && right > frameLeft && top < frameBottom && bottom > frameTop;
+  });
+  if (!clippingFrames.length) return true;
+  return clippingFrames.some((frame) => {
+    const frameLeft = Number(frame.x) || 0;
+    const frameTop = Number(frame.y) || 0;
+    const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
+    const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
+    return x >= frameLeft && x <= frameRight && y >= frameTop && y <= frameBottom;
+  });
 }
 
 export function bridgeSceneHitTest(

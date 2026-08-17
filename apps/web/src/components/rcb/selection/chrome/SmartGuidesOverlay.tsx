@@ -97,12 +97,9 @@ function formatSizeBadge(box: SceneBox): string {
 
 export default function SmartGuidesOverlay({
   guides,
-  mirrorNodeId: _mirrorNodeId = null,
   sizeBox = null,
 }: {
   guides: SmartGuideLine[];
-  /** Kept for call-site compat. */
-  mirrorNodeId?: string | null;
   /** Idle or inspect: blue WxH badge under the selected box. */
   sizeBox?: SceneBox | null;
 }) {

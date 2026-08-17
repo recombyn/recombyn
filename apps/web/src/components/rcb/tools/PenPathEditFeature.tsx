@@ -47,7 +47,18 @@ type PenSubpath = { anchors: PenAnchor[]; closed: boolean };
 
 type DragKind =
   | { kind: 'anchor'; sub: number; index: number; ox: number; oy: number; start: PenAnchor }
-  | { kind: 'handle'; sub: number; index: number; side: HandleSide; mirror: boolean }
+  | {
+      kind: 'handle';
+      sub: number;
+      index: number;
+      side: HandleSide;
+      mirror: boolean;
+      /** Alt/Meta click (no drag) retracts this side. */
+      retractOnClick: boolean;
+      startX: number;
+      startY: number;
+      moved: boolean;
+    }
   /** Alt-drag on an anchor: pull mirrored handles. */
   | { kind: 'convert'; sub: number; index: number; ax: number; ay: number; pulled: boolean };
 
@@ -100,6 +111,8 @@ type Props = {
 
 const HANDLE_HIT_PX = 22;
 const ANCHOR_HIT_PX = 24;
+/** Screen px — below this, Alt/Meta on a handle is a click (retract), not a drag. */
+const HANDLE_CLICK_PX = 3;
 /** Screen px — hover near stroke to show a preview dot. */
 const PATH_HIT_PX = 20;
 
@@ -312,7 +325,7 @@ function HandleDiamondSvg({
       <path
         d={d}
         fill={h.active ? SEL_BASELINE : '#fff'}
-        stroke={h.active ? SEL_BASELINE : '#383838'}
+        stroke="#383838"
         strokeWidth={strokeW}
       />
     </g>
@@ -547,7 +560,8 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
  * - Alt + drag anchor → pull mirrored handles
  * - Alt + click anchor with handles → remove handles (corner)
  * - Double-click anchor → remove handles
- * - Alt + click a handle → delete that side
+ * - Alt + drag a handle → move only that side (break symmetry)
+ * - Alt + click a handle (no drag) → delete that side
  * - Curve subtool → same convert without Alt
  */
 function PenPathEditFeature({
@@ -910,19 +924,6 @@ function PenPathEditFeature({
 
       const convertMod = convertPointRef.current || e.altKey;
 
-      // Alt/Option (or Meta) on a handle clears that side — not Curve tool alone
-      // (Curve still needs to drag handles after pulling them out).
-      if (handleHit && (e.altKey || e.metaKey)) {
-        dirtyRef.current = true;
-        setSubpaths((prev) =>
-          mapSubpathAnchor(prev, handleHit.sub, handleHit.index, (a) =>
-            clearHandle(a, handleHit.side)
-          )
-        );
-        setSelectedHandle(null);
-        return;
-      }
-
       if (handleHit) {
         dragRef.current = {
           kind: 'handle',
@@ -930,7 +931,12 @@ function PenPathEditFeature({
           index: handleHit.index,
           side: handleHit.side,
           // Curve / Alt: break handle symmetry while dragging one side.
-          mirror: !(convertPointRef.current || e.altKey),
+          mirror: !(convertPointRef.current || e.altKey || e.metaKey),
+          // Curve-only click must not retract — Alt/Meta click (no drag) does.
+          retractOnClick: e.altKey || e.metaKey,
+          startX: p.x,
+          startY: p.y,
+          moved: false,
         };
         setSelectedHandle(handleHit);
         try {
@@ -1101,6 +1107,15 @@ function PenPathEditFeature({
         return;
       }
 
+      if (!drag.moved) {
+        if (
+          Math.hypot(p.x - drag.startX, p.y - drag.startY) <
+          hitRadiusScene(rcbCameraCssZoom(camera), HANDLE_CLICK_PX)
+        ) {
+          return;
+        }
+        drag.moved = true;
+      }
       dirtyRef.current = true;
       setSubpaths((prev) =>
         mapSubpathAnchor(prev, drag.sub, drag.index, (a) =>
@@ -1113,7 +1128,7 @@ function PenPathEditFeature({
     const onUp = (e: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
-      // Alt-click (no drag): convert smooth 鈫?corner (remove handles).
+      // Alt-click (no drag): convert smooth → corner (remove handles).
       if (drag.kind === 'convert' && !drag.pulled) {
         const a = subpathsRef.current[drag.sub]?.anchors[drag.index];
         if (a && anchorHasHandles(a)) {
@@ -1123,6 +1138,14 @@ function PenPathEditFeature({
           );
           setSelectedHandle(null);
         }
+      } else if (drag.kind === 'handle' && drag.retractOnClick && !drag.moved) {
+        dirtyRef.current = true;
+        setSubpaths((prev) =>
+          mapSubpathAnchor(prev, drag.sub, drag.index, (a) =>
+            clearHandle(a, drag.side)
+          )
+        );
+        setSelectedHandle(null);
       }
       dragRef.current = null;
       try {
@@ -1183,9 +1206,7 @@ function PenPathEditFeature({
   const handleStroke = HANDLE_STROKE_PX * inv;
   const linkStroke = LINK_STROKE_PX * inv;
   const anchorR = Math.max(0.01, (ANCHOR_VIS_PX * inv) / 2 - stroke / 2);
-  const anchorRHot = Math.max(0.01, ((ANCHOR_VIS_PX + 2) * inv) / 2 - stroke / 2);
   const handleR = Math.max(0.01, (HANDLE_VIS_PX * inv) / 2 - handleStroke / 2);
-  const handleRHot = Math.max(0.01, ((HANDLE_VIS_PX + 2) * inv) / 2 - handleStroke / 2);
   const editStrokeOn = strokeEnabled || fillColor === 'none';
   const editStrokeColor = strokeEnabled ? strokeColor : SEL_BASELINE;
   const pathSw = pathEditStrokeWidth({
@@ -1225,7 +1246,8 @@ function PenPathEditFeature({
         handlesDraw.push({
           x: hx,
           y: hy,
-          r: active ? handleRHot : handleR,
+          // Hover/active changes paint only; keep the visible diamond stable.
+          r: handleR,
           active,
           zoneKey: `pen-handle-${si}-${i}-${side}`,
         });
@@ -1237,7 +1259,8 @@ function PenPathEditFeature({
       anchorsDraw.push({
         x: a.x,
         y: a.y,
-        r: hovered ? anchorRHot : anchorR,
+        // Hover feedback is fill-only; do not resize the anchor knob.
+        r: anchorR,
         fill: hovered ? SEL_BASELINE : '#fff',
         strokeColor: SEL_BASELINE,
         zoneKey: `pen-anchor-${si}-${i}`,

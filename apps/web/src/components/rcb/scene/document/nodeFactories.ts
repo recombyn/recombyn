@@ -73,8 +73,6 @@ export function createShapeNode({
   borderWidth,
   angle = 0,
   brushStyle,
-  brushStampSrc,
-  brushHardness,
   pressureEnabled,
   pathPressure,
   sides,
@@ -91,12 +89,8 @@ export function createShapeNode({
   closed?: boolean;
   borderWidth?: number;
   angle?: number;
-  /** Pencil tip brush id (solid / pencil-hb / calligraphy / …). */
+  /** Pencil brushStyle (vector-ink / vector-even / …). */
   brushStyle?: string;
-  /** Embedded stamp tip for custom / portable stamp brushes. */
-  brushStampSrc?: string;
-  /** Tip edge hardness 0–100 (soft→hard); stamp paint default 80. */
-  brushHardness?: number;
   /** When false, ignore pathPressure for width modulation. */
   pressureEnabled?: boolean;
   /** Comma-separated 0–1 pressures aligned with path points (pencil). */
@@ -225,17 +219,6 @@ export function createShapeNode({
           'stroke-linejoin': 'miter',
         }),
         ...(brushStyle ? { brushStyle } : {}),
-        ...(brushStampSrc ? { brushStampSrc } : {}),
-        ...(shapeType === 'pencil' &&
-        brushHardness != null &&
-        Number.isFinite(Number(brushHardness))
-          ? {
-              brushHardness: Math.min(
-                100,
-                Math.max(0, Math.round(Number(brushHardness)))
-              ),
-            }
-          : {}),
         ...(shapeType === 'pencil' && pressureEnabled != null
           ? { pressureEnabled: pressureEnabled ? true : false }
           : {}),
@@ -1031,7 +1014,7 @@ export function createAudioGeneratorNode({
   };
 }
 
-/** Theme surface fill — maps legacy baked `#FFFFFF` / empty to `var(--surface)`. */
+/** Theme surface fill — empty / `#FFFFFF` / `white` → `var(--surface)`. */
 export function resolveThemeSurfaceFill(raw: unknown): string {
   const s = String(raw ?? '').trim();
   if (!s) return 'var(--surface)';
@@ -1044,6 +1027,26 @@ export function resolveThemeSurfaceFill(raw: unknown): string {
  * Clone an audio node to the right (trim / speed confirm).
  * Returns null when source is missing.
  */
+export const AUDIO_ASPECT_RATIO = 1.8;
+export const AUDIO_MIN_WIDTH = 252;
+export const AUDIO_MIN_HEIGHT = 140;
+
+/** Normalize all audio plates to one stable visual ratio. */
+export function normalizeAudioSize(width?: number, height?: number): {
+  width: number;
+  height: number;
+} {
+  const requestedWidth = Math.max(AUDIO_MIN_WIDTH, Math.round(Number(width) || 360));
+  const requestedHeight = Math.max(AUDIO_MIN_HEIGHT, Math.round(Number(height) || 200));
+  const heightScale = requestedHeight;
+  const widthScale = requestedWidth / AUDIO_ASPECT_RATIO;
+  const normalizedHeight = Math.max(heightScale, widthScale);
+  return {
+    width: Math.max(AUDIO_MIN_WIDTH, Math.round(normalizedHeight * AUDIO_ASPECT_RATIO)),
+    height: Math.max(AUDIO_MIN_HEIGHT, Math.round(normalizedHeight)),
+  };
+}
+
 export function createAudioNode({
   x = 40,
   y = 40,
@@ -1067,9 +1070,8 @@ export function createAudioNode({
   const id = nanoid(10);
   const d = Number(duration);
   const key = String(uploadKey || '').trim();
-  const iw = Math.max(1, Math.round(Number(width) || 360));
-  // Waveform + transport need room; shorter plates crush the rail and look “detached”.
-  const ih = Math.max(140, Math.round(Number(height) || 200));
+  // Waveform + transport need room; normalize every entry point to one ratio.
+  const { width: iw, height: ih } = normalizeAudioSize(width, height);
   const ix = Math.round(Number(x) || 0);
   const iy = Math.round(Number(y) || 0);
   return {

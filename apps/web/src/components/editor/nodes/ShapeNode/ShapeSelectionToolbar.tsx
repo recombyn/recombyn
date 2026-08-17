@@ -49,11 +49,15 @@ import {
 import {
   clampStarInnerRatio,
   clampShapeSides,
+  clampEllipseInnerRatio,
+  clampEllipseArcPercent,
   DEFAULT_SHAPE_SIDES,
   MAX_SHAPE_SIDES,
   MIN_SHAPE_SIDES,
   sidesFromAttrs,
   starInnerRatioFromAttrs,
+  ellipseInnerRatioFromAttrs,
+  ellipseArcPercentFromAttrs,
   strokeEndpointsFromBox,
   strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
@@ -162,6 +166,10 @@ function ShapeSelectionToolbar({
   const sides = sidesFromAttrs(node?.attrs);
   const showStarInnerRadius = shapeType === 'star';
   const starInnerRadiusPct = Math.round(starInnerRatioFromAttrs(node?.attrs) * 100);
+  const showEllipseControls =
+    shapeType === 'circle' || shapeType === 'ellipse' || node.key === 'ellipse';
+  const ellipseInnerRadiusPct = Math.round(ellipseInnerRatioFromAttrs(node?.attrs) * 100);
+  const ellipseArcPercent = ellipseArcPercentFromAttrs(node?.attrs);
   const aspectLocked = readAspectLocked(node?.attrs);
   const isOpenStroke = shapeType === 'line' || shapeType === 'arrow';
   const isFreehandStroke = shapeType === 'pen' || shapeType === 'pencil';
@@ -396,6 +404,15 @@ function ShapeSelectionToolbar({
     patchAttrs({ starInnerRatio: clampStarInnerRatio(pct / 100) });
   };
 
+  const applyEllipseInnerRadius = (pct: number) => {
+    patchAttrs({ ellipseInnerRatio: clampEllipseInnerRatio(pct / 100) });
+  };
+
+  const applyEllipseArc = (pct: number) => {
+    const sign = ellipseArcPercent < 0 ? -1 : 1;
+    patchAttrs({ ellipseArcPercent: clampEllipseArcPercent(sign * pct) });
+  };
+
   const applyAspectPreset = (preset: (typeof ELEMENT_ASPECT_PRESETS)[number]) => {
     if (preset.id === 'original') {
       // 「自由」：保持当前尺寸，取消比例锁定
@@ -533,6 +550,31 @@ function ShapeSelectionToolbar({
         />
       ) : null}
 
+      {showEllipseControls ? (
+        <>
+          <ToolbarValueSlider
+            prefix="IR"
+            value={ellipseInnerRadiusPct}
+            min={0}
+            max={92}
+            onChange={applyEllipseInnerRadius}
+            title={t('editor.imageToolbar.ellipseInnerRadius', { defaultValue: 'Inner radius' })}
+            panelLabel={t('editor.imageToolbar.ellipseInnerRadius', { defaultValue: 'Inner radius' })}
+          />
+          <ToolbarValueSlider
+            prefix="Ar"
+            value={Math.abs(ellipseArcPercent)}
+            min={0}
+            max={100}
+            step={0.1}
+            precision={1}
+            onChange={applyEllipseArc}
+            title={t('editor.imageToolbar.arcPercent', { defaultValue: 'Arc' })}
+            panelLabel={t('editor.imageToolbar.arcPercent', { defaultValue: 'Arc' })}
+          />
+        </>
+      ) : null}
+
       {showAspectPresets && showSizeControls && !isOpenStroke ? (
         <AspectRatioPresetMenu
           open={ratioOpen}
@@ -630,9 +672,15 @@ function ShapeSelectionToolbar({
       ) : null}
 
       {showOutline ? (
-        <Tooltip tip="Outline" placement="top">
-          <button type="button" aria-label="Outline" className={SEL_ICON_BTN} onClick={applyOutline}>
+        <Tooltip tip={t('editor.imageToolbar.outline')} placement="top">
+          <button
+            type="button"
+            aria-label={t('editor.imageToolbar.outline')}
+            className={SEL_TOOL_BTN}
+            onClick={applyOutline}
+          >
             <TbVectorBezier className="h-4 w-4" />
+            <span>{t('editor.imageToolbar.outline')}</span>
           </button>
         </Tooltip>
       ) : null}

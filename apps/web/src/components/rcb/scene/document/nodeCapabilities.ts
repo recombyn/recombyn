@@ -115,7 +115,6 @@ export function isIconImageNode(node: SceneNodeRef): boolean {
   // Explicit photo (incl. after replace) → never annotate-as-icon.
   if (kind === 'image') return false;
   if (kind === 'icon') return looksLikeSvgSrc(src);
-  // Untagged legacy catalog inserts were SVG data URLs without assetKind.
   return looksLikeSvgSrc(src);
 }
 
@@ -161,26 +160,8 @@ export function isOutlinedPath(node: SceneNodeRef): boolean {
   return v === true || v === 'true' || v === 1 || v === '1';
 }
 
-/**
- * Legacy 轮廓化 (before `outlined` flag): fill-only path that kept stroke width
- * from pen/line/arrow bake (`border-width` / `strokeWidth`).
- */
-function isLegacyStrokeBakedOutline(node: SceneNodeRef): boolean {
-  if (isOutlinedPath(node)) return false;
-  if (!node?.attrs) return false;
-  const t = String(node.attrs.shapeType || node.key || '');
-  if (t !== 'path') return false;
-  const strokeOff =
-    node.attrs['stroke-enabled'] === false || node.attrs['stroke-enabled'] === 'false';
-  if (!strokeOff) return false;
-  const bw = Number(
-    node.attrs['border-width'] ?? node.attrs.borderWidth ?? node.attrs.strokeWidth ?? 0
-  );
-  return Number.isFinite(bw) && bw > 0;
-}
-
 function pathAllowsCornerRadius(node: SceneNodeRef): boolean {
-  if (isOutlinedPath(node) || isLegacyStrokeBakedOutline(node)) return false;
+  if (isOutlinedPath(node)) return false;
   return isClosedFilletPath(node) && !isMultiGlyphOutlinePath(node);
 }
 
@@ -193,7 +174,7 @@ export function supportsCornerRadius(node: SceneNodeRef) {
   if (node.key === 'rect' || node.key === 'image') return true;
   // Closed path (boolean / 轮廓化) with `outlined`: hide R dots + toolbar.
   // Open pen / pencil / freehand stay out — no meaningful box corners.
-  // Multi-glyph text outlines without the flag: still skipped via ring count.
+  // Multi-glyph text outlines: skipped via ring count.
   if (node.key === 'path') return pathAllowsCornerRadius(node);
   if (node.key === 'shape') {
     const t = String(node.attrs?.shapeType || 'rect');

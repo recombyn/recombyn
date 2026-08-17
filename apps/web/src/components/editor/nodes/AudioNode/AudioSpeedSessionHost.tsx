@@ -6,7 +6,8 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineChevronDown, HiOutlineChevronUp, HiOutlineXMark } from 'react-icons/hi2';
+import { HiOutlineChevronDown, HiOutlineChevronUp, HiOutlineClock } from 'react-icons/hi2';
+import { BiExit } from 'react-icons/bi';
 import {
   rcbScreenPxToScene,
   useRcbCamera,
@@ -16,6 +17,7 @@ import {
 import { SELECTION_TOOLBAR_BELOW_BOX_GAP_PX } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import { Slider, message } from '@/components/base';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
+import { imageToolBtn } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   cloneAudioNodeSibling
@@ -153,17 +155,9 @@ function AudioSpeedSessionHost({ document }: { document: SceneDocument }): React
         }}
       >
         <FloatingToolbar className="relative gap-2.5 py-1.5 px-2.5">
-          <button
-            type="button"
-            aria-label={t('editor.audioToolbar.cancel', { defaultValue: '关闭' })}
-            disabled={busy}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--ink)] transition hover:bg-[var(--rail)]"
-            onClick={close}
-          >
-            <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
-          </button>
-          <span className="text-[12px] font-medium text-[var(--ink)]">
-            {t('editor.audioToolbar.speed', { defaultValue: '变速' })}
+          <span className="inline-flex h-8 shrink-0 items-center gap-1.5 px-1 text-[12px] font-medium text-[var(--ink)]">
+            <HiOutlineClock className="h-4 w-4 shrink-0" aria-hidden />
+            <span>{t('editor.audioToolbar.speed', { defaultValue: '变速' })}</span>
           </span>
           <div className="flex items-center gap-2">
             <span className="text-[11px] tabular-nums text-[var(--muted)]">0.1x</span>
@@ -230,6 +224,15 @@ function AudioSpeedSessionHost({ document }: { document: SceneDocument }): React
             ) : (
               t('editor.audioToolbar.generate', { defaultValue: '生成' })
             )}
+          </button>
+          <button
+            type="button"
+            aria-label={t('editor.audioToolbar.cancel', { defaultValue: '关闭' })}
+            disabled={busy}
+            className={imageToolBtn}
+            onClick={close}
+          >
+            <BiExit className="h-[18px] w-[18px]" />
           </button>
         </FloatingToolbar>
       </div>

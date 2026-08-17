@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -114,6 +115,38 @@ _INTENT_PAUSE = "pause"
 _INTENT_CANCEL = "cancel"
 
 TEMPLATE_CANVAS_OPS_V1 = "canvas_ops_v1"
+
+# Explicit ownership prevents node-like helper modules from being mistaken for
+# LangGraph stages. Optional intelligence modules are invoked by design_agent,
+# not independently registered into the topology.
+_CANVAS_OPS_V1_NODE_MODULES = {
+    "bootstrap": "bootstrap",
+    "apply_confirm": "apply",
+    "memory": "memory",
+    "intent_classify": "intent",
+    "design_agent": "decide",
+    "paint_ops": "paint",
+    "action": "apply",
+    "observe": "observe",
+    "review": "review",
+    "propose": "apply",
+    "__settle__": "settle",
+}
+
+
+def audit_canvas_ops_v1_topology() -> dict[str, list[str] | dict[str, str]]:
+    """Static topology inventory for CI and maintenance tooling."""
+    nodes_dir = Path(__file__).with_name("nodes")
+    available = sorted(
+        path.stem for path in nodes_dir.glob("*.py") if path.stem != "__init__"
+    )
+    registered = dict(_CANVAS_OPS_V1_NODE_MODULES)
+    registered_modules = set(registered.values())
+    return {
+        "registered_nodes": registered,
+        "registered_modules": sorted(registered_modules),
+        "unregistered_modules": sorted(set(available) - registered_modules),
+    }
 
 # Logical stage ids used in AgentProfile.topology.stages_enabled (not node names).
 _CANVAS_OPS_V1_SUPPORTED = frozenset(

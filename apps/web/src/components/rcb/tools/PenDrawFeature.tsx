@@ -160,9 +160,19 @@ type HandleSide = 'in' | 'out';
 type HandleHit = { index: number; side: HandleSide };
 
 type DragKind =
-  | { kind: 'place' }
+  | { kind: 'place'; independent: boolean }
   | { kind: 'close' }
-  | { kind: 'handle'; index: number; side: HandleSide; mirror: boolean };
+  | {
+      kind: 'handle';
+      index: number;
+      side: HandleSide;
+      mirror: boolean;
+      /** Alt/Meta click (no drag) retracts this side. */
+      retractOnClick: boolean;
+      startX: number;
+      startY: number;
+      moved: boolean;
+    };
 
 type PenDrawFeatureProps = {
   enabled: boolean;
@@ -178,8 +188,9 @@ type PenDrawFeatureProps = {
     pathD: string,
     box: { left: number; top: number; width: number; height: number },
     closed: boolean,
-    opts?: { replaceNodeId?: string }
+    opts?: { replaceNodeId?: string; frameId?: string | null }
   ) => void;
+  hitTestFrame?: (x: number, y: number) => string | null;
   onCancel?: () => void;
   hitTest?: (
     x: number,
@@ -193,6 +204,8 @@ type PenDrawFeatureProps = {
 const HANDLE_HIT_PX = 22;
 const ANCHOR_HIT_PX = 24;
 const ANCHOR_DBL_MS = 450;
+/** Screen px — below this, Alt/Meta on a handle is a click (retract), not a drag. */
+const HANDLE_CLICK_PX = 3;
 
 /** Same as SelectionChrome: page size = screenPx / zoom under camera scale. */
 const ANCHOR_VIS_PX = 8;
@@ -205,6 +218,16 @@ const SEL_BASELINE = '#3388ff';
 /** Scene-space radius matching ~screenPx at current camera zoom. */
 function hitRadiusScene(zoom: number, screenPx: number) {
   return screenPx / Math.max(0.05, zoom || 1);
+}
+
+function pointerLeftClickThreshold(
+  startX: number,
+  startY: number,
+  x: number,
+  y: number,
+  zoom: number
+): boolean {
+  return Math.hypot(x - startX, y - startY) >= hitRadiusScene(zoom, HANDLE_CLICK_PX);
 }
 
 type AnchorDraw = {
@@ -331,6 +354,20 @@ function clearAllHandles(anchor: PenAnchor): PenAnchor {
   return { x: anchor.x, y: anchor.y };
 }
 
+/** Place-drag with Alt: move only the outgoing handle; keep incoming if it exists. */
+function applyOutgoingKeepIncoming(
+  anchor: PenAnchor,
+  outX: number,
+  outY: number
+): PenAnchor {
+  const next: PenAnchor = { x: anchor.x, y: anchor.y, outX, outY };
+  if (anchor.inX != null && anchor.inY != null) {
+    next.inX = anchor.inX;
+    next.inY = anchor.inY;
+  }
+  return next;
+}
+
 function setHandle(
   anchor: PenAnchor,
   side: HandleSide,
@@ -388,6 +425,7 @@ function PenDrawFeature({
   gridSnap = true,
   gridSize = 1,
   onCommit,
+  hitTestFrame,
   onCancel,
   hitTest,
   onEditExistingPath,
@@ -396,6 +434,9 @@ function PenDrawFeature({
   const camera = useRcbCamera();
   const viewportEl = useRcbViewportEl();
   const toScene = useRcbScreenToScene();
+  const gridSnapRef = useRef(gridSnap);
+  const gridSizeRef = useRef(gridSize);
+  const draftFrameIdRef = useRef<string | null>(null);
   const snapPoint = (point: { x: number; y: number }, skip: boolean) =>
     snapPenPointToArtboardEdge(
       snapPenAnchorPoint(point.x, point.y, gridSizeRef.current, skip),
@@ -430,8 +471,6 @@ function PenDrawFeature({
   const onCommitRef = useRef(onCommit);
   const onCancelRef = useRef(onCancel);
   const strokeWidthRef = useRef(strokeWidth);
-  const gridSnapRef = useRef(gridSnap);
-  const gridSizeRef = useRef(gridSize);
   onCommitRef.current = onCommit;
   onCancelRef.current = onCancel;
   strokeWidthRef.current = strokeWidth;
@@ -461,6 +500,7 @@ function PenDrawFeature({
     dragKindRef.current = null;
     lastAnchorTapRef.current = null;
     resumeNodeIdRef.current = null;
+    draftFrameIdRef.current = null;
   };
 
   /**
@@ -493,7 +533,11 @@ function PenDrawFeature({
     const d = penAnchorsToD(local, closed);
     const replaceNodeId = resumeNodeIdRef.current || undefined;
     resetDraft();
-    onCommitRef.current(d, origin, closed, replaceNodeId ? { replaceNodeId } : undefined);
+    onCommitRef.current(d, origin, closed, {
+      ...(replaceNodeId ? { replaceNodeId } : {}),
+      frameId: draftFrameIdRef.current,
+    });
+    draftFrameIdRef.current = null;
     if (leave) onCancelRef.current?.();
   };
   const finishRef = useRef(finish);
@@ -516,7 +560,11 @@ function PenDrawFeature({
       const local = localizeAnchors(list, origin.left, origin.top);
       const d = penAnchorsToD(local, false);
       const replaceNodeId = resumeNodeIdRef.current || undefined;
-      onCommitRef.current(d, origin, false, replaceNodeId ? { replaceNodeId } : undefined);
+      onCommitRef.current(d, origin, false, {
+        ...(replaceNodeId ? { replaceNodeId } : {}),
+        frameId: draftFrameIdRef.current,
+      });
+      draftFrameIdRef.current = null;
     }
     resetDraft();
   }, [enabled]);
@@ -659,6 +707,9 @@ function PenDrawFeature({
       if (e.button !== 0) return;
       e.preventDefault();
       const raw = toScene(e.clientX, e.clientY);
+      if (!anchorsRef.current.length) {
+        draftFrameIdRef.current = hitTestFrame?.(raw.x, raw.y) || null;
+      }
       // Hit-test with raw pointer; place on the cell perimeter (Ctrl = free).
       const skipGrid = e.ctrlKey || !gridSnapRef.current;
       const p = snapPoint(raw, skipGrid);
@@ -668,20 +719,6 @@ function PenDrawFeature({
       // Prefer the anchor disc over nearby handle diamonds (click center ??corner).
       const anchorIdx = hitAnchor(list, raw, anchorR);
       const handleHit = anchorIdx >= 0 ? null : hitHandle(list, raw, handleR);
-
-      // Alt/Option + click handle ??delete that side (in = left, out = right).
-      if (handleHit && (e.altKey || e.metaKey)) {
-        setAnchors((prev) => {
-          const next = [...prev];
-          next[handleHit.index] = clearHandle(next[handleHit.index], handleHit.side);
-          return next;
-        });
-        setSelectedHandle(null);
-        setHoverHandle(null);
-        setHoverAnchor(null);
-        setPaperCursor(hitEl || paperEl, PEN_CURSOR);
-        return;
-      }
 
       if (handleHit) {
         // Enter handle-edit mode (adjust curvature); release returns to drawing.
@@ -697,12 +734,17 @@ function PenDrawFeature({
         setHoverHandle(handleHit);
         setHoverAnchor(null);
         setPaperCursor(hitEl || paperEl, 'grabbing');
-        // Shift keeps opposite handle mirrored while dragging.
+        // Default / Alt-drag: this side only. Shift: keep opposite mirrored.
+        // Alt/Meta click (no move) retracts this side on pointerup.
         dragKindRef.current = {
           kind: 'handle',
           index: handleHit.index,
           side: handleHit.side,
-          mirror: e.shiftKey,
+          mirror: e.shiftKey && !e.altKey && !e.metaKey,
+          retractOnClick: e.altKey || e.metaKey,
+          startX: raw.x,
+          startY: raw.y,
+          moved: false,
         };
         hitEl.setPointerCapture?.(e.pointerId);
         return;
@@ -799,7 +841,7 @@ function PenDrawFeature({
       const anchor: PenAnchor = { x: placePt.x, y: placePt.y };
       placingRef.current = anchor;
       draggingRef.current = false;
-      dragKindRef.current = { kind: 'place' };
+      dragKindRef.current = { kind: 'place', independent: false };
       setCloseHot(false);
       setAnchors((prev) => [...prev, anchor]);
       hitEl.setPointerCapture?.(e.pointerId);
@@ -813,8 +855,23 @@ function PenDrawFeature({
       const { anchor: anchorR, handle: handleR } = radii();
 
       if (drag?.kind === 'handle') {
-        draggingRef.current = true;
         setPaperCursor(hitEl || paperEl, 'grabbing');
+        if (!drag.moved) {
+          if (
+            !pointerLeftClickThreshold(
+              drag.startX,
+              drag.startY,
+              raw.x,
+              raw.y,
+              rcbCameraCssZoom(camera)
+            )
+          ) {
+            return;
+          }
+          drag.moved = true;
+        }
+        draggingRef.current = true;
+        const mirror = drag.mirror || (e.shiftKey && !e.altKey);
         setAnchors((prev) => {
           if (!prev[drag.index]) return prev;
           const next = [...prev];
@@ -824,7 +881,7 @@ function PenDrawFeature({
             drag.side,
             raw.x,
             raw.y,
-            drag.mirror || e.shiftKey
+            mirror
           );
           return next;
         });
@@ -860,11 +917,18 @@ function PenDrawFeature({
         if (draggingRef.current) {
           placing.outX = raw.x;
           placing.outY = raw.y;
-          const mirrored = withMirroredHandles(placing);
+          const placeDrag = drag?.kind === 'place' ? drag : null;
+          if ((e.altKey || e.metaKey) && placeDrag) {
+            placeDrag.independent = true;
+          }
+          const independent = placeDrag?.independent === true;
           setAnchors((prev) => {
             if (!prev.length) return prev;
             const next = [...prev];
-            next[next.length - 1] = mirrored;
+            const last = prev[prev.length - 1];
+            next[next.length - 1] = independent
+              ? applyOutgoingKeepIncoming(last, placing.outX, placing.outY)
+              : withMirroredHandles(placing);
             return next;
           });
         }
@@ -937,6 +1001,20 @@ function PenDrawFeature({
       }
 
       if (dragKindRef.current?.kind === 'handle') {
+        const handleDrag = dragKindRef.current;
+        if (handleDrag.retractOnClick && !handleDrag.moved) {
+          setAnchors((prev) => {
+            if (!prev[handleDrag.index]) return prev;
+            const next = [...prev];
+            next[handleDrag.index] = clearHandle(
+              next[handleDrag.index],
+              handleDrag.side
+            );
+            return next;
+          });
+          setSelectedHandle(null);
+          setHoverHandle(null);
+        }
         dragKindRef.current = null;
         draggingRef.current = false;
         // Back to drawing: restore rubber-band from current pointer.

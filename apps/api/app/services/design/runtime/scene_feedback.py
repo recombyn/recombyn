@@ -41,12 +41,22 @@ def _clean_op_results(op_results: list[dict[str, Any]] | None) -> list[dict[str,
     for r in op_results or []:
         if not isinstance(r, dict):
             continue
+        def node_ids(key: str) -> list[str]:
+            raw = r.get(key)
+            if not isinstance(raw, list):
+                return []
+            return list(dict.fromkeys(str(value).strip() for value in raw if str(value).strip()))[:32]
+
+        operation = str(r.get("operation") or "").strip().lower()
         out.append(
             {
-                "op_id": str(r.get("op_id") or ""),
-                "name": str(r.get("name") or ""),
+                "op_id": str(r.get("op_id") or "")[:160],
+                "name": str(r.get("name") or "")[:120],
                 "ok": bool(r.get("ok", True)),
                 "error": str(r.get("error") or "")[:200],
+                **({"operation": operation} if operation in {"create", "update", "delete", "other"} else {}),
+                "expected_node_ids": node_ids("expected_node_ids"),
+                "actual_node_ids": node_ids("actual_node_ids"),
             }
         )
     return out[:64]

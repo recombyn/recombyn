@@ -105,3 +105,43 @@ def eval_checkpoint(events: list[dict[str, Any]]) -> dict[str, Any]:
             str(e.get("message") or "")[:120] for e in events_by_type(events, "error")
         ],
     }
+
+
+def agent_trace_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Offline metrics from the public AgentEvent/SSE trace, without an LLM."""
+    result = last_result(events) or {}
+    receipts: dict[str, dict[str, Any]] = {}
+    emitted_ids: set[str] = set()
+    max_silence_ms = 0
+    previous_elapsed: int | None = None
+    for event in events:
+        envelope = event.get("agent_event") if isinstance(event, dict) else None
+        if isinstance(envelope, dict):
+            try:
+                elapsed = max(0, int(envelope.get("elapsed_ms") or 0))
+            except (TypeError, ValueError):
+                elapsed = 0
+            if previous_elapsed is not None:
+                max_silence_ms = max(max_silence_ms, elapsed - previous_elapsed)
+            previous_elapsed = elapsed
+        if not isinstance(event, dict):
+            continue
+        for op in event.get("ops") or []:
+            if isinstance(op, dict) and str(op.get("op_id") or "").strip():
+                emitted_ids.add(str(op["op_id"]).strip())
+        for receipt in event.get("op_results") or []:
+            if isinstance(receipt, dict) and str(receipt.get("op_id") or "").strip():
+                receipts[str(receipt["op_id"]).strip()] = receipt
+    confirmed = [receipt for op_id, receipt in receipts.items() if op_id in emitted_ids]
+    successful = [receipt for receipt in confirmed if receipt.get("ok") is True]
+    return {
+        "completed": str(result.get("status") or "") == "success",
+        "scene_confirmed": bool(result.get("tool_ops_applied")) and not bool(result.get("error_code")),
+        "emitted_ops": len(emitted_ids),
+        "confirmed_ops": len(confirmed),
+        "successful_ops": len(successful),
+        "operation_correctness": (len(successful) / len(emitted_ids)) if emitted_ids else None,
+        "receipt_coverage": (len(confirmed) / len(emitted_ids)) if emitted_ids else None,
+        "retries": max(0, len(events_by_type(events, "tool_ops")) - 1),
+        "max_visible_silence_ms": max_silence_ms,
+    }

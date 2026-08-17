@@ -1,6 +1,8 @@
 import {
   memo,
   useCallback,
+  useMemo,
+  useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -12,6 +14,7 @@ import {
   FrameDrawFeature,
   FrameMoveFeature,
   HtmlArtboardFrame,
+  getSharedNodeEls,
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
@@ -27,18 +30,23 @@ import AudioTrimSessionHost from '@/components/editor/nodes/AudioNode/AudioTrimS
 import AudioSpeedSessionHost from '@/components/editor/nodes/AudioNode/AudioSpeedSessionHost';
 import MeshHandlesOverlay from '@/components/editor/nodes/ShapeNode/MeshHandlesOverlay';
 import FrameContextToolbar from '@/components/editor/nodes/FrameNode/FrameContextToolbar';
+import FrameMultiSelectionToolbar from '@/components/editor/nodes/FrameNode/FrameMultiSelectionToolbar';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
 import {
-  stackZIndex
+  stackZIndex,
+  updateNodesInDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
-import SmartGuidesOverlay from '@/components/rcb/selection/chrome/SmartGuidesOverlay';
 import {
-  collectMoveSnapIndicators,
-  GUIDE_COINCIDE_EPS,
   snapBoxToGrid,
+  smartGuideTargetPad,
+  smartSnapThreshold,
+  snapTranslateToPeers,
   type SmartGuideLine,
 } from '@/components/rcb/selection/alignGuides';
+import { collectSmartGuideTargets } from '@/components/rcb/selection/selectionLogic';
+import { frameSelId } from '@/components/rcb/selection/frameSelectionIds';
+import SmartGuidesOverlay from '@/components/rcb/selection/chrome/SmartGuidesOverlay';
 import {
   parseFillGradient,
   serializeFillGradient,
@@ -50,16 +58,18 @@ import {
   setActiveFrameId,
   setActiveTool,
   setCanvasMeta,
-  setMixedSelection,
   setSelectedNodeIds,
-  updateArtboardFrame,
+  setDocumentFromCanvas,
   pushEditorHistory,
   type AiOperationState,
 } from '@/store/modules/editor';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { canvasFillToDocumentMeta } from './EditorBottomHud';
 import type { RootState } from '@/store';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
+import { applyFrameContentClip } from '@/components/rcb/frames/frameContentClip';
+import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 
 const EDITOR_PAN_BLOCK_SELECTOR = [
   '[data-scene-node-id]',
@@ -130,6 +140,85 @@ function frameShowsAiOverlay(
   return Boolean(fid) && fid === frame.id;
 }
 
+function frameUnionBox(frames: ArtboardFrame[]) {
+  if (!frames.length) return null;
+  const left = Math.min(...frames.map((frame) => Number(frame.x) || 0));
+  const top = Math.min(...frames.map((frame) => Number(frame.y) || 0));
+  const right = Math.max(
+    ...frames.map(
+      (frame) => (Number(frame.x) || 0) + Math.max(1, Number(frame.width) || 1)
+    )
+  );
+  const bottom = Math.max(
+    ...frames.map(
+      (frame) => (Number(frame.y) || 0) + Math.max(1, Number(frame.height) || 1)
+    )
+  );
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+function boxesIntersect(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+) {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
+
+function nodeBox(node: SceneNode) {
+  return {
+    x: Number(node.x) || 0,
+    y: Number(node.y) || 0,
+    width: Math.max(1, Number(node.width) || 1),
+    height: Math.max(1, Number(node.height) || 1),
+  };
+}
+
+function frameBox(frame: ArtboardFrame) {
+  return {
+    x: Number(frame.x) || 0,
+    y: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  };
+}
+
+function bindUnownedNodesToFrames(doc: SceneDocument, frameIds: string[]): SceneDocument {
+  const frames = (doc.frames || []).filter((frame) => frameIds.includes(String(frame.id)));
+  if (!frames.length) return doc;
+  const patches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
+  const nodes = Object.values(doc.deltaSetLike || {});
+  for (const node of nodes) {
+    if (!node?.id || node.id === 'ROOT' || String(node.attrs?.frameId || '').trim()) continue;
+    const frame = frames.find((item) => boxesIntersect(nodeBox(node), frameBox(item)));
+    if (!frame) continue;
+    const siblings = nodes
+      .filter((item) => String(item?.attrs?.frameId || '').trim() === String(frame.id))
+      .map((item) => Number(item?.attrs?.frameOrder))
+      .filter(Number.isFinite);
+    patches.push({
+      nodeId: String(node.id),
+      patch: {
+        attrs: {
+          ...(node.attrs || {}),
+          frameId: String(frame.id),
+          frameOrder: siblings.length ? Math.max(...siblings) + 1 : 0,
+        },
+      },
+    });
+  }
+  return patches.length ? updateNodesInDocument(doc, patches) : doc;
+}
+
 /** Node highlight / operation label / AI cursor — world overlay, not SceneDocument. */
 function AiOperationNodeChrome({
   box,
@@ -196,6 +285,7 @@ function canvasDiffuseMeshGradient(
 function frameLabelInteractionProps(
   frameId: string,
   isDevMode: boolean,
+  selectedFrameIds: string[],
   handlers: {
     onSelectFrame: (id: string) => void;
     onRenameFrame: (id: string, name: string, options?: { skipHistory?: boolean }) => void;
@@ -219,7 +309,9 @@ function frameLabelInteractionProps(
     };
   }
   return {
-    onSelect: () => handlers.onSelectFrame(frameId),
+    onSelect: () => {
+      if (!selectedFrameIds.includes(frameId)) handlers.onSelectFrame(frameId);
+    },
     onRename: (name: string, options?: { skipHistory?: boolean }) =>
       handlers.onRenameFrame(frameId, name, options),
     onMove: (x: number, y: number, opts?: { skipGrid?: boolean }) =>
@@ -312,8 +404,19 @@ function EditorStageWorld({
     (state: RootState) => state.editor.aiOperationState
   );
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
+  const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
   const [selectionTransforming, setSelectionTransforming] = useState(false);
-  const [frameMoveGuides, setFrameMoveGuides] = useState<SmartGuideLine[]>([]);
+  const frameDragRef = useRef<{
+    frames: Array<{
+      id: string;
+      startX: number;
+      startY: number;
+      width: number;
+      height: number;
+    }>;
+    childOrigins: Array<{ nodeId: string; x: number; y: number; width: number; height: number }>;
+  } | null>(null);
+  const frameMoveDocumentRef = useRef<SceneDocument | null>(document);
 
   const onCommitFrame = useCallback(
     (rect: { x: number; y: number; width: number; height: number }) => {
@@ -327,59 +430,243 @@ function EditorStageWorld({
   const onMoveFrame = useCallback(
     (id: string, x: number, y: number, opts?: { skipGrid?: boolean }) => {
       const frame = frames.find((f) => f.id === id);
-      if (!frame) return;
+      const dragState = frameDragRef.current;
+      const dragged = dragState?.frames.find((item) => item.id === id);
+      if (!frame && !dragged) return;
+      const baseFrame = frame || frames.find((item) => item.id === dragged?.id);
+      if (!baseFrame) return;
       let moving = {
         left: x,
         top: y,
-        width: Math.max(1, Number(frame.width) || 1),
-        height: Math.max(1, Number(frame.height) || 1),
+        width: Math.max(1, Number(baseFrame.width) || 1),
+        height: Math.max(1, Number(baseFrame.height) || 1),
       };
-      let guides: SmartGuideLine[] = [];
-      // Grid only — no object magnets. Align guides are display-only.
       if (!opts?.skipGrid) {
-        const targets = frames
-          .filter((f) => f.id !== id && !f.locked)
-          .map((f) => ({
-            left: Number(f.x) || 0,
-            top: Number(f.y) || 0,
-            width: Math.max(1, Number(f.width) || 1),
-            height: Math.max(1, Number(f.height) || 1),
-          }));
         if (gridSize > 0) {
           moving = snapBoxToGrid(moving, gridSize);
         }
-        if (targets.length) {
-          guides = collectMoveSnapIndicators(moving, targets, GUIDE_COINCIDE_EPS);
+      }
+      const movedFrameIds = new Set(
+        (dragState?.frames || [{ id }]).map((item) => item.id)
+      );
+      const threshold = smartSnapThreshold(camera.zoom);
+      const movedChildIds = nodeIdsBoundToFrames(document, [...movedFrameIds]);
+      const excludeIds = new Set<string>([
+        ...movedChildIds,
+        ...[...movedFrameIds, id].flatMap((frameId) => [frameId, frameSelId(frameId)]),
+      ]);
+      const nodeIds = Object.keys(document.deltaSetLike || {}).filter(
+        (nodeId) => nodeId !== 'ROOT'
+      );
+      const guideTargets = collectSmartGuideTargets(
+        document,
+        () => nodeIds,
+        (nodeId) => {
+          const node = document.deltaSetLike?.[nodeId];
+          if (!node) return null;
+          const box = nodeBox(node);
+          return {
+            left: box.x,
+            top: box.y,
+            width: box.width,
+            height: box.height,
+          };
+        },
+        excludeIds,
+        {
+          nearBox: moving,
+          pad: smartGuideTargetPad(threshold),
+          queryNodeIdsInRect: (area) =>
+            nodeIds.filter((nodeId) => {
+              const node = document.deltaSetLike?.[nodeId];
+              if (!node) return false;
+              const box = nodeBox(node);
+              return !(
+                box.x + box.width < area.left ||
+                box.x > area.left + area.width ||
+                box.y + box.height < area.top ||
+                box.y > area.top + area.height
+              );
+            }),
+        }
+      );
+      const snapped = snapTranslateToPeers(
+        moving,
+        guideTargets,
+        threshold
+      );
+      moving = snapped.box;
+      setFrameSmartGuides(snapped.guides);
+      const nextX = Math.round(moving.left);
+      const nextY = Math.round(moving.top);
+      const baseX = (dragged?.startX ?? Number(baseFrame.x)) || 0;
+      const baseY = (dragged?.startY ?? Number(baseFrame.y)) || 0;
+      const dx = nextX - baseX;
+      const dy = nextY - baseY;
+      const movedFrames = dragState?.frames || [{
+        id,
+        startX: Number(baseFrame.x) || 0,
+        startY: Number(baseFrame.y) || 0,
+        width: moving.width,
+        height: moving.height,
+      }];
+      let childPatches: Array<{
+        nodeId: string;
+        patch: { x: number; y: number };
+      }> = [];
+      if (dx !== 0 || dy !== 0) {
+        const origins = dragState?.childOrigins || [];
+        childPatches = origins.map(({ nodeId, x, y }) => ({
+          nodeId,
+          patch: { x: x + dx, y: y + dy },
+        }));
+        const previewFrames = frames.map((item) => {
+          const moved = movedFrames.find((entry) => entry.id === item.id);
+          if (!moved) return item;
+          return { ...item, x: moved.startX + dx, y: moved.startY + dy };
+        });
+        const previewDocument = { ...document, frames: previewFrames };
+        const nodeEls = getSharedNodeEls();
+        for (const origin of origins) {
+          const node = document.deltaSetLike?.[origin.nodeId];
+          const el = nodeEls.get(origin.nodeId);
+          if (!node || !el) continue;
+          const left = origin.x + dx;
+          const top = origin.y + dy;
+          previewSvgNodeGeometry(nodeEls, origin.nodeId, {
+            left,
+            top,
+            width: origin.width,
+            height: origin.height,
+          });
+          const previewNode = { ...node, x: left, y: top };
+          if (el.ownerSVGElement) {
+            applyFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
+              zoom: camera.zoom,
+            });
+          }
+        }
+        // Re-evaluate clipping for every mounted node against the preview frame
+        // position. Otherwise overflow appears only after pointer-up/remount.
+        for (const [nodeId, el] of nodeEls) {
+          const node = document.deltaSetLike?.[nodeId];
+          if (!node || !el.ownerSVGElement) continue;
+          const moved = childPatches.find((patch) => patch.nodeId === nodeId)?.patch;
+          const previewNode = moved ? { ...node, ...moved } : node;
+          applyFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
+            zoom: camera.zoom,
+          });
+        }
+        for (const moved of movedFrames) {
+          previewArtboardFrameGeometry({
+            id: moved.id,
+            x: moved.startX + dx,
+            y: moved.startY + dy,
+            width: moved.width,
+            height: moved.height,
+          });
         }
       }
-      setFrameMoveGuides(guides);
-      dispatch(
-        updateArtboardFrame({
-          id,
-          patch: {
-            x: Math.round(moving.left),
-            y: Math.round(moving.top),
-          },
-          skipHistory: true,
-        })
-      );
+      const nextDelta = { ...(document.deltaSetLike || {}) };
+      for (const item of childPatches) {
+        const node = nextDelta[item.nodeId];
+        if (node) nextDelta[item.nodeId] = { ...node, ...item.patch };
+      }
+      const nextDocument = {
+        ...document,
+        deltaSetLike: nextDelta,
+        frames: frames.map((item) => {
+          const moved = movedFrames.find((entry) => entry.id === item.id);
+          if (!moved) return item;
+          return { ...item, x: moved.startX + dx, y: moved.startY + dy };
+        }),
+      };
+      frameMoveDocumentRef.current = nextDocument;
+      dispatch(setDocumentFromCanvas(nextDocument));
     },
-    [dispatch, frames, gridSize]
+    [camera.zoom, dispatch, document, frames, gridSize]
   );
 
   const onFrameMoveStart = useCallback(
     (frameId: string) => {
+      const frameIds = selectedFrameIds.includes(frameId) ? selectedFrameIds : [frameId];
+      const movedFrames = frames
+        .filter((item) => frameIds.includes(item.id))
+        .map((item) => ({
+          id: item.id,
+          startX: Number(item.x) || 0,
+          startY: Number(item.y) || 0,
+          width: Math.max(1, Number(item.width) || 1),
+          height: Math.max(1, Number(item.height) || 1),
+      }));
+      if (movedFrames.length) {
+        frameMoveDocumentRef.current = document;
+        setFrameSmartGuides([]);
+        const boundNodeIds = nodeIdsBoundToFrames(document, frameIds);
+        console.warn('[frame-move-start]', JSON.stringify({
+          frameIds,
+          boundNodeIds,
+          nodes: boundNodeIds.map((nodeId) => {
+            const node = document.deltaSetLike?.[nodeId];
+            return {
+              nodeId,
+              frameId: node?.attrs?.frameId,
+              frameOrder: node?.attrs?.frameOrder,
+              x: node?.x,
+              y: node?.y,
+              width: node?.width,
+              height: node?.height,
+            };
+          }),
+        }, null, 2));
+        const childOrigins = boundNodeIds
+          .map((nodeId) => {
+            const node = document.deltaSetLike?.[nodeId];
+            if (!node) return null;
+            return {
+              nodeId,
+              x: Number(node.x) || 0,
+              y: Number(node.y) || 0,
+              width: Math.max(1, Number(node.width) || 1),
+              height: Math.max(1, Number(node.height) || 1),
+            };
+          })
+          .filter(Boolean) as Array<{
+            nodeId: string;
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+          }>;
+        frameDragRef.current = {
+          frames: movedFrames,
+          childOrigins,
+        };
+      }
       setMovingFrameId(frameId);
-      setFrameMoveGuides([]);
       dispatch(pushEditorHistory());
     },
-    [dispatch]
+    [dispatch, document, frames, selectedFrameIds]
   );
 
   const onFrameMoveEnd = useCallback(() => {
+    const frameIds = frameDragRef.current?.frames.map((item) => item.id) || [];
+    if (frameIds.length) {
+      const liveDocument = frameMoveDocumentRef.current || document;
+      const next = bindUnownedNodesToFrames(liveDocument, frameIds);
+      console.warn('[frame-bind-on-drop]', JSON.stringify({
+        frameIds,
+        boundNodeIds: nodeIdsBoundToFrames(next, frameIds),
+      }, null, 2));
+      if (next !== liveDocument) {
+        dispatch(setDocumentFromCanvas(next));
+      }
+    }
+    frameDragRef.current = null;
+    frameMoveDocumentRef.current = document;
+    setFrameSmartGuides([]);
     setMovingFrameId(null);
-    setFrameMoveGuides([]);
-  }, []);
+  }, [dispatch, document]);
 
   const onSelectFrame = useCallback(
     (id: string) => {
@@ -387,10 +674,6 @@ function EditorStageWorld({
     },
     [dispatch]
   );
-
-  const onClearCanvasSelection = useCallback(() => {
-    dispatch(setMixedSelection({ nodeIds: [], frameIds: [] }));
-  }, [dispatch]);
 
   const onRenameFrame = useCallback(
     (id: string, name: string, options?: { skipHistory?: boolean }) => {
@@ -418,6 +701,8 @@ function EditorStageWorld({
     [canvasFillValue, dispatch]
   );
 
+  const selectedFrameBox = useMemo(() => frameUnionBox(selectedFrames), [selectedFrames]);
+
   if (isMobileViewport || !document) return null;
 
   const showCanvasDiffuseMesh =
@@ -426,9 +711,10 @@ function EditorStageWorld({
     !isDevMode &&
     selectedFrames.length >= 1 &&
     selectedNodeIds.length === 0 &&
-    Boolean(activeFrame) &&
-    movingFrameId !== activeFrame?.id &&
+    Boolean(selectedFrameBox) &&
+    !selectedFrames.some((frame) => frame.id === movingFrameId) &&
     !selectionTransforming;
+  const showMultiFrameToolbar = showFrameToolbar && selectedFrames.length > 1;
   const aiNodeBox = aiOperationState?.active
     ? aiNodeWorldBox(document, aiOperationState.nodeId)
     : null;
@@ -507,6 +793,8 @@ function EditorStageWorld({
           />
         ) : null}
 
+        <SmartGuidesOverlay guides={frameSmartGuides} />
+
         <ImageProcessWatcher />
         <ImageToolPanelHost document={document} />
         <ShapeStylePanelHost document={document} />
@@ -544,7 +832,7 @@ function EditorStageWorld({
                 movingFrameId === frame.id ||
                 (selectionTransforming && selectedFrameIds.includes(frame.id))
               }
-              {...frameLabelInteractionProps(frame.id, isDevMode, {
+              {...frameLabelInteractionProps(frame.id, isDevMode, selectedFrameIds, {
                 onSelectFrame,
                 onRenameFrame,
                 onMoveFrame,
@@ -556,12 +844,15 @@ function EditorStageWorld({
           )
         )}
 
-        {showFrameToolbar && activeFrame ? (
-          <FrameContextToolbar frame={activeFrame} />
+        {showMultiFrameToolbar && selectedFrameBox ? (
+          <FrameMultiSelectionToolbar frames={selectedFrames} box={selectedFrameBox} />
         ) : null}
 
-        {frameMoveGuides.length > 0 ? (
-          <SmartGuidesOverlay guides={frameMoveGuides} mirrorNodeId={null} />
+        {showFrameToolbar && !showMultiFrameToolbar && activeFrame && selectedFrameBox ? (
+          <FrameContextToolbar
+            frame={activeFrame}
+            box={selectedFrameBox}
+          />
         ) : null}
 
         <FrameMoveFeature
@@ -569,7 +860,10 @@ function EditorStageWorld({
           frames={frames}
           camera={camera}
           stageEl={stageEl}
-          onClearSelection={onClearCanvasSelection}
+          onSelectFrame={onSelectFrame}
+          onMove={onMoveFrame}
+          onMoveStart={onFrameMoveStart}
+          onMoveEnd={onFrameMoveEnd}
         />
 
         <FrameDrawFeature

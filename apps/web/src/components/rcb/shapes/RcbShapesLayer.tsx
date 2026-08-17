@@ -214,6 +214,23 @@ function RcbShapesLayer({
   const camera = useRcbCamera();
   const { moving, efficientZoom } = useRcbCameraMotion();
   const viewportEl = useRcbViewportEl();
+  const frameClipToken = useMemo(
+    () =>
+      (document.frames || [])
+        .map((frame) =>
+          [
+            frame.id,
+            frame.x,
+            frame.y,
+            frame.width,
+            frame.height,
+            frame.clipContent,
+            frame.hidden,
+          ].join(','),
+        )
+        .join('|'),
+    [document.frames],
+  );
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   /** Coalesce pan/zoom cull to one update per frame. */
   const [cullCam, setCullCam] = useState({ x: camera.x, y: camera.y, zoom: camera.zoom });
@@ -361,7 +378,9 @@ function RcbShapesLayer({
             document={document}
             zIndex={stackZIndex(document, 'node', id)}
             reloadToken={patched.has(id) ? `${reloadToken}:${documentPatchToken}` : reloadToken}
+            frameClipToken={frameClipToken}
             forceHidden={hiddenNodeId === id || layerHidden}
+            revealOverflow={forceFullSet.has(id)}
           />
         );
       })}

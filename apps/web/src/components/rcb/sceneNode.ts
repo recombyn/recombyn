@@ -3,13 +3,13 @@
  * Persistent scene JSON shape; not HTTP product DTOs (`src/models`).
  *
  * Runtime: Zod schemas below for import / hydrate boundaries.
- * Edit path still uses TS + `normalizeDocument` (migrate, not hard-fail).
+ * Edit path still uses TS + `normalizeDocument` (fill defaults, not hard-fail).
  */
 
 import { z } from 'zod';
 import type { ArtboardFrame } from './frames/types';
 
-/** Known paint keys; string allows legacy / future kinds. */
+/** Known paint keys; string allows additional node kinds. */
 export type SceneNodeKey =
   | 'entry'
   | 'text'
@@ -54,7 +54,7 @@ export type SceneNodeInput = {
   z?: number;
   width?: number;
   height?: number;
-  /** Legacy / outline local boxes sometimes use left/top instead of x/y. */
+  /** Outline / paint helpers may use left/top instead of x/y. */
   left?: number;
   top?: number;
   attrs?: SceneNodeAttrs | null;
@@ -131,7 +131,7 @@ export const SceneRootNodeSchema = z
 
 /**
  * Content node shape for import. Key is open string (image/video/lottie/…).
- * id / attrs / children optional for legacy drafts; normalize fills defaults.
+ * id / attrs / children optional on ingest; normalize fills defaults.
  */
 export const SceneNodeSchema = z
   .object({
@@ -169,7 +169,7 @@ export type ValidateSceneDocumentResult =
   | { valid: true; data: SceneDocumentParsed }
   | { valid: false; error: string };
 
-/** Runtime-check unknown JSON as a scene document (does not migrate). */
+/** Runtime-check unknown JSON as a scene document (does not rewrite). */
 export function validateSceneDocument(data: unknown): ValidateSceneDocumentResult {
   try {
     const result = SceneDocumentSchema.safeParse(data);

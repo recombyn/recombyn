@@ -7,29 +7,51 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 
+USER_HEARTBEAT_INTERVAL_SECONDS = 2.0
+
+
 def sse_data(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 async def worker_run_sse(task_id: str) -> AsyncIterator[str]:
     from app.services.design.admin.task_store import TERMINAL_STATUSES, get_canvas_commands, get_design_task, get_task_events
+    from app.services.design.runtime.pipeline_progress import PipelineSseState
 
-    event_seq = command_seq = 0
+    event_seq = 0
+    # The command outbox has a durable browser ACK cursor. Start replay after
+    # it so a fresh SSE connection never re-sends already applied mutations.
+    command_state = await asyncio.to_thread(get_canvas_commands, task_id, after_seq=0)
+    command_seq = max(0, int(command_state.get("acked_seq") or 0))
+    progress = PipelineSseState(task_id=task_id)
+    last_heartbeat = 0.0
     yield ": connected\n\n"
-    yield sse_data({"type": "status", "task_id": task_id, "status": "queued"})
+    yield sse_data(
+        progress.decorate({"type": "status", "task_id": task_id, "status": "queued"})
+    )
     while True:
         for item in (await asyncio.to_thread(get_task_events, task_id, after_seq=event_seq)).get("items") or []:
             event_seq = max(event_seq, int(item.get("seq") or 0))
             if isinstance(event := item.get("event"), dict):
-                yield sse_data(event)
+                for frame in progress.observe(event):
+                    yield sse_data(progress.decorate(frame))
+                yield sse_data(progress.decorate(event))
         for item in (await asyncio.to_thread(get_canvas_commands, task_id, after_seq=command_seq)).get("items") or []:
             command_seq = max(command_seq, int(item.get("seq") or 0))
             if isinstance(event := item.get("event"), dict):
-                yield sse_data({**event, "command_seq": command_seq})
+                yield sse_data(progress.decorate({**event, "command_seq": command_seq}))
         row = await asyncio.to_thread(get_design_task, task_id)
         if row and str(row.get("status") or "") in (*TERMINAL_STATUSES, "error"):
+            if frame := progress.terminal_stage_event():
+                yield sse_data(progress.decorate(frame))
             yield "data: [DONE]\n\n"
             return
+        now = asyncio.get_running_loop().time()
+        if now - last_heartbeat >= USER_HEARTBEAT_INTERVAL_SECONDS:
+            last_heartbeat = now
+            if frame := progress.heartbeat_stage_event():
+                yield sse_data(progress.decorate(frame))
+            yield ": ping\n\n"
         await asyncio.sleep(0.25)
 
 
@@ -40,6 +62,7 @@ async def local_run_sse(
     persist: Callable[[dict[str, Any]], None],
     heartbeat: Callable[[], dict[str, Any] | None],
     terminal: Callable[[], dict[str, Any] | None],
+    decorate: Callable[[dict[str, Any]], dict[str, Any]],
     error_code: Callable[[Exception], str],
 ) -> AsyncIterator[str]:
     """Transport loop shared by local API execution and checkpoint resume."""
@@ -59,17 +82,21 @@ async def local_run_sse(
         try:
             async for event in source():
                 frames = emit(event)
-                for frame in [*frames, event]:
+                decorated_frames = [decorate(frame) for frame in frames]
+                decorated_event = decorate(event)
+                for frame in [*decorated_frames, decorated_event]:
                     persist(frame)
-                for frame in frames:
+                for frame in decorated_frames:
                     await deliver(("event", frame))
-                await deliver(("event", event))
+                await deliver(("event", decorated_event))
         except Exception as error:  # noqa: BLE001
             payload = {"type": "error", "code": error_code(error), "message": str(error)[:800]}
+            payload = decorate(payload)
             persist(payload)
             await deliver(("event", payload))
         finally:
             if frame := terminal():
+                frame = decorate(frame)
                 persist(frame)
                 await deliver(("event", frame))
             await deliver(("done", None))
@@ -78,10 +105,12 @@ async def local_run_sse(
     try:
         while True:
             try:
-                kind, payload = await asyncio.wait_for(queue.get(), timeout=8.0)
+                kind, payload = await asyncio.wait_for(
+                    queue.get(), timeout=USER_HEARTBEAT_INTERVAL_SECONDS
+                )
             except asyncio.TimeoutError:
                 if frame := heartbeat():
-                    yield sse_data(frame)
+                    yield sse_data(decorate(frame))
                 yield ": ping\n\n"
                 continue
             if kind == "done":

@@ -45,7 +45,7 @@ Details: [docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSO
 
 You can:
 
-- Build frames, shapes, text, images, video, Lottie; draw with pen / pencil (ribbon outline brush); select & transform  
+- Build frames, shapes, text, images, video, Lottie; draw with pen / pencil (filled-ribbon vector brushes); select & transform  
 - Run **boolean ops** (union / subtract / intersect, …)  
 - Set **stroke align**: center / **inside** / **outside**  
 - **Outline** a stroke into an editable filled path, then edit the path  

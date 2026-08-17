@@ -445,7 +445,47 @@ export function penSubpathsFromD(d: string): Array<{ anchors: PenAnchor[]; close
       continue;
     }
 
-    const argN = lower === 's' ? 4 : lower === 't' ? 2 : lower === 'a' ? 7 : 0;
+    const argN = lower === 's' ? 4 : lower === 't' ? 2 : 0;
+    if (lower === 'a') {
+      // Arc commands are normally densified before path editing. Keep a
+      // deterministic fallback for browsers where SVG getTotalLength is not
+      // available: consume all seven arc arguments and retain the endpoint.
+      // Dropping the endpoint shrinks rounded rectangles to their inset
+      // straight segments when the edit is committed.
+      while (i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i])) {
+        const rx = readNum();
+        const ry = readNum();
+        const rotation = readNum();
+        const largeArc = readNum();
+        const sweep = readNum();
+        let x = readNum();
+        let y = readNum();
+        if (
+          rx == null ||
+          ry == null ||
+          rotation == null ||
+          largeArc == null ||
+          sweep == null ||
+          x == null ||
+          y == null
+        ) {
+          break;
+        }
+        void rx;
+        void ry;
+        void rotation;
+        void largeArc;
+        void sweep;
+        if (rel) {
+          x += cx;
+          y += cy;
+        }
+        cx = x;
+        cy = y;
+        ensureAnchor(cx, cy);
+      }
+      continue;
+    }
     if (argN) {
       while (i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i])) {
         for (let k = 0; k < argN; k += 1) readNum();

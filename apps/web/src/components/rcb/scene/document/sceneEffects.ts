@@ -425,16 +425,29 @@ export type BackdropBlurSpec = {
 
 export type ObjectBlurSpec = { blur: number } | null;
 
+function effectNumber(value: unknown, fallback: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function hasShadowGeometry(blur: number, offsetX: number, offsetY: number): boolean {
+  return blur > 0 || offsetX !== 0 || offsetY !== 0;
+}
+
 export function resolveShadow(node: SceneNodeInput): ShadowSpec {
   const attrs = node?.attrs || {};
   if (!boolEffectAttr(attrs['shadow-enabled'], false) || !boolEffectAttr(attrs['shadow-visible'], true)) {
     return null;
   }
+  const blur = Math.max(0, effectNumber(attrs['shadow-blur'] ?? 4, 4));
+  const offsetX = effectNumber(attrs['shadow-x'] ?? 0, 0);
+  const offsetY = effectNumber(attrs['shadow-y'] ?? 2, 2);
+  if (!hasShadowGeometry(blur, offsetX, offsetY)) return null;
   return {
     color: String(attrs['shadow-color'] || 'rgba(0,0,0,0.25)'),
-    blur: Math.max(0, Number(attrs['shadow-blur'] ?? 4)),
-    offsetX: Number(attrs['shadow-x'] ?? 0),
-    offsetY: Number(attrs['shadow-y'] ?? 2),
+    blur,
+    offsetX,
+    offsetY,
   };
 }
 
@@ -446,20 +459,29 @@ export function resolveInnerShadow(node: SceneNodeInput): InnerShadowSpec {
   ) {
     return null;
   }
+  const blur = Math.max(0, effectNumber(attrs['inner-shadow-blur'] ?? 4, 4));
+  const offsetX = effectNumber(attrs['inner-shadow-x'] ?? 0, 0);
+  const offsetY = effectNumber(attrs['inner-shadow-y'] ?? 2, 2);
+  if (!hasShadowGeometry(blur, offsetX, offsetY)) return null;
   return {
     color: String(attrs['inner-shadow-color'] || 'rgba(0,0,0,0.25)'),
-    blur: Math.max(0, Number(attrs['inner-shadow-blur'] ?? 4)),
-    offsetX: Number(attrs['inner-shadow-x'] ?? 0),
-    offsetY: Number(attrs['inner-shadow-y'] ?? 2),
+    blur,
+    offsetX,
+    offsetY,
   };
 }
 
 export function resolveBackdropBlur(node: SceneNodeInput): BackdropBlurSpec {
   const attrs = node?.attrs || {};
   if (!boolEffectAttr(attrs['backdrop-blur-enabled'], false)) return null;
+  const blur = Math.max(0, effectNumber(attrs['backdrop-blur-amount'] ?? 12, 12));
+  const brightness = Math.max(0, effectNumber(attrs['backdrop-blur-brightness'] ?? 100, 100));
+  // A zero blur value is the panel's explicit off state. Do not leave a
+  // brightness-only backdrop filter behind when the user returns blur to 0.
+  if (blur === 0) return null;
   return {
-    blur: Math.max(0, Number(attrs['backdrop-blur-amount'] ?? 12)),
-    brightness: Math.max(0, Number(attrs['backdrop-blur-brightness'] ?? 100)),
+    blur,
+    brightness,
   };
 }
 

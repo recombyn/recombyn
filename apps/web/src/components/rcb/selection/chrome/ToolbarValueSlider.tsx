@@ -23,6 +23,7 @@ type Props = {
   min?: number;
   max?: number;
   step?: number;
+  precision?: number;
   onChange: (value: number) => void;
   title?: string;
   className?: string;
@@ -39,6 +40,7 @@ function ToolbarValueSlider({
   min = 0,
   max = 64,
   step = 1,
+  precision = 0,
   onChange,
   title,
   className,
@@ -46,7 +48,10 @@ function ToolbarValueSlider({
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const safe = Number.isFinite(value) ? Math.round(value) : min;
+  const factor = 10 ** Math.max(0, Math.round(precision));
+  const safe = Number.isFinite(value)
+    ? Math.round(value * factor) / factor
+    : min;
 
   useEffect(() => {
     if (!open) return undefined;

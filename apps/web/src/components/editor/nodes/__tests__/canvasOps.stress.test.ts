@@ -241,6 +241,70 @@ describe('canvas ops store stress', () => {
     expect((state.document!.frames || []).length).toBe(20);
   });
 
+  it('deleting an artboard removes nodes bound to it in one history step', () => {
+    let state = seed();
+    state = reducer(
+      state,
+      addArtboardFrame({
+        x: 100,
+        y: 100,
+        width: 200,
+        height: 150,
+        name: 'delete-me',
+        activate: true,
+      })
+    );
+    const frameId = String(state.document!.frames?.[0]?.id || '');
+    const inside = createShapeNode({
+      x: 130,
+      y: 130,
+      width: 40,
+      height: 40,
+      shapeType: 'rect',
+    });
+    inside.node.attrs = { ...(inside.node.attrs || {}), frameId };
+    const crossing = createShapeNode({
+      x: 270,
+      y: 160,
+      width: 80,
+      height: 40,
+      shapeType: 'rect',
+    });
+    crossing.node.attrs = { ...(crossing.node.attrs || {}), frameId };
+    const outside = createShapeNode({
+      x: 400,
+      y: 400,
+      width: 40,
+      height: 40,
+      shapeType: 'rect',
+    });
+    const overlapUnbound = createShapeNode({
+      x: 150,
+      y: 140,
+      width: 50,
+      height: 50,
+      shapeType: 'rect',
+    });
+    state = addCreated(state, inside);
+    state = addCreated(state, crossing);
+    state = addCreated(state, outside);
+    state = addCreated(state, overlapUnbound);
+
+    state = reducer(state, removeArtboardFrames([frameId]));
+    expect(state.document!.frames || []).toHaveLength(0);
+    expect(state.document!.deltaSetLike[inside.id]).toBeUndefined();
+    expect(state.document!.deltaSetLike[crossing.id]).toBeUndefined();
+    expect(state.document!.deltaSetLike[outside.id]).toBeDefined();
+    expect(state.document!.deltaSetLike[overlapUnbound.id]).toBeDefined();
+
+    state = reducer(state, undo());
+    expect(state.document!.frames || []).toHaveLength(1);
+    expect(state.document!.deltaSetLike[inside.id]).toBeDefined();
+    expect(state.document!.deltaSetLike[crossing.id]).toBeDefined();
+    expect(state.document!.deltaSetLike[outside.id]).toBeDefined();
+    expect(state.document!.deltaSetLike[overlapUnbound.id]).toBeDefined();
+  });
+
   it('tool + shapeKind cycling stays coherent', () => {
     let state = seed();
     for (let round = 0; round < 25; round += 1) {
@@ -291,7 +355,7 @@ describe('canvas ops store stress', () => {
     );
     const id = String(state.selectedNodeId);
     expect(id.length).toBeGreaterThan(2);
-    for (const kind of ['mark', 'eraser', 'crop', 'expand', 'adjust', 'multiAngle'] as const) {
+    for (const kind of ['mark', 'eraser', 'crop', 'expand', 'adjust', 'effects', 'blendMode', 'opacity', 'multiAngle'] as const) {
       state = reducer(state, openImageToolPanel({ nodeId: id, kind }));
       expect(state.imageToolPanel?.kind).toBe(kind);
       expect(state.imageToolPanel?.nodeId).toBe(id);
