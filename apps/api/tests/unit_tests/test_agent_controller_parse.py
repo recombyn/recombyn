@@ -420,7 +420,9 @@ def test_lean_paint_user_uses_digest_not_full_scene_dump():
     assert "DELETE SAFETY" in user
     assert "LEAN_CANVAS_OP" in user
     assert "fill=#22c55e" in user or "SCENE_NODES" in user
-    assert "RECENT_DIALOGUE" in user or "MEMORY" in user
+    # Lean canvas_op is prompt + digest + tools; MEMORY/dialogue stay on decide.
+    assert "RECENT_DIALOGUE" not in user
+    assert "MEMORY:" not in user
     # Lean must not dump the old multi-k SCENE_NODES JSON block.
     assert user.count("SCENE_NODES") <= 1
 

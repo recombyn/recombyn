@@ -254,8 +254,8 @@ def test_normalize_clarification_rejects_unknown_target_ids():
     )
 
     assert ok is False
-    assert question == ""
-    assert options == []
+    assert question == "要改哪一个标题？"
+    assert options == [{"label": "顶部标题", "target_id": "title_top"}]
 
 
 def test_normalize_clarification_keeps_verified_target_ids():
