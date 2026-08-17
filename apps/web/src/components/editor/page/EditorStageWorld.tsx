@@ -39,7 +39,14 @@ import {
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
   snapBoxToGrid,
+  smartGuideTargetPad,
+  smartSnapThreshold,
+  snapTranslateToPeers,
+  type SmartGuideLine,
 } from '@/components/rcb/selection/alignGuides';
+import { collectSmartGuideTargets } from '@/components/rcb/selection/selectionLogic';
+import { frameSelId } from '@/components/rcb/selection/frameSelectionIds';
+import SmartGuidesOverlay from '@/components/rcb/selection/chrome/SmartGuidesOverlay';
 import {
   parseFillGradient,
   serializeFillGradient,
@@ -397,6 +404,7 @@ function EditorStageWorld({
     (state: RootState) => state.editor.aiOperationState
   );
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
+  const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
   const [selectionTransforming, setSelectionTransforming] = useState(false);
   const frameDragRef = useRef<{
     frames: Array<{
@@ -433,13 +441,62 @@ function EditorStageWorld({
         width: Math.max(1, Number(baseFrame.width) || 1),
         height: Math.max(1, Number(baseFrame.height) || 1),
       };
-      // Frame movement uses grid snapping only. Do not render alignment guides
-      // during the drag; they flicker while the frame and its children repaint.
       if (!opts?.skipGrid) {
         if (gridSize > 0) {
           moving = snapBoxToGrid(moving, gridSize);
         }
       }
+      const movedFrameIds = new Set(
+        (dragState?.frames || [{ id }]).map((item) => item.id)
+      );
+      const threshold = smartSnapThreshold(camera.zoom);
+      const movedChildIds = nodeIdsBoundToFrames(document, [...movedFrameIds]);
+      const excludeIds = new Set<string>([
+        ...movedChildIds,
+        ...[...movedFrameIds, id].flatMap((frameId) => [frameId, frameSelId(frameId)]),
+      ]);
+      const nodeIds = Object.keys(document.deltaSetLike || {}).filter(
+        (nodeId) => nodeId !== 'ROOT'
+      );
+      const guideTargets = collectSmartGuideTargets(
+        document,
+        () => nodeIds,
+        (nodeId) => {
+          const node = document.deltaSetLike?.[nodeId];
+          if (!node) return null;
+          const box = nodeBox(node);
+          return {
+            left: box.x,
+            top: box.y,
+            width: box.width,
+            height: box.height,
+          };
+        },
+        excludeIds,
+        {
+          nearBox: moving,
+          pad: smartGuideTargetPad(threshold),
+          queryNodeIdsInRect: (area) =>
+            nodeIds.filter((nodeId) => {
+              const node = document.deltaSetLike?.[nodeId];
+              if (!node) return false;
+              const box = nodeBox(node);
+              return !(
+                box.x + box.width < area.left ||
+                box.x > area.left + area.width ||
+                box.y + box.height < area.top ||
+                box.y > area.top + area.height
+              );
+            }),
+        }
+      );
+      const snapped = snapTranslateToPeers(
+        moving,
+        guideTargets,
+        threshold
+      );
+      moving = snapped.box;
+      setFrameSmartGuides(snapped.guides);
       const nextX = Math.round(moving.left);
       const nextY = Math.round(moving.top);
       const baseX = (dragged?.startX ?? Number(baseFrame.x)) || 0;
@@ -527,7 +584,7 @@ function EditorStageWorld({
       frameMoveDocumentRef.current = nextDocument;
       dispatch(setDocumentFromCanvas(nextDocument));
     },
-    [dispatch, document, frames, gridSize]
+    [camera.zoom, dispatch, document, frames, gridSize]
   );
 
   const onFrameMoveStart = useCallback(
@@ -544,6 +601,7 @@ function EditorStageWorld({
       }));
       if (movedFrames.length) {
         frameMoveDocumentRef.current = document;
+        setFrameSmartGuides([]);
         const boundNodeIds = nodeIdsBoundToFrames(document, frameIds);
         console.warn('[frame-move-start]', JSON.stringify({
           frameIds,
@@ -606,6 +664,7 @@ function EditorStageWorld({
     }
     frameDragRef.current = null;
     frameMoveDocumentRef.current = document;
+    setFrameSmartGuides([]);
     setMovingFrameId(null);
   }, [dispatch, document]);
 
@@ -733,6 +792,8 @@ function EditorStageWorld({
             zoom={rcbCameraCssZoom(camera)}
           />
         ) : null}
+
+        <SmartGuidesOverlay guides={frameSmartGuides} />
 
         <ImageProcessWatcher />
         <ImageToolPanelHost document={document} />

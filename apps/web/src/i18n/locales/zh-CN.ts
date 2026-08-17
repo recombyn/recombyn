@@ -842,6 +842,7 @@ const zhCN = {
     pathEditCurve: '曲线',
     pathEditExit: '退出编辑',
     pathEditDone: '退出编辑 (Esc)',
+    unitPx: '像素',
     minimap: '小地图',
     grid: '网格吸附',
     shortcuts: {

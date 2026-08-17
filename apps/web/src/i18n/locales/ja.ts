@@ -829,6 +829,7 @@ const ja = {
     pathEditCurve: '曲線',
     pathEditExit: '編集を終了',
     pathEditDone: '編集を終了 (Esc)',
+    unitPx: 'px',
     minimap: 'ミニマップ',
     grid: 'グリッド吸着',
     shortcuts: {
