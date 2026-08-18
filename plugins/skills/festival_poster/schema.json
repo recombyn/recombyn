@@ -1,5 +1,5 @@
 {
-  "input": {
+  "input_schema": {
     "type": "object",
     "properties": {
       "festival": { "type": "string", "description": "Holiday name, e.g. Mid-Autumn" },
@@ -9,7 +9,7 @@
     },
     "required": ["festival"]
   },
-  "output": {
+  "output_schema": {
     "type": "object",
     "allowed_ops": [
       "create_frame",

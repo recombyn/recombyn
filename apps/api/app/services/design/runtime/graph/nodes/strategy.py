@@ -15,7 +15,7 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     parse_design_strategy,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 
 # Category → default axis strategies (filled when Research reports that category).
 _CATEGORY_STRATEGY: dict[str, dict[str, str]] = {

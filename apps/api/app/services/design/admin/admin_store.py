@@ -107,13 +107,13 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
     item: dict[str, Any] | None = None
-    skill_key = payload.get("skillKey") or payload.get("skill_key")
+    skill_key = payload.get("skillKey")
     skill_key = str(skill_key).strip() if skill_key else None
     category = str(payload.get("category") or "layout").strip() or "layout"
-    prompt_positive = str(payload.get("promptPositive") or payload.get("prompt_positive") or "")
-    prompt_negative = payload.get("promptNegative") or payload.get("prompt_negative")
-    when_to_use = str(payload.get("whenToUse") or payload.get("when_to_use") or "").strip()
-    preferred_raw = payload.get("preferredTools") or payload.get("preferred_tools")
+    prompt_positive = str(payload.get("promptPositive") or "")
+    prompt_negative = payload.get("promptNegative")
+    when_to_use = str(payload.get("whenToUse") or "").strip()
+    preferred_raw = payload.get("preferredTools")
     if isinstance(preferred_raw, list):
         preferred_tools = json.dumps(
             [str(x).strip() for x in preferred_raw if str(x).strip()],
@@ -123,7 +123,7 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
         preferred_tools = str(preferred_raw).strip()
     else:
         preferred_tools = None
-    resources_raw = payload.get("allowedResources") or payload.get("allowed_resources")
+    resources_raw = payload.get("allowedResources")
     if isinstance(resources_raw, list):
         allowed_resources = json.dumps(
             [str(x).strip().lower() for x in resources_raw if str(x).strip()],
@@ -135,18 +135,16 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
         # Custom admin skills default: tools only.
         allowed_resources = json.dumps(["tools"], ensure_ascii=False)
     in_schema_obj, in_errs = validate_skill_io_schema(
-        payload.get("inputSchema") or payload.get("input_schema"), field="input_schema"
+        payload.get("inputSchema"), field="input_schema"
     )
     out_schema_obj, out_errs = validate_skill_io_schema(
-        payload.get("outputSchema") or payload.get("output_schema"), field="output_schema"
+        payload.get("outputSchema"), field="output_schema"
     )
     if in_errs or out_errs:
         raise ValueError("; ".join(in_errs + out_errs))
     input_schema = json.dumps(in_schema_obj, ensure_ascii=False) if in_schema_obj else None
     output_schema = json.dumps(out_schema_obj, ensure_ascii=False) if out_schema_obj else None
-    owner_user_id = str(
-        payload.get("ownerUserId") or payload.get("owner_user_id") or ""
-    ).strip() or None
+    owner_user_id = str(payload.get("ownerUserId") or "").strip() or None
     triggers_raw = payload.get("triggers")
     if isinstance(triggers_raw, (list, dict)):
         triggers_json = json.dumps(triggers_raw, ensure_ascii=False)
@@ -154,23 +152,21 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
         triggers_json = str(triggers_raw).strip()
     else:
         triggers_json = None
-    mutex_group = str(payload.get("mutexGroup") or payload.get("mutex_group") or "").strip()
+    mutex_group = str(payload.get("mutexGroup") or "").strip()
     try:
         version = int(payload.get("version") or 0)
     except (TypeError, ValueError):
         version = 0
-    sort_weight = int(payload.get("sortWeight") or payload.get("sort_weight") or 0)
+    sort_weight = int(payload.get("sortWeight") or 0)
     scenes = str(payload.get("scenes") or "all").strip() or "all"
-    default_model = str(payload.get("defaultModel") or payload.get("default_model") or "doubao")
-    max_retries = int(payload.get("maxRetries") or payload.get("max_retries") or 2)
+    default_model = str(payload.get("defaultModel") or "doubao")
+    max_retries = int(payload.get("maxRetries") or 2)
     enabled = 1 if payload.get("enabled", True) else 0
-    output_format = str(payload.get("outputFormat") or payload.get("output_format") or "json")
-    allow_override = 1 if payload.get("allowUserModelOverride") or payload.get("allow_user_model_override") else 0
+    output_format = str(payload.get("outputFormat") or "json")
+    allow_override = 1 if payload.get("allowUserModelOverride") else 0
     description = str(payload.get("description") or "").strip()
     logo = str(payload.get("logo") or "").strip() or None
-    pack_version = str(
-        payload.get("packVersion") or payload.get("pack_version") or ""
-    ).strip() or None
+    pack_version = str(payload.get("packVersion") or "").strip() or None
     locales_raw = payload.get("locales")
     if isinstance(locales_raw, dict):
         locales_json = json.dumps(locales_raw, ensure_ascii=False)
@@ -3713,7 +3709,7 @@ def generate_usage_optimize_patches(*, source: str = "manual") -> dict[str, Any]
         if str(s.get("skillKey") or "").strip()
     }
     for row in by_skill:
-        sk_key = str(row.get("skill") or row.get("skillKey") or "").strip()
+        sk_key = str(row.get("skillKey") or "").strip()
         sk = skill_lookup.get(sk_key)
         if not sk or not sk.get("enabled"):
             continue

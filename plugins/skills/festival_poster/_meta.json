@@ -21,23 +21,23 @@
   "allowed_resources": [
     "tools"
   ],
-  "permissions": [
-    "读取画布图层",
-    "新建画布帧",
-    "调用LLM生成图文"
-  ],
-  "trigger_keywords": [
-    "中秋海报",
-    "中秋",
-    "新年海报",
-    "春节海报",
-    "国庆海报",
-    "圣诞海报",
-    "节日海报",
-    "festival poster",
-    "holiday poster",
-    "new year poster",
-    "mid-autumn"
+  "triggers": [
+    {
+      "intent_in": ["create", "edit"],
+      "prompt_includes_any": [
+        "中秋海报",
+        "中秋",
+        "新年海报",
+        "春节海报",
+        "国庆海报",
+        "圣诞海报",
+        "节日海报",
+        "festival poster",
+        "holiday poster",
+        "new year poster",
+        "mid-autumn"
+      ]
+    }
   ],
   "mutex_group": "",
   "prompt_negative": "Unless the user provides them, avoid inventing board facts such as prices, phones, QR codes, or real brand logos. Prefer overlay text over baking titles into the background. Prefer poster_craft for generic non-holiday posters.",

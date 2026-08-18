@@ -15,7 +15,7 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     parse_design_swarm,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 
 # Catalog ids exposed via need_subagents (align with Profile spawn names when present).
 _SWARM_SUBAGENT_IDS: tuple[str, ...] = (

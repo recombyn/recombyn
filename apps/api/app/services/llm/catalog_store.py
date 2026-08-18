@@ -692,9 +692,7 @@ def upsert_model(payload: dict[str, Any]) -> dict[str, Any]:
     if kind not in ('text', 'image', 'video', 'audio'):
         raise ValueError('kind must be text|image|video|audio')
     ref_types = _normalize_reference_types(
-        payload.get('referenceTypes')
-        if payload.get('referenceTypes') is not None
-        else payload.get('reference_types'),
+        payload.get('referenceTypes'),
         kind=kind,
     )
     if kind == 'image' and 'image' not in ref_types:
@@ -708,24 +706,22 @@ def upsert_model(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError('text models cannot be image-only; add text and/or vision')
     ref_types_json = _serialize_reference_types(ref_types)
     provider = str(payload.get('provider') or 'doubao').strip() or 'doubao'
-    api_model = str(payload.get('apiModel') or payload.get('api_model') or mid).strip()
+    api_model = str(payload.get('apiModel') or mid).strip()
     description = payload.get('description')
-    icon_key = payload.get('iconKey') or payload.get('icon_key')
-    icon_url = payload.get('iconUrl') or payload.get('icon_url')
+    icon_key = payload.get('iconKey')
+    icon_url = payload.get('iconUrl')
     price_raw = payload.get('price')
     price = (str(price_raw).strip() if price_raw is not None else '') or None
-    pricing_id_raw = payload.get('pricingId') or payload.get('pricing_id')
+    pricing_id_raw = payload.get('pricingId')
     pricing_id = (str(pricing_id_raw).strip() if pricing_id_raw is not None else '') or None
     if not pricing_id:
         pricing_id = f'price:{mid}'
-    max_attachments = int(payload.get('maxAttachments') or payload.get('max_attachments') or 8)
+    max_attachments = int(payload.get('maxAttachments') or 8)
     thinking = 1 if payload.get('thinking') else 0
     enabled = 1 if payload.get('enabled', True) else 0
-    sort_order = int(payload.get('sortOrder') or payload.get('sort_order') or 100)
+    sort_order = int(payload.get('sortOrder') or 100)
     limits_payload = payload.get('imageLimits')
-    if limits_payload is None:
-        limits_payload = payload.get('image_limits')
-    preset = payload.get('imageLimitPreset') or payload.get('image_limit_preset')
+    preset = payload.get('imageLimitPreset')
     if kind == 'image':
         image_limits = resolve_image_limits(limits_payload, preset=str(preset or '') or None)
     else:

@@ -21,7 +21,7 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     parse_design_governance,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 from app.services.design.runtime.models_route import normalize_user_intent
 
 _HEX = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b")

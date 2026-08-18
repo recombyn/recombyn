@@ -73,16 +73,14 @@ def _truthy_flag(raw: Any) -> bool:
 
 def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
     """When to rembg after gen — lettering overlays + product plates (no white box)."""
-    if str(args.get("letteringText") or args.get("lettering_text") or "").strip():
+    if str(args.get("letteringText") or "").strip():
         return "product"
-    mode = str(args.get("cutoutMode") or args.get("cutout_mode") or "").strip().lower()
+    mode = str(args.get("cutoutMode") or "").strip().lower()
     if mode in ("product", "hair"):
         return mode
-    if _truthy_flag(args.get("removeBg")) or _truthy_flag(args.get("remove_bg")):
+    if _truthy_flag(args.get("removeBg")):
         return "product"
-    if _truthy_flag(args.get("cutout")):
-        return "product"
-    prompt = str(args.get("genPrompt") or args.get("prompt") or "").lower()
+    prompt = str(args.get("genPrompt") or "").lower()
     if any(c in prompt for c in _PRODUCT_PLATE_CUES):
         return "product"
     return None
@@ -165,9 +163,9 @@ def _needs_image_hydrate(op: dict[str, Any]) -> bool:
     args = op.get("args") if isinstance(op.get("args"), dict) else {}
     if args.get("attachmentIndex") is not None:
         return False
-    if str(args.get("src") or args.get("url") or "").strip():
+    if str(args.get("src") or "").strip():
         return False
-    return bool(str(args.get("genPrompt") or args.get("prompt") or "").strip())
+    return bool(str(args.get("genPrompt") or "").strip())
 
 
 def _pending_hydrate_count(ops: list[dict[str, Any]], *, limit: int) -> int:
@@ -348,8 +346,8 @@ async def _hydrate_tool_ops_images(
 
     async def _one(op: dict[str, Any]) -> dict[str, Any]:
         args = dict(op.get("args") or {}) if isinstance(op.get("args"), dict) else {}
-        prompt = str(args.get("genPrompt") or args.get("prompt") or "").strip()
-        lettering = str(args.get("letteringText") or args.get("lettering_text") or "").strip()
+        prompt = str(args.get("genPrompt") or "").strip()
+        lettering = str(args.get("letteringText") or "").strip()
         # letteringText must reach the image model — otherwise calligraphy gens ignore glyphs.
         if lettering and lettering not in prompt:
             prompt = (

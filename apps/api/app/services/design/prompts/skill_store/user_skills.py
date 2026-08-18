@@ -24,7 +24,6 @@ from .constants import (
     SOURCE_FILE,
     _MAX_USER_SKILL_ZIP_BYTES,
     _MAX_USER_SKILL_ZIP_UNCOMPRESSED,
-    _META_NAMES,
     _ZIP_LOGO_EXTS,
 )
 from .ensure import ensure_design_skills
@@ -36,11 +35,9 @@ from .keys import (
 )
 from .pack_io import (
     _locale_pick,
-    _meta_from_agent_skill_frontmatter,
     _parse_pack_version,
     _read_json_file,
     _skill_md_path,
-    _split_skill_md_frontmatter,
 )
 from .runtime import (
     _load_user_skill_prefs,
@@ -261,17 +258,11 @@ def upsert_end_user_skill(*, user_id: str, payload: dict[str, Any]) -> dict[str,
     name = str(payload.get("name") or "").strip()
     if not name:
         raise ValueError("name required")
-    prompt_positive = str(
-        payload.get("promptPositive") or payload.get("prompt_positive") or ""
-    ).strip()
+    prompt_positive = str(payload.get("promptPositive") or "").strip()
     if not prompt_positive:
         raise ValueError("promptPositive required")
-    prompt_negative = str(
-        payload.get("promptNegative") or payload.get("prompt_negative") or ""
-    ).strip()
-    when_to_use = str(
-        payload.get("whenToUse") or payload.get("when_to_use") or ""
-    ).strip()
+    prompt_negative = str(payload.get("promptNegative") or "").strip()
+    when_to_use = str(payload.get("whenToUse") or "").strip()
     description = str(payload.get("description") or "").strip()
     logo = str(payload.get("logo") or "").strip() or None
     category = str(payload.get("category") or "custom").strip() or "custom"
@@ -334,9 +325,7 @@ def upsert_end_user_skill(*, user_id: str, payload: dict[str, Any]) -> dict[str,
                 enabled=enabled,
             )
         else:
-            raw_key = str(
-                payload.get("skillKey") or payload.get("skill_key") or ""
-            ).strip()
+            raw_key = str(payload.get("skillKey") or "").strip()
             if raw_key:
                 _, local = split_namespace_key(raw_key)
                 local = local or raw_key
@@ -434,7 +423,7 @@ def _import_result(
 def _zip_entry_allowed(rel: str) -> bool:
     """Whitelist pack files inside a user-uploaded skill zip."""
     name = Path(rel.replace("\\", "/")).name.lower()
-    if name in _META_NAMES or name in ("skill.md", "design.md"):
+    if name in ("_meta.json", "skill.md"):
         return True
     if name in (
         "license",
@@ -528,64 +517,38 @@ def _extract_user_skill_zip(raw: bytes, dest: Path) -> tuple[Path | None, list[d
     checks.append(_zip_check("path", True, "paths_ok"))
 
     pack_dir = _resolve_extracted_pack_dir(dest, written)
-    has_meta = any((pack_dir / n).is_file() for n in _META_NAMES)
+    has_meta = (pack_dir / "_meta.json").is_file()
     skill_md = _skill_md_path(pack_dir)
     has_body = skill_md is not None
-    fm_ok = False
-    if has_body and not has_meta and skill_md is not None:
-        try:
-            fm, body = _split_skill_md_frontmatter(skill_md.read_text(encoding="utf-8"))
-            fm_ok = bool(body) and _meta_from_agent_skill_frontmatter(
-                fm, folder=pack_dir.name
-            ) is not None
-        except Exception:
-            fm_ok = False
-    meta_ok = has_meta or fm_ok
     checks.append(
         _zip_check(
             "meta",
-            meta_ok,
-            "meta_present"
-            if has_meta
-            else ("meta_from_skill_frontmatter" if fm_ok else "meta_missing"),
+            has_meta,
+            "meta_present" if has_meta else "meta_missing",
         )
     )
     checks.append(
         _zip_check("skill_md", has_body, "skill_md_present" if has_body else "skill_md_missing")
     )
-    if not meta_ok or not has_body:
+    if not has_meta or not has_body:
         return None, checks
     return pack_dir, checks
 
 def _read_pack_meta(pack_dir: Path) -> dict[str, Any] | None:
-    for name in _META_NAMES:
-        p = pack_dir / name
-        if not p.is_file():
-            continue
-        meta = _read_json_file(p)
-        if meta:
-            return meta
-    skill_md = _skill_md_path(pack_dir)
-    if not skill_md:
+    p = pack_dir / "_meta.json"
+    if not p.is_file():
         return None
-    try:
-        fm, body = _split_skill_md_frontmatter(skill_md.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    if not body:
-        return None
-    return _meta_from_agent_skill_frontmatter(fm, folder=pack_dir.name)
+    return _read_json_file(p)
 
 def _read_pack_skill_md(pack_dir: Path) -> tuple[str | None, str | None]:
-    """Return (body, error_label). Strips YAML frontmatter when present."""
+    """Return (body, error_label)."""
     skill_md = _skill_md_path(pack_dir)
     if not skill_md:
         return None, "skill_md_missing"
     try:
-        raw = skill_md.read_text(encoding="utf-8")
+        body = skill_md.read_text(encoding="utf-8").strip()
     except Exception:
         return None, "skill_md_unreadable"
-    _fm, body = _split_skill_md_frontmatter(raw)
     if not body:
         return None, "prompt_positive_required"
     return body, None
@@ -595,21 +558,16 @@ def _pack_display_fields(meta: dict[str, Any], *, local: str) -> tuple[str, str,
     loc = _locale_pick(locales) if locales else {}
     display = str(
         loc.get("displayName")
-        or loc.get("display_name")
         or meta.get("displayName")
-        or meta.get("display_name")
-        or meta.get("title")
-        or meta.get("name")
         or local
     ).strip() or local
     description = str(
         loc.get("description")
         or meta.get("description")
         or meta.get("when_to_use")
-        or meta.get("whenToUse")
         or ""
     ).strip()
-    when = str(meta.get("when_to_use") or meta.get("whenToUse") or description).strip()
+    when = str(meta.get("when_to_use") or description).strip()
     return display, description, when
 
 def _pack_logo_url(meta: dict[str, Any]) -> str | None:
@@ -630,9 +588,7 @@ def _parse_user_skill_pack_dir(
         return None, [body_err or "prompt_positive_required"]
 
     folder = pack_dir.name
-    key_raw = str(
-        meta.get("skill_key") or meta.get("skillKey") or meta.get("name") or folder
-    ).strip()
+    key_raw = str(meta.get("skill_key") or folder).strip()
     ns_prefix, local = split_namespace_key(key_raw)
     local = _slug_local_key((local or key_raw or folder).strip().lower() or folder)
     errs: list[str] = []
@@ -642,7 +598,7 @@ def _parse_user_skill_pack_dir(
     skill_key = qualify_skill_key(NS_USER, local)
     display, description, when = _pack_display_fields(meta, local=local)
     pack_label, _ver = _parse_pack_version(
-        meta.get("version") or meta.get("pack_version") or meta.get("packVersion") or 1
+        meta.get("version") or 1
     )
     errs.extend(
         validate_skill_meta(
@@ -652,8 +608,8 @@ def _parse_user_skill_pack_dir(
                 "prompt_positive": body,
                 "allowed_resources": ["tools"],
                 "namespace": NS_USER,
-                "input_schema": meta.get("input_schema") or meta.get("inputSchema"),
-                "output_schema": meta.get("output_schema") or meta.get("outputSchema"),
+                "input_schema": meta.get("input_schema"),
+                "output_schema": meta.get("output_schema"),
             },
             source=SOURCE_ADMIN,
         )
@@ -661,7 +617,7 @@ def _parse_user_skill_pack_dir(
     if errs:
         return None, errs
 
-    neg = str(meta.get("prompt_negative") or meta.get("promptNegative") or "").strip()
+    neg = str(meta.get("prompt_negative") or "").strip()
     return {
         "skillKey": skill_key,
         "name": display,

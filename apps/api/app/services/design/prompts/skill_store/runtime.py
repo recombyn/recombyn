@@ -455,7 +455,7 @@ def _apply_skill_pin(
 def save_skill_revision(session: Session, *, skill_id: int, item: dict[str, Any]) -> None:
     """Persist a version snapshot (best-effort; never breaks upsert)."""
     try:
-        key = str(item.get("skillKey") or item.get("skill_key") or "").strip()
+        key = str(item.get("skillKey") or "").strip()
         if not key:
             return
         ver = int(item.get("version") or 1)
@@ -489,7 +489,7 @@ def save_skill_revision(session: Session, *, skill_id: int, item: dict[str, Any]
             skill_key=key,
             namespace=str(item.get("namespace") or NS_USER),
             version=ver,
-            pack_version=str(item.get("packVersion") or item.get("pack_version") or "")
+            pack_version=str(item.get("packVersion") or "")
             or None,
             snapshot=json.dumps(snap, ensure_ascii=False),
             source=str(item.get("source") or SOURCE_ADMIN),
@@ -987,20 +987,14 @@ def parse_need_skills_with_pins(
         pin_p: str | None = None
         arg_obj: Any = None
         if isinstance(item, dict):
-            key_raw = str(
-                item.get("key")
-                or item.get("skill_key")
-                or item.get("skillKey")
-                or item.get("id")
-                or ""
-            ).strip()
+            key_raw = str(item.get("key") or "").strip()
             if "version" in item and item.get("version") is not None:
                 try:
                     pin_i = int(item.get("version"))
                 except (TypeError, ValueError):
                     pin_p = str(item.get("version"))
-            if item.get("packVersion") or item.get("pack_version"):
-                pin_p = str(item.get("packVersion") or item.get("pack_version"))
+            if item.get("packVersion"):
+                pin_p = str(item.get("packVersion"))
             if "args" in item:
                 arg_obj = item.get("args")
         else:

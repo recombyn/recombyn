@@ -10,7 +10,7 @@ Also:
   - I/O: pack/admin meta validation; need_skills pin/args vs input_schema; ops vs output_schema
   - Version: integer bump + pack_version + design_skill_revision snapshots; pin via ``key@N``
   - Hot reload: optional mtime watcher on file packs
-  - Formats: product ``_meta.json``+``SKILL.md``, or ``SKILL.md`` with YAML frontmatter
+  - Formats: product ``_meta.json`` + ``SKILL.md``
 """
 from __future__ import annotations
 
@@ -66,7 +66,6 @@ from .pack_io import (
     _load_file_skills,
     _load_pack_dir,
     _locale_pick,
-    _meta_from_agent_skill_frontmatter,
     _pack_has_product_meta,
     _parse_pack_version,
     _read_json_file,
@@ -80,8 +79,6 @@ from .pack_io import (
     reject_skill_proposal,
     regression_blocks_deploy,
     _skill_md_path,
-    _split_skill_md_frontmatter,
-    _unquote_yaml_scalar,
 )
 from .runtime import (
     _apply_mutex,
@@ -192,10 +189,7 @@ __all__ = [
     "_load_file_skills",
     "_load_pack_dir",
     "_parse_pack_version",
-    "_meta_from_agent_skill_frontmatter",
-    "_split_skill_md_frontmatter",
     "_skill_md_path",
-    "_unquote_yaml_scalar",
     "_repo_root",
     "_agents_skills_dir",
     "_file_skills_dir",

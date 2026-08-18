@@ -19,7 +19,6 @@ from .constants import (
     _DISK_SIGNATURE,
     _HOT_RELOAD_STOP,
     _HOT_RELOAD_THREAD,
-    _META_NAMES,
     _PROTECTED_FROM_FILE,
     _SKILLS_LOCK,
     _SKILLS_READY,
@@ -140,13 +139,11 @@ def _triggers_json(item: dict[str, Any]) -> str:
     return json.dumps(_parse_triggers(item.get("triggers")), ensure_ascii=False)
 
 def _preferred_json(item: dict[str, Any]) -> str:
-    preferred = item.get("preferred_tools") or item.get("preferredTools") or []
+    preferred = item.get("preferred_tools") or []
     return json.dumps(preferred if isinstance(preferred, list) else [], ensure_ascii=False)
 
 def _allowed_resources_json(item: dict[str, Any], *, source: str) -> str | None:
     raw = item.get("allowed_resources")
-    if raw is None:
-        raw = item.get("allowedResources")
     parsed = _parse_allowed_resources(raw)
     if parsed is None:
         if source == SOURCE_ADMIN:
@@ -187,17 +184,17 @@ def _upsert_owned_skill(
     namespace = _normalize_namespace(item.get("namespace"), source=source)
     name = str(item.get("name") or key).strip() or key
     category = str(item.get("category") or "agent").strip() or "agent"
-    when = str(item.get("when_to_use") or item.get("whenToUse") or "").strip()
-    pos = str(item.get("prompt_positive") or item.get("promptPositive") or "")
-    neg = str(item.get("prompt_negative") or item.get("promptNegative") or "")
+    when = str(item.get("when_to_use") or "").strip()
+    pos = str(item.get("prompt_positive") or "")
+    neg = str(item.get("prompt_negative") or "")
     scenes = str(item.get("scenes") or "").strip()
     if not scenes:
         logger.warning("skip skill upsert %s (%s): scenes required", key, source)
         return
-    sort_weight = int(item.get("sort_weight") or item.get("sortWeight") or 0)
-    mutex = str(item.get("mutex_group") or item.get("mutexGroup") or "").strip()
+    sort_weight = int(item.get("sort_weight") or 0)
+    mutex = str(item.get("mutex_group") or "").strip()
     version = int(item.get("version") or 1)
-    pack_version = str(item.get("pack_version") or item.get("packVersion") or version).strip()
+    pack_version = str(item.get("pack_version") or version).strip()
     description = str(item.get("description") or "").strip()
     logo = str(item.get("logo") or "").strip()
     locales_obj = item.get("locales") if isinstance(item.get("locales"), dict) else {}
@@ -208,9 +205,9 @@ def _upsert_owned_skill(
     preferred_json = _preferred_json(item)
     triggers_json = _triggers_json(item)
     allowed_json = _allowed_resources_json(item, source=source)
-    input_schema_json = _schema_json(item, "input_schema", "inputSchema")
-    output_schema_json = _schema_json(item, "output_schema", "outputSchema")
-    owner_user_id = str(item.get("owner_user_id") or item.get("ownerUserId") or "").strip() or None
+    input_schema_json = _schema_json(item, "input_schema")
+    output_schema_json = _schema_json(item, "output_schema")
+    owner_user_id = str(item.get("owner_user_id") or "").strip() or None
 
     row = crud.get_design_skill_by_key(session=session, skill_key=key)
     skill_id: int | None = None
@@ -336,11 +333,9 @@ def _skills_disk_signature() -> str:
                 meta_m = 0
                 body_m = 0
                 icon_m = 0
-                for name in _META_NAMES:
-                    mp = pack / name
-                    if mp.is_file():
-                        meta_m = mp.stat().st_mtime_ns
-                        break
+                mp = pack / "_meta.json"
+                if mp.is_file():
+                    meta_m = mp.stat().st_mtime_ns
                 sp = _skill_md_path(pack)
                 if sp is not None:
                     body_m = sp.stat().st_mtime_ns

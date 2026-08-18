@@ -33,11 +33,9 @@ from app.services.design.runtime.graph.state import (
     parse_design_brief,
     sum_review_scores,
 )
-from app.services.design.runtime.graph.support import (
-    _bump,
-    _emit,
-    _emit_ux_tip,
-)
+from app.services.design.runtime.graph.emit_sse import _emit
+from app.services.design.runtime.graph.llm_io import _emit_ux_tip
+from app.services.design.runtime.graph.scene_log import _bump
 from app.services.design.runtime.host import assemble_stage_system
 
 
@@ -184,9 +182,9 @@ def _issues_as_dicts(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-_REPAIR_DELETE_ACTIONS = frozenset({"delete", "remove", "subtract", "drop", "hide"})
-_REPAIR_REDUCE_ACTIONS = frozenset({"reduce_size", "shrink", "smaller", "reduce"})
-_REPAIR_INCREASE_ACTIONS = frozenset({"increase_size", "grow", "larger", "increase"})
+_REPAIR_DELETE_ACTIONS = frozenset({"delete"})
+_REPAIR_REDUCE_ACTIONS = frozenset({"reduce_size"})
+_REPAIR_INCREASE_ACTIONS = frozenset({"increase_size"})
 _REPAIR_FORBIDDEN_PATCH_KEYS = frozenset(
     {"nodeid", "id", "frameid", "type", "name", "op_id", "opid", "tool"}
 )
@@ -199,15 +197,11 @@ _REPAIR_PATCH_KEYS = frozenset(
         "letterspacing",
         "text",
         "fill",
-        "fillcolor",
-        "color",
         "opacity",
         "stroke",
         "strokewidth",
         "x",
         "y",
-        "w",
-        "h",
         "width",
         "height",
         "rotation",

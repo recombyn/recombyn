@@ -17,7 +17,7 @@ from app.services.design.runtime.graph.build import (
     invalidate_agent_graph_cache,
 )
 from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime
-from app.services.design.runtime.graph.support import _bump, _commit
+from app.services.design.runtime.graph.scene_log import _bump, _commit
 from app.services.design.runtime.decision_log import DesignRunDecision
 from app.services.design.runtime.flow_runtime import choose_outgoing_edges, eval_edge_condition
 

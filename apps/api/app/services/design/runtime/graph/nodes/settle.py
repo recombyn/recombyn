@@ -14,14 +14,16 @@ from app.services.design.admin.task_store import _update_task
 from app.services.design.prompts.prompt_build import _finalize_memory_patch
 from app.services.design.prompts.rules_text import exec_trace
 from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime, GraphState
-from app.services.design.runtime.graph.support import (
+from app.services.design.runtime.graph.emit_sse import _emit
+from app.services.design.runtime.graph.scene_log import (
     _bump,
     _commit,
-    _emit,
     _goto_cmd,
-    _is_canvas_work_intent,
     _persist_progress,
     _persist_task_meta,
+)
+from app.services.design.runtime.graph.turns import (
+    _is_canvas_work_intent,
     _resolve_paint_want,
 )
 from app.services.design.runtime.models_route import CANVAS_WORK_INTENTS, normalize_user_intent
