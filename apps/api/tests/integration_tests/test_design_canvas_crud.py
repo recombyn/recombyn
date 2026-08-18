@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from app.services.design.readpath.catalog import ensure_design_catalog
-from app.services.design.runtime.agent_controller import PaintOpsSchema
+from app.services.design.runtime.graph.state import PaintOpsSchema
 from app.services.design.runtime.models_route import IntentClassifyDecision
 from tests.design_harness import collect_design_events, events_by_type
 
@@ -177,7 +177,7 @@ def _first_ops(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _op_names(ops: list[dict[str, Any]]) -> list[str]:
-    return [str(o.get("name") or o.get("op_key") or "") for o in ops]
+    return [str(o.get("name") or "") for o in ops]
 
 
 def _propose_ask_ids(

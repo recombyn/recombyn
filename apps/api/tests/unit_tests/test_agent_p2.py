@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.design.runtime.agent_controller import _parse_agent_turn
+from app.services.design.runtime.graph.support import _parse_agent_turn
 from app.services.design.ops.tool_ops_contract import (
     format_canvas_tools_catalog,
     format_canvas_tools_details,

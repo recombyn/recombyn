@@ -1,6 +1,6 @@
 """Compact binary helpers for design media + embedding BLOBs (MySQL LONGBLOB).
 
-- Vectors: optional light zstd (fallback zlib); raw float32 still readable.
+- Vectors: optional light zstd (fallback zlib).
 - Thumbs: webp quality≈70 for DB preview; originals stay on object storage.
 """
 
@@ -10,10 +10,9 @@ import io
 import zlib
 from typing import Any
 
-# zstd frame if available; else zlib. Magic lets readers accept legacy raw float32.
+# zstd frame if available; else zlib.
 _MAGIC_ZSTD = b"ZST1"
 _MAGIC_ZLIB = b"ZL1\0"
-_MAGIC_RAW = b""  # bare float32 bytes (legacy)
 
 
 def _zstd_mod() -> Any | None:
@@ -37,7 +36,7 @@ def pack_emb_blob(raw: bytes, *, level: int = 3) -> bytes:
 
 
 def unpack_emb_blob(blob: bytes | bytearray | memoryview | None) -> bytes:
-    """Decode packed embedding; pass through legacy raw float32."""
+    """Decode packed embedding."""
     if blob is None:
         return b""
     data = bytes(blob)
@@ -50,7 +49,7 @@ def unpack_emb_blob(blob: bytes | bytearray | memoryview | None) -> bytes:
         return zstd.ZstdDecompressor().decompress(data[len(_MAGIC_ZSTD) :])
     if data.startswith(_MAGIC_ZLIB):
         return zlib.decompress(data[len(_MAGIC_ZLIB) :])
-    return data
+    raise ValueError("Unknown embedding blob header")
 
 
 def pack_text_blob(text: str, *, level: int = 19) -> bytes:

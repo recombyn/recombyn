@@ -17,8 +17,6 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 BYOK_PLATFORM_RULE_KEY = "byok.preset_platforms"
-# Legacy override key from the per-model preset experiment — still read as fallback.
-BYOK_PRESET_RULE_KEY = "byok.preset_providers"
 
 PLATFORM_ID_PREFIX = "platform:"
 
@@ -99,7 +97,7 @@ def _load_admin_platforms() -> list[dict[str, Any]] | None:
         from app.services.design.readpath.catalog import get_global_rules
 
         rules = get_global_rules() or {}
-        raw = rules.get(BYOK_PLATFORM_RULE_KEY) or rules.get(BYOK_PRESET_RULE_KEY)
+        raw = rules.get(BYOK_PLATFORM_RULE_KEY)
     except Exception:
         return None
     if not raw or not str(raw).strip():
@@ -111,27 +109,11 @@ def _load_admin_platforms() -> list[dict[str, Any]] | None:
         return None
     if not isinstance(parsed, list):
         return None
-    # Accept either platform objects or legacy per-model preset objects (id+baseUrl).
     platforms = []
     for item in parsed:
         if not isinstance(item, dict):
             continue
-        if item.get("kinds") or not item.get("models"):
-            p = _sanitize_platform(item)
-            if p:
-                platforms.append(p)
-            continue
-        # Legacy preset → treat as a single-endpoint platform (manual-style).
-        p = _sanitize_platform(
-            {
-                "id": item.get("id"),
-                "name": item.get("name"),
-                "baseUrl": item.get("baseUrl") or item.get("base_url"),
-                "website": item.get("website"),
-                "iconKey": item.get("iconKey") or item.get("icon_key"),
-                "kinds": ["text"],
-            }
-        )
+        p = _sanitize_platform(item)
         if p:
             platforms.append(p)
     return platforms or None
@@ -144,7 +126,3 @@ def list_byok_platforms() -> list[dict[str, Any]]:
         return override
     return [p for p in (_sanitize_platform(x) for x in _DEFAULT_BYOK_PLATFORMS) if p]
 
-
-def list_byok_presets() -> list[dict[str, Any]]:
-    """Backward-compatible alias — platforms shaped for older clients."""
-    return list_byok_platforms()

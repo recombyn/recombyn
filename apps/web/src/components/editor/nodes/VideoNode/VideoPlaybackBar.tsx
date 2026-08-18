@@ -275,7 +275,7 @@ function VideoPlaybackBar({
   const [scrubRatio, setScrubRatio] = useState<number | null>(null);
   const [paused, setPaused] = useState(true);
   const [current, setCurrent] = useState(0);
-  // Only used when attrs.duration is missing (legacy nodes).
+  // Only used when attrs.duration is missing.
   const [fallbackDuration, setFallbackDuration] = useState(0);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(1);
@@ -315,7 +315,7 @@ function VideoPlaybackBar({
     media.on('loadedmetadata', syncMeta);
     media.on('volumechange', syncMeta);
 
-    // attrs.duration missing — read / probe once (legacy nodes only).
+    // attrs.duration missing — read / probe once.
     if (!(known > 0)) {
       const live = media.getDuration();
       if (live > 0) {

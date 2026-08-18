@@ -188,7 +188,7 @@ function WalletLedgerPanel({
     planExpiresAt: walletExpires,
   });
 
-  /** Deep-link ?redeem=1 still opens redeem (legacy) 鈥?skip when embedded / local desktop. */
+  /** Deep-link ?redeem=1 still opens redeem; skip when embedded / local desktop. */
   useEffect(() => {
     if (embedded || desktopLocal) return;
     const flag = (searchParams.get('redeem') || '').trim();

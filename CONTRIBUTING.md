@@ -156,7 +156,7 @@ Use the checklist in [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST
 
 ## Intelligence providers
 
-Design Runtime calls `packages/intelligence-client` (`DesignIntelligenceClient`). The default is **BasicLocal** (in-repo, no network). Optional remote providers use `RECOMBYN_INTELLIGENCE_MODE=cloud` + `RECOMBYN_INTELLIGENCE_URL` (legacy `INTELLIGENCE_*` still accepted) and must implement the open `IntelligenceProvider` protocol — see [ADR 0017](./docs/adr/0017-intelligence-provider-boundary.md). Compose override: `docker-compose.intelligence.yml` (`--profile intelligence`). **Do not** add docs that describe closed / proprietary provider internals in this repository.
+Design Runtime calls `packages/intelligence-client` (`DesignIntelligenceClient`). The default is **BasicLocal** (in-repo, no network). Optional remote providers use `RECOMBYN_INTELLIGENCE_MODE=cloud` + `RECOMBYN_INTELLIGENCE_URL` and must implement the open `IntelligenceProvider` protocol — see [ADR 0017](./docs/adr/0017-intelligence-provider-boundary.md). Compose override: `docker-compose.intelligence.yml` (`--profile intelligence`). **Do not** add docs that describe closed / proprietary provider internals in this repository.
 
 Shared wire contract lives in `packages/protocol` (`recombyn-protocol`). Bump its version when method names / request keys / usable rules change ([ADR 0024](./docs/adr/0024-protocol-version-cross-repo-ci.md)). Operators who maintain a private Intelligence service should depend on that package and run compatibility tests against it — do not hand-copy method lists into closed repos.
 

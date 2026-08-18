@@ -621,7 +621,7 @@ def begin_write(conn: ConnectionWrapper) -> None:
 
 
 def init_schema() -> None:
-    """Ensure schema is at Alembic head (replaces legacy hand-written DDL)."""
+    """Ensure schema is at Alembic head."""
     global _SCHEMA_READY
     with _LOCK:
         if _SCHEMA_READY:

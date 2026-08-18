@@ -1,6 +1,6 @@
 # Agent Profile — design canvas (live default).
 # Kernel reads this for Voice (stage→pack) and Policy (routing/runtime → KV overlay).
-# Topology/contracts/capabilities are declared for forward-compat (P2+).
+# Topology/contracts/capabilities are declared for later phases (P2+).
 #
 # Boundary (hard):
 #   Agent kernel  = control loop, tool scheduling, canvas R/W, max rounds / reflect,

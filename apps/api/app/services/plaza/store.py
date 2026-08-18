@@ -137,7 +137,7 @@ def _row_cover_field(row: Any, key: str) -> str | None:
 
 
 def _parse_cover_urls(raw: str | None) -> list[str]:
-    """Decode cover_image_url — JSON array or legacy single URL."""
+    """Decode cover_image_url JSON array."""
     text = (raw or "").strip()
     if not text:
         return []
@@ -155,8 +155,7 @@ def _parse_cover_urls(raw: str | None) -> list[str]:
                 if len(out) >= 4:
                     break
             return out
-    one = _normalize_cover_url(text)
-    return [one] if one else []
+    return []
 
 
 def _encode_cover_urls(urls: list[str] | None) -> str | None:
@@ -177,7 +176,7 @@ def _custom_cover_url(row: Any) -> str | None:
 
 
 def _default_cover_url(row: Any) -> str | None:
-    """First default cover URL (legacy helpers / repair)."""
+    """First default cover URL."""
     urls = _default_cover_urls(row)
     return urls[0] if urls else None
 

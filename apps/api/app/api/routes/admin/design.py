@@ -203,7 +203,7 @@ def admin_design_stage_reviews(
     minRating: int | None = Query(default=None, ge=1, le=5),
     maxRating: int | None = Query(default=None, ge=1, le=5),
 ) -> dict[str, Any]:
-    """Historical stage ratings (legacy training runs)."""
+    """Historical stage ratings."""
     return list_stage_reviews(
         page=page,
         page_size=pageSize,

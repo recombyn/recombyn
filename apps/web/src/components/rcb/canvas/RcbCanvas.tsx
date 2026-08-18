@@ -17,10 +17,6 @@ import {
   RcbOverlayRootContext,
   RcbViewportElContext,
 } from '../camera/context';
-import {
-  installDprDebugHelpers,
-  logDprCameraState,
-} from '../core/dprDebug';
 import { readDevicePixelRatio, subscribeDevicePixelRatio } from '../core/dpr';
 import {
   rcbCameraCssZoom,
@@ -231,53 +227,6 @@ function RcbCanvas({
   // Browser zoom / HiDPI — keep DPR in sync (camera pan snaps to this).
   useEffect(() => subscribeDevicePixelRatio(setDevicePixelRatio), []);
 
-  // Opt-in camera logs: window.__RCB_DPR_DEBUG__ = true
-  useEffect(() => {
-    if (typeof window === 'undefined' || window.__RCB_DPR_DEBUG__ !== true) return;
-    logDprCameraState({
-      reason: 'camera-or-dpr',
-      dpr: devicePixelRatio,
-      camera,
-      camCss: {
-        ...rcbCameraScreenOffset(camera, devicePixelRatio),
-        z: rcbCameraCssZoom(camera),
-      },
-    });
-  }, [devicePixelRatio, camera]);
-
-  // Console helpers: window.__rcbDumpDpr() / __rcbDumpGrid()
-  useEffect(() => {
-    installDprDebugHelpers(() => {
-      const stage = stageRef.current;
-      const boxes: Array<{
-        id: string;
-        left: number;
-        top: number;
-        width: number;
-        height: number;
-      }> = [];
-      if (stage) {
-        const nodes = stage.querySelectorAll<SVGElement>('[data-scene-node-id]');
-        nodes.forEach((el) => {
-          const id = el.getAttribute('data-scene-node-id') || '';
-          if (!id) return;
-          try {
-            const bb = (el as SVGGraphicsElement).getBBox();
-            boxes.push({
-              id,
-              left: bb.x,
-              top: bb.y,
-              width: bb.width,
-              height: bb.height,
-            });
-          } catch {
-            /* ignore detached */
-          }
-        });
-      }
-      return { dpr: devicePixelRatio, camera: cameraRef.current, boxes };
-    });
-  }, [devicePixelRatio, stageRef]);
   emptyDragPansRef.current = emptyDragPans;
   shouldBlockEmptyPanRef.current = shouldBlockEmptyPan;
   panBlockSelectorRef.current = panBlockSelector;

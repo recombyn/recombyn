@@ -161,12 +161,10 @@ class Settings(BaseSettings):
     agent_profile_id: str = "design.canvas"
 
     # Design Intelligence client (ADR 0017). local = BasicLocal; remote = HTTP provider.
-    # Prefer RECOMBYN_INTELLIGENCE_*; legacy INTELLIGENCE_* still accepted.
     intelligence_provider: str = Field(
         default="local",
         validation_alias=AliasChoices(
             "RECOMBYN_INTELLIGENCE_MODE",
-            "INTELLIGENCE_PROVIDER",
             "intelligence_provider",
         ),
     )
@@ -174,7 +172,6 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices(
             "RECOMBYN_INTELLIGENCE_URL",
-            "INTELLIGENCE_REMOTE_URL",
             "intelligence_remote_url",
         ),
     )
@@ -182,7 +179,6 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices(
             "RECOMBYN_INTELLIGENCE_API_KEY",
-            "INTELLIGENCE_REMOTE_API_KEY",
             "intelligence_remote_api_key",
         ),
     )
@@ -190,7 +186,6 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias=AliasChoices(
             "RECOMBYN_INTELLIGENCE_TIMEOUT_SEC",
-            "INTELLIGENCE_REMOTE_TIMEOUT_SEC",
             "intelligence_remote_timeout_sec",
         ),
     )

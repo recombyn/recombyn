@@ -349,10 +349,6 @@ export function createDesignAgentEventRouter(opts: {
 
   const scheduleAnalysisDeltaFlush = () => {
     if (analysisFrame != null) return;
-    if (typeof requestAnimationFrame !== 'function') {
-      flushAnalysisDelta();
-      return;
-    }
     analysisFrame = requestAnimationFrame(() => flushAnalysisDelta());
   };
 

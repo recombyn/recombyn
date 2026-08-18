@@ -161,7 +161,9 @@ import {
   getDocumentGridSize,
   snapCoordToGrid,
 } from '@/components/rcb';
-import ImageProcessOverlay from '@/components/editor/nodes/ImageNode/ImageProcessOverlay';
+import ImageProcessOverlay, {
+  type ProcessGeomOverride,
+} from '@/components/editor/nodes/ImageNode/ImageProcessOverlay';
 import ImageGeneratorOverlay from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorOverlay';
 import VideoGeneratorOverlay from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorOverlay';
 import LottieGeneratorOverlay from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorOverlay';
@@ -221,7 +223,17 @@ type SvgCanvasProps = {
    * to cover the camera frustum — do not slide the origin with pan/zoom.
    */
   viewRect?: { x: number; y: number; width: number; height: number } | null;
+  /** Live geometry for process overlays while an artboard drag is repainting. */
+  frameGeometryOverrides?: Record<string, ProcessGeomOverride> | null;
 };
+
+function mergeProcessGeometryOverrides(
+  frameOverrides: Record<string, ProcessGeomOverride> | null,
+  liveOverrides: Record<string, ProcessGeomOverride> | null
+) {
+  if (!frameOverrides && !liveOverrides) return null;
+  return { ...frameOverrides, ...liveOverrides };
+}
 
 function ctxMenuCanReplace(opts: {
   readOnly: boolean;
@@ -276,6 +288,7 @@ function SvgCanvas({
   embedded = false,
   stageEl = null,
   viewRect = null,
+  frameGeometryOverrides = null,
 }: SvgCanvasProps) {
   const dispatch = useDispatch();
   const { t } = useTranslation();
@@ -431,25 +444,6 @@ function SvgCanvas({
   // Do not overwrite that live document with the previous Redux snapshot while
   // a transform is active, otherwise cleared frame bindings reappear.
   if (!geometryTransformingRef.current) {
-    const previous = documentRef.current;
-    const changedBindingIds = Object.keys(document?.deltaSetLike || {}).filter((id) => {
-      const before = previous?.deltaSetLike?.[id]?.attrs?.frameId;
-      const after = document?.deltaSetLike?.[id]?.attrs?.frameId;
-      return String(before || '') !== String(after || '');
-    });
-    if (changedBindingIds.length) {
-      console.warn('[frame-binding-redux-sync]', JSON.stringify({
-        changedBindingIds,
-        previous: changedBindingIds.map((id) => ({
-          nodeId: id,
-          frameId: previous?.deltaSetLike?.[id]?.attrs?.frameId,
-        })),
-        incoming: changedBindingIds.map((id) => ({
-          nodeId: id,
-          frameId: document?.deltaSetLike?.[id]?.attrs?.frameId,
-        })),
-      }, null, 2));
-    }
     documentRef.current = document;
   }
   selectedIdsRef.current = ctxMenuSeedNodeIds(selectedNodeIds || [], selectedNodeId);
@@ -1972,7 +1966,10 @@ function SvgCanvas({
             portal before selection so the selected outline and its controls stay on top. */}
         <ImageProcessOverlay
           document={document}
-          geometryOverrides={videoLiveGeom}
+          geometryOverrides={mergeProcessGeometryOverrides(
+            frameGeometryOverrides,
+            videoLiveGeom
+          )}
         />
         {/* Scene-space HTML overlays (selection / draw previews). Origin matches SVG. */}
         {/* Above frame/node stackOrder so preview select/hover strokes aren't covered. */}

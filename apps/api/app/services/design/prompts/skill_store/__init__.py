@@ -1,7 +1,7 @@
 """Runtime skills for lc_design — pluggable catalog + need_skills + triggers + files.
 
 Namespaces (conflict isolation):
-  - core  — legacy SOURCE_SEED only (no longer shipped); bare keys stay BC aliases
+  - core  — reserved namespace; only file-pack keys in NS_CORE (no DB seed source)
   - ext   — file packs under ``skills/foundation|domains`` + ``plugins/skills`` (source=file)
   - user  — admin / user-extension skills (source=admin); keys use ``user.<local>``
 
@@ -21,7 +21,6 @@ from .constants import (
     NS_USER,
     SOURCE_ADMIN,
     SOURCE_FILE,
-    SOURCE_SEED,
     _ALWAYS_ALLOW_OPS,
     _INTERNAL_RESOURCE_KINDS,
     _MAX_USER_SKILL_ZIP_BYTES,
@@ -30,7 +29,6 @@ from .constants import (
     _NS_KEY_RE,
     _PIN_RE,
     _PROTECTED_FROM_FILE,
-    _PROTECTED_FROM_SEED,
     _SKILL_MD_NAMES,
     _SLUG_RE,
     _SOURCE_TO_NS,
@@ -155,7 +153,6 @@ from .user_skills import (
 
 __all__ = [
     # constants
-    "SOURCE_SEED",
     "SOURCE_ADMIN",
     "SOURCE_FILE",
     "NS_CORE",
@@ -163,7 +160,6 @@ __all__ = [
     "NS_USER",
     "MAX_SKILL_DETAIL_CHARS",
     "_ALWAYS_ALLOW_OPS",
-    "_PROTECTED_FROM_SEED",
     "_PROTECTED_FROM_FILE",
     "_VALID_NAMESPACES",
     "_SOURCE_TO_NS",

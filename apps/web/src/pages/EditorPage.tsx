@@ -96,17 +96,6 @@ import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
 const BOOT_MIN_MS = 520;
 const BOOT_EXIT_MS = 280;
 
-/** Jump diagnostics (`window.__rcbJumpDump`). */
-function rcbJumpLog(event: string, data: Record<string, unknown> = {}) {
-  const row = { event, t: Math.round(performance.now()), ...data };
-  const w = window as Window & {
-    __rcbJumpLog?: unknown[];
-    __rcbJumpDump?: () => string;
-  };
-  if (!Array.isArray(w.__rcbJumpLog)) w.__rcbJumpLog = [];
-  w.__rcbJumpLog.push(row);
-  w.__rcbJumpDump = () => JSON.stringify(w.__rcbJumpLog, null, 2);
-}
 
 function documentToCanvasFill(document: SceneDocument, themeFallback: string): FillPanelValue {
   const raw = String(document?.backgroundColor || '').trim();
@@ -689,7 +678,7 @@ function EditorPage() {
     [document, followThemeCanvas, themeCanvas]
   );
 
-  /** Editor UI is design-only; hide legacy Design/Dev toggle. */
+  /** Editor UI is design-only; hide Design/Dev toggle. */
   useEffect(() => {
     dispatch(setWorkspaceMode('design'));
   }, [dispatch]);
@@ -711,7 +700,7 @@ function EditorPage() {
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     const el = stageEl;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    if (!el) return undefined;
     const apply = () => {
       const next = {
         width: Math.max(1, el.clientWidth),
@@ -719,12 +708,6 @@ function EditorPage() {
       };
       setStageSize((prev) => {
         if (prev.width === next.width && prev.height === next.height) return prev;
-        rcbJumpLog('stageSize', {
-          prev,
-          next,
-          bootOpen: bootOpenRef.current,
-          didFit: didInitialFitRef.current,
-        });
         return next;
       });
     };
@@ -734,27 +717,6 @@ function EditorPage() {
     return () => ro.disconnect();
   }, [stageEl]);
 
-  /**
-   * Catch late auto-fit / collab camera writes AFTER boot.
-   * Skip when the user already owns the camera 鈥?otherwise every wheel zoom
-   * spam-logs as `afterReveal` and looks like a reveal fight (it is not).
-   */
-  useEffect(() => {
-    if (bootOpen) return;
-    if (cameraUserTouchedRef.current) return;
-    rcbJumpLog('camera.afterReveal', {
-      x: Number(camera.x.toFixed(2)),
-      y: Number(camera.y.toFixed(2)),
-      zoom: Number(camera.zoom.toFixed(4)),
-      userTouched: false,
-      stageW: stageSize.width,
-      stageH: stageSize.height,
-      stack: (new Error().stack || '')
-        .split('\n')
-        .slice(2, 10)
-        .map((s) => s.trim()),
-    });
-  }, [bootOpen, camera.x, camera.y, camera.zoom, stageSize.width, stageSize.height]);
 
   // Scene paper follows content bounds only. Camera pan/zoom is CSS on RcbCanvas 鈥?
   // never resize/slide SVG viewBox to chase the frustum.
@@ -1107,30 +1069,16 @@ function EditorPage() {
     bootFinishingRef.current = true;
     const el = stageRef.current;
     const cam = cameraRef.current;
-    rcbJumpLog('finishBoot.start', {
-      waitMs: Math.max(0, BOOT_MIN_MS - (Date.now() - bootStartedAt.current)),
-      stageW: el?.clientWidth || 0,
-      stageH: el?.clientHeight || 0,
-      camera: { x: cam.x, y: cam.y, zoom: cam.zoom },
-    });
     const wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootStartedAt.current));
     window.setTimeout(() => {
       setBootProgress(advanceBootProgress(100));
       setBootExiting(true);
-      rcbJumpLog('finishBoot.exiting', {
-        stageW: stageRef.current?.clientWidth || 0,
-        stageH: stageRef.current?.clientHeight || 0,
-      });
       bootExitTimer.current = window.setTimeout(() => {
         bootOpenRef.current = false;
         setBootOpen(false);
         setBootExiting(false);
         bootExitTimer.current = null;
         resetBootProgress();
-        rcbJumpLog('finishBoot.revealed', {
-          stageW: stageRef.current?.clientWidth || 0,
-          stageH: stageRef.current?.clientHeight || 0,
-        });
       }, BOOT_EXIT_MS);
     }, wait);
   }, []);
@@ -1202,7 +1150,6 @@ function EditorPage() {
     const vh = el?.clientHeight || 0;
     // Match RcbCanvas autofit gate 鈥?tiny/unlaid-out stages must not count as fitted.
     if (vw < 40 || vh < 40) {
-      rcbJumpLog('fitView.skipTiny', { vw, vh });
       return false;
     }
     const doc = (store.getState() as any).editor?.document;
@@ -1210,27 +1157,12 @@ function EditorPage() {
     // Empty scene 鈫?100%. With content 鈫?fit all artboards/nodes with 120px margins.
     if (!editorHasFitContent(doc, fr)) {
       const next = { ...DEFAULT_CAMERA, zoom: 1 };
-      rcbJumpLog('fitView.empty100', { vw, vh, next });
       setCamera(next);
       setZoomFitActive(true);
       return true;
     }
     const bounds = editorContentBounds(doc, fr);
     const next = rcbFitCamera({ width: vw, height: vh }, bounds, 120, 1);
-    rcbJumpLog('fitView', {
-      vw,
-      vh,
-      bounds,
-      docOrigin: { x: Number(doc?.x) || 0, y: Number(doc?.y) || 0 },
-      next: {
-        x: Number(next.x.toFixed(2)),
-        y: Number(next.y.toFixed(2)),
-        zoom: Number(next.zoom.toFixed(4)),
-      },
-      bootOpen: bootOpenRef.current,
-      userTouched: cameraUserTouchedRef.current,
-    });
-    // Camera pan/zoom only 鈥?never move node/frame scene coordinates.
     setCamera(next);
     setZoomFitActive(true);
     return true;
@@ -1246,11 +1178,6 @@ function EditorPage() {
   const onCanvasCameraChange = useCallback((next: CanvasCamera) => {
     cameraUserTouchedRef.current = true;
     setZoomFitActive(false);
-    rcbJumpLog('camera.user', {
-      x: Number(next.x.toFixed(2)),
-      y: Number(next.y.toFixed(2)),
-      zoom: Number(next.zoom.toFixed(4)),
-    });
     setCamera(next);
   }, []);
 
@@ -1273,7 +1200,6 @@ function EditorPage() {
     const ox = Number(document.x) || 0;
     const oy = Number(document.y) || 0;
     if (ox !== 0 || oy !== 0) {
-      rcbJumpLog('bakeDocumentOrigin', { ox, oy, currentId });
       dispatch(bakeDocumentOrigin());
       return;
     }
@@ -1295,14 +1221,6 @@ function EditorPage() {
     const finishOnce = (fitted: boolean) => {
       if (cancelled) return;
       didInitialFitRef.current = true;
-      rcbJumpLog('initialFit.done', {
-        fitted,
-        stageW: stageRef.current?.clientWidth || 0,
-        stageH: stageRef.current?.clientHeight || 0,
-        tries,
-        stableFrames,
-        hasContent,
-      });
       finishBoot();
     };
 
@@ -1324,13 +1242,6 @@ function EditorPage() {
       if (Math.abs(w - lastW) <= 1 && Math.abs(h - lastH) <= 1) {
         stableFrames += 1;
       } else {
-        if (lastW || lastH) {
-          rcbJumpLog('initialFit.stageUnstable', {
-            from: { w: lastW, h: lastH },
-            to: { w, h },
-            tries,
-          });
-        }
         stableFrames = 0;
         lastW = w;
         lastH = h;

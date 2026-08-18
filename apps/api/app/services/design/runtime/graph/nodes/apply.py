@@ -112,11 +112,7 @@ def _emit_design_transaction(
     skill_key: str = "react",
     skill_name: str = "Design Agent",
 ) -> str:
-    """BEGIN → tool_ops chunks (BC) → COMMIT. Returns transaction_id.
-
-    Keeps legacy ``tool_ops`` events so older FE clients still apply.
-    New clients also see ``transaction.begin|chunk|commit``.
-    """
+    """BEGIN → transaction chunks → COMMIT. Returns transaction_id."""
     st = rt.run
     phase = resolve_transaction_phase(rt)
     base_rev = 0
@@ -168,23 +164,6 @@ def _emit_design_transaction(
                 "task_id": st.task_id,
                 "trace_id": st.trace_id,
                 "round": round_i,
-            }
-        )
-        # BC: existing FE only listens for tool_ops.
-        _emit(
-            {
-                "type": "tool_ops",
-                "index": round_i,
-                "task_id": st.task_id,
-                "trace_id": st.trace_id,
-                "skill_key": skill_key,
-                "skill_name": skill_name,
-                "schema_version": TOOL_OPS_SCHEMA_VERSION,
-                "transaction_id": tx.transaction_id,
-                "transaction_phase": tx.phase,
-                "chunk_index": ci,
-                "chunk_total": len(chunks),
-                "ops": sse_ops,
             }
         )
         for act in _tool_ops_activity_events(

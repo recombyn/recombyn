@@ -397,7 +397,7 @@ export type SpatialSummary = {
   empty_rects: SpatialBox[];
   /** World-space slots for create_frame (same size as focus plate). */
   new_frame_slots: SpatialBox[];
-  /** @deprecated Not set — host must not invent place WxH for the model. */
+  /** Not set — host must not invent place WxH for the model. */
   suggested_place?: SpatialBox;
   /** Raw camera viewport in world coords (sensor only). */
   viewport?: SpatialBox;

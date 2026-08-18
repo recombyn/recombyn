@@ -100,43 +100,8 @@ def _row_to_item(row: Any) -> dict[str, Any]:
     }
 
 
-def _load_legacy_global_rules() -> dict[str, str]:
-    """One-shot migrate from design_global_rule (table may be gone)."""
-    legacy: dict[str, str] = {}
-    try:
-        from sqlmodel import Session
-
-        from app import crud
-        from app.core.db import engine
-
-        with Session(engine) as session:
-            for r in crud.list_all_design_global_rules(session=session):
-                rk = str(r.rule_key or "")
-                if is_system_prompt_key(rk):
-                    legacy[rk] = str(r.rule_value or "")
-    except Exception:
-        return {}
-    return legacy
-
-
-def _delete_legacy_global_rules(keys: list[str]) -> None:
-    if not keys:
-        return
-    try:
-        from sqlmodel import Session
-
-        from app import crud
-        from app.core.db import engine
-
-        with Session(engine) as session:
-            crud.delete_design_global_rules_by_keys(session=session, keys=keys)
-            session.commit()
-    except Exception:
-        pass
-
-
 def ensure_system_prompts() -> None:
-    """Insert missing rows from prompt-pack seed; migrate legacy KV once. Never overwrite Admin body.
+    """Insert missing rows from prompt-pack seed. Never overwrite Admin body.
 
     Do not call ``ensure_design_catalog`` here — catalog invokes this while bootstrapping.
     """
@@ -148,7 +113,6 @@ def ensure_system_prompts() -> None:
             return
         seed_items = _load_seed_items()
         now = time.time()
-        legacy = _load_legacy_global_rules()
         with Session(engine) as session:
             existing = crud.list_design_system_prompt_keys(session=session)
             for it in seed_items:
@@ -160,7 +124,7 @@ def ensure_system_prompts() -> None:
                 selectable = 1 if bool(it.get("selectable")) else 0
                 sort_order = int(it.get("sortOrder") or 0)
                 desc = str(it.get("description") or "").strip()
-                body = str(legacy.get(key) or it.get("body") or "")
+                body = str(it.get("body") or "")
                 crud.insert_design_system_prompt_seed(
                     session=session,
                     prompt_key=key,
@@ -193,7 +157,6 @@ def ensure_system_prompts() -> None:
                     sort_order=sort_order,
                 )
             session.commit()
-        _delete_legacy_global_rules(list(legacy.keys()))
         _READY = True
 
 

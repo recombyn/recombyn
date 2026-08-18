@@ -133,18 +133,18 @@ def parse_design_brief(raw: Any) -> dict[str, Any] | None:
         text = raw.strip()
         if not text:
             return None
-        # Prefer JSON object; plain prose kept as legacy thesis blob.
+        # Prefer JSON object; non-JSON strings are rejected.
         if text.startswith("{") and text.endswith("}"):
             try:
                 parsed = json.loads(text)
                 if isinstance(parsed, dict):
                     data = parsed
                 else:
-                    return {"visual_thesis": text, "_legacy_prose": True}
+                    return None
             except Exception:
-                return {"visual_thesis": text, "_legacy_prose": True}
+                return None
         else:
-            return {"visual_thesis": text, "_legacy_prose": True}
+            return None
     else:
         return None
     try:
@@ -154,12 +154,9 @@ def parse_design_brief(raw: Any) -> dict[str, Any] | None:
 
 
 def design_brief_p0_missing(brief: dict[str, Any] | None) -> list[str]:
-    """Return missing P0 field names. Legacy prose briefs skip structured P0."""
+    """Return missing P0 field names."""
     if not brief:
         return list(DESIGN_BRIEF_P0_FIELDS)
-    if brief.get("_legacy_prose"):
-        # Accept one-shot prose during transition; still require non-empty thesis.
-        return [] if _brief_field_nonempty(brief.get("visual_thesis")) else ["visual_thesis"]
     missing: list[str] = []
     for key in DESIGN_BRIEF_P0_FIELDS:
         if not _brief_field_nonempty(brief.get(key)):
@@ -1600,7 +1597,7 @@ class AgentGraphRunInput:
     t0: float
     settle_hold_fn: Any
     refund_hold_fn: Any
-    # Stable API-assigned id for worker-backed runs; omitted by legacy callers.
+    # Stable API-assigned id for worker-backed runs.
     task_id: str | None = None
     apply_ops: list[dict[str, Any]] | None = None
     proposal_id: str | None = None
@@ -1678,7 +1675,7 @@ class AgentRuntime:
     classified_intent: str = ""
     classified_paint_lane: str = ""
     classified_reply: str = ""
-    # Typed intent → execution hand-off. Kept in flags for checkpoint compatibility.
+    # Typed intent → execution hand-off. Kept in flags for checkpoints.
     design_plan: dict[str, Any] | None = None
     # Decide → paint/review execution contract (not craft curricula).
     design_brief: str = ""

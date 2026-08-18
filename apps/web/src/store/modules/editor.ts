@@ -98,6 +98,12 @@ const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   mark: true,
 };
 
+/** Blend / effects dock beside any selected node (not image-only tools). */
+const NODE_LAYER_TOOL_PANEL_KIND: Record<string, true> = {
+  effects: true,
+  blendMode: true,
+};
+
 const IMAGE_TOOL_CROP_SESSION_KIND: Record<string, true> = {
   crop: true,
   expand: true,
@@ -144,6 +150,10 @@ function isTransientFramePatch(patch: unknown): boolean {
 
 export function isImageToolSidePanelKind(kind: string | undefined | null): boolean {
   return Boolean(kind && kind in IMAGE_TOOL_SIDE_PANEL_KIND);
+}
+
+export function isNodeLayerToolPanelKind(kind: string | undefined | null): boolean {
+  return Boolean(kind && kind in NODE_LAYER_TOOL_PANEL_KIND);
 }
 
 export function isImageToolCropSessionKind(kind: string | undefined | null): boolean {
@@ -500,12 +510,18 @@ const editorSlice = createSlice({
      */
     removeDocumentNodes(state, action) {
       if (!state.document) return;
-      const nodeIds = (action.payload?.nodeIds || [])
+      const requestedNodeIds = (action.payload?.nodeIds || [])
         .map((id: unknown) => String(id || '').trim())
         .filter(Boolean);
       const frameIds = (action.payload?.frameIds || [])
         .map((id: unknown) => String(id || '').trim())
         .filter(Boolean);
+      const frameIdSet = new Set(frameIds);
+      const frameNodeIds = Object.values(state.document.deltaSetLike || {})
+        .filter((node) => frameIdSet.has(String(node?.attrs?.frameId || '').trim()))
+        .map((node) => String(node?.id || '').trim())
+        .filter(Boolean);
+      const nodeIds = [...new Set([...requestedNodeIds, ...frameNodeIds])];
       if (!nodeIds.length && !frameIds.length) return;
 
       const ephemeralIds = nodeIds.filter((id: string) =>
@@ -519,7 +535,7 @@ const editorSlice = createSlice({
       let next: SceneDocument | null | undefined = state.document;
       if (nodeIds.length) next = removeNodesFromDocument(next, nodeIds);
       if (frameIds.length) {
-        const idSet = new Set(frameIds);
+        const idSet = frameIdSet;
         const frames = (Array.isArray(next.frames) ? next.frames : []).filter(
           (f) => f && !idSet.has(String(f.id))
         );

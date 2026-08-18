@@ -68,12 +68,12 @@ describe('generator plate place size + grid', () => {
   it('empty-gen icon fits inside a small high-zoom plate (no 72px floor)', () => {
     const box = 18;
     const icon = generatorEmptyIconSize(box, box);
-    const legacyBroken = Math.max(72, box * 0.34);
+    const oldFloor = Math.max(72, box * 0.34);
     // eslint-disable-next-line no-console
-    console.log('[test:gen-icon@small]', { box, icon, legacyBroken });
+    console.log('[test:gen-icon@small]', { box, icon, oldFloor });
     expect(icon).toBeLessThan(box);
     expect(icon).toBeCloseTo(box * 0.28, 6);
-    expect(legacyBroken).toBeGreaterThan(box);
+    expect(oldFloor).toBeGreaterThan(box);
   });
 
   it('generator plates have no visual stroke outset (inset border === path)', () => {

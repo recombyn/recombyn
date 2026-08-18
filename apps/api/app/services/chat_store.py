@@ -42,13 +42,13 @@ def _pack_message_meta(m: dict[str, Any]) -> str | None:
         meta["contentMarked"] = content_marked
     # Normalize snake_case aliases once, then copy Ask/resume fields.
     aliases = {
-        "designTaskId": m.get("designTaskId") or m.get("design_task_id"),
-        "canResume": True if (m.get("canResume") is True or m.get("can_resume") is True) else None,
-        "proposedOps": m.get("proposedOps") or m.get("proposed_ops"),
+        "designTaskId": m.get("designTaskId"),
+        "canResume": True if m.get("canResume") is True else None,
+        "proposedOps": m.get("proposedOps"),
         "choices": m.get("choices"),
-        "applyChoice": m.get("applyChoice") or m.get("apply_choice"),
-        "choiceUi": m.get("choiceUi") or m.get("choice_ui"),
-        "proposalId": m.get("proposalId") or m.get("proposal_id"),
+        "applyChoice": m.get("applyChoice"),
+        "choiceUi": m.get("choiceUi"),
+        "proposalId": m.get("proposalId"),
     }
     _copy_ask_fields({k: v for k, v in aliases.items() if v is not None}, meta)
     if not meta:

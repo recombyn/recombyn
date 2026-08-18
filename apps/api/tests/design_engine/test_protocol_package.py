@@ -35,8 +35,6 @@ from app.services.design.runtime.graph.state import (
 
 
 def test_protocol_methods_cover_client_surface():
-    from recombyn_protocol import INTELLIGENCE_METHOD_ALIASES
-
     for name in (
         "analyze_reference",
         "research",
@@ -51,8 +49,6 @@ def test_protocol_methods_cover_client_surface():
         "write_principle",
     ):
         assert name in INTELLIGENCE_METHODS
-    assert INTELLIGENCE_METHOD_ALIASES["gate_governance"] == "govern"
-    assert INTELLIGENCE_METHOD_ALIASES["candidates"] == "propose_candidates"
 
 
 def test_state_reexports_protocol_types():
@@ -105,16 +101,16 @@ def test_flow_and_review_schemas_roundtrip():
     ] == 0.8
 
 
-def test_paint_tool_op_normalizes_parameters():
+def test_paint_tool_op_uses_name_and_args():
     from recombyn_protocol import DecideTurnSchema, PaintOpsSchema, PaintToolOp
 
     op = PaintToolOp.model_validate(
-        {"tool": "create_text", "parameters": {"text": "Hi", "x": 1}}
+        {"name": "create_text", "args": {"text": "Hi", "x": 1}}
     )
     assert op.name == "create_text"
     assert op.args["text"] == "Hi"
     batch = PaintOpsSchema.model_validate(
-        {"ops": [{"name": "create_shape", "args": {"shapeType": "rect"}}]}
+        {"tool_ops": [{"name": "create_shape", "args": {"shapeType": "rect"}}]}
     )
     assert batch.tool_ops[0].name == "create_shape"
     decide = DecideTurnSchema(intent="create", design_brief={"purpose": "poster"})

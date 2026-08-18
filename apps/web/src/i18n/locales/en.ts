@@ -844,6 +844,7 @@ const en = {
     fitCanvas: 'Zoom to fit',
     zoomToPercent: 'Zoom to {{percent}}%',
     zoomMenu: 'Zoom',
+    fpsHud: 'FPS meter',
     pathEditSelect: 'Select',
     pathEditPen: 'Pen',
     pathEditAddAnchor: 'Add anchor',
@@ -1840,7 +1841,7 @@ const en = {
     settings: 'Model settings',
     settingsTitle: 'Add model',
     settingsHint:
-      'Add an OpenAI / Claude-compatible provider. Saved providers appear in the model list. Scenes are routed automatically by the orchestrator.',
+      'Add an OpenAI / Claude-style provider. Saved providers appear in the model list. Scenes are routed automatically by the orchestrator.',
     composerMode: 'Mode',
     modeAgent: 'Agent',
     providerName: 'Provider name',
@@ -1894,7 +1895,7 @@ const en = {
     providerApiKeyHint:
       'Keys stay in this browser only. Uses your own provider quota — not billed on platform credits. Custom endpoint proxy comes next.',
     providerBaseUrl: 'Base URL',
-    providerBaseUrlHint: 'OpenAI / Claude-compatible endpoint. Do not end with a slash.',
+    providerBaseUrlHint: 'OpenAI / Claude-style endpoint. Do not end with a slash.',
     providerSave: 'Save provider',
     providerSaveMember: 'Subscribe to save',
     providerSaved: 'Saved providers',

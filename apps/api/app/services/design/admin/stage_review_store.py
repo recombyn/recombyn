@@ -1,4 +1,4 @@
-"""Admin stage-review persistence (legacy training ratings)."""
+"""Admin stage-review persistence (historical training ratings)."""
 
 from __future__ import annotations
 

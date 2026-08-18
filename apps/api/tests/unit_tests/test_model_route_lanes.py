@@ -13,18 +13,19 @@ from app.services.design.runtime.models_route import (
 )
 
 
-def test_normalize_legacy_aliases():
-    assert normalize_lane("simple") == "fast"
-    assert normalize_lane("medium") == "standard"
-    assert normalize_lane("complex") == "reasoning"
+def test_normalize_known_lanes():
+    assert normalize_lane("fast") == "fast"
+    assert normalize_lane("standard") == "standard"
+    assert normalize_lane("reasoning") == "reasoning"
     assert normalize_lane("vision") == "vision"
+    assert normalize_lane("unknown") == "standard"
 
 
-def test_parse_legacy_threshold_map():
+def test_parse_threshold_map():
     lanes = parse_model_lanes(
         {
             "precheck.model_threshold": (
-                "simple->a;medium->b;complex->c;else->b"
+                "fast->a;standard->b;reasoning->c;else->b"
             )
         }
     )
@@ -97,10 +98,10 @@ def test_resolve_review_follows_design_model_when_no_lock():
     assert reason == "review_follow_design"
 
 
-def test_user_overrides_accept_legacy_and_new():
+def test_user_overrides_canonical_lanes():
     rules = apply_user_route_overrides(
         {},
-        {"simple": "m1", "standard": "m2", "vision": "m3"},
+        {"fast": "m1", "standard": "m2", "vision": "m3"},
     )
     lanes = parse_model_lanes(rules)
     assert lanes["fast"] == "m1"

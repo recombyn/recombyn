@@ -450,8 +450,3 @@ def remove_org_member(*, org_id: str, user_id: str, actor_user_id: str) -> dict[
         session.delete(target)
         session.commit()
     return {"orgId": oid, "userId": uid, "removed": True}
-
-
-# Back-compat alias used by older call sites / tests.
-def invite_org_member(**kwargs: Any) -> dict[str, Any]:
-    return create_org_invite(**kwargs)

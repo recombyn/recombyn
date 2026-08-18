@@ -1959,6 +1959,7 @@ def _try_repair_plan_command(
     rt.flags["critique_failed"] = True
     rt.flags["review_failed"] = True
     rt.flags["review_action"] = "repair"
+    rt.flags["review_repair_used"] = True
     rt.flags["rebuild"] = False
     rt.flags["repair"] = True
     rt.flags["retry"] = True
@@ -2115,6 +2116,7 @@ async def _retry_paint_from_review(
     rt.flags["critique_failed"] = True
     rt.flags["review_failed"] = True
     rt.flags["review_action"] = action
+    rt.flags["review_repair_used"] = True
     rt.flags["rebuild"] = action == "rebuild"
     rt.flags["repair"] = action == "repair"
     rt.flags["retry"] = True

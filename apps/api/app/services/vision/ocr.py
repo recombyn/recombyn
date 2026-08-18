@@ -185,7 +185,7 @@ def ocr_image(path: Path, page_index: int = 0, lang: str = "ch") -> list[dict[st
     """Run OCR and return text blocks in image pixel coordinates."""
     engine = get_ocr(lang=lang)
 
-    # paddleocr 3.x: prefer predict(); ocr() is deprecated and may share the same path
+    # paddleocr 3.x: prefer predict(); ocr() may share the same path
     if hasattr(engine, "predict"):
         result = engine.predict(str(path))
         blocks: list[dict[str, Any]] = []

@@ -71,9 +71,6 @@ export function plazaDisplayCoverUrls(item: {
 }): string[] {
   const custom = String(item.customCoverImageUrl || '').trim();
   if (custom) return [custom];
-  if (Array.isArray(item.thumbnailUrl)) {
-    return item.thumbnailUrl.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 4);
-  }
-  const one = String(item.thumbnailUrl || '').trim();
-  return one ? [one] : [];
+  if (!Array.isArray(item.thumbnailUrl)) return [];
+  return item.thumbnailUrl.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 4);
 }

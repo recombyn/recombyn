@@ -1,9 +1,4 @@
-"""Wallet balances / ledger — unified 积分 stored in ``tokens`` column.
-
-Legacy ``image_credits`` is migrated into ``tokens`` once
-(``wallet_unified_credits_v1``), then kept at 0. API still exposes
-``credits`` / ``tokens`` / ``imageCredits`` (aliases of the same balance).
-"""
+"""Wallet balances / ledger — unified 积分 stored in ``tokens`` column."""
 
 from __future__ import annotations
 
@@ -11,68 +6,13 @@ from typing import Any
 
 from app.services.db import init_schema
 
-_UNIFIED_MIGRATION_ID = "wallet_unified_credits_v1"
 _SCALE_X10_MIGRATION_ID = "wallet_credits_scale_x10_v1"
-# Historical: used only by the first unified migration (legacy Token → 积分).
-_LEGACY_TOKENS_PER_CREDIT = 30_000
-_unified_ready = False
 _scale_x10_ready = False
 
 
 def init_wallet_db() -> None:
     init_schema()
-    ensure_unified_credits_migration()
     ensure_credits_scale_x10_migration()
-
-
-def ensure_unified_credits_migration() -> None:
-    """One-shot: tokens(旧 Token) / 30000 + image_credits → 统一积分 in tokens."""
-    global _unified_ready
-    if _unified_ready:
-        return
-    init_schema()
-    import time
-    from math import ceil
-
-    from sqlmodel import Session
-
-    from app import crud
-    from app.core.db import engine
-
-    now = time.time()
-    with Session(engine) as session:
-        try:
-            crud.ensure_app_migrations_table(session=session)
-        except Exception:
-            pass
-        if crud.app_migration_applied(
-            session=session, migration_id=_UNIFIED_MIGRATION_ID
-        ):
-            _unified_ready = True
-            return
-        for r in crud.list_all_user_balances(session=session):
-            uid = str(r.user_id or "")
-            if not uid:
-                continue
-            old_tok = int(r.tokens or 0)
-            old_img = int(r.image_credits or 0)
-            # Large ``tokens`` = legacy LLM units; small = already 积分-sized.
-            if old_tok >= _LEGACY_TOKENS_PER_CREDIT:
-                merged = int(ceil(old_tok / float(_LEGACY_TOKENS_PER_CREDIT))) + old_img
-            else:
-                merged = old_tok + old_img
-            r.tokens = max(0, merged)
-            r.image_credits = 0
-            r.updated_at = now
-            session.add(r)
-        crud.mark_app_migration(
-            session=session,
-            migration_id=_UNIFIED_MIGRATION_ID,
-            applied_at=now,
-            commit=False,
-        )
-        session.commit()
-    _unified_ready = True
 
 
 def ensure_credits_scale_x10_migration() -> None:
@@ -80,7 +20,7 @@ def ensure_credits_scale_x10_migration() -> None:
     global _scale_x10_ready
     if _scale_x10_ready:
         return
-    ensure_unified_credits_migration()
+    init_schema()
     import time
 
     from sqlmodel import Session
@@ -114,17 +54,14 @@ def ensure_credits_scale_x10_migration() -> None:
 
 __all__ = [
     "init_wallet_db",
-    "ensure_unified_credits_migration",
     "ensure_user_balance",
     "get_user_tokens",
-    "get_user_image_credits",
     "get_user_plan",
     "get_wallet",
     "list_ledger",
     "list_ledger_page",
     "spend_tokens",
     "credit_tokens",
-    "spend_image_credits",
     "is_wallet_billing_enabled",
     "FREE_DAILY_LIMIT",
     "free_daily_remaining",
@@ -154,7 +91,7 @@ def ensure_user_balance(user_id: str, *, starting_tokens: int = 0) -> int:
     from app import crud
     from app.core.db import engine
 
-    ensure_unified_credits_migration()
+    init_wallet_db()
     uid = (user_id or "").strip()
     if not uid:
         return 0
@@ -166,7 +103,7 @@ def ensure_user_balance(user_id: str, *, starting_tokens: int = 0) -> int:
 
 
 def get_wallet(user_id: str) -> dict[str, Any]:
-    """Unified 积分 + plan. ``tokens`` / ``imageCredits`` / ``credits`` are the same balance."""
+    """Unified 积分 + plan. ``credits`` and ``tokens`` are the same balance."""
     from sqlmodel import Session
 
     from app import crud
@@ -178,7 +115,6 @@ def get_wallet(user_id: str) -> dict[str, Any]:
         return {
             "credits": 0,
             "tokens": 0,
-            "imageCredits": 0,
             "planId": "free",
             "planExpiresAt": None,
             "planLocked": False,
@@ -186,20 +122,19 @@ def get_wallet(user_id: str) -> dict[str, Any]:
         }
     import time
 
-    ensure_unified_credits_migration()
+    init_wallet_db()
     now = time.time()
     with Session(engine) as session:
         row = crud.ensure_user_balance_row(session=session, user_id=uid, starting_tokens=0)
         credits = int(row.tokens or 0)
-        stored = _normalize_plan(row.plan_id)
+        stored = normalize_plan(row.plan_id)
         expires_at = float(row.plan_expires_at) if row.plan_expires_at is not None else None
-    active = _plan_active(stored, expires_at, now=now)
+    active = plan_is_active(stored, expires_at, now=now)
     effective = stored if (stored == "free" or active) else "free"
 
     return {
         "credits": credits,
         "tokens": credits,
-        "imageCredits": credits,
         "planId": effective,
         "planStored": stored,
         "planExpiresAt": expires_at,
@@ -221,10 +156,6 @@ def normalize_plan(raw: Any) -> str:
     return "free"
 
 
-# Back-compat alias for internal callers.
-_normalize_plan = normalize_plan
-
-
 def plan_is_active(plan_id: str, expires_at: float | None, *, now: float | None = None) -> bool:
     """Paid plan is active only while plan_expires_at is in the future."""
     pid = normalize_plan(plan_id)
@@ -232,9 +163,6 @@ def plan_is_active(plan_id: str, expires_at: float | None, *, now: float | None 
         return False
     t = float(now if now is not None else __import__("time").time())
     return float(expires_at) > t
-
-
-_plan_active = plan_is_active
 
 
 def get_user_plan(user_id: str) -> str:
@@ -303,7 +231,6 @@ def consume_free_daily_quota(user_id: str, *, limit: int = FREE_DAILY_LIMIT) -> 
             bal = UserBalance(
                 user_id=uid,
                 tokens=0,
-                image_credits=0,
                 plan_id="free",
                 plan_expires_at=None,
                 updated_at=now,
@@ -341,7 +268,7 @@ def spend_tokens(
     from app.core.db import engine
     from app.models import UserBalance
 
-    ensure_unified_credits_migration()
+    init_wallet_db()
     uid = (user_id or "").strip()
     amt = int(amount)
     if not uid:
@@ -364,7 +291,6 @@ def spend_tokens(
             if int(row.tokens) < amt:
                 raise ValueError("insufficient_tokens")
             row.tokens = next_bal
-            row.image_credits = 0
             row.updated_at = now
             session.add(row)
         else:
@@ -372,7 +298,6 @@ def spend_tokens(
                 UserBalance(
                     user_id=uid,
                     tokens=next_bal,
-                    image_credits=0,
                     plan_id="free",
                     updated_at=now,
                 )
@@ -397,7 +322,7 @@ def credit_tokens(user_id: str, amount: int, detail: str = "") -> int:
     from app.core.db import engine
     from app.models import UserBalance
 
-    ensure_unified_credits_migration()
+    init_wallet_db()
     uid = (user_id or "").strip()
     amt = int(amount)
     if not uid:
@@ -414,7 +339,6 @@ def credit_tokens(user_id: str, amount: int, detail: str = "") -> int:
         next_bal = prev + amt
         if row:
             row.tokens = next_bal
-            row.image_credits = 0
             row.updated_at = now
             session.add(row)
         else:
@@ -422,7 +346,6 @@ def credit_tokens(user_id: str, amount: int, detail: str = "") -> int:
                 UserBalance(
                     user_id=uid,
                     tokens=next_bal,
-                    image_credits=0,
                     plan_id="free",
                     updated_at=now,
                 )
@@ -439,23 +362,8 @@ def credit_tokens(user_id: str, amount: int, detail: str = "") -> int:
     return next_bal
 
 
-def get_user_image_credits(user_id: str) -> int:
-    """Alias of unified 积分 (legacy name)."""
-    return get_user_tokens(user_id)
-
-
-def spend_image_credits(user_id: str, amount: int, detail: str = "") -> int:
-    """Alias: deduct unified 积分 (maps insufficient_image_credits → same raise)."""
-    try:
-        return spend_tokens(user_id, amount, detail=detail or "AI image")
-    except ValueError as e:
-        if str(e) == "insufficient_tokens":
-            raise ValueError("insufficient_image_credits") from e
-        raise
-
-
 def list_ledger(user_id: str, limit: int = 100) -> list[dict[str, Any]]:
-    """Legacy helper — returns a flat list (used after redeem)."""
+    """Return a flat ledger list (used after redeem)."""
     page = list_ledger_page(user_id, page=1, page_size=limit, kind="all")
     return page["items"]
 

@@ -22,7 +22,7 @@ import { tooltipManager } from './TooltipManager';
 export type TooltipProps = {
   /** Preferred content prop (alias of title). */
   tip?: ReactNode;
-  /** @deprecated Prefer `tip`. */
+  /** Alias of `tip`. */
   title?: ReactNode;
   placement?: Placement;
   trigger?: 'hover' | 'click';

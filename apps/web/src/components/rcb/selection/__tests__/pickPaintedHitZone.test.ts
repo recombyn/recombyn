@@ -1,5 +1,5 @@
 /**
- * Hit zones — SVG CTM circles (chrome); HTML GBR kept for legacy pads.
+ * Hit zones — SVG CTM circles (chrome); HTML GBR kept for painted pads.
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {

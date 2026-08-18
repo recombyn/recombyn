@@ -12,7 +12,6 @@ import {
   rcbCameraCssZoom,
   rcbResolveViewportEl,
 } from '@/components/rcb/core/math';
-import { logEdgeSamples, sampleBoxEdges } from '@/components/rcb/core/dprDebug';
 import {
   getDocumentGridSize,
   collectPairSpacingGuides,
@@ -950,7 +949,7 @@ function SelectionFeature({
       const lockedSelection = isSelectionOriginsLocked(sceneDoc, liveOriginsNow);
       const pickOpts = chromePickOptsRef.current;
 
-      // One pick: overlay seats → geometry chrome → (legacy DOM chrome).
+      // One pick: overlay seats → geometry chrome → DOM chrome.
       // Scene point shared with CameraTransform (ADR 0027).
       let chromePick: ChromeHandlePick | null = null;
       if (
@@ -2133,23 +2132,6 @@ function SelectionFeature({
     strokeOuterScene,
     clientToScene: (clientX, clientY) => toScene(clientX, clientY),
   };
-
-  // DPR seam diagnostics ??opt-in: window.__RCB_DPR_DEBUG__ = true
-  useEffect(() => {
-    if (!enabled) return;
-    if (typeof window === 'undefined') return;
-    if (window.__RCB_DPR_DEBUG__ !== true) return;
-    if (!selectedNodeIds.length) return;
-    const dpr = window.devicePixelRatio || 1;
-    const samples = selectedNodeIds
-      .map((id) => {
-        const b = getNodeBox(id);
-        if (!b) return null;
-        return sampleBoxEdges(id, b, camera, dpr);
-      })
-      .filter(Boolean) as ReturnType<typeof sampleBoxEdges>[];
-    logEdgeSamples(`selection(${selectedNodeIds.length})`, samples, dpr, camera);
-  }, [enabled, selectedNodeIds, camera.x, camera.y, camera.zoom, getNodeBox, camera]);
 
   const chromeUnion = resolveChromeUnion({
     transforming,

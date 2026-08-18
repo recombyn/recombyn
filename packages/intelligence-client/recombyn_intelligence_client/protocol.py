@@ -5,10 +5,6 @@ Stable surface (Kernel / DesignIntelligenceClient):
   swarm_direction, simulate, counterfactual, review, optimize, govern,
   autonomous_plan, autonomous_sync, retrieve_memory, write_principle
 
-Legacy aliases remain on the Client for one release cycle:
-  candidates→propose_candidates, swarm→swarm_direction,
-  gate_governance→govern, plan_autonomous→autonomous_plan,
-  sync_autonomous→autonomous_sync
 """
 
 from __future__ import annotations

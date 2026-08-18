@@ -282,7 +282,7 @@ type Props = {
     onOpenChange?: (open: boolean) => void;
     /** Dropdown placement when using `panel`. @default top-start */
     panelPlacement?: Placement;
-    /** @deprecated Prefer `panel` + `onOpenChange` (legacy floating-ui refs). */
+    /** Prefer `panel` + `onOpenChange` (floating-ui refs). */
     ref?: (node: HTMLElement | null) => void;
     onClick?: () => void;
     getReferenceProps?: (userProps?: Record<string, unknown>) => Record<string, unknown>;

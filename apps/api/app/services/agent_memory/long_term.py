@@ -1,30 +1,16 @@
-"""Long-term user memory — LangGraph Store (docs) + legacy MySQL table bridge."""
+"""Long-term user memory backed by LangGraph Store."""
 
 from __future__ import annotations
 
 import logging
 import threading
-import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from langchain.tools import ToolRuntime, tool
-from sqlmodel import Session
-
-from app import crud
-from app.core.db import engine
-from app.models import AgentLongMemory
-from app.services.agent_memory.text_embed import (
-    cosine,
-    get_text_embeddings,
-    pack_vec,
-    retrieve_mode,
-    schedule_background,
-    unpack_vec,
-)
-from app.services.db import init_schema
+from app.services.agent_memory.text_embed import get_text_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -379,50 +365,6 @@ def run_long_term_tool_call(
     return f"Unknown long-term tool: {name}"
 
 
-def embed_long_memory(memory_id: str) -> bool:
-    mid = (memory_id or "").strip()
-    if not mid:
-        return False
-    try:
-        init_schema()
-        with Session(engine) as session:
-            row = crud.get_agent_long_memory(session=session, memory_id=mid)
-            if not row:
-                return False
-            vec = get_text_embeddings().embed_query_raw(str(row.text or ""))
-            if vec is None:
-                crud.update_agent_long_memory_embed(
-                    session=session,
-                    memory_id=mid,
-                    embed_status="failed",
-                    updated_at=time.time(),
-                )
-                return False
-            from app.services.agent_memory.clip_encoder import EMB_DIM, MODEL_ID
-
-            crud.update_agent_long_memory_embed(
-                session=session,
-                memory_id=mid,
-                emb=pack_vec(vec),
-                emb_dim=int(EMB_DIM),
-                emb_model=MODEL_ID,
-                embed_status="ready",
-                score=1.0,
-                updated_at=time.time(),
-            )
-        return True
-    except Exception:
-        logger.exception("embed_long_memory failed id=%s", mid)
-        return False
-
-
-def schedule_embed_long_memory(memory_id: str) -> None:
-    mid = (memory_id or "").strip()
-    if not mid:
-        return
-    schedule_background(f"long-embed-{mid[:12]}", lambda: embed_long_memory(mid))
-
-
 def list_long_hits(
     user_id: str,
     *,
@@ -438,114 +380,7 @@ def list_long_hits(
     if not uid:
         return []
 
-    # Official LangGraph Store first (cross-thread long-term memory).
-    store_hits = search_long_term_store(uid, query=query or "", limit=k)
-    if len(store_hits) >= k:
-        return store_hits[:k]
-
-    init_schema()
-    mode = retrieve_mode(rules, "memory.long.retrieve", "embedding")
-    legacy: list[dict[str, Any]] = []
-    if mode == "embedding" and (query or "").strip():
-        got = _list_long_by_embedding(uid, query.strip(), k)
-        if got is not None:
-            legacy = got
-    if not legacy:
-        legacy = _list_long_recency(uid, k)
-
-    # Prefer store docs, then fill from legacy table (dedupe by text).
-    seen = {str(h.get("text") or "") for h in store_hits}
-    out = list(store_hits)
-    for h in legacy:
-        t = str(h.get("text") or "")
-        if not t or t in seen:
-            continue
-        seen.add(t)
-        out.append(h)
-        if len(out) >= k:
-            break
-    return out[:k]
-
-
-def _list_long_recency(uid: str, k: int) -> list[dict[str, Any]]:
-    with Session(engine) as session:
-        rows = crud.list_agent_long_memory_recent(
-            session=session, user_id=uid, limit=k
-        )
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        text = str(r.text or "").strip()
-        if not text:
-            continue
-        out.append(
-            {
-                "kind": str(r.kind or "preference"),
-                "text": text[:500],
-                "score": float(r.score) if r.score is not None else None,
-                "retrieve": "recency",
-            }
-        )
-    return out
-
-
-def _list_long_by_embedding(
-    uid: str, query: str, k: int
-) -> list[dict[str, Any]] | None:
-    qvec = get_text_embeddings().embed_query_raw(query)
-    if qvec is None:
-        return None
-    with Session(engine) as session:
-        # Pinned always preferred; then rank ready embeddings.
-        rows = crud.list_agent_long_memory_recent(
-            session=session, user_id=uid, limit=200
-        )
-
-    pinned: list[dict[str, Any]] = []
-    scored: list[tuple[float, Any]] = []
-    pending: list[str] = []
-    for r in rows:
-        text = str(r.text or "").strip()
-        if not text:
-            continue
-        if int(r.pinned or 0):
-            pinned.append(
-                {
-                    "kind": str(r.kind or "preference"),
-                    "text": text[:500],
-                    "score": 1.0,
-                    "retrieve": "pinned",
-                }
-            )
-            continue
-        status = str(r.embed_status or "")
-        vec = unpack_vec(r.emb) if status == "ready" else None
-        if vec is None:
-            if status in ("pending", "", "failed"):
-                pending.append(str(r.id or ""))
-            continue
-        scored.append((cosine(qvec, vec), r))
-
-    for mid in pending[:3]:
-        schedule_embed_long_memory(mid)
-
-    if not scored and not pinned:
-        return None
-
-    scored.sort(key=lambda x: -x[0])
-    out = list(pinned[:k])
-    for sim, r in scored:
-        if len(out) >= k:
-            break
-        text = str(r.text or "").strip()
-        out.append(
-            {
-                "kind": str(r.kind or "preference"),
-                "text": text[:500],
-                "score": round(float(sim), 4),
-                "retrieve": "embedding",
-            }
-        )
-    return out
+    return search_long_term_store(uid, query=query or "", limit=k)
 
 
 def insert_long_memory(
@@ -555,39 +390,11 @@ def insert_long_memory(
     text: str,
     pinned: bool = False,
 ) -> str:
-    init_schema()
     mid = f"alm_{uuid.uuid4().hex[:16]}"
-    now = time.time()
     uid = (user_id or "").strip()
     body = (text or "")[:2000]
     kind_s = (kind or "preference")[:32]
-    with Session(engine) as session:
-        crud.insert_agent_long_memory(
-            session=session,
-            row=AgentLongMemory(
-                id=mid,
-                user_id=uid,
-                kind=kind_s,
-                text=body,
-                status="active",
-                pinned=1 if pinned else 0,
-                score=1.0,
-                emb=None,
-                emb_dim=0,
-                emb_model="",
-                embed_status="pending",
-                created_at=now,
-                updated_at=now,
-            ),
-        )
-    schedule_embed_long_memory(mid)
-    # Official Store mirror (docs long-term memory).
-    try:
-        put_long_term_store(
-            uid, key=mid, kind=kind_s, text=body, pinned=pinned
-        )
-    except Exception:
-        logger.warning("Store put failed for %s", mid, exc_info=True)
+    put_long_term_store(uid, key=mid, kind=kind_s, text=body, pinned=pinned)
     return mid
 
 
@@ -602,19 +409,7 @@ def load_user_design_memory(user_id: str) -> dict[str, Any]:
     if not uid:
         return empty_design_memory()["user"]
     try:
-        init_schema()
-        with Session(engine) as session:
-            rows = crud.list_agent_long_memory_recent(
-                session=session, user_id=uid, limit=40
-            )
-        hits = [
-            {
-                "kind": str(r.kind or "preference"),
-                "text": str(r.text or "").strip(),
-                "score": float(r.score) if r.score is not None else None,
-            }
-            for r in rows
-        ]
+        hits = search_long_term_store(uid, limit=40)
         return user_design_from_long_hits(hits)
     except Exception:
         logger.debug("load_user_design_memory failed user=%s", uid[:12], exc_info=True)

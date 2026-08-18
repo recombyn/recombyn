@@ -12,15 +12,19 @@ import {
   removeArtboardFrames,
   setCanvasMeta,
   setDocument,
+  setActiveTool,
+  setGridMode,
   setDocumentFromCanvas,
   startImageProcess,
   updateArtboardFrame,
+  updateArtboardFrames,
   type ArtboardFrame,
 } from '@/store/modules/editor';
 import { exportFabricImage } from '@/components/rcb/scene/paint/exportImage';
 import {
   addNodeToDocument,
   cloneSceneValue,
+  reconcileStackOrder,
   removeNodesFromDocument,
   reorderNodesInDocument
 } from '@/components/rcb/scene/document/sceneDocument';
@@ -289,7 +293,7 @@ export function rebaseSceneMutationOps(
     };
 
     if (name === 'delete_frame') {
-      const fid = mutationArgIds(args, ['frameId', 'id'])[0] || '';
+      const fid = mutationArgIds(args, ['frameId'])[0] || '';
       if (fid && sceneHasFrame(doc, fid)) {
         return {
           action: 'reject',
@@ -303,7 +307,7 @@ export function rebaseSceneMutationOps(
     }
 
     if (name === 'delete_nodes') {
-      const ids = mutationArgIds(args, ['nodeIds', 'ids', 'nodeId', 'id']);
+      const ids = mutationArgIds(args, ['nodeIds']);
       const live = ids.filter((id) => sceneHasNode(doc, id));
       if (live.length) {
         return {
@@ -318,7 +322,7 @@ export function rebaseSceneMutationOps(
     }
 
     if (name.startsWith('create_')) {
-      if (name === 'create_frame' || name === 'create_page') {
+      if (name === 'create_frame') {
         kept.push(op);
         continue;
       }
@@ -332,7 +336,7 @@ export function rebaseSceneMutationOps(
     }
 
     if (name === 'update_frame') {
-      const fid = mutationArgIds(args, ['frameId', 'id'])[0] || '';
+      const fid = mutationArgIds(args, ['frameId'])[0] || '';
       if (fid && sceneHasFrame(doc, fid)) {
         kept.push(op);
         continue;
@@ -341,7 +345,7 @@ export function rebaseSceneMutationOps(
       continue;
     }
 
-    const targetIds = mutationArgIds(args, ['nodeIds', 'ids', 'nodeId', 'id']);
+    const targetIds = mutationArgIds(args, ['nodeIds', 'nodeId']);
     if (!targetIds.length) {
       kept.push(op);
       continue;
@@ -357,7 +361,6 @@ export function rebaseSceneMutationOps(
     }
     const nextArgs = { ...args };
     if (Array.isArray(args.nodeIds)) nextArgs.nodeIds = liveIds;
-    else if (Array.isArray(args.ids)) nextArgs.ids = liveIds;
     else nextArgs.nodeId = liveIds[0];
     kept.push({ ...op, args: nextArgs });
   }
@@ -532,7 +535,7 @@ function resolveFrameOpId(
   ctx: DesignToolContext
 ): string {
   const focus = String(ctx.targetFrameId || '').trim();
-  const fromArgs = String(args.frameId ?? args.id ?? '').trim();
+  const fromArgs = String(args.frameId || '').trim();
   // Honor model frameId when present — do not silently retarget to focus.
   if (fromArgs) return fromArgs;
   return focus;
@@ -592,7 +595,7 @@ export const UNAVAILABLE_CAPABILITIES: Array<{
   {
     id: 'hand_tool',
     label: 'Hand / select tool',
-    hint: 'Not wired for Agent. Use the bottom tool strip or Space to pan.',
+    hint: 'Use set_active_tool tool=pan|select. Space still pans in the editor.',
   },
   {
     id: 'tour',
@@ -720,8 +723,19 @@ export const DESIGN_TOOL_NAMES = [
   'list_capabilities',
   'ask_user',
   'create_frame',
+  'duplicate_frame',
+  'reorder_frames',
+  'fit_frame_to_content',
+  'lock_frames',
+  'hide_frames',
+  'clip_frames',
   'update_frame',
   'create_shape',
+  'create_path',
+  'append_path_points',
+  'simplify_path',
+  'smooth_path',
+  'close_path',
   'create_text',
   'outline_text',
   'create_image',
@@ -737,16 +751,241 @@ export const DESIGN_TOOL_NAMES = [
   'ungroup_nodes',
   'duplicate_nodes',
   'flip_nodes',
+  'rotate_nodes',
+  'bind_nodes_to_frame',
+  'unbind_nodes',
   'set_viewport',
+  'set_active_tool',
+  'set_grid',
   'set_canvas_background',
   'image_process',
   'export_canvas',
+  'edit_path_points',
+  'apply_brush_preset',
   'set_agent_mode',
   'toggle_editor_panel',
+  'hide_nodes',
   'delete_nodes',
   'delete_frame',
   'finish',
 ] as const;
+
+type ScenePoint = { x: number; y: number };
+
+function coerceScenePoint(raw: unknown): ScenePoint | null {
+  if (!raw) return null;
+  if (Array.isArray(raw)) {
+    const x = Number(raw[0]);
+    const y = Number(raw[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  }
+  if (typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const x = Number(row.x);
+  const y = Number(row.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
+}
+
+function readScenePoints(raw: unknown): ScenePoint[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => coerceScenePoint(entry)).filter((entry): entry is ScenePoint => Boolean(entry));
+}
+
+function pointsToPath(points: ScenePoint[], closed: boolean): string {
+  if (!points.length) return '';
+  const [first, ...rest] = points;
+  const chunks = [`M ${first.x} ${first.y}`];
+  for (const p of rest) chunks.push(`L ${p.x} ${p.y}`);
+  if (closed && points.length > 2) chunks.push('Z');
+  return chunks.join(' ');
+}
+
+const PATH_SHAPE_TYPES = new Set(['path', 'pen', 'pencil']);
+
+function isEditablePathNode(node: SceneNode | undefined | null): node is SceneNode {
+  if (!node || node.key !== 'shape') return false;
+  return PATH_SHAPE_TYPES.has(String(node.attrs?.shapeType || '').toLowerCase());
+}
+
+function parsePathPoints(path: string): { points: ScenePoint[]; closed: boolean } {
+  const raw = String(path || '').trim();
+  const closed = /z\s*$/i.test(raw);
+  const tokens = raw.replace(/,/g, ' ').match(/[MmLlHhVvZz]|-?\d*\.?\d+(?:e[-+]?\d+)?/g) || [];
+  const points: ScenePoint[] = [];
+  let cmd = 'L';
+  let i = 0;
+  let lastX = 0;
+  let lastY = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (/^[MmLlHhVvZz]$/.test(token)) {
+      cmd = token.toUpperCase();
+      i += 1;
+      continue;
+    }
+    const n = Number(token);
+    if (!Number.isFinite(n)) {
+      i += 1;
+      continue;
+    }
+    if (cmd === 'H') {
+      lastX = n;
+      points.push({ x: lastX, y: lastY });
+      i += 1;
+      continue;
+    }
+    if (cmd === 'V') {
+      lastY = n;
+      points.push({ x: lastX, y: lastY });
+      i += 1;
+      continue;
+    }
+    const y = Number(tokens[i + 1]);
+    if (!Number.isFinite(y)) {
+      i += 1;
+      continue;
+    }
+    lastX = n;
+    lastY = y;
+    if (cmd === 'M' || cmd === 'L') points.push({ x: lastX, y: lastY });
+    if (cmd === 'M') cmd = 'L';
+    i += 2;
+  }
+  return { points, closed };
+}
+
+function pointSegDist(p: ScenePoint, a: ScenePoint, b: ScenePoint): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(
+    0,
+    Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy))
+  );
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+function simplifyPolyline(points: ScenePoint[], tolerance: number): ScenePoint[] {
+  if (points.length <= 2) return points;
+  const keep = Array.from({ length: points.length }, () => false);
+  keep[0] = true;
+  keep[points.length - 1] = true;
+  const stack: Array<[number, number]> = [[0, points.length - 1]];
+  while (stack.length) {
+    const [start, end] = stack.pop()!;
+    let maxD = -1;
+    let maxI = -1;
+    for (let i = start + 1; i < end; i += 1) {
+      const d = pointSegDist(points[i], points[start], points[end]);
+      if (d > maxD) {
+        maxD = d;
+        maxI = i;
+      }
+    }
+    if (maxD > tolerance && maxI > start) {
+      keep[maxI] = true;
+      stack.push([start, maxI], [maxI, end]);
+    }
+  }
+  return points.filter((_, i) => keep[i]);
+}
+
+function lerpPoint(a: ScenePoint, b: ScenePoint, t: number): ScenePoint {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+function smoothPolyline(
+  points: ScenePoint[],
+  iterations: number,
+  closed: boolean
+): ScenePoint[] {
+  if (points.length < 3) return points;
+  let next = points;
+  const rounds = Math.max(1, Math.min(4, Math.round(iterations)));
+  for (let r = 0; r < rounds; r += 1) {
+    const out: ScenePoint[] = [];
+    const n = next.length;
+    if (closed) {
+      for (let i = 0; i < n; i += 1) {
+        const a = next[i];
+        const b = next[(i + 1) % n];
+        out.push(lerpPoint(a, b, 0.25), lerpPoint(a, b, 0.75));
+      }
+    } else {
+      out.push(next[0]);
+      for (let i = 0; i < n - 1; i += 1) {
+        out.push(lerpPoint(next[i], next[i + 1], 0.25), lerpPoint(next[i], next[i + 1], 0.75));
+      }
+      out.push(next[n - 1]);
+    }
+    next = out;
+  }
+  return next;
+}
+
+function resolveEditablePathNode(
+  doc: SceneDocument,
+  nodeId: string
+): { node: SceneNode } | { error: AgentToolResult } {
+  const node = doc.deltaSetLike?.[nodeId];
+  if (!node) {
+    return { error: { status: 'error', summary: `Node not found: ${nodeId}` } };
+  }
+  if (!isEditablePathNode(node)) {
+    const kind = String(node.attrs?.shapeType || node.key || 'node');
+    return {
+      error: {
+        status: 'error',
+        summary: `Node ${nodeId} is ${kind}; expected path/pen/pencil`,
+      },
+    };
+  }
+  return { node };
+}
+
+function parseFrameOpIds(args: Record<string, unknown>, ctx: DesignToolContext): string[] {
+  if (Array.isArray(args.frameIds)) {
+    return [...new Set(args.frameIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  }
+  const focus = String(ctx.targetFrameId || '').trim();
+  return focus ? [focus] : [];
+}
+
+function reorderKeysWithAction(
+  keys: string[],
+  selected: Set<string>,
+  action: 'front' | 'back' | 'forward' | 'backward'
+): string[] {
+  const untouched = keys.filter((key) => !selected.has(key));
+  const picked = keys.filter((key) => selected.has(key));
+  if (!picked.length) return keys;
+  if (action === 'front') return [...untouched, ...picked];
+  if (action === 'back') return [...picked, ...untouched];
+  if (action === 'forward') {
+    const next = [...keys];
+    for (let i = next.length - 2; i >= 0; i -= 1) {
+      const cur = next[i];
+      const after = next[i + 1];
+      if (selected.has(cur) && !selected.has(after)) {
+        next[i] = after;
+        next[i + 1] = cur;
+      }
+    }
+    return next;
+  }
+  const next = [...keys];
+  for (let i = 1; i < next.length; i += 1) {
+    const cur = next[i];
+    const before = next[i - 1];
+    if (selected.has(cur) && !selected.has(before)) {
+      next[i] = before;
+      next[i - 1] = cur;
+    }
+  }
+  return next;
+}
 
 function parseArgs(raw: string): Record<string, unknown> {
   try {
@@ -1965,6 +2204,34 @@ function execCreateShape(
   };
 }
 
+function execCreatePath(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const points = readScenePoints(args.points);
+  const closed = truthy(args.closed);
+  if (points.length < 2) {
+    return {
+      status: 'error',
+      summary: 'create_path requires points (>=2)',
+      next_actions: ['Pass points as [[x,y], ...]'],
+    };
+  }
+  return execCreateShape(
+    {
+      ...args,
+      shapeType: 'path',
+      path: pointsToPath(points, closed),
+      closed,
+    },
+    ctx,
+    doc,
+    pushHistory
+  );
+}
+
 function execCreateText(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
@@ -2350,6 +2617,234 @@ function execUpdateNode(
   };
 }
 
+function execEditPathPoints(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const nodeId = String(args.nodeId || '').trim();
+  if (!nodeId) return { status: 'error', summary: 'nodeId required' };
+  const resolved = resolveEditablePathNode(doc, nodeId);
+  if ('error' in resolved) return resolved.error;
+  const points = readScenePoints(args.points);
+  if (points.length < 2) {
+    return { status: 'error', summary: 'edit_path_points requires points (>=2)' };
+  }
+  const closed =
+    args.closed != null ? truthy(args.closed) : truthy(resolved.node.attrs?.closed);
+  return execUpdateNode(
+    {
+      nodeId,
+      path: pointsToPath(points, closed),
+      closed,
+    },
+    ctx,
+    doc,
+    pushHistory
+  );
+}
+
+function execAppendPathPoints(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const nodeId = String(args.nodeId || '').trim();
+  if (!nodeId) return { status: 'error', summary: 'nodeId required' };
+  const resolved = resolveEditablePathNode(doc, nodeId);
+  if ('error' in resolved) return resolved.error;
+  const extra = readScenePoints(args.points);
+  if (extra.length < 1) {
+    return { status: 'error', summary: 'append_path_points requires args.points (>=1)' };
+  }
+  const current = parsePathPoints(String(resolved.node.attrs?.path || ''));
+  const closed =
+    args.closed != null ? truthy(args.closed) : current.closed || truthy(resolved.node.attrs?.closed);
+  const next = [...current.points, ...extra];
+  if (next.length < 2) {
+    return { status: 'error', summary: 'append_path_points needs at least 2 total points' };
+  }
+  return execUpdateNode(
+    {
+      nodeId,
+      path: pointsToPath(next, closed),
+      closed,
+    },
+    ctx,
+    doc,
+    pushHistory
+  );
+}
+
+function execSimplifyPath(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const nodeId = String(args.nodeId || '').trim();
+  if (!nodeId) return { status: 'error', summary: 'nodeId required' };
+  const resolved = resolveEditablePathNode(doc, nodeId);
+  if ('error' in resolved) return resolved.error;
+  const current = parsePathPoints(String(resolved.node.attrs?.path || ''));
+  if (current.points.length < 3) {
+    return {
+      status: 'warning',
+      summary: `Path ${nodeId} already has ${current.points.length} point(s)`,
+      artifacts: { nodeId, pointCount: current.points.length },
+    };
+  }
+  const tolerance = Math.max(0.25, num(args.tolerance, 2));
+  const simplified = simplifyPolyline(current.points, tolerance);
+  const closed = current.closed || truthy(resolved.node.attrs?.closed);
+  if (simplified.length < 2) {
+    return { status: 'error', summary: `simplify_path collapsed ${nodeId}` };
+  }
+  return execUpdateNode(
+    {
+      nodeId,
+      path: pointsToPath(simplified, closed),
+      closed,
+    },
+    ctx,
+    doc,
+    pushHistory
+  );
+}
+
+function execSmoothPath(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const nodeId = String(args.nodeId || '').trim();
+  if (!nodeId) return { status: 'error', summary: 'nodeId required' };
+  const resolved = resolveEditablePathNode(doc, nodeId);
+  if ('error' in resolved) return resolved.error;
+  const current = parsePathPoints(String(resolved.node.attrs?.path || ''));
+  if (current.points.length < 3) {
+    return {
+      status: 'warning',
+      summary: `Path ${nodeId} needs at least 3 points to smooth`,
+      artifacts: { nodeId, pointCount: current.points.length },
+    };
+  }
+  const closed = current.closed || truthy(resolved.node.attrs?.closed);
+  const iterations = Math.max(1, Math.min(4, Math.round(num(args.iterations, 1))));
+  const smoothed = smoothPolyline(current.points, iterations, closed);
+  return execUpdateNode(
+    {
+      nodeId,
+      path: pointsToPath(smoothed, closed),
+      closed,
+    },
+    ctx,
+    doc,
+    pushHistory
+  );
+}
+
+function execClosePath(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const nodeId = String(args.nodeId || '').trim();
+  if (!nodeId) return { status: 'error', summary: 'nodeId required' };
+  const resolved = resolveEditablePathNode(doc, nodeId);
+  if ('error' in resolved) return resolved.error;
+  const current = parsePathPoints(String(resolved.node.attrs?.path || ''));
+  if (current.points.length < 3) {
+    return {
+      status: 'error',
+      summary: `close_path needs at least 3 points (${nodeId})`,
+    };
+  }
+  if (current.closed || truthy(resolved.node.attrs?.closed)) {
+    return {
+      status: 'warning',
+      summary: `Path ${nodeId} is already closed`,
+      artifacts: { nodeId },
+    };
+  }
+  return execUpdateNode(
+    {
+      nodeId,
+      path: pointsToPath(current.points, true),
+      closed: true,
+    },
+    ctx,
+    doc,
+    pushHistory
+  );
+}
+
+const BRUSH_PRESET_MAP: Record<
+  string,
+  { brushStyle: string; borderWidth: number; pressureEnabled: boolean }
+> = {
+  ink: { brushStyle: 'vector-ink', borderWidth: 2, pressureEnabled: true },
+  pencil: { brushStyle: 'vector-pencil', borderWidth: 2, pressureEnabled: true },
+  marker: { brushStyle: 'vector-marker', borderWidth: 6, pressureEnabled: false },
+  calligraphy: { brushStyle: 'vector-calligraphy', borderWidth: 4, pressureEnabled: true },
+  brush: { brushStyle: 'vector-brush', borderWidth: 5, pressureEnabled: true },
+};
+
+function execApplyBrushPreset(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const preset = String(args.preset || '').trim().toLowerCase();
+  const spec = BRUSH_PRESET_MAP[preset];
+  if (!spec) {
+    return {
+      status: 'error',
+      summary: `Unknown brush preset: ${preset || '(empty)'}`,
+      next_actions: [`Use one of: ${Object.keys(BRUSH_PRESET_MAP).join('|')}`],
+    };
+  }
+  const ids = parseNodeIds(args);
+  if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
+  const done: string[] = [];
+  for (const nodeId of ids) {
+    const node = doc.deltaSetLike?.[nodeId];
+    if (!node || node.key !== 'shape') continue;
+    const shapeType = String(node.attrs?.shapeType || '').toLowerCase();
+    const editable = shapeType === 'path' || shapeType === 'pen' || shapeType === 'pencil';
+    if (!editable) continue;
+    const result = execUpdateNode(
+      {
+        nodeId,
+        brushStyle: spec.brushStyle,
+        borderWidth: spec.borderWidth,
+        pressureEnabled: spec.pressureEnabled,
+      },
+      ctx,
+      doc,
+      pushHistory
+    );
+    if (result.status !== 'error') done.push(nodeId);
+  }
+  if (!done.length) {
+    return {
+      status: 'error',
+      summary: 'No editable path/pen/pencil nodes found for apply_brush_preset',
+      artifacts: { requestedNodeIds: ids },
+    };
+  }
+  return {
+    status: 'success',
+    summary: `Applied preset ${preset} to ${done.length} node(s)`,
+    artifacts: { nodeIds: done, preset },
+  };
+}
+
 function execCreateFrame(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
@@ -2543,6 +3038,47 @@ function execSetViewport(
       summary: 'set_viewport needs action: zoom_in|zoom_out|fit|set (optional percent)',
     };
   
+}
+
+function execSetActiveTool(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  _doc: SceneDocument,
+  _pushHistory: () => void
+): AgentToolResult {
+  const tool = String(args.tool || '').trim().toLowerCase();
+  const allowed = new Set(['select', 'pan', 'frame', 'text', 'shape', 'image', 'pen', 'pencil']);
+  if (!allowed.has(tool)) {
+    return {
+      status: 'error',
+      summary: `Unknown canvas tool: ${tool || '(empty)'}`,
+      next_actions: [`Use tool one of: ${[...allowed].join('|')}`],
+    };
+  }
+  ctx.dispatch(setActiveTool(tool));
+  return {
+    status: 'success',
+    summary: `Active tool set to ${tool}`,
+    artifacts: { tool },
+  };
+}
+
+function execSetGrid(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  _doc: SceneDocument,
+  _pushHistory: () => void
+): AgentToolResult {
+  if (args.enabled == null) {
+    return { status: 'error', summary: 'set_grid requires enabled (boolean)' };
+  }
+  const enabled = truthy(args.enabled);
+  ctx.dispatch(setGridMode(enabled));
+  return {
+    status: 'success',
+    summary: enabled ? 'Grid snap on' : 'Grid snap off',
+    artifacts: { enabled },
+  };
 }
 
 function execSetCanvasBackground(
@@ -3270,6 +3806,113 @@ function execFlipNodes(
   
 }
 
+function execRotateNodes(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const ids = parseNodeIds(args);
+  if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
+  if (args.rotation == null) {
+    return { status: 'error', summary: 'rotate_nodes requires rotation (degrees)' };
+  }
+  const rotation = num(args.rotation, NaN);
+  if (!Number.isFinite(rotation)) {
+    return { status: 'error', summary: 'rotate_nodes requires rotation (degrees)' };
+  }
+  const done: string[] = [];
+  for (const nodeId of ids) {
+    if (!doc.deltaSetLike?.[nodeId]) continue;
+    const result = execUpdateNode({ nodeId, rotation }, ctx, doc, pushHistory);
+    if (result.status !== 'error') done.push(nodeId);
+  }
+  if (!done.length) return { status: 'error', summary: 'No matching nodes to rotate' };
+  return {
+    status: 'success',
+    summary: `Rotated ${done.length} node(s)`,
+    artifacts: { nodeIds: done, rotation },
+  };
+}
+
+function bindNodesInDocument(
+  doc: SceneDocument,
+  nodeIds: string[],
+  frameId: string | null
+): SceneDocument {
+  const next = cloneSceneValue(doc) as SceneDocument;
+  let orderCursor = 0;
+  if (frameId) {
+    const existing = Object.values(next.deltaSetLike || {})
+      .filter((item) => String(item?.attrs?.frameId || '').trim() === frameId)
+      .map((item) => Number(item?.attrs?.frameOrder))
+      .filter(Number.isFinite);
+    orderCursor = existing.length ? Math.max(...existing) + 1 : 0;
+  }
+  const unboundKeys: string[] = [];
+  for (const nodeId of nodeIds) {
+    const node = next.deltaSetLike?.[nodeId];
+    if (!node) continue;
+    const attrs = { ...(node.attrs || {}) };
+    if (frameId) {
+      attrs.frameId = frameId;
+      attrs.frameOrder = orderCursor;
+      orderCursor += 1;
+    } else {
+      delete attrs.frameId;
+      delete attrs.frameOrder;
+      unboundKeys.push(`node:${nodeId}`);
+    }
+    next.deltaSetLike[nodeId] = { ...node, attrs };
+  }
+  if (unboundKeys.length) {
+    const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
+    const keep = order.filter((key) => !unboundKeys.includes(key));
+    next.stackOrder = [...keep, ...unboundKeys.filter((key) => !keep.includes(key))];
+  }
+  reconcileStackOrder(next);
+  return next;
+}
+
+function execBindNodesToFrame(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const frameId = resolveFrameOpId(args, ctx);
+  if (!frameId) return { status: 'error', summary: 'frameId required' };
+  if (!frameById(doc, frameId)) return { status: 'error', summary: `frame not found: ${frameId}` };
+  const ids = parseNodeIds(args);
+  if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
+  const next = bindNodesInDocument(doc, ids, frameId);
+  pushHistory();
+  ctx.dispatch(setDocumentFromCanvas(next));
+  return {
+    status: 'success',
+    summary: `Bound ${ids.length} node(s) to frame ${frameId}`,
+    artifacts: { nodeIds: ids, frameId },
+  };
+}
+
+function execUnbindNodes(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const ids = parseNodeIds(args);
+  if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
+  const next = bindNodesInDocument(doc, ids, null);
+  pushHistory();
+  ctx.dispatch(setDocumentFromCanvas(next));
+  return {
+    status: 'success',
+    summary: `Unbound ${ids.length} node(s) from artboards`,
+    artifacts: { nodeIds: ids },
+  };
+}
+
 function execDeleteNodes(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
@@ -3357,6 +4000,239 @@ function execDeleteFrame(
   
 }
 
+function execDuplicateFrame(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const frameId = resolveFrameOpId(args, ctx);
+  if (!frameId) return { status: 'error', summary: 'frameId required' };
+  const source = frameById(doc, frameId);
+  if (!source) return { status: 'error', summary: `frame not found: ${frameId}` };
+  const dx = Number.isFinite(Number(args.dx)) ? Number(args.dx) : 48;
+  const dy = Number.isFinite(Number(args.dy)) ? Number(args.dy) : 48;
+  const beforeIds = new Set(listFrames(doc).map((f) => String(f.id)));
+  const copyName = args.name != null ? String(args.name) : `${String(source.name || 'Frame')} Copy`;
+  ctx.dispatch(
+    addArtboardFrame({
+      name: copyName,
+      x: Math.round((Number(source.x) || 0) + dx),
+      y: Math.round((Number(source.y) || 0) + dy),
+      width: Math.max(40, Number(source.width) || 40),
+      height: Math.max(40, Number(source.height) || 40),
+      backgroundColor: source.backgroundColor,
+      clipContent: source.clipContent,
+      locked: false,
+      hidden: false,
+      activate: false,
+    })
+  );
+  const frames = listFrames(ctx.getDocument());
+  const created = frames.find((frame) => !beforeIds.has(String(frame.id))) || null;
+  if (!created?.id) {
+    return { status: 'error', summary: `duplicate_frame failed for ${frameId}` };
+  }
+  const copyChildren = truthy(args.includeChildren);
+  const copiedNodeIds: string[] = [];
+  if (copyChildren) {
+    const childIds = nodeIdsBoundToFrames(doc, [frameId]);
+    let nextDoc = ctx.getDocument() || doc;
+    for (const oldId of childIds) {
+      const raw = doc.deltaSetLike?.[oldId];
+      if (!raw) continue;
+      const node = cloneSceneValue(raw);
+      const newId = nanoid(10);
+      node.id = newId;
+      node.x = (Number(node.x) || 0) + dx;
+      node.y = (Number(node.y) || 0) + dy;
+      node.attrs = { ...(node.attrs || {}), frameId: created.id };
+      nextDoc = addNodeToDocument(nextDoc, newId, node);
+      copiedNodeIds.push(newId);
+    }
+    if (copiedNodeIds.length) ctx.dispatch(setDocumentFromCanvas(nextDoc));
+  }
+  return {
+    status: 'success',
+    summary: `Duplicated frame ${frameId} -> ${created.id}${
+      copiedNodeIds.length ? ` with ${copiedNodeIds.length} node(s)` : ''
+    }`,
+    artifacts: { sourceFrameId: frameId, frameId: created.id, nodeIds: copiedNodeIds },
+  };
+}
+
+function execReorderFrames(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const frameIds = Array.isArray(args.frameIds)
+    ? args.frameIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (!frameIds.length) return { status: 'error', summary: 'frameIds required' };
+  const actionRaw = String(args.action || '').trim().toLowerCase();
+  const allowed = new Set(['front', 'back', 'forward', 'backward']);
+  if (!allowed.has(actionRaw)) {
+    return { status: 'error', summary: `Unknown reorder action: ${actionRaw || '(empty)'}` };
+  }
+  const action = actionRaw as 'front' | 'back' | 'forward' | 'backward';
+
+  const existing = new Set(listFrames(doc).map((f) => String(f.id)));
+  const target = frameIds.filter((id) => existing.has(id));
+  if (!target.length) return { status: 'error', summary: 'No matching frame ids' };
+
+  const next = cloneSceneValue(doc) as SceneDocument;
+  const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
+  const frameKeys = order.filter((key) => key.startsWith('frame:'));
+  const nonFrameKeys = order.filter((key) => !key.startsWith('frame:'));
+  const selectedKeys = new Set(target.map((id) => `frame:${id}`));
+  next.stackOrder = [...reorderKeysWithAction(frameKeys, selectedKeys, action), ...nonFrameKeys];
+  pushHistory();
+  ctx.dispatch(setDocumentFromCanvas(next));
+  return {
+    status: 'success',
+    summary: `Reordered ${target.length} frame(s) (${action})`,
+    artifacts: { frameIds: target, action },
+  };
+}
+
+function execFitFrameToContent(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const frameId = resolveFrameOpId(args, ctx);
+  if (!frameId) return { status: 'error', summary: 'frameId required' };
+  const frame = frameById(doc, frameId);
+  if (!frame) return { status: 'error', summary: `frame not found: ${frameId}` };
+  const nodeIds = nodeIdsInsideFrame(doc, frameId);
+  if (!nodeIds.length) {
+    return {
+      status: 'warning',
+      summary: `Frame ${frameId} has no child nodes`,
+      artifacts: { frameId, nodeIds: [] },
+    };
+  }
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const nodeId of nodeIds) {
+    const node = doc.deltaSetLike?.[nodeId];
+    if (!node) continue;
+    const lt = nodeLeftTop(node);
+    const left = Number(lt.left) || 0;
+    const top = Number(lt.top) || 0;
+    const width = Math.max(1, Number(node.width) || 1);
+    const height = Math.max(1, Number(node.height) || 1);
+    minX = Math.min(minX, left);
+    minY = Math.min(minY, top);
+    maxX = Math.max(maxX, left + width);
+    maxY = Math.max(maxY, top + height);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return { status: 'error', summary: `fit_frame_to_content failed for ${frameId}` };
+  }
+  const padding = Math.max(0, Number(args.padding) || 24);
+  ctx.dispatch(
+    updateArtboardFrame({
+      id: frameId,
+      patch: {
+        x: Math.round(minX - padding),
+        y: Math.round(minY - padding),
+        width: Math.max(40, Math.round(maxX - minX + padding * 2)),
+        height: Math.max(40, Math.round(maxY - minY + padding * 2)),
+      },
+    })
+  );
+  return {
+    status: 'success',
+    summary: `Fitted frame ${frameId} to ${nodeIds.length} node(s)`,
+    artifacts: { frameId, nodeIds },
+  };
+}
+
+function execSetFrameFlag(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  flag: 'locked' | 'hidden' | 'clipContent',
+  defaultOn: boolean
+): AgentToolResult {
+  const ids = parseFrameOpIds(args, ctx);
+  if (!ids.length) return { status: 'error', summary: 'frameIds required' };
+  const on = args[flag] == null ? defaultOn : truthy(args[flag]);
+  const existing = new Set(listFrames(doc).map((f) => String(f.id)));
+  const patches = ids
+    .filter((id) => existing.has(id))
+    .map((id) => ({ id, patch: { [flag]: on } }));
+  if (!patches.length) return { status: 'error', summary: 'No matching frame ids' };
+  ctx.dispatch(updateArtboardFrames({ patches }));
+  let verb = 'Updated';
+  if (flag === 'locked') verb = on ? 'Locked' : 'Unlocked';
+  else if (flag === 'hidden') verb = on ? 'Hid' : 'Showed';
+  else verb = on ? 'Clipped' : 'Unclipped';
+  return {
+    status: 'success',
+    summary: `${verb} ${patches.length} frame(s)`,
+    artifacts: { frameIds: patches.map((p) => p.id), [flag]: on },
+  };
+}
+
+function execLockFrames(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  _pushHistory: () => void
+): AgentToolResult {
+  return execSetFrameFlag(args, ctx, doc, 'locked', true);
+}
+
+function execHideFrames(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  _pushHistory: () => void
+): AgentToolResult {
+  return execSetFrameFlag(args, ctx, doc, 'hidden', true);
+}
+
+function execClipFrames(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  _pushHistory: () => void
+): AgentToolResult {
+  return execSetFrameFlag(args, ctx, doc, 'clipContent', true);
+}
+
+function execHideNodes(
+  args: Record<string, unknown>,
+  ctx: DesignToolContext,
+  doc: SceneDocument,
+  pushHistory: () => void
+): AgentToolResult {
+  const ids = parseNodeIds(args);
+  if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
+  const hidden = args.hidden == null ? true : truthy(args.hidden);
+  const done: string[] = [];
+  for (const nodeId of ids) {
+    if (!doc.deltaSetLike?.[nodeId]) continue;
+    const result = execUpdateNode({ nodeId, hidden }, ctx, doc, pushHistory);
+    if (result.status !== 'error') done.push(nodeId);
+  }
+  if (!done.length) {
+    return { status: 'error', summary: 'No matching scene nodes to hide/show' };
+  }
+  return {
+    status: 'success',
+    summary: `${hidden ? 'Hid' : 'Showed'} ${done.length} node(s)`,
+    artifacts: { nodeIds: done, hidden },
+  };
+}
+
 function execUpdateFrame(
   args: Record<string, unknown>,
   ctx: DesignToolContext,
@@ -3373,6 +4249,8 @@ function execUpdateFrame(
       patch.backgroundColor = String(args.backgroundColor || 'transparent');
     }
     if (args.locked != null) patch.locked = truthy(args.locked);
+    if (args.hidden != null) patch.hidden = truthy(args.hidden);
+    if (args.clipContent != null) patch.clipContent = truthy(args.clipContent);
     ctx.dispatch(updateArtboardFrame({ id, patch }));
     return { status: 'success', summary: `Updated frame ${id}`, artifacts: { frameId: id } };
   
@@ -3580,6 +4458,10 @@ export function executeDesignTool(
         return execListCapabilities(args, ctx, doc, pushHistory);
       case 'set_viewport':
         return execSetViewport(args, ctx, doc, pushHistory);
+      case 'set_active_tool':
+        return execSetActiveTool(args, ctx, doc, pushHistory);
+      case 'set_grid':
+        return execSetGrid(args, ctx, doc, pushHistory);
       case 'set_canvas_background':
         return execSetCanvasBackground(args, ctx, doc, pushHistory);
       case 'set_agent_mode':
@@ -3598,6 +4480,16 @@ export function executeDesignTool(
         return execCreateSvg(args, ctx, doc, pushHistory);
       case 'create_shape':
         return execCreateShape(args, ctx, doc, pushHistory);
+      case 'create_path':
+        return execCreatePath(args, ctx, doc, pushHistory);
+      case 'append_path_points':
+        return execAppendPathPoints(args, ctx, doc, pushHistory);
+      case 'simplify_path':
+        return execSimplifyPath(args, ctx, doc, pushHistory);
+      case 'smooth_path':
+        return execSmoothPath(args, ctx, doc, pushHistory);
+      case 'close_path':
+        return execClosePath(args, ctx, doc, pushHistory);
       case 'create_image':
         return execCreateImage(args, ctx, doc, pushHistory);
       case 'create_text':
@@ -3620,10 +4512,30 @@ export function executeDesignTool(
         return execDuplicateNodes(args, ctx, doc, pushHistory);
       case 'flip_nodes':
         return execFlipNodes(args, ctx, doc, pushHistory);
+      case 'rotate_nodes':
+        return execRotateNodes(args, ctx, doc, pushHistory);
+      case 'bind_nodes_to_frame':
+        return execBindNodesToFrame(args, ctx, doc, pushHistory);
+      case 'unbind_nodes':
+        return execUnbindNodes(args, ctx, doc, pushHistory);
       case 'delete_nodes':
         return execDeleteNodes(args, ctx, doc, pushHistory);
       case 'delete_frame':
         return execDeleteFrame(args, ctx, doc, pushHistory);
+      case 'duplicate_frame':
+        return execDuplicateFrame(args, ctx, doc, pushHistory);
+      case 'reorder_frames':
+        return execReorderFrames(args, ctx, doc, pushHistory);
+      case 'fit_frame_to_content':
+        return execFitFrameToContent(args, ctx, doc, pushHistory);
+      case 'lock_frames':
+        return execLockFrames(args, ctx, doc, pushHistory);
+      case 'hide_frames':
+        return execHideFrames(args, ctx, doc, pushHistory);
+      case 'clip_frames':
+        return execClipFrames(args, ctx, doc, pushHistory);
+      case 'hide_nodes':
+        return execHideNodes(args, ctx, doc, pushHistory);
       case 'update_frame':
         return execUpdateFrame(args, ctx, doc, pushHistory);
       case 'create_frame':
@@ -3632,6 +4544,10 @@ export function executeDesignTool(
         return execImageProcess(args, ctx, doc, pushHistory);
       case 'export_canvas':
         return execExportCanvas(args, ctx, doc, pushHistory);
+      case 'edit_path_points':
+        return execEditPathPoints(args, ctx, doc, pushHistory);
+      case 'apply_brush_preset':
+        return execApplyBrushPreset(args, ctx, doc, pushHistory);
       default:
         return resolveUnknownToolError(name);
     }

@@ -58,7 +58,7 @@ export function toBrowserThumbUrl(url: string | null | undefined): string {
 }
 
 /**
- * Optional cache-bust for legacy fixed keys (`thumb.webp`).
+ * Optional cache-bust for fixed keys (`thumb.webp`).
  * New uploads use `thumb-{ms}.webp` — return as-is (no `?v=` clutter).
  */
 export function withThumbCacheBust(

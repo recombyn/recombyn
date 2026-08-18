@@ -1,6 +1,6 @@
 /**
  * Chrome pick must not steal radius / shape overlay ink.
- * Pipeline (ADR 0027): overlay DOM → chrome **geometry** → legacy DOM chrome.
+ * Pipeline (ADR 0027): overlay DOM → chrome **geometry** → DOM chrome.
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {

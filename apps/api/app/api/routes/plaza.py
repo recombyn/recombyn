@@ -110,7 +110,7 @@ def plaza_feed(
 ) -> dict[str, Any]:
     """
     Public plaza feed (no login required).
-    tab=recommended|latest (following deprecated — use authorIds to filter by creator)
+    tab=recommended|latest (use authorIds to filter by creator)
     category=optional category filter (website|mobile|image|poster|video)
     authorIds=comma-separated user ids to filter works by creator.
     """

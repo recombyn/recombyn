@@ -76,7 +76,7 @@ def _parse_pack_index(parsed: dict[str, Any]) -> tuple[dict[str, str], list[dict
 def _attach_bodies_from_dir(
     root: Path, items: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Load bodies from ``item.file`` section files, or legacy ``<kind>.md``."""
+    """Load bodies from ``item.file`` section files."""
     section_cache: dict[str, dict[str, str]] = {}
     out: list[dict[str, Any]] = []
 
@@ -101,14 +101,6 @@ def _attach_bodies_from_dir(
         rel = _safe_seed_relpath(str(item.get("file") or ""))
         if rel:
             body = sections_for(rel).get(kind) or ""
-        if not body:
-            # Legacy: one file per kind at pack root.
-            body_path = root / f"{kind}.md"
-            if body_path.is_file():
-                try:
-                    body = body_path.read_text(encoding="utf-8")
-                except Exception:
-                    body = ""
         merged = dict(item)
         merged["kind"] = kind
         merged["body"] = body
@@ -117,7 +109,7 @@ def _attach_bodies_from_dir(
 
 
 def _load_prompt_packs_seed() -> tuple[dict[str, str], list[dict[str, Any]]]:
-    """Prefer ``design_prompt_packs/_index.json`` + staged md; legacy monolith JSON fallback."""
+    """Load ``design_prompt_packs/_index.json`` + staged markdown bodies."""
     root = resolve_seed_dir("design_prompt_packs")
     index_path = root / "_index.json"
     if index_path.is_file():
@@ -129,14 +121,7 @@ def _load_prompt_packs_seed() -> tuple[dict[str, str], list[dict[str, Any]]]:
             labels, items = _parse_pack_index(parsed)
             return labels, _attach_bodies_from_dir(root, items)
 
-    legacy = resolve_seed_file("design_prompt_packs_seed.json")
-    try:
-        parsed = json.loads(legacy.read_text(encoding="utf-8"))
-    except Exception:
-        return {}, []
-    if not isinstance(parsed, dict):
-        return {}, []
-    return _parse_pack_index(parsed)
+    return {}, []
 
 
 KIND_LABELS, _SEED = _load_prompt_packs_seed()
@@ -149,7 +134,7 @@ _SEED_BY_KIND: dict[str, dict[str, Any]] = {
 
 
 def db_prompt_body(key: str) -> str:
-    """Enabled body from ``design_prompt_pack`` (then legacy ``design_system_prompt``). No seed."""
+    """Enabled body from ``design_prompt_pack``. No seed fallback."""
     kind = str(key or "").strip()
     if not kind:
         return ""
@@ -157,17 +142,7 @@ def db_prompt_body(key: str) -> str:
         body = crud.get_design_prompt_pack_body(session=session, kind=kind)
         if body:
             return body
-        try:
-            from app.services.design.prompts.system_prompt_store import is_system_prompt_key
-
-            if not is_system_prompt_key(kind):
-                return ""
-            row = crud.get_design_system_prompt(session=session, prompt_key=kind)
-            if not row or not int(row.enabled or 0):
-                return ""
-            return str(row.body or "").strip()
-        except Exception:
-            return ""
+        return ""
 
 
 def seed_prompt_body(key: str) -> str:
@@ -352,7 +327,6 @@ PROMPT_PACK_STAGES = (
     "resources",
     "precheck",
     "persona",
-    "legacy",
 )
 _PROMPT_PACK_STAGES = frozenset(PROMPT_PACK_STAGES)
 
@@ -430,11 +404,9 @@ def is_need_prompt_kind(kind: str) -> bool:
 
 
 def is_need_pack(row: dict[str, Any]) -> bool:
-    """Prefer pack ``type`` code; fall back to legacy kind allowlist."""
+    """Need pack is determined by pack ``type`` code."""
     t = str(row.get("type") or row.get("pack_type") or "").strip().lower()
-    if t:
-        return t == PACK_TYPE_NEED
-    return is_need_prompt_kind(str(row.get("kind") or ""))
+    return t == PACK_TYPE_NEED
 
 
 def _pub(r: Any) -> dict[str, Any]:
@@ -450,10 +422,6 @@ def _pub(r: Any) -> dict[str, Any]:
     raw_type = str(_get("pack_type") or "")
     pack_type = normalize_pack_type(raw_type, kind=kind)
     raw_used = str(_get("used_by") or "")
-    # Fall back to seed metadata when DB column empty.
-    if not raw_used.strip():
-        seed_item = _SEED_BY_KIND.get(kind) or {}
-        raw_used = seed_item.get("usedBy") or seed_item.get("used_by") or ""
     used_by = normalize_used_by(raw_used)
     updated = _get("updated_at")
     return {
@@ -669,7 +637,7 @@ def _apply_seed_fields_to_row(row: Any, seed_item: dict[str, Any], *, kind: str,
 
 
 def ensure_design_prompt_packs() -> None:
-    """Upsert packs from ``seeds/design_prompt_packs/``; prune junk; migrate legacy.
+    """Upsert packs from ``seeds/design_prompt_packs/`` and prune junk.
 
     Git seed is source of truth for body / title / when / scenes / used_by / pack_type /
     sort_order. Admin UI edits are overwritten on the next ensure (API boot).

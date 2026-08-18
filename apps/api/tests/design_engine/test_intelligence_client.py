@@ -91,7 +91,7 @@ def test_remote_empty_dict_not_usable():
     assert remote_result_usable("research", {"summary": "ok", "provider": "x"})
 
 
-def test_stable_client_surface_aliases():
+def test_stable_client_surface_uses_canonical_methods():
     import asyncio
 
     reset_design_intelligence_client()
@@ -100,15 +100,14 @@ def test_stable_client_surface_aliases():
 
     async def _run():
         proposed = await client.propose_candidates(rt)
-        via_alias = await client.candidates(rt)
         gov = await client.govern(rt)
-        return proposed, via_alias, gov
+        return proposed, gov
 
-    proposed, via_alias, gov = asyncio.run(_run())
+    proposed, gov = asyncio.run(_run())
     assert rt.apply_ops == []
     assert isinstance(gov, dict)
     assert gov.get("status") in ("pass", "fail")
-    _ = proposed, via_alias
+    _ = proposed
 
 
 def test_remote_provider_falls_back_on_empty_post(monkeypatch):

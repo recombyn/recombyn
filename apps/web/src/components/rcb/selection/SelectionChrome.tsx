@@ -1044,7 +1044,7 @@ export function pickOverlayHandleAtClient(
 
 /** One HTML div hotzone per control (pick + debug paint). */
 export const RCB_HIT_ZONE_ATTR = 'data-rcb-hit-zone';
-/** Invisible SVG (or knob) center this div follows ??legacy; prefer scene attrs. */
+/** Invisible SVG (or knob) center this div follows; prefer scene attrs. */
 export const RCB_HIT_ANCHOR_ATTR = 'data-rcb-hit-anchor';
 export const RCB_HIT_OWNER_ATTR = 'data-rcb-hit-owner';
 export const RCB_HIT_PAD_ATTR = 'data-rcb-hit-pad';
@@ -1091,7 +1091,7 @@ export function chromeHitPadOverlayRoot(): HTMLElement | null {
   return layer;
 }
 
-/** @deprecated use {@link chromeHitPadOverlayRoot} */
+/** Alias of {@link chromeHitPadOverlayRoot}. */
 export function chromeHitPadWorldRoot(): HTMLElement | null {
   return chromeHitPadOverlayRoot();
 }
@@ -1312,7 +1312,7 @@ export function mountChromeRectPad(opts: {
   pad.style.boxSizing = 'border-box';
   pad.style.pointerEvents = 'auto';
   pad.style.zIndex = '1';
-  // Keep the legacy hit pad transparent; rotation is picked by geometry.
+  // Keep the hit pad transparent; rotation is picked by geometry.
   pad.style.background = 'transparent';
   pad.style.border = 'none';
   pad.style.borderRadius = '0';
@@ -1422,7 +1422,7 @@ export function ChromeHitPad({
   );
 }
 
-/** @deprecated use ChromeHitPad */
+/** Alias of ChromeHitPad. */
 export const ChromeSvgHitPad = ChromeHitPad;
 
 function parseHitZoneKey(key: string): PaintedHitZonePick | null {
@@ -1587,7 +1587,7 @@ export function hitZoneFromEventTarget(
   return parseHitZoneKey(el.getAttribute(RCB_HIT_ZONE_ATTR) || '');
 }
 
-/** SVG yellow disc ??client via getScreenCTM (legacy). */
+/** SVG yellow disc -> client via getScreenCTM. */
 function hitZoneCircleClient(
   el: Element
 ): { cx: number; cy: number; r: number } | null {
@@ -1620,7 +1620,7 @@ function hitZoneHtmlClient(el: Element): { cx: number; cy: number; r: number } |
 }
 
 /**
- * Pick by painted hit zones ??each control's HTML div (GBR), else legacy SVG.
+ * Pick by painted hit zones ??each control's HTML div (GBR), else SVG.
  */
 export function pickPaintedHitZone(
   clientX: number,

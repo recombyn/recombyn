@@ -1,4 +1,4 @@
-from app.services.design.runtime.agent_controller import _resolve_agent_persona
+from app.services.design.runtime.graph.support import _resolve_agent_persona
 
 
 def test_resolve_agent_persona_auto_and_locked():

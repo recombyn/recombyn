@@ -13,7 +13,7 @@ Shipped Design Agent skills lived under `apps/api/seeds/design_skills`. The open
    - `skills/foundation/` — core craft packs
    - `skills/domains/` — surface / deliverable packs
 2. **Private / self-host overrides:** `plugins/skills/` (+ `DESIGN_SKILLS_PLUGIN_DIRS`) — later wins on `skill_key`.
-3. **Legacy:** `apps/api/seeds/design_skills` remains scannable for empty mounts / migration, but is not the primary catalog.
+3. **`apps/api/seeds/design_skills` is unused** (empty leftover path; not scanned).
 4. **Documentation rule:** This repo documents pack layout and open methodology only. Do not describe proprietary prompt inventories or closed skill backends here.
 
 ## Consequences

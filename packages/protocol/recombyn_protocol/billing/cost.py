@@ -87,15 +87,7 @@ class TaskCostSchema(BaseModel):
     currency: str = "USD"
     credits_estimated_low: int | None = None
     credits_estimated_high: int | None = None
-    credits_authorized: int = Field(
-        default=0,
-        description="Alias of reserved hold (Stripe authorize)",
-    )
     credits_reserved: int = 0
-    credits_captured: int = Field(
-        default=0,
-        description="Alias of charged (Stripe capture)",
-    )
     credits_charged: int = 0
     credits_refunded: int = 0
     credits_released: int = 0
@@ -107,20 +99,8 @@ class TaskCostSchema(BaseModel):
     breakdown: CostBreakdownSchema = Field(default_factory=CostBreakdownSchema)
     status: str = Field(
         default="open",
-        description="open | authorized|reserved | settling | settled | cancelled",
+        description="open | reserved | settling | settled | cancelled",
     )
     meta: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "allow"}
-
-    @model_validator(mode="after")
-    def _sync_auth_capture_aliases(self) -> TaskCostSchema:
-        if self.credits_authorized and not self.credits_reserved:
-            self.credits_reserved = int(self.credits_authorized)
-        elif self.credits_reserved and not self.credits_authorized:
-            self.credits_authorized = int(self.credits_reserved)
-        if self.credits_captured and not self.credits_charged:
-            self.credits_charged = int(self.credits_captured)
-        elif self.credits_charged and not self.credits_captured:
-            self.credits_captured = int(self.credits_charged)
-        return self

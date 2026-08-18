@@ -83,6 +83,92 @@
       }
     },
     {
+      "op_key": "create_path",
+      "kind": "create",
+      "label": "Create path",
+      "sort_order": 22,
+      "model_hint": "Add a path/pen polyline as a shape node. Args: x,y,width,height, points=[[x,y],...] (>=2), closed?, stroke?, borderWidth?. For freehand calligraphy use create_shape shapeType=pencil instead.",
+      "args_schema": {
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "points": "number[][]",
+        "closed": "boolean?",
+        "stroke": "string?",
+        "borderWidth": "number?",
+        "fill": "string?",
+        "name": "string?"
+      }
+    },
+    {
+      "op_key": "edit_path_points",
+      "kind": "mutate",
+      "label": "Edit path points",
+      "sort_order": 23,
+      "model_hint": "Replace path/pen/pencil geometry on an existing node. Args: nodeId, points=[[x,y],...] (>=2), closed?.",
+      "args_schema": {
+        "nodeId": "string",
+        "points": "number[][]",
+        "closed": "boolean?"
+      }
+    },
+    {
+      "op_key": "append_path_points",
+      "kind": "mutate",
+      "label": "Append path points",
+      "sort_order": 24,
+      "model_hint": "Append points to an existing path/pen/pencil node (continue a stroke). Args: nodeId, points=[[x,y],...] (>=1).",
+      "args_schema": {
+        "nodeId": "string",
+        "points": "number[][]",
+        "closed": "boolean?"
+      }
+    },
+    {
+      "op_key": "simplify_path",
+      "kind": "mutate",
+      "label": "Simplify path",
+      "sort_order": 25,
+      "model_hint": "Reduce path/pen/pencil vertices (Ramer–Douglas–Peucker). Args: nodeId, tolerance? (px, default 2).",
+      "args_schema": {
+        "nodeId": "string",
+        "tolerance": "number?"
+      }
+    },
+    {
+      "op_key": "apply_brush_preset",
+      "kind": "mutate",
+      "label": "Apply brush preset",
+      "sort_order": 26,
+      "model_hint": "Set pencil/path stroke preset. Args: nodeIds, preset=ink|pencil|marker|calligraphy|brush.",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "preset": "ink|pencil|marker|calligraphy|brush"
+      }
+    },
+    {
+      "op_key": "smooth_path",
+      "kind": "mutate",
+      "label": "Smooth path",
+      "sort_order": 27,
+      "model_hint": "Chaikin-smooth a path/pen/pencil. Args: nodeId, iterations? (1-4, default 1).",
+      "args_schema": {
+        "nodeId": "string",
+        "iterations": "number?"
+      }
+    },
+    {
+      "op_key": "close_path",
+      "kind": "mutate",
+      "label": "Close path",
+      "sort_order": 28,
+      "model_hint": "Close an open path/pen/pencil (writes Z). Args: nodeId. Needs at least 3 points.",
+      "args_schema": {
+        "nodeId": "string"
+      }
+    },
+    {
       "op_key": "create_text",
       "kind": "create",
       "label": "Create text",
@@ -198,6 +284,42 @@
       }
     },
     {
+      "op_key": "duplicate_frame",
+      "kind": "frame",
+      "label": "Duplicate frame",
+      "sort_order": 65,
+      "model_hint": "Clone an artboard (size/background). Args: frameId, dx?, dy?, name?, includeChildren? (default false; true copies bound nodes).",
+      "args_schema": {
+        "frameId": "string",
+        "dx": "number?",
+        "dy": "number?",
+        "name": "string?",
+        "includeChildren": "boolean?"
+      }
+    },
+    {
+      "op_key": "reorder_frames",
+      "kind": "frame",
+      "label": "Reorder frames",
+      "sort_order": 66,
+      "model_hint": "Z-order artboards in the world stack. Args: frameIds, action=front|back|forward|backward.",
+      "args_schema": {
+        "frameIds": "string[]",
+        "action": "front|back|forward|backward"
+      }
+    },
+    {
+      "op_key": "fit_frame_to_content",
+      "kind": "frame",
+      "label": "Fit frame to content",
+      "sort_order": 67,
+      "model_hint": "Resize/move an artboard to wrap its bound children. Args: frameId, padding? (px, default 24).",
+      "args_schema": {
+        "frameId": "string",
+        "padding": "number?"
+      }
+    },
+    {
       "op_key": "delete_nodes",
       "kind": "delete",
       "label": "Delete nodes",
@@ -208,18 +330,64 @@
       }
     },
     {
+      "op_key": "hide_nodes",
+      "kind": "mutate",
+      "label": "Hide nodes",
+      "sort_order": 72,
+      "model_hint": "Hide or show scene nodes. Args: nodeIds, hidden? (default true).",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "hidden": "boolean?"
+      }
+    },
+    {
       "op_key": "update_frame",
       "kind": "frame",
       "label": "Update frame",
       "sort_order": 80,
-      "model_hint": "Update frame size/name/background/lock. Args: frameId|id (must match FOCUS_FRAME_ID when set), width?, height?, name?, backgroundColor?, locked? (boolean — prevent moving/resizing the artboard). When FOCUS_FRAME_ID is present, always use that id — never retarget by name.",
+      "model_hint": "Update frame size/name/background/lock/clip. Args: frameId (must match FOCUS_FRAME_ID when set), width?, height?, name?, backgroundColor?, locked?, hidden?, clipContent?. When FOCUS_FRAME_ID is present, always use that id — never retarget by name.",
       "args_schema": {
         "frameId": "string",
         "width": "number?",
         "height": "number?",
         "name": "string?",
         "backgroundColor": "string?",
+        "locked": "boolean?",
+        "hidden": "boolean?",
+        "clipContent": "boolean?"
+      }
+    },
+    {
+      "op_key": "lock_frames",
+      "kind": "frame",
+      "label": "Lock frames",
+      "sort_order": 81,
+      "model_hint": "Lock or unlock artboards (prevent move/resize). Args: frameIds, locked? (default true).",
+      "args_schema": {
+        "frameIds": "string[]",
         "locked": "boolean?"
+      }
+    },
+    {
+      "op_key": "hide_frames",
+      "kind": "frame",
+      "label": "Hide frames",
+      "sort_order": 82,
+      "model_hint": "Hide or show artboards. Args: frameIds, hidden? (default true).",
+      "args_schema": {
+        "frameIds": "string[]",
+        "hidden": "boolean?"
+      }
+    },
+    {
+      "op_key": "clip_frames",
+      "kind": "frame",
+      "label": "Clip frames",
+      "sort_order": 83,
+      "model_hint": "Clip artboard contents to the frame rect. Args: frameIds, clipContent? (default true).",
+      "args_schema": {
+        "frameIds": "string[]",
+        "clipContent": "boolean?"
       }
     },
     {
@@ -227,7 +395,7 @@
       "kind": "frame",
       "label": "Delete frame",
       "sort_order": 90,
-      "model_hint": "Delete a frame. Args: frameId|id from SCENE_FRAMES. Destructive — first turn must ask confirmation via choice_ui (mode=confirm, apply+dismiss) or legacy reply+choices; emit this op only after user confirms. Never put ids in reply.",
+      "model_hint": "Delete a frame. Args: frameId|id from SCENE_FRAMES. Destructive — first turn must ask confirmation via choice_ui (mode=confirm, apply+dismiss); emit this op only after user confirms. Never put ids in reply.",
       "args_schema": {
         "frameId": "string"
       }
@@ -310,6 +478,38 @@
       }
     },
     {
+      "op_key": "rotate_nodes",
+      "kind": "arrange",
+      "label": "Rotate nodes",
+      "sort_order": 165,
+      "model_hint": "Set absolute rotation in degrees. Args: nodeIds, rotation.",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "rotation": "number"
+      }
+    },
+    {
+      "op_key": "bind_nodes_to_frame",
+      "kind": "arrange",
+      "label": "Bind nodes to frame",
+      "sort_order": 166,
+      "model_hint": "Bind scene nodes to an artboard (attrs.frameId). Args: nodeIds, frameId.",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "frameId": "string"
+      }
+    },
+    {
+      "op_key": "unbind_nodes",
+      "kind": "arrange",
+      "label": "Unbind nodes",
+      "sort_order": 167,
+      "model_hint": "Clear artboard binding on nodes. Args: nodeIds.",
+      "args_schema": {
+        "nodeIds": "string[]"
+      }
+    },
+    {
       "op_key": "boolean_op",
       "kind": "arrange",
       "label": "Boolean ops",
@@ -347,6 +547,26 @@
         "action": "zoom_in|zoom_out|fit|set",
         "percent": "number?",
         "zoom": "number?"
+      }
+    },
+    {
+      "op_key": "set_active_tool",
+      "kind": "canvas",
+      "label": "Active tool",
+      "sort_order": 191,
+      "model_hint": "Switch the editor tool. Args: tool=select|pan|frame|text|shape|image|pen|pencil. Prefer document ops (create_path/create_shape) over leaving the user in a drawing tool.",
+      "args_schema": {
+        "tool": "select|pan|frame|text|shape|image|pen|pencil"
+      }
+    },
+    {
+      "op_key": "set_grid",
+      "kind": "canvas",
+      "label": "Grid snap",
+      "sort_order": 192,
+      "model_hint": "Toggle canvas grid snap. Args: enabled (boolean).",
+      "args_schema": {
+        "enabled": "boolean"
       }
     },
     {
@@ -518,9 +738,115 @@
     },
     "update_frame": {
       "must_contain": [
-        "locked"
+        "locked",
+        "hidden",
+        "clipContent"
+      ],
+      "stale_if_contains": [
+        "\"clip\"",
+        "clipped"
+      ]
+    },
+    "create_path": {
+      "must_contain": [
+        "points"
+      ],
+      "stale_if_contains": [
+        "points|path",
+        "SVG d"
+      ]
+    },
+    "edit_path_points": {
+      "must_contain": [
+        "points"
+      ],
+      "stale_if_contains": [
+        "points|path"
+      ]
+    },
+    "apply_brush_preset": {
+      "must_contain": [
+        "nodeIds",
+        "preset"
+      ],
+      "stale_if_contains": [
+        "brushPreset",
+        "nodeId"
+      ]
+    },
+    "duplicate_frame": {
+      "must_contain": [
+        "includeChildren"
+      ],
+      "stale_if_contains": [
+        "copyChildren"
+      ]
+    },
+    "lock_frames": {
+      "must_contain": [
+        "frameIds"
+      ],
+      "stale_if_contains": [
+        "frameIds|frameId"
+      ]
+    },
+    "hide_frames": {
+      "must_contain": [
+        "frameIds",
+        "hidden"
       ],
       "stale_if_contains": []
+    },
+    "clip_frames": {
+      "must_contain": [
+        "clipContent"
+      ],
+      "stale_if_contains": [
+        "clipped",
+        "\"clip\""
+      ]
+    },
+    "hide_nodes": {
+      "must_contain": [
+        "nodeIds"
+      ],
+      "stale_if_contains": [
+        "nodeId"
+      ]
+    },
+    "rotate_nodes": {
+      "must_contain": [
+        "rotation"
+      ],
+      "stale_if_contains": [
+        "delta",
+        "angle"
+      ]
+    },
+    "bind_nodes_to_frame": {
+      "must_contain": [
+        "nodeIds",
+        "frameId"
+      ],
+      "stale_if_contains": []
+    },
+    "set_active_tool": {
+      "must_contain": [
+        "tool"
+      ],
+      "stale_if_contains": [
+        "Aliases",
+        "hand→pan",
+        "brush→pencil"
+      ]
+    },
+    "set_grid": {
+      "must_contain": [
+        "enabled"
+      ],
+      "stale_if_contains": [
+        "action"
+      ]
     }
   }
 }

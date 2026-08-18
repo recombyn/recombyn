@@ -1,4 +1,4 @@
-/** Custom LLM provider prefs (OpenAI-compatible). API keys never stored as plaintext. */
+/** Custom LLM provider prefs (OpenAI-style). API keys never stored as plaintext. */
 
 import type { LlmModel, ModelReferenceType } from '@/service/chat';
 import { apiClient, apiQuery, queryClient } from '@/service/client';
@@ -180,7 +180,7 @@ export async function encryptApiKeyLocal(plaintext: string): Promise<string> {
 
 export async function decryptApiKeyLocal(cipher: string): Promise<string> {
   const raw = String(cipher || '');
-  if (!raw.startsWith('enc:v1:')) return raw; // legacy plaintext migrate path
+  if (!raw.startsWith('enc:v1:')) return '';
   try {
     const key = await getOrCreateDeviceKey();
     const packed = b64ToBytes(raw.slice('enc:v1:'.length));
@@ -381,7 +381,7 @@ export async function removeCustomLlmProvider(id: string): Promise<void> {
 /** Single-flight 鈥?Account Agent mounts RoutePrefs + panel both used to call this. */
 let _hydrateProvidersInflight: Promise<CustomLlmProvider[]> | null = null;
 
-/** Pull server vault + migrate legacy plaintext local keys. */
+/** Pull server vault and hydrate local encrypted providers. */
 export async function hydrateCustomLlmProviders(): Promise<CustomLlmProvider[]> {
   if (_hydrateProvidersInflight) return _hydrateProvidersInflight;
 
@@ -402,7 +402,7 @@ async function hydrateCustomLlmProvidersBody(): Promise<CustomLlmProvider[]> {
   const token = getToken();
   let local = readLocalRaw();
 
-  // Migrate legacy plaintext 鈫?ciphertext (or server).
+  // Persist encrypted/provider-backed keys only.
   const migrated: CustomLlmProvider[] = [];
   for (const p of local) {
     const plain = String(p.apiKey || '').trim();

@@ -30,7 +30,7 @@ export function isHistoryEntry(x: unknown): x is HistoryEntry {
   return kind === 'snap' || kind === 'nodes';
 }
 
-/** Accept legacy raw-document entries still sitting in session state. */
+/** Accept raw-document entries still sitting in session state. */
 export function asHistoryEntry(x: unknown): HistoryEntry {
   if (isHistoryEntry(x)) return x;
   return { kind: 'snap', doc: x as SceneDocument };

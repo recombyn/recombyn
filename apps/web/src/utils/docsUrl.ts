@@ -44,7 +44,6 @@ export function docsOrigin(): string {
   return baked || PROD_DOCS;
 }
 
-/** @deprecated Prefer docsOrigin() — kept for existing imports. */
 export const DOCS_ORIGIN = bakedOrigin() || PROD_DOCS;
 
 export function docsUrl(path: string): string {

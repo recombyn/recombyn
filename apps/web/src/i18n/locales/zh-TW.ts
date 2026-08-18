@@ -816,6 +816,7 @@ const zhTW = {
     fitCanvas: '縮放以適合',
     zoomToPercent: '縮放至 {{percent}}%',
     zoomMenu: '縮放',
+    fpsHud: '幀率監視',
     pathEditSelect: '選擇',
     pathEditPen: '鋼筆',
     pathEditAddAnchor: '增加錨點',

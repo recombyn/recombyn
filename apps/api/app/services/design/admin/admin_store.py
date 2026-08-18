@@ -98,8 +98,7 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
         NS_USER,
         SOURCE_ADMIN,
         SOURCE_FILE,
-        SOURCE_SEED,
-        _CORE_RESERVED_KEYS,
+            _CORE_RESERVED_KEYS,
         qualify_skill_key,
         save_skill_revision,
         split_namespace_key,
@@ -191,10 +190,10 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
             existing_ns = str(cur.namespace or "").strip().lower()
             # Editing seed/file: keep source + key + namespace (ops can customize body).
             # Seed sync is insert-only, so these edits are not reclaimed.
-            if existing_source in (SOURCE_SEED, SOURCE_FILE):
+            if existing_source != SOURCE_ADMIN:
                 source = existing_source
                 skill_key = existing_key or skill_key
-                namespace = existing_ns or (NS_CORE if existing_source == SOURCE_SEED else NS_EXT)
+                namespace = existing_ns or NS_EXT
                 meta_source = existing_source
             else:
                 source = SOURCE_ADMIN
@@ -380,14 +379,14 @@ def soft_delete_skill(skill_id: int) -> bool:
 
     from app import crud
     from app.core.db import engine
-    from app.services.design.prompts.skill_store import SOURCE_FILE, SOURCE_SEED
+    from app.services.design.prompts.skill_store import SOURCE_FILE
 
     with Session(engine) as session:
         row = crud.get_design_skill(session=session, item_id=int(skill_id))
         if not row:
             return False
         src = str(row.source or "").strip().lower()
-        if src in (SOURCE_SEED, SOURCE_FILE):
+        if src == SOURCE_FILE:
             raise ValueError("cannot delete seed/file skill via admin")
         session.delete(row)
         session.commit()
@@ -437,7 +436,6 @@ def list_global_rules() -> list[dict[str, Any]]:
     with Session(engine) as session:
         rows = crud.list_all_design_global_rules(session=session)
     # Hide internal/ops markers from Admin table (still in DB when needed).
-    hide_prefixes = ("legacy.agent_zero_",)
     hide_exact = frozenset(
         {
             "content_pack_version",
@@ -447,8 +445,7 @@ def list_global_rules() -> list[dict[str, Any]]:
     return [
         _rule_row_out(r)
         for r in rows
-        if not str(getattr(r, "rule_key", None) or "").startswith(hide_prefixes)
-        and str(getattr(r, "rule_key", None) or "") not in hide_exact
+        if str(getattr(r, "rule_key", None) or "") not in hide_exact
     ]
 
 
@@ -1715,7 +1712,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 condition="mode=ask&ops_valid",
                 priority=10,
             )
-        # Drop legacy hydrate / dual_sample nodes; action owns hydrate.
+        # Drop hydrate / dual_sample nodes; action owns hydrate.
         _drop_phases = {"hydrate", "dual_sample"}
         if ids & _drop_phases:
             for e in edges:
@@ -1989,7 +1986,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                     priority=9,
                 )
 
-    # Collapse legacy leaf model nodes (simple/medium/complex/vision/multimodal)
+    # Collapse leaf model nodes (simple/medium/complex/vision/multimodal)
     # back into model_route → thought. Tier/vision models live in routeConfig.
     _LEAF_MODEL_IDS = {
         "model_simple",
@@ -2071,7 +2068,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 e["priority"] = 10
                 changed = True
 
-    # Collapse duplicate edge ids (legacy normalize could append same eid twice).
+    # Collapse duplicate edge ids (normalization could append same eid twice).
     seen_eids: set[str] = set()
     deduped_edges: list[dict[str, Any]] = []
     for e in edges:
@@ -2103,16 +2100,15 @@ def _load_flows_catalog() -> list[dict[str, Any]]:
             items = []
     if items:
         return items
-    # Migrate legacy single graph into catalog.
-    legacy = get_agent_flow_config()
+    # Seed default flow catalog when KV is empty.
     seed = {
         "id": "default",
         "name": "默认 Agent 流程",
         "description": "当前线上 Design Agent 默认执行图（LangGraph runtime）",
         "updatedAt": int(time.time() * 1000),
         "createdAt": int(time.time() * 1000),
-        "graph": legacy.get("graph") or _empty_graph(),
-        "phaseMap": legacy.get("phaseMap") or dict(_load_default_agent_phase_map()),
+        "graph": _load_default_agent_flow_graph(),
+        "phaseMap": dict(_load_default_agent_phase_map()),
     }
     _save_flows_catalog([seed])
     return [seed]
@@ -2351,7 +2347,7 @@ def publish_agent_flow(flow_id: str, *, note: str = "") -> dict[str, Any] | None
         _save_flows_catalog(items)
         # Invalidate LangGraph cache if present
         try:
-            from app.services.design.runtime.agent_controller import invalidate_agent_graph_cache
+            from app.services.design.runtime.graph.build import invalidate_agent_graph_cache
 
             invalidate_agent_graph_cache(fid)
         except Exception:
@@ -2419,7 +2415,7 @@ def update_agent_flow(
                 if str(k).strip() and str(v).strip()
             }
         it["updatedAt"] = int(time.time() * 1000)
-        # Sync legacy default keys when editing default flow.
+        # Sync default flow keys when editing default flow.
         if fid == "default" and isinstance(it.get("graph"), dict):
             upsert_global_rule(
                 rule_key=_AGENT_FLOW_RULE_KEY,
@@ -3475,17 +3471,6 @@ def ensure_stage_rules() -> None:
             try:
                 crud.fill_empty_design_global_rule_descriptions(
                     session=session, descriptions=STAGE_RULE_DESCRIPTIONS
-                )
-            except Exception:
-                pass
-            # Legacy wipe marker: insert only — never DELETE Admin rules/skills/flows.
-            try:
-                crud.insert_design_global_rule_if_missing(
-                    session=session,
-                    rule_key="legacy.agent_zero_v3",
-                    rule_value=str(int(time.time())),
-                    description="历史清空标记（已禁用实际清空，避免覆盖库内数据）",
-                    updated_at=time.time(),
                 )
             except Exception:
                 pass

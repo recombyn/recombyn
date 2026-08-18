@@ -54,7 +54,7 @@ export function getHttpErrorDetail(err: unknown): unknown {
   return undefined;
 }
 
-/** User-facing message from oRPC / ky / legacy axios errors. */
+/** User-facing message from oRPC / ky / axios-family errors. */
 export function getHttpErrorMessage(err: unknown, fallback = ''): string {
   const detail = getHttpErrorDetail(err);
   if (typeof detail === 'string' && detail.trim()) return detail;

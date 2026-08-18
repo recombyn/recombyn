@@ -2,24 +2,19 @@ import { memo } from 'react';
 import { HiOutlineArrowPath } from 'react-icons/hi2';
 import { useTranslation } from 'react-i18next';
 import Slider from '@/components/base/slider';
-import ImageToolPanelShell, {
-  PanelFooterActions,
-  PanelIconBtn,
-} from './ImageToolPanelShell';
+import ImageToolPanelShell, { PanelIconBtn } from './ImageToolPanelShell';
 
-/** Opacity: slider + cancel / use-now (docked like Eraser). */
+/** Opacity: live slider (same as blend / effects). */
 function OpacityToolPanel({
   opacityPct,
   onOpacityPctChange,
   onReset,
-  onCancel,
-  onConfirm,
+  onClose,
 }: {
   opacityPct: number;
   onOpacityPctChange: (v: number) => void;
   onReset: () => void;
-  onCancel: () => void;
-  onConfirm: () => void;
+  onClose: () => void;
 }) {
   const { t } = useTranslation();
   const safe = Math.min(100, Math.max(0, Math.round(opacityPct)));
@@ -27,18 +22,11 @@ function OpacityToolPanel({
     <ImageToolPanelShell
       title={t('editor.imageToolbar.opacity')}
       width={240}
-      onClose={onCancel}
+      onClose={onClose}
       headerRight={
         <PanelIconBtn title={t('editor.imageToolbar.reset')} onClick={onReset}>
           <HiOutlineArrowPath className="h-4 w-4" />
         </PanelIconBtn>
-      }
-      footer={
-        <PanelFooterActions
-          onCancel={onCancel}
-          onConfirm={onConfirm}
-          confirmLabel={t('editor.imageToolbar.useNow')}
-        />
       }
     >
       <div className="flex flex-col items-stretch gap-3 py-3">

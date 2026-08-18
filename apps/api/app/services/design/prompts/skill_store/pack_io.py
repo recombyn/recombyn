@@ -299,28 +299,23 @@ def _public_skills_dirs() -> list[Path]:
 
 
 def _file_skills_dir() -> Path:
-    """Primary shipped skills dir (foundation first; legacy seeds fallback)."""
+    """Primary shipped skills dir (foundation first)."""
     foundation = _repo_root() / "skills" / "foundation"
     if foundation.is_dir():
         return foundation
-    from app.core.config import resolve_seed_dir
-
-    return resolve_seed_dir("design_skills")
+    return foundation
 
 
 def _file_skills_dirs() -> list[Path]:
-    """Public ``skills/*`` + legacy ``seeds/design_skills`` + ``plugins/skills``.
+    """Public ``skills/*`` + ``plugins/skills``.
 
     Later roots win on duplicate ``skill_key`` (private plugins override shipped packs).
     ``.agents/skills`` is IDE/Cursor tooling — not scanned by the Design Agent.
     """
-    from app.core.config import api_seeds_dir
-
     dirs: list[Path] = []
     seen: set[str] = set()
     for root in (
         *_public_skills_dirs(),
-        api_seeds_dir() / "design_skills",
         *_plugin_skills_dirs(),
     ):
         try:
@@ -338,7 +333,7 @@ def _pack_has_product_meta(pack_dir: Path) -> bool:
     return any((pack_dir / name).is_file() for name in _META_NAMES)
 
 
-# Legacy SOURCE_SEED / core-reserved path removed — skills ship as file packs only.
+# Skills ship as file packs only (NS_CORE/NS_EXT); no DB seed source.
 _SEED: list[dict[str, Any]] = []
 _SEED_BY_KEY: dict[str, dict[str, Any]] = {}
 _CORE_RESERVED_KEYS: frozenset[str] = frozenset()

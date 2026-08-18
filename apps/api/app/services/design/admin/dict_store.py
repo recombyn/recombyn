@@ -259,7 +259,6 @@ def _seed_dict_rows(session: Session, *, now: float) -> None:
                     or_(
                         DesignDict.enabled == 0,
                         col(DesignDict.label).like("%废弃%"),
-                        col(DesignDict.label).like("%deprecated%"),
                     )
                 )
             ).all()

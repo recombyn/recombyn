@@ -8,9 +8,9 @@ describe('sceneHitSlop (high-zoom blank click)', () => {
     const pad = sceneHitSlop(zoom);
     expect(pad).toBeCloseTo(12 / 40, 6);
     // Old bug: Math.max(STROKE_HIT/2, 12/zoom) === 12 scene u ≈ 480 CSS px.
-    const legacyBroken = Math.max(STROKE_HIT / 2, 12 / zoom);
-    expect(legacyBroken).toBe(12);
-    expect(pad * zoom).toBeLessThan(legacyBroken * zoom / 10);
+    const oldHit = Math.max(STROKE_HIT / 2, 12 / zoom);
+    expect(oldHit).toBe(12);
+    expect(pad * zoom).toBeLessThan(oldHit * zoom / 10);
   });
 
   it('click 2 grid cells outside a 1px-stroke rect is outside hit slop at zoom 40', () => {

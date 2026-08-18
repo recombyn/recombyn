@@ -17,7 +17,7 @@ describe('SceneDocument Zod boundary', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('accepts video / lottie keys (not only legacy text|shape|image)', () => {
+  it('accepts video / lottie keys (not only text|shape|image)', () => {
     const result = validateSceneDocument({
       width: 800,
       height: 600,

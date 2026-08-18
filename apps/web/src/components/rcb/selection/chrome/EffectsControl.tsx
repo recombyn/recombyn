@@ -1,27 +1,8 @@
-import { useState, memo, type ReactNode } from 'react';
-import {
-  autoUpdate,
-  flip,
-  FloatingPortal,
-  offset,
-  shift,
-  useDismiss,
-  useFloating,
-  useInteractions,
-  useClick,
-} from '@floating-ui/react';
-import {
-  HiOutlineAdjustmentsHorizontal,
-  HiOutlineArrowsRightLeft,
-  HiOutlineChevronDown,
-} from 'react-icons/hi2';
+import { type ReactNode } from 'react';
+import { HiOutlineArrowsRightLeft } from 'react-icons/hi2';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
 import Slider from '@/components/base/slider';
 import Switch from '@/components/base/switch';
-import Tooltip from '@/components/base/tooltip';
-import { DropdownPanel } from '@/components/base/dropdown/DropdownPanel';
-import { cn } from '@/utils/classnames';
-import { SEL_ICON_BTN_ACTIVE, SEL_TOOL_BTN } from './ToolbarValueSlider';
 
 type EffectPatch = Record<string, string | number | boolean>;
 
@@ -218,60 +199,3 @@ export function EffectsForm({ attrs, onChange }: Props) {
     </>
   );
 }
-
-function EffectsControl({ attrs, onChange }: Props) {
-  const [open, setOpen] = useState(false);
-  const { refs, floatingStyles, context } = useFloating({
-    open,
-    onOpenChange: setOpen,
-    placement: 'bottom-start',
-    strategy: 'fixed',
-    whileElementsMounted: autoUpdate,
-    middleware: [
-      offset(6),
-      flip({
-        padding: 12,
-        fallbackPlacements: ['top-start', 'top-end', 'right-start', 'left-start'],
-      }),
-      shift({ padding: 12 }),
-    ],
-  });
-  const click = useClick(context);
-  const dismiss = useDismiss(context, { outsidePressEvent: 'pointerdown' });
-  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss]);
-
-  return (
-    <div className="inline-flex">
-      <Tooltip tip="效果" placement="top">
-        <button
-          type="button"
-          aria-label="效果"
-          aria-expanded={open}
-          ref={refs.setReference}
-          className={cn(SEL_TOOL_BTN, open && SEL_ICON_BTN_ACTIVE)}
-          {...getReferenceProps()}
-        >
-          <HiOutlineAdjustmentsHorizontal className="h-4 w-4" />
-          <span>效果</span>
-          <HiOutlineChevronDown className="h-3.5 w-3.5" />
-        </button>
-      </Tooltip>
-      <FloatingPortal>
-        {open ? (
-          <DropdownPanel
-            className="z-[80] w-[240px]"
-            style={floatingStyles}
-            ref={refs.setFloating}
-            data-effects-panel
-            {...getFloatingProps()}
-          >
-            <div className="flex h-9 items-center px-3 text-[13px] font-medium text-[var(--ink)]">效果</div>
-            <EffectsForm attrs={attrs} onChange={onChange} />
-          </DropdownPanel>
-        ) : null}
-      </FloatingPortal>
-    </div>
-  );
-}
-
-export default memo(EffectsControl);

@@ -9,7 +9,6 @@ from .constants import (
     NS_USER,
     SOURCE_ADMIN,
     SOURCE_FILE,
-    SOURCE_SEED,
     _NS_KEY_RE,
     _PIN_RE,
     _SLUG_RE,
@@ -20,7 +19,7 @@ from .constants import (
 
 def _normalize_source(raw: Any, *, default: str = SOURCE_ADMIN) -> str:
     s = str(raw or "").strip().lower()
-    if s in (SOURCE_SEED, SOURCE_ADMIN, SOURCE_FILE):
+    if s in (SOURCE_ADMIN, SOURCE_FILE):
         return s
     return default
 
@@ -49,7 +48,6 @@ def qualify_skill_key(namespace: str, local_key: str) -> str:
     if not local:
         return ""
     if ns == NS_CORE:
-        # Core keeps bare storage keys for backward compatibility.
         return local
     return f"{ns}.{local}"
 

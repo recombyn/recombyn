@@ -57,11 +57,9 @@ def test_design_brief_p1_not_required():
     assert not brief.get("tokens")
 
 
-def test_design_brief_legacy_prose_still_parses():
+def test_design_brief_plain_prose_rejected():
     brief = parse_design_brief("tall festival poster, warm night stage")
-    assert brief is not None
-    assert brief.get("_legacy_prose") is True
-    assert design_brief_p0_missing(brief) == []
+    assert brief is None
 
 
 def test_review_runtime_owns_total():

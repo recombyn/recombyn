@@ -71,7 +71,7 @@ def _count_ok_creates(
     for op in paint_ops or []:
         if not isinstance(op, dict):
             continue
-        name = str(op.get("name") or op.get("op_key") or "").strip()
+        name = str(op.get("name") or "").strip()
         if not name.startswith("create_"):
             continue
         oid = str(op.get("op_id") or "")
@@ -184,7 +184,7 @@ _MAX_CREATE_FRAMES_PER_BATCH = 8
 
 
 def _op_tool_name(o: dict[str, Any]) -> str:
-    return str(o.get("name") or o.get("op_key") or "").strip()
+    return str(o.get("name") or "").strip()
 
 
 def _ops_have_create_frame(ops: list[dict[str, Any]]) -> bool:

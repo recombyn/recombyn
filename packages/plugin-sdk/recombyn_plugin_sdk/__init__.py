@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from recombyn_plugin_sdk.manifest import (
-    FORMAT,
     FORMAT_NAME,
     INSTALL_TARGETS,
     KINDS,
@@ -14,7 +13,6 @@ from recombyn_plugin_sdk.manifest import (
 )
 
 __all__ = [
-    "FORMAT",
     "FORMAT_NAME",
     "INSTALL_TARGETS",
     "KINDS",

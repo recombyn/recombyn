@@ -1,4 +1,4 @@
-"""OpenAI-compatible LLM router."""
+"""OpenAI-style LLM router."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def uses_user_platform_byok(user_id: str | None, model: str | None) -> bool:
     return provider in user_byok_platforms(user_id)
 
 
-# OpenAI-compatible chat bases (`POST {base}/chat/completions`).
+# OpenAI-style chat bases (`POST {base}/chat/completions`).
 PROVIDER_BASE_URLS: dict[str, str] = {
     "doubao": "https://ark.cn-beijing.volces.com/api/v3",
     "deepseek": "https://api.deepseek.com",
@@ -401,17 +401,6 @@ def resolve_provider(model_string: str | None) -> tuple[str, str]:
         if str(m.get("api_model") or "") == model:
             return str(m.get("provider") or "doubao"), model
 
-    # Env-mapped legacy aliases only when the corresponding setting is set.
-    legacy = {
-        "doubao-seed-1-6-251015": (settings.doubao_seed_model or "").strip(),
-        "doubao-1-5-pro-32k-250115": (settings.doubao_pro_model or "").strip(),
-        "doubao-seed": (settings.doubao_seed_model or "").strip(),
-        "doubao-pro": (settings.doubao_pro_model or "").strip(),
-    }
-    mapped = legacy.get(model)
-    if mapped:
-        return "doubao", mapped
-
     # provider/model form, e.g. doubao/ep-xxxx or openrouter/anthropic/claude-sonnet-4
     if "/" in model:
         prefix, rest = model.split("/", 1)
@@ -435,7 +424,7 @@ def resolve_provider(model_string: str | None) -> tuple[str, str]:
 
 def get_llm_endpoint(model_string: str | None = None) -> LlmEndpoint:
     """
-    Resolve an OpenAI-compatible chat endpoint.
+    Resolve an OpenAI-style chat endpoint.
 
     Platform keys via apps/api/.env, or BYOK ``custom:<providerId>`` using the
     request-scoped user from ``set_byok_user_id``.
@@ -498,21 +487,21 @@ def _default_headers_for(endpoint: LlmEndpoint) -> dict[str, str]:
     return headers
 
 
-_CompatChatOpenAI: type | None = None
-_compat_openai_factory_ready = False
+_PatchedChatOpenAI: type | None = None
+_openai_factory_patched = False
 
 
-def _compat_chat_openai_cls() -> type:
+def _patched_chat_openai_cls() -> type:
     """Lazy subclass so langchain-openai is only required at call time."""
-    global _CompatChatOpenAI
-    if _CompatChatOpenAI is not None:
-        return _CompatChatOpenAI
+    global _PatchedChatOpenAI
+    if _PatchedChatOpenAI is not None:
+        return _PatchedChatOpenAI
 
     from langchain_openai import ChatOpenAI
     from langchain_core.outputs import ChatGenerationChunk
     from langchain_core.messages import AIMessageChunk
 
-    class CompatChatOpenAI(ChatOpenAI):
+    class PatchedChatOpenAI(ChatOpenAI):
         """Keep provider reasoning deltas that stock ChatOpenAI drops."""
 
         def _convert_chunk_to_generation_chunk(
@@ -547,26 +536,26 @@ def _compat_chat_openai_cls() -> type:
                 )
             return gen
 
-    _CompatChatOpenAI = CompatChatOpenAI
-    return CompatChatOpenAI
+    _PatchedChatOpenAI = PatchedChatOpenAI
+    return PatchedChatOpenAI
 
 
-def _ensure_compat_openai_for_factory() -> None:
+def _ensure_patched_openai_for_factory() -> None:
     """
-    Point LangChain's openai provider at CompatChatOpenAI so
+    Point LangChain's openai provider at PatchedChatOpenAI so
     ``init_chat_model(..., model_provider='openai')`` keeps reasoning deltas.
     """
-    global _compat_openai_factory_ready
-    if _compat_openai_factory_ready:
+    global _openai_factory_patched
+    if _openai_factory_patched:
         return
 
     import langchain_openai
     from langchain.chat_models.base import _get_chat_model_creator
 
-    compat = _compat_chat_openai_cls()
-    langchain_openai.ChatOpenAI = compat  # type: ignore[misc, assignment]
+    patched = _patched_chat_openai_cls()
+    langchain_openai.ChatOpenAI = patched  # type: ignore[misc, assignment]
     _get_chat_model_creator.cache_clear()
-    _compat_openai_factory_ready = True
+    _openai_factory_patched = True
 
 
 def build_chat_model(
@@ -598,7 +587,7 @@ def build_chat_model(
 
     ep = endpoint or get_llm_endpoint(model)
     api_model = (model_id_override or ep.model_id).strip()
-    _ensure_compat_openai_for_factory()
+    _ensure_patched_openai_for_factory()
 
     kwargs: dict[str, Any] = {
         "api_key": ep.api_key,

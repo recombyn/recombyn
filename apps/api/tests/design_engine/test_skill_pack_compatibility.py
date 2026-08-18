@@ -1,14 +1,14 @@
-"""PR0 — Skill pack V3 must remain loadable / backward compatible."""
+"""PR0 — Skill pack V3 must remain loadable."""
 from __future__ import annotations
 
 from app.services.design.prompts.skill_store.pack_io import _load_file_skills
 from app.services.design.prompts.skill_store.runtime import expand_skill_extends
 
 
-def test_legacy_and_v3_packs_load():
+def test_surface_and_v3_packs_load():
     items = _load_file_skills()
     by_key = {str(i.get("skill_key") or ""): i for i in items}
-    # Legacy surfaces still present
+    # Surface skills still present
     for key in ("poster_craft", "landing_page", "dashboard_ui", "image_gen"):
         assert key in by_key, f"missing surface skill {key}"
         assert str(by_key[key].get("prompt_positive") or "").strip()
