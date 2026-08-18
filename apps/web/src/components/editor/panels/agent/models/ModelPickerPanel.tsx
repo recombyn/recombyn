@@ -13,96 +13,101 @@ import { isCustomModelId } from '@/components/editor/panels/agent/customLlmProvi
 import { cn } from '@/utils/classnames';
 import LoadingDots from '@/components/base/LoadingDots';
 import { FREE_IMAGE_MODEL_ID } from '@/utils/wallet';
-// Lobe Icons — https://icons.lobehub.com (static SVG, no antd peers)
-import deepseek from '@lobehub/icons-static-svg/icons/deepseek-color.svg?url';
-import qwen from '@lobehub/icons-static-svg/icons/qwen-color.svg?url';
-import gemini from '@lobehub/icons-static-svg/icons/gemini-color.svg?url';
-import claude from '@lobehub/icons-static-svg/icons/claude-color.svg?url';
-import doubao from '@lobehub/icons-static-svg/icons/doubao-color.svg?url';
-import glm from '@lobehub/icons-static-svg/icons/zhipu-color.svg?url';
-import gptImage from '@lobehub/icons-static-svg/icons/openai.svg?url';
-import kimi from '@lobehub/icons-static-svg/icons/kimi-color.svg?url';
-import flux from '@lobehub/icons-static-svg/icons/flux.svg?url';
-import ideogram from '@lobehub/icons-static-svg/icons/ideogram.svg?url';
-import kling from '@lobehub/icons-static-svg/icons/kling-color.svg?url';
-import sora from '@lobehub/icons-static-svg/icons/sora-color.svg?url';
-import minimax from '@lobehub/icons-static-svg/icons/minimax-color.svg?url';
-import elevenlabs from '@lobehub/icons-static-svg/icons/elevenlabs.svg?url';
-import haiper from '@lobehub/icons-static-svg/icons/haiper.svg?url';
-import luma from '@lobehub/icons-static-svg/icons/luma-color.svg?url';
-import runway from '@lobehub/icons-static-svg/icons/runway.svg?url';
-import pika from '@lobehub/icons-static-svg/icons/pika.svg?url';
-import mistral from '@lobehub/icons-static-svg/icons/mistral-color.svg?url';
-import meta from '@lobehub/icons-static-svg/icons/metaai-color.svg?url';
-import groq from '@lobehub/icons-static-svg/icons/groq.svg?url';
-import grok from '@lobehub/icons-static-svg/icons/grok.svg?url';
-import perplexity from '@lobehub/icons-static-svg/icons/perplexity-color.svg?url';
-import huggingface from '@lobehub/icons-static-svg/icons/huggingface-color.svg?url';
-import cohere from '@lobehub/icons-static-svg/icons/cohere-color.svg?url';
-import midjourney from '@lobehub/icons-static-svg/icons/midjourney.svg?url';
-import stability from '@lobehub/icons-static-svg/icons/stability-color.svg?url';
-import dalle from '@lobehub/icons-static-svg/icons/dalle-color.svg?url';
-import openrouter from '@lobehub/icons-static-svg/icons/openrouter-color.svg?url';
-import fireworks from '@lobehub/icons-static-svg/icons/fireworks-color.svg?url';
-import together from '@lobehub/icons-static-svg/icons/together-color.svg?url';
-import fal from '@lobehub/icons-static-svg/icons/fal-color.svg?url';
-import replicate from '@lobehub/icons-static-svg/icons/replicate.svg?url';
-import ollama from '@lobehub/icons-static-svg/icons/ollama.svg?url';
-import wenxin from '@lobehub/icons-static-svg/icons/wenxin-color.svg?url';
-import yi from '@lobehub/icons-static-svg/icons/yi-color.svg?url';
-import spark from '@lobehub/icons-static-svg/icons/spark-color.svg?url';
-import hunyuan from '@lobehub/icons-static-svg/icons/hunyuan-color.svg?url';
-import stepfun from '@lobehub/icons-static-svg/icons/stepfun-color.svg?url';
-import baichuan from '@lobehub/icons-static-svg/icons/baichuan-color.svg?url';
-import siliconcloud from '@lobehub/icons-static-svg/icons/siliconcloud-color.svg?url';
-import novita from '@lobehub/icons-static-svg/icons/novita-color.svg?url';
-import volcengine from '@lobehub/icons-static-svg/icons/volcengine-color.svg?url';
-import vidu from '@lobehub/icons-static-svg/icons/vidu-color.svg?url';
-import hailuo from '@lobehub/icons-static-svg/icons/hailuo-color.svg?url';
-import jimeng from '@lobehub/icons-static-svg/icons/jimeng-color.svg?url';
-import cogview from '@lobehub/icons-static-svg/icons/cogview-color.svg?url';
-import cogvideo from '@lobehub/icons-static-svg/icons/cogvideo-color.svg?url';
-import bfl from '@lobehub/icons-static-svg/icons/bfl.svg?url';
-import nvidia from '@lobehub/icons-static-svg/icons/nvidia-color.svg?url';
-import azure from '@lobehub/icons-static-svg/icons/azureai-color.svg?url';
-import bedrock from '@lobehub/icons-static-svg/icons/bedrock-color.svg?url';
-import recraft from '@lobehub/icons-static-svg/icons/recraft.svg?url';
-import ai21 from '@lobehub/icons-static-svg/icons/ai21-brand-color.svg?url';
-import cerebras from '@lobehub/icons-static-svg/icons/cerebras-color.svg?url';
-import sambanova from '@lobehub/icons-static-svg/icons/sambanova-color.svg?url';
-import hyperbolic from '@lobehub/icons-static-svg/icons/hyperbolic-color.svg?url';
-import deepinfra from '@lobehub/icons-static-svg/icons/deepinfra-color.svg?url';
-import poe from '@lobehub/icons-static-svg/icons/poe-color.svg?url';
-import coze from '@lobehub/icons-static-svg/icons/coze.svg?url';
-import internlm from '@lobehub/icons-static-svg/icons/internlm-color.svg?url';
-import zeroone from '@lobehub/icons-static-svg/icons/zeroone-color.svg?url';
-import ai360 from '@lobehub/icons-static-svg/icons/ai360-color.svg?url';
-import sensenova from '@lobehub/icons-static-svg/icons/sensenova-color.svg?url';
-import baidu from '@lobehub/icons-static-svg/icons/baidu-color.svg?url';
-import alibaba from '@lobehub/icons-static-svg/icons/alibaba-color.svg?url';
-import bytedance from '@lobehub/icons-static-svg/icons/bytedance-color.svg?url';
-import huawei from '@lobehub/icons-static-svg/icons/huawei-color.svg?url';
-import tencentcloud from '@lobehub/icons-static-svg/icons/tencentcloud-color.svg?url';
-import adobe from '@lobehub/icons-static-svg/icons/adobe-color.svg?url';
-import fishaudio from '@lobehub/icons-static-svg/icons/fishaudio.svg?url';
-import suno from '@lobehub/icons-static-svg/icons/suno.svg?url';
-import udio from '@lobehub/icons-static-svg/icons/udio-color.svg?url';
-import hedra from '@lobehub/icons-static-svg/icons/hedra.svg?url';
-import aws from '@lobehub/icons-static-svg/icons/aws-color.svg?url';
-import googlecloud from '@lobehub/icons-static-svg/icons/googlecloud-color.svg?url';
-import cloudflare from '@lobehub/icons-static-svg/icons/cloudflare-color.svg?url';
-import workersai from '@lobehub/icons-static-svg/icons/workersai-color.svg?url';
-import dify from '@lobehub/icons-static-svg/icons/dify-color.svg?url';
-import n8n from '@lobehub/icons-static-svg/icons/n8n-color.svg?url';
-import cursor from '@lobehub/icons-static-svg/icons/cursor.svg?url';
-import lmstudio from '@lobehub/icons-static-svg/icons/lmstudio.svg?url';
-import openwebui from '@lobehub/icons-static-svg/icons/openwebui.svg?url';
-import vllm from '@lobehub/icons-static-svg/icons/vllm.svg?url';
-import voyage from '@lobehub/icons-static-svg/icons/voyage-color.svg?url';
-import jina from '@lobehub/icons-static-svg/icons/jina-text.svg?url';
-import upstage from '@lobehub/icons-static-svg/icons/upstage-color.svg?url';
-import syncLipsync from '@/assets/model/sync_lipsync.png';
-import dreamina from '@/assets/model/dreamina.png';
+
+const MODEL_ICON_FILES = import.meta.glob('@/assets/model/*.{png,svg}', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>;
+
+/** File stem → catalog keys. SVG in the same folder wins over PNG. */
+const STEM_ALIASES: Record<string, string[]> = {
+  openai: ['openai', 'gpt', 'gpt_image', 'dalle'],
+  claude: ['claude', 'anthropic'],
+  gemini: ['gemini', 'google'],
+  deepseek: ['deepseek'],
+  doubao: ['doubao'],
+  seedream: ['seedream'],
+  qwen: ['qwen', 'dashscope', 'tongyi'],
+  kimi: ['kimi', 'moonshot'],
+  glm: ['glm', 'zhipu', 'chatglm'],
+  dreamina: ['dreamina', 'jimeng'],
+  elevenlabs_turbo: ['elevenlabs'],
+  flux_kontext_pro: ['flux', 'bfl'],
+  ideogram: ['ideogram'],
+  kling: ['kling'],
+  minimax_music: ['minimax', 'hailuo'],
+  sora: ['sora'],
+  sync_lipsync: ['lipsync'],
+  cohere: ['cohere'],
+  deepgram: ['deepgram'],
+  meta: ['meta', 'llama'],
+  mistrai: ['mistral'],
+  nvidia: ['nvidia'],
+  perplexity: ['perplexity'],
+  spacexal: ['grok', 'xai'],
+  thenlper: ['thenlper'],
+  voyageal: ['voyage'],
+};
+
+const SKIP_PICKER_STEMS = new Set(['faviconv2']);
+
+const STEM_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  claude: 'Claude',
+  gemini: 'Gemini',
+  deepseek: 'DeepSeek',
+  doubao: 'Doubao',
+  seedream: 'Seedream',
+  qwen: 'Qwen',
+  kimi: 'Kimi',
+  glm: 'GLM',
+  dreamina: 'Dreamina',
+  elevenlabs_turbo: 'ElevenLabs',
+  flux_kontext_pro: 'Flux',
+  ideogram: 'Ideogram',
+  kling: 'Kling',
+  minimax_music: 'MiniMax',
+  sora: 'Sora',
+  sync_lipsync: 'Lipsync',
+  cohere: 'Cohere',
+  deepgram: 'Deepgram',
+  meta: 'Meta / Llama',
+  mistrai: 'Mistral',
+  nvidia: 'NVIDIA',
+  perplexity: 'Perplexity',
+  spacexal: 'xAI / Grok',
+  thenlper: 'Thenlper',
+  voyageal: 'Voyage',
+};
+
+function modelIconStem(path: string): string {
+  const file = path.split('/').pop() || path;
+  return file.replace(/\.(png|svg)$/i, '').toLowerCase();
+}
+
+function isSvgIconPath(path: string): boolean {
+  return path.toLowerCase().endsWith('.svg');
+}
+
+const STEM_SRC: Record<string, string> = {};
+for (const [path, src] of Object.entries(MODEL_ICON_FILES).sort(
+  (a, b) => Number(isSvgIconPath(a[0])) - Number(isSvgIconPath(b[0]))
+)) {
+  STEM_SRC[modelIconStem(path)] = src;
+}
+
+const MODEL_ICON_BY_KEY: Record<string, string> = {};
+for (const [stem, src] of Object.entries(STEM_SRC)) {
+  const keys = STEM_ALIASES[stem] || [stem];
+  for (const key of keys) {
+    if (!MODEL_ICON_BY_KEY[key]) MODEL_ICON_BY_KEY[key] = src;
+  }
+}
+
+function iconSrc(key: string): string | undefined {
+  return MODEL_ICON_BY_KEY[key];
+}
 
 export { isImageKind, isVideoKind };
 type ModelIconRef = {
@@ -111,211 +116,49 @@ type ModelIconRef = {
   kind?: string | null;
   label?: string | null;
   iconUrl?: string | null;
-  icon_url?: string | null;
   iconKey?: string | null;
-  icon_key?: string | null;
 };
 
 const MODEL_ICON_RULES: Array<{ test: (s: string) => boolean; src: string }> = [
-  { test: (s) => s.includes('deepseek'), src: deepseek },
-  { test: (s) => s.includes('seedream'), src: doubao },
-  { test: (s) => s.includes('dreamina') || s.includes('jimeng'), src: dreamina },
-  { test: (s) => s.includes('haiper'), src: haiper },
-  { test: (s) => s.includes('glm') || s.includes('zhipu') || s.includes('chatglm'), src: glm },
-  { test: (s) => s.includes('doubao') || s.includes('seed-2'), src: doubao },
-  { test: (s) => s.includes('qwen') || s.includes('dashscope') || s.includes('tongyi'), src: qwen },
-  { test: (s) => s.includes('googlecloud') || s.includes('gcp'), src: googlecloud },
-  { test: (s) => s.includes('banana') || s.includes('gemini') || (s.includes('google') && !s.includes('cloud')), src: gemini },
-  { test: (s) => s.includes('claude') || s.includes('anthropic'), src: claude },
-  { test: (s) => s.includes('dall') || s.includes('dalle'), src: dalle },
-  { test: (s) => s.includes('gpt') || s.includes('openai'), src: gptImage },
-  { test: (s) => s.includes('mistral'), src: mistral },
-  { test: (s) => s.includes('llama') || s.includes('meta'), src: meta },
-  { test: (s) => s.includes('groq'), src: groq },
-  { test: (s) => s.includes('grok') || s.includes('xai'), src: grok },
-  { test: (s) => s.includes('perplexity'), src: perplexity },
-  { test: (s) => s.includes('hugging'), src: huggingface },
-  { test: (s) => s.includes('cohere'), src: cohere },
-  { test: (s) => s.includes('midjourney'), src: midjourney },
-  { test: (s) => s.includes('stability') || s.includes('stable-diffusion'), src: stability },
-  { test: (s) => s.includes('flux') || s.includes('blackforest') || s.includes('bfl'), src: flux },
-  { test: (s) => s.includes('ideogram'), src: ideogram },
-  { test: (s) => s.includes('kling'), src: kling },
-  { test: (s) => s.includes('sora'), src: sora },
-  { test: (s) => s.includes('minimax') || s.includes('hailuo'), src: minimax },
-  { test: (s) => s.includes('eleven'), src: elevenlabs },
-  { test: (s) => s.includes('luma'), src: luma },
-  { test: (s) => s.includes('runway'), src: runway },
-  { test: (s) => s.includes('pika'), src: pika },
-  { test: (s) => s.includes('vidu'), src: vidu },
-  { test: (s) => s.includes('cogview'), src: cogview },
-  { test: (s) => s.includes('cogvideo'), src: cogvideo },
-  { test: (s) => s.includes('wenxin') || s.includes('ernie'), src: wenxin },
-  { test: (s) => s.includes('spark'), src: spark },
-  { test: (s) => s.includes('hunyuan'), src: hunyuan },
-  { test: (s) => s.includes('stepfun') || s.includes('step-'), src: stepfun },
-  { test: (s) => s.includes('baichuan'), src: baichuan },
-  { test: (s) => s.includes('01.ai') || s.includes('zeroone') || s.includes('01-ai') || s.includes('01ai') || s.includes('零一'), src: zeroone },
-  { test: (s) => /\byi\b/.test(s), src: yi },
-  { test: (s) => s.includes('openrouter'), src: openrouter },
-  { test: (s) => s.includes('fireworks'), src: fireworks },
-  { test: (s) => s.includes('together'), src: together },
-  { test: (s) => s.includes('fal.ai') || s.includes('fal-'), src: fal },
-  { test: (s) => s.includes('replicate'), src: replicate },
-  { test: (s) => s.includes('ollama'), src: ollama },
-  { test: (s) => s.includes('silicon'), src: siliconcloud },
-  { test: (s) => s.includes('novita'), src: novita },
-  { test: (s) => s.includes('volc') || s.includes('ark'), src: volcengine },
-  { test: (s) => s.includes('azure'), src: azure },
-  { test: (s) => s.includes('bedrock') || s.includes('amazon'), src: bedrock },
-  { test: (s) => s.includes('nvidia') || s.includes('nim'), src: nvidia },
-  { test: (s) => s.includes('lipsync') || s.includes('sync.so'), src: syncLipsync },
-  { test: (s) => s.includes('moonshot') || s.includes('kimi'), src: kimi },
-  { test: (s) => s.includes('recraft'), src: recraft },
-  { test: (s) => s.includes('ai21'), src: ai21 },
-  { test: (s) => s.includes('cerebras'), src: cerebras },
-  { test: (s) => s.includes('samba'), src: sambanova },
-  { test: (s) => s.includes('hyperbolic'), src: hyperbolic },
-  { test: (s) => s.includes('deepinfra'), src: deepinfra },
-  { test: (s) => /\bpoe\b/.test(s), src: poe },
-  { test: (s) => s.includes('coze'), src: coze },
-  { test: (s) => s.includes('internlm') || s.includes('书生'), src: internlm },
-  { test: (s) => s.includes('ai360') || s.includes('360智') || s.includes('zhinao'), src: ai360 },
-  { test: (s) => s.includes('sensenova') || s.includes('商汤'), src: sensenova },
-  { test: (s) => s.includes('baidu') || s.includes('百度'), src: baidu },
-  { test: (s) => s.includes('alibaba') || s.includes('阿里'), src: alibaba },
-  { test: (s) => s.includes('bytedance') || s.includes('字节'), src: bytedance },
-  { test: (s) => s.includes('huawei') || s.includes('华为'), src: huawei },
-  { test: (s) => s.includes('tencent') || s.includes('腾讯'), src: tencentcloud },
-  { test: (s) => s.includes('adobe') || s.includes('firefly'), src: adobe },
-  { test: (s) => s.includes('fishaudio') || s.includes('fish-audio'), src: fishaudio },
-  { test: (s) => s.includes('suno'), src: suno },
-  { test: (s) => /\budio\b/.test(s), src: udio },
-  { test: (s) => s.includes('hedra'), src: hedra },
-  { test: (s) => s.includes('aws'), src: aws },
-  { test: (s) => s.includes('cloudflare'), src: cloudflare },
-  { test: (s) => s.includes('workersai') || s.includes('workers-ai'), src: workersai },
-  { test: (s) => s.includes('dify'), src: dify },
-  { test: (s) => s.includes('n8n'), src: n8n },
-  { test: (s) => s.includes('cursor'), src: cursor },
-  { test: (s) => s.includes('lmstudio') || s.includes('lm-studio'), src: lmstudio },
-  { test: (s) => s.includes('openwebui') || s.includes('open-webui'), src: openwebui },
-  { test: (s) => s.includes('vllm'), src: vllm },
-  { test: (s) => s.includes('voyage'), src: voyage },
-  { test: (s) => s.includes('jina'), src: jina },
-  { test: (s) => s.includes('upstage'), src: upstage },
-];
-
-const MODEL_ICON_BY_KEY: Record<string, string> = {
-  openai: gptImage,
-  gpt: gptImage,
-  gpt_image: gptImage,
-  dalle,
-  claude,
-  anthropic: claude,
-  gemini,
-  google: gemini,
-  deepseek,
-  doubao,
-  seedream: doubao,
-  qwen,
-  kimi,
-  moonshot: kimi,
-  glm,
-  zhipu: glm,
-  chatglm: glm,
-  mistral,
-  meta,
-  llama: meta,
-  groq,
-  grok,
-  xai: grok,
-  perplexity,
-  huggingface,
-  cohere,
-  midjourney,
-  stability,
-  flux,
-  bfl,
-  ideogram,
-  kling,
-  sora,
-  haiper,
-  luma,
-  runway,
-  pika,
-  vidu,
-  hailuo,
-  minimax,
-  jimeng,
-  dreamina,
-  cogview,
-  cogvideo,
-  elevenlabs,
-  lipsync: syncLipsync,
-  openrouter,
-  fireworks,
-  together,
-  fal,
-  replicate,
-  ollama,
-  wenxin,
-  yi,
-  spark,
-  hunyuan,
-  stepfun,
-  baichuan,
-  siliconcloud,
-  novita,
-  volcengine,
-  azure,
-  bedrock,
-  nvidia,
-  recraft,
-  ai21,
-  cerebras,
-  sambanova,
-  hyperbolic,
-  deepinfra,
-  poe,
-  coze,
-  internlm,
-  zeroone,
-  ai360,
-  sensenova,
-  baidu,
-  alibaba,
-  bytedance,
-  huawei,
-  tencentcloud,
-  adobe,
-  fishaudio,
-  suno,
-  udio,
-  hedra,
-  aws,
-  googlecloud,
-  cloudflare,
-  workersai,
-  dify,
-  n8n,
-  cursor,
-  lmstudio,
-  openwebui,
-  vllm,
-  voyage,
-  jina,
-  upstage,
-};
+  { test: (s) => s.includes('deepseek'), src: iconSrc('deepseek') },
+  { test: (s) => s.includes('seedream'), src: iconSrc('seedream') },
+  { test: (s) => s.includes('dreamina') || s.includes('jimeng'), src: iconSrc('dreamina') },
+  { test: (s) => s.includes('glm') || s.includes('zhipu') || s.includes('chatglm'), src: iconSrc('glm') },
+  { test: (s) => s.includes('doubao') || s.includes('seed-2'), src: iconSrc('doubao') },
+  { test: (s) => s.includes('qwen') || s.includes('dashscope') || s.includes('tongyi'), src: iconSrc('qwen') },
+  { test: (s) => s.includes('banana') || s.includes('gemini') || (s.includes('google') && !s.includes('cloud')), src: iconSrc('gemini') },
+  { test: (s) => s.includes('claude') || s.includes('anthropic'), src: iconSrc('claude') },
+  { test: (s) => s.includes('dall') || s.includes('dalle') || s.includes('gpt') || s.includes('openai'), src: iconSrc('openai') },
+  { test: (s) => s.includes('flux') || s.includes('blackforest') || s.includes('bfl'), src: iconSrc('flux') },
+  { test: (s) => s.includes('ideogram'), src: iconSrc('ideogram') },
+  { test: (s) => s.includes('kling'), src: iconSrc('kling') },
+  { test: (s) => s.includes('sora'), src: iconSrc('sora') },
+  { test: (s) => s.includes('minimax') || s.includes('hailuo'), src: iconSrc('minimax') },
+  { test: (s) => s.includes('eleven'), src: iconSrc('elevenlabs') },
+  { test: (s) => s.includes('lipsync') || s.includes('sync.so'), src: iconSrc('lipsync') },
+  { test: (s) => s.includes('moonshot') || s.includes('kimi'), src: iconSrc('kimi') },
+  { test: (s) => s.includes('cohere'), src: iconSrc('cohere') },
+  { test: (s) => s.includes('deepgram'), src: iconSrc('deepgram') },
+  { test: (s) => s.includes('llama') || s.includes('meta'), src: iconSrc('meta') },
+  { test: (s) => s.includes('mistral'), src: iconSrc('mistral') },
+  { test: (s) => s.includes('nvidia') || s.includes('nim'), src: iconSrc('nvidia') },
+  { test: (s) => s.includes('perplexity'), src: iconSrc('perplexity') },
+  { test: (s) => s.includes('grok') || s.includes('xai') || s.includes('spacex'), src: iconSrc('grok') },
+  { test: (s) => s.includes('voyage'), src: iconSrc('voyage') },
+  { test: (s) => s.includes('thenlper'), src: iconSrc('thenlper') },
+].filter((row): row is { test: (s: string) => boolean; src: string } => Boolean(row.src));
 
 const MODEL_ICON_BY_PROVIDER: Record<string, string> = {
   ...MODEL_ICON_BY_KEY,
-  dashscope: qwen,
 };
 
 export type ModelIconThemeId = 'chat' | 'image' | 'video' | 'audio' | 'china' | 'platform';
 
 export type ModelIconOption = { key: string; label: string };
+
+function withLocalIcons(options: ModelIconOption[]): ModelIconOption[] {
+  return options.filter((opt) => Boolean(MODEL_ICON_BY_KEY[opt.key]));
+}
 
 /** Themed preset icons for BYOK / custom model forms. */
 export const CUSTOM_MODEL_ICON_GROUPS: {
@@ -324,144 +167,94 @@ export const CUSTOM_MODEL_ICON_GROUPS: {
   options: ModelIconOption[];
 }[] = [
   {
-    id: 'chat',
+    id: 'chat' as ModelIconThemeId,
     labelKey: 'providerModelIconThemeChat',
-    options: [
+    options: withLocalIcons([
       { key: 'openai', label: 'OpenAI' },
       { key: 'claude', label: 'Claude' },
       { key: 'gemini', label: 'Gemini' },
       { key: 'deepseek', label: 'DeepSeek' },
       { key: 'mistral', label: 'Mistral' },
       { key: 'meta', label: 'Meta / Llama' },
-      { key: 'groq', label: 'Groq' },
-      { key: 'grok', label: 'Grok' },
-      { key: 'perplexity', label: 'Perplexity' },
       { key: 'cohere', label: 'Cohere' },
-      { key: 'huggingface', label: 'Hugging Face' },
-      { key: 'ai21', label: 'AI21' },
-      { key: 'cerebras', label: 'Cerebras' },
-      { key: 'sambanova', label: 'SambaNova' },
-      { key: 'hyperbolic', label: 'Hyperbolic' },
-      { key: 'deepinfra', label: 'DeepInfra' },
-      { key: 'poe', label: 'Poe' },
-      { key: 'coze', label: 'Coze' },
-      { key: 'internlm', label: 'InternLM' },
-      { key: 'voyage', label: 'Voyage' },
-      { key: 'jina', label: 'Jina' },
-      { key: 'upstage', label: 'Upstage' },
-    ],
+      { key: 'perplexity', label: 'Perplexity' },
+      { key: 'grok', label: 'xAI / Grok' },
+    ]),
   },
   {
-    id: 'china',
+    id: 'china' as ModelIconThemeId,
     labelKey: 'providerModelIconThemeChina',
-    options: [
+    options: withLocalIcons([
       { key: 'doubao', label: 'Doubao' },
       { key: 'qwen', label: 'Qwen' },
       { key: 'kimi', label: 'Kimi' },
       { key: 'glm', label: 'GLM' },
-      { key: 'wenxin', label: 'Wenxin' },
-      { key: 'yi', label: 'Yi' },
-      { key: 'zeroone', label: '01.AI' },
-      { key: 'spark', label: 'Spark' },
-      { key: 'hunyuan', label: 'Hunyuan' },
-      { key: 'stepfun', label: 'StepFun' },
-      { key: 'baichuan', label: 'Baichuan' },
       { key: 'minimax', label: 'MiniMax' },
-      { key: 'jimeng', label: 'Jimeng' },
-      { key: 'ai360', label: '360 Zhinao' },
-      { key: 'sensenova', label: 'SenseNova' },
-      { key: 'baidu', label: 'Baidu' },
-      { key: 'alibaba', label: 'Alibaba' },
-      { key: 'bytedance', label: 'ByteDance' },
-      { key: 'huawei', label: 'Huawei' },
-      { key: 'tencentcloud', label: 'Tencent Cloud' },
-    ],
+      { key: 'dreamina', label: 'Dreamina' },
+    ]),
   },
   {
-    id: 'image',
+    id: 'image' as ModelIconThemeId,
     labelKey: 'providerModelIconThemeImage',
-    options: [
-      { key: 'dalle', label: 'DALL·E' },
+    options: withLocalIcons([
       { key: 'flux', label: 'Flux' },
       { key: 'ideogram', label: 'Ideogram' },
-      { key: 'midjourney', label: 'Midjourney' },
-      { key: 'stability', label: 'Stability' },
       { key: 'seedream', label: 'Seedream' },
       { key: 'dreamina', label: 'Dreamina' },
-      { key: 'cogview', label: 'CogView' },
-      { key: 'recraft', label: 'Recraft' },
-      { key: 'bfl', label: 'BFL' },
-      { key: 'adobe', label: 'Adobe Firefly' },
-    ],
+    ]),
   },
   {
-    id: 'video',
+    id: 'video' as ModelIconThemeId,
     labelKey: 'providerModelIconThemeVideo',
-    options: [
+    options: withLocalIcons([
       { key: 'kling', label: 'Kling' },
       { key: 'sora', label: 'Sora' },
-      { key: 'haiper', label: 'Haiper' },
-      { key: 'luma', label: 'Luma' },
-      { key: 'runway', label: 'Runway' },
-      { key: 'pika', label: 'Pika' },
-      { key: 'vidu', label: 'Vidu' },
-      { key: 'hailuo', label: 'Hailuo' },
-      { key: 'cogvideo', label: 'CogVideo' },
-      { key: 'hedra', label: 'Hedra' },
-    ],
+    ]),
   },
   {
-    id: 'audio',
+    id: 'audio' as ModelIconThemeId,
     labelKey: 'providerModelIconThemeAudio',
-    options: [
+    options: withLocalIcons([
       { key: 'elevenlabs', label: 'ElevenLabs' },
       { key: 'minimax', label: 'MiniMax Audio' },
       { key: 'lipsync', label: 'Lipsync' },
-      { key: 'fishaudio', label: 'Fish Audio' },
-      { key: 'suno', label: 'Suno' },
-      { key: 'udio', label: 'Udio' },
-    ],
+    ]),
   },
   {
-    id: 'platform',
+    id: 'platform' as ModelIconThemeId,
     labelKey: 'providerModelIconThemePlatform',
-    options: [
-      { key: 'openrouter', label: 'OpenRouter' },
-      { key: 'ollama', label: 'Ollama' },
-      { key: 'siliconcloud', label: 'SiliconCloud' },
-      { key: 'novita', label: 'Novita' },
-      { key: 'volcengine', label: 'Volcengine' },
-      { key: 'fireworks', label: 'Fireworks' },
-      { key: 'together', label: 'Together' },
-      { key: 'fal', label: 'fal' },
-      { key: 'replicate', label: 'Replicate' },
-      { key: 'azure', label: 'Azure AI' },
-      { key: 'bedrock', label: 'Bedrock' },
+    options: withLocalIcons([
       { key: 'nvidia', label: 'NVIDIA' },
-      { key: 'aws', label: 'AWS' },
-      { key: 'googlecloud', label: 'Google Cloud' },
-      { key: 'cloudflare', label: 'Cloudflare' },
-      { key: 'workersai', label: 'Workers AI' },
-      { key: 'dify', label: 'Dify' },
-      { key: 'n8n', label: 'n8n' },
-      { key: 'cursor', label: 'Cursor' },
-      { key: 'lmstudio', label: 'LM Studio' },
-      { key: 'openwebui', label: 'Open WebUI' },
-      { key: 'vllm', label: 'vLLM' },
-    ],
+      { key: 'voyage', label: 'Voyage' },
+      { key: 'deepgram', label: 'Deepgram' },
+      { key: 'thenlper', label: 'Thenlper' },
+    ]),
   },
-];
+].filter((g) => g.options.length > 0);
 
 /** Flat preset list for the icon picker (deduped by key, theme order preserved). */
 export const CUSTOM_MODEL_ICON_OPTIONS: ModelIconOption[] = (() => {
-  const seen = new Set<string>();
+  const seenKey = new Set<string>();
+  const seenSrc = new Set<string>();
   const out: ModelIconOption[] = [];
+  function addOpt(opt: ModelIconOption) {
+    const src = MODEL_ICON_BY_KEY[opt.key];
+    if (!src || seenKey.has(opt.key) || seenSrc.has(src)) return;
+    seenKey.add(opt.key);
+    seenSrc.add(src);
+    out.push(opt);
+  }
   for (const g of CUSTOM_MODEL_ICON_GROUPS) {
-    for (const opt of g.options) {
-      if (seen.has(opt.key)) continue;
-      seen.add(opt.key);
-      out.push(opt);
-    }
+    for (const opt of g.options) addOpt(opt);
+  }
+  for (const [stem] of Object.entries(STEM_SRC)) {
+    if (SKIP_PICKER_STEMS.has(stem)) continue;
+    const key = (STEM_ALIASES[stem] || [stem])[0];
+    if (!key) continue;
+    addOpt({
+      key,
+      label: STEM_LABELS[stem] || key.replace(/_/g, ' '),
+    });
   }
   return out;
 })();
@@ -475,11 +268,11 @@ export const AUTO_MODEL: LlmModel = {
 };
 
 function resolveModelIconKey(model?: ModelIconRef | null): string {
-  return String(model?.iconKey || model?.icon_key || '').toLowerCase().trim();
+  return String(model?.iconKey || '').toLowerCase().trim();
 }
 
 function resolveModelIconSrc(model?: ModelIconRef | null): string | null {
-  const remote = String(model?.iconUrl || model?.icon_url || '').trim();
+  const remote = String(model?.iconUrl || '').trim();
   if (remote) return remote;
   const key = resolveModelIconKey(model);
   if (key && MODEL_ICON_BY_KEY[key]) return MODEL_ICON_BY_KEY[key];

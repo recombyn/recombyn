@@ -132,7 +132,7 @@ function ModelIconPickerFields(props: {
           className={cn(
             'inline-flex h-9 w-9 items-center justify-center rounded-lg ring-1 transition',
             iconUrl
-              ? 'ring-2 ring-[var(--ink)] ring-offset-1 ring-offset-[var(--account-card)]'
+              ? 'ring-[var(--ink)]'
               : 'ring-[var(--line)] hover:bg-[var(--accent-soft)]'
           )}
           onClick={() => fileRef.current?.click()}
@@ -165,7 +165,7 @@ function ModelIconPickerFields(props: {
               className={cn(
                 'inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--account-card)] ring-1 transition',
                 selected
-                  ? 'ring-2 ring-[var(--ink)] ring-offset-1 ring-offset-[var(--account-card)]'
+                  ? 'ring-[var(--ink)]'
                   : 'ring-[var(--line)] hover:bg-[var(--accent-soft)]'
               )}
               onClick={() => pickPreset(opt.key)}
