@@ -172,9 +172,9 @@
       "group": "agent_prompt",
       "type": "system",
       "usedBy": [
-        "legacy"
+        "decide"
       ],
-      "file": "stages/legacy.md"
+      "file": "stages/decide.md"
     },
     {
       "kind": "agent.prompt.chat_fallback",
@@ -286,9 +286,9 @@
       "group": "agent_prompt",
       "type": "system",
       "usedBy": [
-        "legacy"
+        "decide"
       ],
-      "file": "stages/legacy.md"
+      "file": "stages/decide.md"
     },
     {
       "kind": "agent.prompt.paint_retry",
@@ -344,7 +344,7 @@
       "usedBy": [
         "orchestrator"
       ],
-      "file": "stages/legacy.md"
+      "file": "stages/decide.md"
     },
     {
       "kind": "agent.prompt.pending_skills",
@@ -401,9 +401,9 @@
       "group": "agent_prompt",
       "type": "system",
       "usedBy": [
-        "legacy"
+        "decide"
       ],
-      "file": "stages/legacy.md"
+      "file": "stages/decide.md"
     },
     {
       "kind": "agent.prompt.prompt_pack_inject_header",
@@ -429,7 +429,7 @@
       "group": "agent_prompt",
       "type": "system",
       "usedBy": [
-        "legacy"
+        "decide"
       ],
       "file": "stages/decide.md"
     },

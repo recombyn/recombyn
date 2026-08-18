@@ -566,22 +566,18 @@ function PenStrokeToolbar({
           <span className="shrink-0 text-[10px] text-[var(--muted)]">{t('editor.unitPx')}</span>
         </label>
 
-        {!isPencil ? (
-          <>
-            <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden />
-            <Tooltip tip={t('editor.pathEditDone')} placement={docked ? 'bottom' : 'top'}>
-              <button
-                type="button"
-                aria-label={t('editor.pathEditExit')}
-                onClick={exitPenEdit}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="inline-flex h-6 items-center justify-center rounded-md px-2 text-[12px] text-[var(--ink)] transition-colors hover:bg-[var(--accent-soft)]"
-              >
-                {t('editor.pathEditExit')}
-              </button>
-            </Tooltip>
-          </>
-        ) : null}
+        <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden />
+        <Tooltip tip={t('editor.pathEditDone')} placement={docked ? 'bottom' : 'top'}>
+          <button
+            type="button"
+            aria-label={t('editor.exitPenEdit')}
+            onClick={exitPenEdit}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="inline-flex h-6 items-center justify-center rounded-md px-2 text-[12px] text-[var(--ink)] transition-colors hover:bg-[var(--accent-soft)]"
+          >
+            {t('editor.exitPenEdit')}
+          </button>
+        </Tooltip>
       </FloatingToolbar>
     </div>
   );

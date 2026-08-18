@@ -16,7 +16,7 @@ Skills and canvas plugins are folders today. Distributors need a single uploadab
    - ``install``: ``user`` (default for skill) | ``disk`` (required for canvas)
    - ``permissions``: documentation / future ACL list
 3. **Install paths:**
-   - ``skill`` + ``user`` → existing end-user skill upsert (same as legacy zip)
+   - ``skill`` + ``user`` → existing end-user skill upsert
    - ``skill|canvas`` + ``disk`` → write under ``<repo>/plugins/{skills|canvas}/<id>/`` when ``DESIGN_PLUGIN_DISK_INSTALL=true``
 4. **Optional signature:** ``plugin.sig`` = HMAC-SHA256 hex of a canonical digest. Required only when ``DESIGN_PLUGIN_HMAC_SECRET`` is set.
 5. **APIs:** ``POST /api/v1/design/plugins/install``; ``POST /api/v1/design/skills/import`` auto-detects branded packs.

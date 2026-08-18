@@ -206,10 +206,6 @@ def load_billing_markup(rules: dict[str, Any] | None = None) -> float:
     return _as_float(_rules_map(rules).get(RULE_MARKUP), DEFAULT_MARKUP)
 
 
-def load_billing_settings(rules: dict[str, Any] | None = None) -> tuple[float, float]:
-    """Return (markup, unused_legacy). Second value kept for call-site compatibility."""
-    return load_billing_markup(rules), 1.0
-
 
 def load_credit_policy(rules: dict[str, Any] | None = None) -> CreditPolicySchema:
     """Public credit unit + BYOK agent fee (no host markup fields)."""
@@ -308,7 +304,7 @@ def credits_per_cny() -> float:
 
 
 def tokens_to_credits(billed_tokens: int) -> int:
-    """Convert billed LLM tokens (after markup) into wallet 积分 (legacy)."""
+    """Convert billed LLM tokens (after markup) into wallet 积分."""
     n = max(0, int(billed_tokens or 0))
     if n <= 0:
         return 0
@@ -321,7 +317,7 @@ def charge_from_llm_tokens(
     rules: dict[str, Any] | None = None,
     markup: float | None = None,
 ) -> int:
-    """Convert provider LLM token usage into wallet 积分 (legacy fallback)."""
+    """Convert provider LLM token usage into wallet 积分 (OSS fallback when remote quote unavailable)."""
     tokens = max(0, int(actual_tokens or 0))
     if tokens <= 0:
         return 0
@@ -406,7 +402,7 @@ def resolve_capture_credits(
     """Decide capture credits for settle.
 
     Prefer optional remote quote (credits only). Fallbacks:
-    BYOK agent fee → OSS TaskPricing/legacy hybrid.
+    BYOK agent fee → OSS TaskPricing/token fallback hybrid.
     Returns ``(credits, source)``.
     """
     imgs = max(0, int(images_hydrated or 0))
@@ -447,14 +443,14 @@ def resolve_capture_credits(
     except Exception:
         pass
 
-    # OSS / Intelligence-down: TaskPricing band + legacy token/image as transitional.
-    legacy = charge_from_llm_tokens(tokens, rules=rules) + extra_img
+    # OSS / Intelligence-down: TaskPricing band + token fallback.
+    fallback = charge_from_llm_tokens(tokens, rules=rules) + extra_img
     sheet = resolve_task_pricing(run_mode, rules=rules)
     lo = max(0, int(sheet.base_credit or 0))
     hi = max(lo, int(sheet.estimate_credits_high() or 0))
-    if legacy <= 0:
+    if fallback <= 0:
         return max(1, lo or hi or 1), "task_pricing_floor"
-    capped = max(lo, min(legacy, max(hi * 3, hi, 1)))
+    capped = max(lo, min(fallback, max(hi * 3, hi, 1)))
     return capped, "oss_hybrid"
 
 
@@ -521,21 +517,17 @@ def settle_token_hold(
         except ValueError:
             total = hold_n
 
-    # Align with protocol lifecycle capture envelope (wallet already mutated).
     try:
-        from app.services.wallet.lifecycle import capture_task_credits
+        from app.services.wallet.lifecycle import settle_task_credits
 
-        capture_task_credits(
+        settle_task_credits(
             user_id=uid,
-            hold=hold_n,
-            capture=total,
+            reserved=hold_n,
+            actual=total,
             task_id=task_id,
             detail=f"{note}:{source}",
             mutate_wallet=False,
         )
-    except TypeError:
-        # Older capture_task_credits without mutate_wallet — skip envelope.
-        pass
     except Exception:
         pass
     return total

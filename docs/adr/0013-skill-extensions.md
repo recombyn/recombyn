@@ -11,7 +11,7 @@ We want third-party / private-deploy **extensions** without a full plugin platfo
 
 1. **Phase A = Skill playbooks only.** A pack teaches the agent; it does **not** execute `handler.py` yet.
 2. **Two product roots only** (later wins on duplicate `skill_key`):
-   - `apps/api/seeds/design_skills` — shipped / first-party
+   - `skills/foundation` + `skills/domains` — shipped / first-party
    - `<repo>/plugins/skills` — private / self-host mount
    - Extra dirs from `DESIGN_SKILLS_PLUGIN_DIRS` (comma-separated)
 3. **`.agents/skills` is out of product scan** — Cursor/IDE agents only; do not place Design Agent packs there.

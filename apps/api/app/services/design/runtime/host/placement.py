@@ -144,7 +144,7 @@ def _derive_suggested_place_world(
 ) -> dict[str, float] | None:
     """Viewport-first place: blank slot (align if possible) or camera center.
 
-    NOTE: The return value is used only for tests / legacy callers.
+    NOTE: The return value is used only for tests and utility callers.
     The paint prompt no longer injects these coords as suggestions to the model
     (see _format_spatial_placement which returns "").
     """
@@ -251,7 +251,7 @@ def _batch_opens_new_frame(ops: list[dict[str, Any]]) -> bool:
     for op in ops:
         if not isinstance(op, dict):
             continue
-        name = str(op.get("name") or op.get("op_key") or "").strip()
+        name = str(op.get("name") or "").strip()
         if name in ("create_frame", "ensure_frame"):
             return True
     return False
@@ -297,7 +297,7 @@ def _placement_errors_for_free_creates(rt: Any, ops: list[dict[str, Any]]) -> li
     for op in ops:
         if not isinstance(op, dict):
             continue
-        name = str(op.get("name") or op.get("op_key") or "").strip()
+        name = str(op.get("name") or "").strip()
         if name not in create_names:
             continue
         ox_raw, oy_raw, frame_id = _create_op_placement_fields(op)

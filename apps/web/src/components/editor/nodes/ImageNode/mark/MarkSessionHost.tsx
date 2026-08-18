@@ -272,14 +272,11 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
           selected: false,
         }));
         setRegions(next);
-        if (res.warnings?.length) {
-          console.info('[mark] detect warnings', res.warnings);
-        }
       } catch (err: unknown) {
         if (ac.signal.aborted || gen !== detectGenRef.current) return;
         const msg = getHttpErrorMessage(err, '');
         if (msg && !/unsupported kind|detectRegions/i.test(msg)) {
-          console.info('[mark] detect failed', msg);
+          console.warn('[mark] detect failed', msg);
         }
       } finally {
         if (gen === detectGenRef.current) setDetecting(false);
@@ -342,10 +339,7 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
       box.height,
       region,
       uploadKey
-    ).catch((err: unknown) => {
-      console.info('[mark] crop failed', getHttpErrorMessage(err, ''));
-      return undefined;
-    });
+    ).catch(() => undefined);
 
     // Pop-in, then fly — wait for thumb (capped) so the chip looks real mid-flight.
     const [thumb] = await Promise.all([

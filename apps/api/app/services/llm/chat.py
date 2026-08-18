@@ -1,4 +1,4 @@
-"""Chat streaming via LangChain ChatOpenAI (OpenAI-compatible providers)."""
+"""Chat streaming via LangChain ChatOpenAI (OpenAI-style providers)."""
 
 from __future__ import annotations
 

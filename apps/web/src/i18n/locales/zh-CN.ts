@@ -836,6 +836,7 @@ const zhCN = {
     fitCanvas: '缩放以适合',
     zoomToPercent: '缩放至 {{percent}}%',
     zoomMenu: '缩放',
+    fpsHud: '帧率监视',
     pathEditSelect: '选择',
     pathEditPen: '钢笔',
     pathEditAddAnchor: '增加锚点',

@@ -57,7 +57,7 @@ describe('frame draw (artboard) vs rect contract', () => {
     expect(Number.isInteger(box.top)).toBe(true);
   });
 
-  it('high-zoom soft drag 5×4 still commits (legacy 24 min rejected)', () => {
+  it('high-zoom soft drag 5×4 still commits (old 24 min rejected)', () => {
     const box = resolveFrameDrawBox(
       { left: 100.2, top: 50.7, width: 4.6, height: 3.4 },
       true,

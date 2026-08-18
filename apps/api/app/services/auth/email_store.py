@@ -595,7 +595,7 @@ def _maybe_delete_avatar_object(url: str | None) -> None:
 
 
 def heal_avatar_if_data_url(user: EmailUser) -> EmailUser:
-    """One-shot migrate legacy base64 custom avatars out of the users table."""
+    """One-shot move base64 custom avatars out of the users table."""
     raw = (user.avatar_custom or user.avatar or "").strip()
     if not raw.startswith("data:image/"):
         return user

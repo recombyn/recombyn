@@ -803,7 +803,7 @@ def _is_high_stakes_review_turn(rt: Any) -> bool:
     for op in list(getattr(rt, "paint_ops", None) or []):
         if not isinstance(op, dict):
             continue
-        name = str(op.get("name") or op.get("op_key") or "").strip()
+        name = str(op.get("name") or "").strip()
         if name == "create_frame":
             frames += 1
             if frames >= 2:
@@ -831,6 +831,8 @@ def _should_route_to_review(
         return False
     mode = _review_mode(rt)
     if mode == "off":
+        return False
+    if bool((getattr(rt, "flags", None) or {}).get("review_repair_used")):
         return False
     try:
         from app.services.design.runtime.models_route import normalize_user_intent
@@ -878,7 +880,7 @@ def _spatial_grounding_issues(rt: AgentRuntime) -> list[str]:
         op
         for op in (rt.paint_ops or [])
         if isinstance(op, dict)
-        and str(op.get("name") or op.get("op_key") or "").startswith("create_")
+        and str(op.get("name") or "").startswith("create_")
     ]
     pts = [xy for op in creates if (xy := _create_op_xy(op)) is not None]
 

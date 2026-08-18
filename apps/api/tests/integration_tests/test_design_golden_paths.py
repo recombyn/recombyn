@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from app.services.design.runtime.agent_controller import PaintOpsSchema
+from app.services.design.runtime.graph.state import PaintOpsSchema
 from app.services.design.readpath.catalog import ensure_design_catalog
 from app.services.design.runtime.models_route import IntentClassifyDecision
 from tests.design_harness import collect_design_events, events_by_type

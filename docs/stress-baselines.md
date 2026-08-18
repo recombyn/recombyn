@@ -8,7 +8,7 @@ How to capture a performance baseline (canvas, API, collab, Agent). Tools alread
 |---------|---------|------------------|
 | Canvas store + E2E stress | `npm run test:canvas:stress` | Console + Playwright/HTML; optional JSON under `e2e/tests/*.results.json` (local, gitignored if untracked) |
 | Canvas deep / tools | `npm run test:canvas:deep` / `test:canvas:tools` | Same |
-| Vitest canvas stress | `npm run test:stress --workspace=apps/web` | Vitest (also in `web-tests.yml`) |
+| Vitest canvas stress | `npm run test:stress --workspace=apps/web` | Vitest (local) |
 | API k6 smoke | `npm run perf:k6:smoke` | k6 summary; CI: `perf-k6.yml` |
 | API CRUD load | `PERF_TOKEN=… npm run perf:k6:api` | k6 |
 | Collab WS | `COLLAB_WS_URL=ws://127.0.0.1:1234 npm run perf:k6:collab` | k6 |

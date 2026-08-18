@@ -104,12 +104,7 @@ class _RunControl:
 
 _CACHE = _GraphCompileCache()
 _RUN = _RunControl()
-# Back-compat names — tests / older pokes still import these module attrs.
-_TEMPLATE_GRAPHS = _CACHE.templates
 _LC_DESIGN_GRAPH = None
-_DESIGN_HOLD_FNS = _RUN.hold_fns
-_RUN_INTENT = _RUN.intent
-_ACTIVE_RUN_TASKS = _RUN.tasks
 
 _INTENT_PAUSE = "pause"
 _INTENT_CANCEL = "cancel"

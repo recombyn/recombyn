@@ -1,4 +1,4 @@
-"""Object storage backends — local disk or S3-compatible (OSS/COS)."""
+"""Object storage backends — local disk or S3-style (OSS/COS)."""
 
 from __future__ import annotations
 

@@ -640,7 +640,7 @@ _OPENAI_IMAGE_SIZES: dict[str, str] = {
 def _byok_image_transport(base_url: str) -> str:
     """Infer the images API size contract from the provider host.
 
-    ``openai_image`` = fixed OpenAI size set (gpt-image-1 / DALL·E compatible).
+    ``openai_image`` = fixed OpenAI size set (gpt-image-1 / DALL·E set).
     ``ark_image`` = arbitrary WxH (Volcengine Ark / Doubao and most aggregators).
     """
     host = (base_url or "").strip().lower()
@@ -677,7 +677,7 @@ async def _generate_byok_image(
     resolution: str | None,
     images: list[str] | None,
 ) -> dict[str, Any]:
-    """Generate via a user's BYOK OpenAI-compatible ``images.generate`` endpoint.
+    """Generate via a user's BYOK OpenAI-style ``images.generate`` endpoint.
 
     Uses the user's own key/quota — never platform credits.
     """

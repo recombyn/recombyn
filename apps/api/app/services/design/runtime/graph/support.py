@@ -1,4 +1,4 @@
-"""Back-compat barrel — prefer emit_sse / llm_io / turns / paint_kit / scene_log."""
+"""Barrel re-export for emit_sse / llm_io / turns / paint_kit / scene_log."""
 from __future__ import annotations
 
 from app.services.design.runtime.graph.emit_sse import *  # noqa: F403

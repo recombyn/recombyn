@@ -55,7 +55,7 @@ async def run_img_layers_job(
     refund_hold_fn: Any,
     scene: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    """SSE stream compatible with FE tool_ops apply + result settle."""
+    """SSE stream used by FE tool_ops apply + result settle."""
     task_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
     sid = str(session_id or "").strip()

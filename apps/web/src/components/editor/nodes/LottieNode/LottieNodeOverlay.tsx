@@ -83,7 +83,7 @@ function LottieZoomSync({ onZoom }: { onZoom: (zoom: number) => void }) {
 
 function resolveLottiePlateFill(raw: string): string {
   const s = String(raw || '').trim();
-  // Default / legacy transparent → theme surface plate (not black).
+  // Default transparent → theme surface plate (not black).
   if (!s || s === 'transparent') return resolveThemeSurfaceFill('');
   return resolveThemeSurfaceFill(s);
 }

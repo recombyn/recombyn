@@ -41,8 +41,8 @@ def main() -> int:
         "--kind",
         type=str,
         default="credit",
-        choices=("credit", "token", "plan"),
-        help="credit = 积分 top-up (token is legacy alias); plan = membership + credits",
+        choices=("credit", "plan"),
+        help="credit = 积分 top-up; plan = membership + credits",
     )
     parser.add_argument(
         "--plan-id",
@@ -54,7 +54,7 @@ def main() -> int:
         "--tokens",
         type=int,
         default=0,
-        help="Credits per key (required for token; optional for plan — uses catalog default)",
+        help="Credits per key (required for credit; optional for plan — uses catalog default)",
     )
     parser.add_argument(
         "--expires-days",
@@ -73,7 +73,7 @@ def main() -> int:
     if args.count <= 0 or args.count > 10_000:
         print("error: --count must be 1..10000", file=sys.stderr)
         return 1
-    if args.kind in ("credit", "token") and args.tokens <= 0:
+    if args.kind == "credit" and args.tokens <= 0:
         print("error: --tokens must be > 0 for credit keys", file=sys.stderr)
         return 1
     if args.kind == "plan" and args.plan_id.strip().lower() not in ("plus", "pro", "ultra"):

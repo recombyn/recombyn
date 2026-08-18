@@ -1,18 +1,21 @@
+import { useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  memo,
-} from 'react';
+  autoUpdate,
+  flip,
+  FloatingPortal,
+  offset,
+  shift,
+  useClick,
+  useDismiss,
+  useFloating,
+  useInteractions,
+} from '@floating-ui/react';
 import { useTranslation } from 'react-i18next';
-import { BiExit } from 'react-icons/bi';
 import { HiOutlineArrowPath, HiOutlineCheck, HiOutlineChevronDown } from 'react-icons/hi2';
 import { MdOutlineOpacity } from 'react-icons/md';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown';
+import { DropdownPanel } from '@/components/base/dropdown/DropdownPanel';
 import Slider from '@/components/base/slider';
 import Tooltip from '@/components/base/tooltip';
 import { cn } from '@/utils/classnames';
@@ -126,8 +129,95 @@ export function BlendModeIcon({ mode, className }: { mode: BlendModeId; classNam
   );
 }
 
-const opacityPanelBtn =
-  'inline-flex h-7 min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-xl px-2 text-[12px] font-medium leading-none transition-colors';
+export function OpacityControl({
+  opacity,
+  onOpacityChange,
+  className,
+}: {
+  opacity?: unknown;
+  onOpacityChange: (opacity01: number) => void;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const pct = layerOpacityToPct(parseLayerOpacity(opacity, 1));
+  const opacityLabel = t('editor.imageToolbar.opacity');
+  const applyPct = (nextPct: number) => {
+    onOpacityChange(clampOpacityPct(nextPct) / 100);
+  };
+  const { refs, floatingStyles, context } = useFloating({
+    open,
+    onOpenChange: setOpen,
+    placement: 'bottom-start',
+    strategy: 'fixed',
+    whileElementsMounted: autoUpdate,
+    middleware: [
+      offset(6),
+      flip({
+        padding: 12,
+        fallbackPlacements: ['top-start', 'top-end', 'right-start', 'left-start'],
+      }),
+      shift({ padding: 12 }),
+    ],
+  });
+  const click = useClick(context);
+  const dismiss = useDismiss(context, { outsidePressEvent: 'pointerdown' });
+  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss]);
+
+  return (
+    <div className={cn('inline-flex', className)}>
+      <button
+        type="button"
+        aria-label={opacityLabel}
+        aria-expanded={open}
+        ref={refs.setReference}
+        className={cn(SEL_TOOL_BTN, open && SEL_ICON_BTN_ACTIVE)}
+        {...getReferenceProps()}
+      >
+        <MdOutlineOpacity className="h-4 w-4" />
+        <span>{opacityLabel}</span>
+      </button>
+      <FloatingPortal>
+        {open ? (
+          <DropdownPanel
+            className="z-[80] w-[240px]"
+            style={floatingStyles}
+            ref={refs.setFloating}
+            {...getFloatingProps()}
+          >
+            <div className="flex h-9 items-center justify-between gap-1 px-3">
+              <span className="min-w-0 truncate text-[13px] font-medium text-[var(--ink)]">
+                {opacityLabel}
+              </span>
+              <Tooltip tip={t('editor.imageToolbar.reset')} placement="top">
+                <button
+                  type="button"
+                  aria-label={t('editor.imageToolbar.reset')}
+                  onClick={() => applyPct(100)}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+                >
+                  <HiOutlineArrowPath className="h-4 w-4" />
+                </button>
+              </Tooltip>
+            </div>
+            <div className="px-3 pb-3">
+              <Slider
+                min={0}
+                max={100}
+                step={1}
+                value={pct}
+                onChange={applyPct}
+                trackHeight={6}
+                thumbWidth={16}
+                thumbHeight={16}
+              />
+            </div>
+          </DropdownPanel>
+        ) : null}
+      </FloatingPortal>
+    </div>
+  );
+}
 
 type Props = {
   blendMode?: unknown;
@@ -136,11 +226,6 @@ type Props = {
   allowPassThrough?: boolean;
   onBlendModeChange: (mode: BlendModeId) => void;
   onOpacityChange: (opacity01: number) => void;
-  /**
-   * When set (e.g. image selection), opacity opens a docked side panel and the
-   * selection toolbar hides — same pattern as Eraser. Trigger shows label text.
-   */
-  onOpacityOpen?: () => void;
   /** Inserted between blend-mode dropdown and opacity (e.g. corner radius). */
   afterBlendSlot?: ReactNode;
   className?: string;
@@ -152,19 +237,12 @@ function BlendModeControl({
   allowPassThrough = false,
   onBlendModeChange,
   onOpacityChange,
-  onOpacityOpen,
   afterBlendSlot,
   className,
 }: Props) {
   const { t } = useTranslation();
   const [blendOpen, setBlendOpen] = useState(false);
-  const [opacityOpen, setOpacityOpen] = useState(false);
-  const opacityRootRef = useRef<HTMLDivElement>(null);
-  const baselinePctRef = useRef(100);
   const mode = parseBlendMode(blendMode, { allowPassThrough });
-  const pct = layerOpacityToPct(parseLayerOpacity(opacity, 1));
-  const opacityLabel = t('editor.imageToolbar.opacity');
-
   const labelOf = (id: BlendModeId) => t(`editor.blendMode.${id}`);
 
   const items: MenuItemType[] = useMemo(() => {
@@ -193,59 +271,12 @@ function BlendModeControl({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t + mode drive labels
   }, [mode, t, allowPassThrough]);
 
-  const applyPct = (nextPct: number) => {
-    onOpacityChange(clampOpacityPct(nextPct) / 100);
-  };
-
-  const openOpacityPanel = () => {
-    if (onOpacityOpen) {
-      onOpacityOpen();
-      return;
-    }
-    baselinePctRef.current = pct;
-    setBlendOpen(false);
-    setOpacityOpen(true);
-  };
-
-  const closeOpacityKeep = () => {
-    setOpacityOpen(false);
-  };
-
-  const closeOpacityRevert = () => {
-    applyPct(baselinePctRef.current);
-    setOpacityOpen(false);
-  };
-
-  useEffect(() => {
-    if (!opacityOpen || onOpacityOpen) return undefined;
-    const onDown = (e: PointerEvent) => {
-      if (opacityRootRef.current?.contains(e.target as Node)) return;
-      setOpacityOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeOpacityRevert();
-      }
-    };
-    window.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('keydown', onKey);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opacityOpen, onOpacityOpen]);
-
   return (
     <div className={cn('inline-flex h-8 items-center gap-0.5', className)}>
       <Dropdown
         trigger="click"
         open={blendOpen}
-        onOpenChange={(next) => {
-          setBlendOpen(next);
-          if (next) setOpacityOpen(false);
-        }}
+        onOpenChange={setBlendOpen}
         placement="bottom-start"
         offset={6}
         strategy="fixed"
@@ -275,96 +306,7 @@ function BlendModeControl({
         </button>
       </Dropdown>
       {afterBlendSlot}
-      <div ref={opacityRootRef} className="relative inline-flex">
-        <button
-          type="button"
-          aria-label={opacityLabel}
-          aria-expanded={onOpacityOpen ? undefined : opacityOpen}
-          onClick={openOpacityPanel}
-          className={cn(
-            SEL_TOOL_BTN,
-            'relative',
-            !onOpacityOpen && opacityOpen && SEL_ICON_BTN_ACTIVE
-          )}
-        >
-          <MdOutlineOpacity className="h-4 w-4" />
-          <span>{opacityLabel}</span>
-        </button>
-
-        {!onOpacityOpen && opacityOpen ? (
-          <div
-            className="absolute left-1/2 top-[calc(100%+8px)] z-[90] w-[240px] -translate-x-1/2 overflow-hidden rounded-xl bg-[var(--surface)] text-left shadow-[0_8px_28px_rgba(15,23,42,0.14)] ring-1 ring-[var(--line)]"
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              e.nativeEvent.stopImmediatePropagation?.();
-            }}
-          >
-            <div className="flex items-center justify-between gap-2 px-4 pb-1 pt-3.5">
-              <h3 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-[var(--ink)]">
-                {opacityLabel}
-              </h3>
-              <div className="flex shrink-0 items-center gap-1">
-                <Tooltip tip={t('editor.imageToolbar.reset')} placement="top">
-                  <button
-                    type="button"
-                    aria-label={t('editor.imageToolbar.reset')}
-                    onClick={() => applyPct(100)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-                  >
-                    <HiOutlineArrowPath className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-                <Tooltip tip={t('common.cancel')} placement="top">
-                  <button
-                    type="button"
-                    aria-label={t('common.cancel')}
-                    onClick={closeOpacityRevert}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-                  >
-                    <BiExit className="h-[18px] w-[18px]" />
-                  </button>
-                </Tooltip>
-              </div>
-            </div>
-
-            <div className="flex flex-col items-stretch gap-3 px-4 py-3">
-              <Slider
-                min={0}
-                max={100}
-                step={1}
-                value={pct}
-                onChange={applyPct}
-                trackHeight={6}
-                thumbWidth={16}
-                thumbHeight={16}
-              />
-            </div>
-
-            <div className="flex flex-nowrap items-center gap-1.5 px-4 pb-2.5 pt-0.5">
-              <button
-                type="button"
-                className={cn(
-                  opacityPanelBtn,
-                  'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--accent-soft)]'
-                )}
-                onClick={closeOpacityRevert}
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  opacityPanelBtn,
-                  'bg-[var(--ink)] text-[var(--on-brand)] hover:opacity-90'
-                )}
-                onClick={closeOpacityKeep}
-              >
-                {t('editor.imageToolbar.useNow')}
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
+      <OpacityControl opacity={opacity} onOpacityChange={onOpacityChange} />
     </div>
   );
 }

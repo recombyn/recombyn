@@ -328,7 +328,7 @@ class EmailActivateIn(BaseModel):
 
 @router.post("/email/activate", response_model=AuthSessionOut)
 def email_activate(body: EmailActivateIn, request: Request) -> dict[str, Any]:
-    """Consume one-time /activate/{{id}} link → session (legacy magic-link mails)."""
+    """Consume one-time /activate/{{id}} link → session (email magic-link mails)."""
     ip = _client_ip(request)
     try:
         email = consume_activate_token(body.id)
@@ -582,7 +582,6 @@ def wallet_me(current_user: CurrentUser) -> dict[str, Any]:
     return {
         "credits": credits,
         "tokens": credits,
-        "imageCredits": credits,
         **_wallet_plan_fields(snap),
         "ledger": list_ledger(current_user.id),
     }
@@ -605,7 +604,6 @@ def wallet_ledger(
     return {
         "credits": credits,
         "tokens": credits,
-        "imageCredits": credits,
         **_wallet_plan_fields(snap),
         **list_ledger_page(current_user.id, page=page, page_size=pageSize, kind=kind),
     }
@@ -650,7 +648,6 @@ def wallet_redeem(
         "tokensAdded": added,
         "credits": credits,
         "tokens": credits,
-        "imageCredits": credits,
         **_wallet_plan_fields(snap),
         "ledger": list_ledger(current_user.id),
     }

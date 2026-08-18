@@ -163,6 +163,35 @@ docker compose up -d --build
 
 More options (env, LLM keys, production hardening): **[docs/self-hosting.md](docs/self-hosting.md)** · Postgres: **[docs/postgres-switch.md](docs/postgres-switch.md)**
 
+### Compose recipes
+
+Use `docker-compose.yml` as the base stack, then layer overrides only when needed:
+
+```bash
+# 1) Base self-host stack (web + api + collab + mysql + redis + worker)
+docker compose -f docker-compose.yml up -d --build
+
+# 2) Base + ClamAV upload scanning
+docker compose --profile av \
+  -f docker-compose.yml \
+  -f docker-compose.av.yml \
+  up -d --build
+
+# 3) Base + external/sibling intelligence provider service
+docker compose --profile intelligence \
+  -f docker-compose.yml \
+  -f docker-compose.intelligence.yml \
+  up -d --build
+
+# 4) Base stack from pre-built GHCR images (skip local image builds)
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Tip: if you layer `*.av.yml` or `*.intelligence.yml`, keep the matching profile flag (`--profile av` / `--profile intelligence`) in the same command.
+
+Env tip: keep Compose variables in repo-root `.env` (for example `RECOMBYN_TAG`, `RECOMBYN_INTELLIGENCE_*`) and API app variables in `apps/api/.env`; avoid passing env values inline in shell commands.
+
 ### Local development
 
 ```bash

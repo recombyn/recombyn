@@ -347,8 +347,6 @@ async def _node_paint_ops(state: GraphState) -> Command:
             else:
                 raw_obj = {}
             ops_raw = raw_obj.get("tool_ops")
-            if ops_raw is None:
-                ops_raw = raw_obj.get("ops")
             reply = _as_text(raw_obj.get("reply")).strip()
             intent = str(raw_obj.get("intent") or want).strip().lower()
             if intent not in ("edit", "create"):

@@ -12,7 +12,7 @@ Skill packs (ADR 0013) are playbooks: the LLM Paint stage emits `tool_ops`. Auth
 1. **Opt-in runner** (`DESIGN_SKILL_OPS_RUNNER`, default off). When on, Paint tries a pack `handler.py` **before** the LLM structured call.
 2. **Contract:** `def run(ctx: dict, payload: dict) -> list[dict]` only. Return value must be a list of op dicts.
 3. **Isolation:** subprocess + JSON stdin/stdout + timeout (`DESIGN_SKILL_OPS_RUNNER_TIMEOUT_SEC`). Bad handlers do not crash the API worker.
-4. **Trust boundary:** only `handler.py` under known pack roots (`seeds/design_skills`, `plugins/skills`, `DESIGN_SKILLS_PLUGIN_DIRS`). No Admin-zip / remote code in this phase.
+4. **Trust boundary:** only `handler.py` under known pack roots (`skills/foundation`, `skills/domains`, `plugins/skills`, `DESIGN_SKILLS_PLUGIN_DIRS`). No Admin-zip / remote code in this phase.
 5. **Always re-validate** via existing `validate_ops` (preferred_tools / output_schema / canvas contract). Empty or invalid ops → fall through to LLM paint.
 6. **Sample:** `plugins/skills/festival_poster/handler.py`.
 

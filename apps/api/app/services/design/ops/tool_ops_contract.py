@@ -334,65 +334,16 @@ def _max_ops_per_step(rules: dict[str, str] | None) -> int:
     return n
 
 
-_OP_META_KEYS = frozenset(
-    {
-        "name",
-        "tool",
-        "type",
-        "op",
-        "args",
-        "parameters",
-        "arguments",
-        "properties",
-        "props",
-        "updates",
-        "params",
-        "op_id",
-        "opId",
-    }
-)
-# Nested bags accepted as args payload (models often use parameters from FC habit).
-_OP_NEST_ARG_KEYS = (
-    "args",
-    "parameters",
-    "arguments",
-    "properties",
-    "props",
-    "updates",
-    "params",
-)
-
-
 def _coerce_op_args(item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize op payload to ``args``; accept ``parameters`` / ``arguments`` too."""
-    args: dict[str, Any] = {}
-    # Prefer explicit args, then parameters/arguments, then other legacy nests.
-    for nest_key in _OP_NEST_ARG_KEYS:
-        nested = item.get(nest_key)
-        if not isinstance(nested, dict):
-            continue
-        for nk, nv in nested.items():
-            args.setdefault(nk, nv)
-    if not args:
-        args = {k: v for k, v in item.items() if k not in _OP_META_KEYS}
+    """Normalize one tool_op to an ``args`` dict."""
+    nested = item.get("args")
+    if isinstance(nested, dict):
+        args = dict(nested)
     else:
-        # Flat sibling fields fill gaps (e.g. name + top-level x).
-        for k, v in item.items():
-            if k not in _OP_META_KEYS:
-                args.setdefault(k, v)
-    op_id = item.get("op_id") or item.get("opId")
+        args = {}
+    op_id = item.get("op_id")
     if op_id is not None and str(op_id).strip():
         args["op_id"] = str(op_id).strip()[:64]
-    if not args.get("nodeId"):
-        nid = (
-            args.get("id")
-            or item.get("id")
-            or item.get("nodeId")
-            or item.get("node_id")
-        )
-        if nid is not None and str(nid).strip():
-            args["nodeId"] = str(nid).strip()
-    args.pop("id", None)
     return args
 
 
@@ -404,26 +355,16 @@ def _parse_raw_ops(content: str | dict[str, Any] | list[Any] | None) -> list[dic
         data = extract_json(content or "")
     ops_raw: list[Any] = []
     if isinstance(data, dict):
-        cand = data.get("ops") or data.get("tools") or data.get("actions")
+        cand = data.get("tool_ops")
         if isinstance(cand, list):
             ops_raw = cand
-        else:
-            type_name = str(data.get("type") or data.get("op") or "").strip()
-            if data.get("name") or data.get("tool") or type_name in allowed_canvas_tool_keys():
-                ops_raw = [data]
     elif isinstance(data, list):
         ops_raw = data
     out: list[dict[str, Any]] = []
     for item in ops_raw:
         if not isinstance(item, dict):
             continue
-        name = _canonicalize_op_name(
-            item.get("name")
-            or item.get("tool")
-            or item.get("type")
-            or item.get("op")
-            or ""
-        )
+        name = _canonicalize_op_name(item.get("name") or "")
         if not name:
             continue
         out.append({"name": name, "args": _coerce_op_args(item)})
@@ -443,11 +384,7 @@ def _stable_op_id(name: str, args: dict[str, Any], index: int) -> str:
 
 
 def _lottie_animation_raw(args: dict[str, Any]) -> Any:
-    """First present animation payload among common create_lottie aliases."""
-    for key in ("animationData", "lottie", "json", "animation"):
-        if args.get(key) is not None:
-            return args.get(key)
-    return None
+    return args.get("animationData")
 
 
 def _validate_single_op(
@@ -464,7 +401,7 @@ def _validate_single_op(
             detail=f"name={name}",
         )
     if name == "update_node":
-        nid = str(args.get("nodeId") or args.get("id") or "").strip()
+        nid = str(args.get("nodeId") or "").strip()
         if not nid:
             return format_op_error(
                 "update_node_missing_nodeId",
@@ -481,7 +418,6 @@ def _validate_single_op(
             return fill_err
         return None
     if name == "delete_nodes":
-        args = _normalize_node_id_list_args(args)
         ids = args.get("nodeIds")
         if not isinstance(ids, list) or not [x for x in ids if str(x).strip()]:
             return format_op_error(
@@ -499,7 +435,7 @@ def _validate_single_op(
                     )
         return None
     if name == "delete_frame":
-        fid = str(args.get("frameId") or args.get("id") or "").strip()
+        fid = str(args.get("frameId") or "").strip()
         if not fid:
             return format_op_error(
                 "delete_frame_missing_frameId",
@@ -513,7 +449,7 @@ def _validate_single_op(
             )
         return None
     if name == "create_svg" or name == "create_icon":
-        svg = str(args.get("svg") or args.get("iconSvg") or args.get("content") or "").strip()
+        svg = str(args.get("svg") or "").strip()
         if not svg:
             return format_op_error(
                 f"{name}_missing_svg",
@@ -530,12 +466,12 @@ def _validate_single_op(
             )
         return None
     if name == "create_shape":
-        if args.get("shapeType") is None and args.get("type") is None:
+        if args.get("shapeType") is None:
             return format_op_error(
                 "create_shape_missing_shapeType",
                 fix="re-emit create_shape with args.shapeType (rect|ellipse|…)",
             )
-        svg = str(args.get("svg") or args.get("iconSvg") or "").strip()
+        svg = str(args.get("svg") or "").strip()
         if svg:
             from app.services.design.ops.validate import validate_agent_svg_markup
 
@@ -556,13 +492,13 @@ def _validate_single_op(
             return fill_err
         return None
     if name == "create_text":
-        if args.get("text") is None and args.get("content") is None:
+        if args.get("text") is None:
             if args.get("x") is None or args.get("y") is None:
                 return format_op_error(
                     "create_text_missing_text_or_position",
                     fix="re-emit create_text with args.text and x/y",
                 )
-        text_s = str(args.get("text") if args.get("text") is not None else args.get("content") or "")
+        text_s = str(args.get("text") or "")
         if _EMOJI_AS_ICON_RE.search(text_s):
             stripped = _EMOJI_AS_ICON_RE.sub("", text_s).strip()
             # Short / emoji-only labels are marks — use create_icon / create_svg.
@@ -576,7 +512,7 @@ def _validate_single_op(
     if name == "create_image":
         has_attach = args.get("attachmentIndex") is not None
         has_url = bool(str(args.get("src") or args.get("url") or "").strip())
-        has_gen = bool(str(args.get("genPrompt") or args.get("prompt") or "").strip())
+        has_gen = bool(str(args.get("genPrompt") or "").strip())
         if not has_attach and not has_url and not has_gen:
             return format_op_error(
                 "create_image_missing_source",
@@ -584,7 +520,7 @@ def _validate_single_op(
             )
         return None
     if name == "create_lottie":
-        has_gen = bool(str(args.get("genPrompt") or args.get("prompt") or "").strip())
+        has_gen = bool(str(args.get("genPrompt") or "").strip())
         raw = _lottie_animation_raw(args)
         has_data = False
         if isinstance(raw, dict) and raw.get("layers"):
@@ -600,45 +536,7 @@ def _validate_single_op(
     return None
 
 
-def _normalize_update_node_args(args: dict[str, Any]) -> dict[str, Any]:
-    """Backend-owned update_node hygiene before FE executes.
-
-    - Map ``color`` → ``fill`` when fill is absent (shape/text recolor alias).
-    - Map inventory ``w``/``h`` → ``width``/``height`` when those are absent.
-    Keep all other fields as-is — no paint-vs-geometry filtering; FE patches
-    only keys present in args.
-    """
-    out = dict(args)
-    if out.get("fill") is None and out.get("fillColor") is None and out.get("backgroundColor") is None:
-        color = out.get("color")
-        if color is not None and str(color).strip():
-            out["fill"] = color
-    if out.get("width") is None and out.get("w") is not None:
-        out["width"] = out.get("w")
-    if out.get("height") is None and out.get("h") is not None:
-        out["height"] = out.get("h")
-    if out.get("shapeType") is None and out.get("type") is not None:
-        out["shapeType"] = out.get("type")
-    return out
-
-
-def _normalize_node_id_list_args(args: dict[str, Any]) -> dict[str, Any]:
-    """Accept node_ids / ids aliases → nodeIds (models often emit snake_case)."""
-    out = dict(args)
-    if out.get("nodeIds") is None:
-        for alt in ("node_ids", "ids", "nodeIdList"):
-            raw = out.get(alt)
-            if isinstance(raw, list):
-                out["nodeIds"] = raw
-                break
-            if isinstance(raw, str) and raw.strip():
-                out["nodeIds"] = [raw.strip()]
-                break
-    return out
-
-
 def _collect_delete_node_ids(args: dict[str, Any]) -> list[str]:
-    args = _normalize_node_id_list_args(args)
     ids = args.get("nodeIds")
     if not isinstance(ids, list):
         return []
@@ -706,8 +604,6 @@ def _reject_shape_morph_ops(
     create = ops[create_idxs[0]]
     cargs = create.get("args") if isinstance(create.get("args"), dict) else {}
     shape_type = cargs.get("shapeType")
-    if shape_type is None:
-        shape_type = cargs.get("type")
     if shape_type is None or not str(shape_type).strip():
         return ops, []
     drop = {delete_idxs[0], create_idxs[0]}
@@ -750,7 +646,7 @@ def _reject_create_text_as_edit(
         if name != "create_text":
             kept.append(raw)
             continue
-        text = str(args.get("text") or args.get("content") or "")
+        text = str(args.get("text") or "")
         match = _find_matching_text_node(scene_nodes, text, used_text_ids)
         if not match:
             kept.append(raw)
@@ -812,7 +708,7 @@ def _reject_ambient_mutates_on_new_design(
         name = str(raw.get("name") or "").strip()
         args = raw.get("args") if isinstance(raw.get("args"), dict) else {}
         if name == "update_node":
-            nid = str(args.get("nodeId") or args.get("id") or "").strip()
+            nid = str(args.get("nodeId") or "").strip()
             if nid and nid in scene_ids:
                 errors.append(
                     format_op_error(
@@ -840,7 +736,7 @@ def _reject_ambient_mutates_on_new_design(
                 )
                 continue
         if name == "delete_nodes":
-            ids = args.get("nodeIds") or args.get("ids") or []
+            ids = args.get("nodeIds") or []
             if not isinstance(ids, list):
                 ids = [ids] if ids else []
             hit = [str(x).strip() for x in ids if str(x).strip() in scene_ids]
@@ -858,9 +754,7 @@ def _reject_ambient_mutates_on_new_design(
                 )
                 continue
         if name == "delete_frame":
-            fid = str(
-                args.get("frameId") or args.get("id") or args.get("frame_id") or ""
-            ).strip()
+            fid = str(args.get("frameId") or "").strip()
             if fid and fid in frame_ids:
                 errors.append(
                     format_op_error(
@@ -974,7 +868,6 @@ def normalize_agent_tool_ops(
             )
             continue
         name = str(item.get("name") or "").strip()
-        # Accept args / parameters / arguments; normalize to args for FE.
         args = _coerce_op_args(item)
         if not name:
             errors.append(
@@ -984,27 +877,6 @@ def normalize_agent_tool_ops(
                 )
             )
             continue
-        # Alias normalize (shape type / text content) — keep below in original loop body
-        if name == "create_shape":
-            if args.get("shapeType") is None and args.get("type") is not None:
-                args["shapeType"] = args.get("type")
-        if name == "create_text":
-            if args.get("text") is None and args.get("content") is not None:
-                args["text"] = args.get("content")
-        if name in (
-            "delete_nodes",
-            "align_nodes",
-            "distribute_nodes",
-            "reorder_nodes",
-            "group_nodes",
-            "ungroup_nodes",
-            "duplicate_nodes",
-            "flip_nodes",
-            "boolean_op",
-        ):
-            args = _normalize_node_id_list_args(args)
-        if name == "update_node":
-            args = _normalize_update_node_args(args)
         working.append({"name": name, "args": args})
 
     # Validate intent — reject, do not rewrite into a "fixed" op.
@@ -1053,7 +925,7 @@ def normalize_agent_tool_ops(
             continue
         a = op.get("args") or {}
         key = (
-            f"{a.get('nodeId')}:{a.get('fill') or a.get('fillColor') or ''}:"
+            f"{a.get('nodeId')}:{a.get('fill') or ''}:"
             f"{a.get('cornerRadius') or ''}:{a.get('text') or ''}"
         )
         if key in seen_updates:
@@ -1092,10 +964,10 @@ def extract_and_validate_tool_ops(
 
 
 def _find_ops_array_body(text: str) -> str | None:
-    """Return the inside of \"ops\":[ ... ] (may be incomplete)."""
+    """Return the inside of ``\"tool_ops\":[ ... ]`` (may be incomplete)."""
     if not text:
         return None
-    m = re.search(r'"ops"\s*:\s*\[', text)
+    m = re.search(r'"tool_ops"\s*:\s*\[', text)
     if not m:
         return None
     return text[m.end() :]
@@ -1211,11 +1083,11 @@ def tool_ops_batch_detail(batch: list[dict[str, Any]], *, limit: int = 10) -> st
         name = str(op.get("name") or "").strip()
         args = op.get("args") if isinstance(op.get("args"), dict) else {}
         if name == "create_shape":
-            st = str(args.get("shapeType") or args.get("type") or "shape").strip() or "shape"
+            st = str(args.get("shapeType") or "shape").strip() or "shape"
             fill = str(args.get("fill") or "").strip()
             parts.append(f"+{st}" + (f" ({fill})" if fill else ""))
         elif name == "create_text":
-            t = str(args.get("text") or args.get("content") or "").replace("\n", " ").strip()
+            t = str(args.get("text") or "").replace("\n", " ").strip()
             parts.append(f'+text "{t[:20]}"' if t else "+text")
         elif name == "create_image":
             parts.append("+image")
@@ -1334,7 +1206,7 @@ def tool_ops_for_sse(ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
             path = str(args.get("path") or "")
             logger.info(
                 "[tool_ops path diag] type=%s xy=%s,%s size=%sx%s fill=%s pathLen=%s head=%s",
-                args.get("shapeType") or args.get("type"),
+                args.get("shapeType"),
                 args.get("x"),
                 args.get("y"),
                 args.get("width"),
@@ -1563,17 +1435,14 @@ def assess_tool_ops_result(
             name = str(o.get("name") or "").strip()
             args = o.get("args") if isinstance(o.get("args"), dict) else {}
             if name in create_names:
-                cid = str(args.get("id") or args.get("nodeId") or "").strip()
+                cid = str(args.get("nodeId") or "").strip()
                 if cid:
                     living_ids.add(cid)
                 elif name != "create_frame":
                     # Anonymous create still counts toward projected density.
                     living_ids.add(f"__anon_{len(living_ids)}")
-            if name in ("delete_node", "remove_node", "delete_nodes"):
-                rid = str(args.get("id") or args.get("nodeId") or "").strip()
-                if rid:
-                    living_ids.discard(rid)
-                for x in args.get("ids") or args.get("nodeIds") or []:
+            if name == "delete_nodes":
+                for x in args.get("nodeIds") or []:
                     living_ids.discard(str(x or "").strip())
         if len(living_ids) < max(1, min_creates // 2):
             return False, f"sparse_tool_ops:scene_too_thin:{len(living_ids)}"

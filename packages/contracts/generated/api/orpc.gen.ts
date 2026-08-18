@@ -59,10 +59,10 @@ export const authEmailSendCode = oc.route({
 /**
  * Email Activate
  *
- * Consume one-time /activate/{{id}} link → session (legacy magic-link mails).
+ * Consume one-time /activate/{{id}} link → session (email magic-link mails).
  */
 export const authEmailActivate = oc.route({
-    description: 'Consume one-time /activate/{{id}} link → session (legacy magic-link mails).',
+    description: 'Consume one-time /activate/{{id}} link → session (email magic-link mails).',
     inputStructure: 'detailed',
     method: 'POST',
     operationId: 'auth-email_activate',
@@ -826,10 +826,10 @@ export const adminAdminDesignDecisionLogsClear = oc.route({
 /**
  * Admin Design Stage Reviews
  *
- * Historical stage ratings (legacy training runs).
+ * Historical stage ratings (training runs).
  */
 export const adminAdminDesignStageReviews = oc.route({
-    description: 'Historical stage ratings (legacy training runs).',
+    description: 'Historical stage ratings (training runs).',
     inputStructure: 'detailed',
     method: 'GET',
     operationId: 'admin-admin_design_stage_reviews',
@@ -1418,12 +1418,12 @@ export const plazaPlazaMine = oc.route({
  * Plaza Feed
  *
  * Public plaza feed (no login required).
- * tab=recommended|latest (following deprecated — use authorIds to filter by creator)
+ * tab=recommended|latest (use authorIds to filter by creator)
  * category=optional category filter (website|mobile|image|poster|video)
  * authorIds=comma-separated user ids to filter works by creator.
  */
 export const plazaPlazaFeed = oc.route({
-    description: 'Public plaza feed (no login required).\ntab=recommended|latest (following deprecated — use authorIds to filter by creator)\ncategory=optional category filter (website|mobile|image|poster|video)\nauthorIds=comma-separated user ids to filter works by creator.',
+    description: 'Public plaza feed (no login required).\ntab=recommended|latest (use authorIds to filter by creator)\ncategory=optional category filter (website|mobile|image|poster|video)\nauthorIds=comma-separated user ids to filter works by creator.',
     inputStructure: 'detailed',
     method: 'GET',
     operationId: 'plaza-plaza_feed',

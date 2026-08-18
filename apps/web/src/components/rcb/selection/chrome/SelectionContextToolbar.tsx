@@ -62,8 +62,7 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
 import ToolbarMenuSelect from './ToolbarMenuSelect';
-import BlendModeControl from './BlendModeControl';
-import EffectsControl from './EffectsControl';
+import { BlendModeIcon, OpacityControl } from './BlendModeControl';
 import {
   SEL_ICON_BTN,
   SEL_ICON_BTN_ACTIVE,
@@ -74,7 +73,9 @@ import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
 import ImageToolbarMoreDownload, {
+  ToolbarMoreMenu,
   type ImageMoreAction,
+  type ToolbarMoreItem,
 } from '@/components/editor/nodes/ImageNode/ImageToolbarMoreDownload';
 import ImageFullscreenPreviewButton from '@/components/editor/nodes/ImageNode/ImageFullscreenPreviewButton';
 import {
@@ -93,6 +94,7 @@ import {
   buildOutlinePathAsync,
   canOutlineNode,
   outlineNodePatch,
+  requestEnterPathEdit,
 } from '@/components/rcb/scene/paint/outlineToPath';
 import {
   loadFontCatalog,
@@ -101,7 +103,7 @@ import {
   toggleCatalogTextBold,
   weightOptionsForFamily,
 } from '@/components/rcb/scene/document/fontCatalog';
-import { TbVectorBezier } from 'react-icons/tb';
+import { TbDroplet, TbVectorBezier } from 'react-icons/tb';
 import { message } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
@@ -297,6 +299,7 @@ async function outlineSelectedNode(opts: {
   loadingLabel: string;
   failLabel: string;
   okLabel: string;
+  enterPathEdit?: boolean;
 }) {
   const hide = message.loading(opts.loadingLabel, 0);
   try {
@@ -319,8 +322,12 @@ async function outlineSelectedNode(opts: {
         },
       })
     );
-    // Like text 轮廓化: stay on the filled silhouette in normal selection.
-    // Auto path-edit force-hides the host → hairline + knob carpet.
+    if (opts.enterPathEdit) {
+      const st = String(opts.node?.attrs?.shapeType || opts.node?.key || '');
+      const fromStrokeOutline =
+        st === 'pen' || st === 'pencil' || st === 'line' || st === 'arrow';
+      requestEnterPathEdit(opts.nodeId, outline.pathD, { fromStrokeOutline });
+    }
     message.success(opts.okLabel);
   } finally {
     hide();
@@ -444,28 +451,70 @@ function SelectionContextToolbar(props: Props): ReactNode {
     );
   };
 
-  const showBlend = kind !== 'image';
+  const showLayerChrome = kind !== 'image';
   const supportsEffects = !['image', 'video', 'audio', 'lottie', 'frame', 'group'].includes(kind);
-  const effectControl = supportsEffects ? (
-    <EffectsControl
-      attrs={node.attrs}
-      onChange={(attrs) => dispatch(patchDocumentNode({ nodeId, patch: { attrs } }))}
-    />
-  ) : null;
+  const showOutline = canOutlineNode(node);
   const imageAspectLocked = resolveImageAspectLocked(node, kind);
-  const blendControl = showBlend ? (
-    <BlendModeControl
-      blendMode={node?.attrs?.blendMode}
+  const opacityControl = showLayerChrome ? (
+    <OpacityControl
       opacity={node?.attrs?.opacity}
-      allowPassThrough={kind === 'frame'}
-      onBlendModeChange={(mode) =>
-        dispatch(patchDocumentNode({ nodeId, patch: { attrs: { blendMode: mode } } }))
-      }
       onOpacityChange={(opacity) =>
         dispatch(patchDocumentNode({ nodeId, patch: { attrs: { opacity } } }))
       }
     />
   ) : null;
+  const elementMoreItems: ToolbarMoreItem[] = [];
+  if (showOutline) {
+    elementMoreItems.push({
+      key: 'outline',
+      icon: <TbVectorBezier className="h-4 w-4" />,
+      label: t('editor.imageToolbar.outline'),
+    });
+  }
+  if (showLayerChrome) {
+    elementMoreItems.push({
+      key: 'blendMode',
+      icon: <BlendModeIcon mode="normal" className="h-4 w-4" />,
+      label: t('editor.imageToolbar.blendMode'),
+    });
+  }
+  if (supportsEffects) {
+    elementMoreItems.push({
+      key: 'effects',
+      icon: <TbDroplet className="h-4 w-4" />,
+      label: t('editor.imageToolbar.effects'),
+    });
+  }
+  const runElementMore = (key: string) => {
+    if (key === 'outline') {
+      const isShapeKind =
+        kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path';
+      outlineSelectedNode({
+        node,
+        nodeId,
+        dispatch,
+        loadingLabel: '轮廓化中…',
+        failLabel: '轮廓化失败',
+        okLabel: '已轮廓化',
+        enterPathEdit: isShapeKind,
+      });
+      return;
+    }
+    if (key === 'blendMode' || key === 'effects') {
+      dispatch(openImageToolPanel({ nodeId, kind: key }));
+    }
+  };
+  const elementLayerChrome =
+    opacityControl || elementMoreItems.length ? (
+      <>
+        {opacityControl}
+        <ToolbarMoreMenu
+          items={elementMoreItems}
+          onAction={runElementMore}
+          triggerClassName={SEL_TOOL_BTN}
+        />
+      </>
+    ) : null;
 
   if (quickEditOpen || lottieEditOpen) {
     if (kind === 'video') {
@@ -678,7 +727,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
         }
         bare={kind === 'image' && isIconImageNode(node)}
       >
-          {/* Order: Style/Edit → Geometry → Blend/Opacity → Actions */}
+          {/* Order: Style/Edit → Geometry → Opacity → More → Actions */}
           {kind === 'text' && style ? (
             <>
               <ColorPanelPopover
@@ -832,40 +881,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
                   <HiOutlineCodeBracket className="h-3.5 w-3.5" />
                 </button>
               </Tooltip>
-              {canOutlineNode(node) ? (
-                <Tooltip tip={t('editor.imageToolbar.outline')} placement="top">
-                  <button
-                    type="button"
-                    aria-label={t('editor.imageToolbar.outline')}
-                    className={SEL_TOOL_BTN}
-                    onClick={() => {
-                      outlineSelectedNode({
-                        node,
-                        nodeId,
-                        dispatch,
-                        loadingLabel: 'Outlining…',
-                        failLabel: 'Outline failed',
-                        okLabel: 'Outlined',
-                      });
-                    }}
-                  >
-                    <TbVectorBezier className="h-4 w-4" />
-                    <span>{t('editor.imageToolbar.outline')}</span>
-                  </button>
-                </Tooltip>
-              ) : null}
-              {blendControl ? (
-                <>
-                  <Sep />
-                  {blendControl}
-                </>
-              ) : null}
-              {effectControl ? (
-                <>
-                  <Sep />
-                  {effectControl}
-                </>
-              ) : null}
+              {elementLayerChrome}
               <Sep />
               <ExportSelectionPopover nodeIds={[nodeId]} />
             </>
@@ -912,28 +928,16 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 document={document}
                 hideExport
               />
-              {blendControl}
-              {effectControl ? (
-                <>
-                  <Sep />
-                  {effectControl}
-                </>
-              ) : null}
+              {elementLayerChrome}
               <Sep />
               <ExportSelectionPopover nodeIds={[nodeId]} />
             </>
           ) : null}
           {kind === 'svg' ? (
             <>
-              {blendControl ? (
+              {elementLayerChrome ? (
                 <>
-                  {blendControl}
-                  <Sep />
-                </>
-              ) : null}
-              {effectControl ? (
-                <>
-                  {effectControl}
+                  {elementLayerChrome}
                   <Sep />
                 </>
               ) : null}

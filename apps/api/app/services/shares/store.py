@@ -481,7 +481,7 @@ def sync_project_share_documents(
     """Keep linked share snapshots warm when the source project is saved.
 
     Preview GET already prefers the live project doc; this keeps document_json
-    useful for offline / legacy readers.
+    useful for offline readers.
     """
     uid = (owner_id or "").strip()
     pid = (project_id or "").strip()

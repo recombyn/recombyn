@@ -25,15 +25,6 @@ INTELLIGENCE_METHODS: tuple[str, ...] = (
     "write_principle",
 )
 
-# Wire / legacy aliases → canonical (HTTP adapters may accept either).
-INTELLIGENCE_METHOD_ALIASES: dict[str, str] = {
-    "candidates": "propose_candidates",
-    "swarm": "swarm_direction",
-    "gate_governance": "govern",
-    "plan_autonomous": "autonomous_plan",
-    "sync_autonomous": "autonomous_sync",
-}
-
 # JSON body keys for POST /v1/{method} (RemoteIntelligenceProvider).
 INTELLIGENCE_REQUEST_FIELDS: tuple[str, ...] = (
     "method",
@@ -105,15 +96,9 @@ AUTONOMOUS_HOPS: tuple[str, ...] = (
 )
 
 
-def normalize_intelligence_method(method: str) -> str:
-    """Map wire / legacy alias → canonical method name."""
-    name = str(method or "").strip()
-    return INTELLIGENCE_METHOD_ALIASES.get(name, name)
-
-
 def intelligence_wire_methods() -> frozenset[str]:
-    """Canonical methods plus accepted HTTP aliases."""
-    return frozenset(INTELLIGENCE_METHODS) | frozenset(INTELLIGENCE_METHOD_ALIASES)
+    """Canonical HTTP methods."""
+    return frozenset(INTELLIGENCE_METHODS)
 
 
 def remote_result_usable(method: str, data: dict[str, Any] | None) -> bool:
@@ -124,7 +109,7 @@ def remote_result_usable(method: str, data: dict[str, Any] | None) -> bool:
     """
     if not isinstance(data, dict) or not data:
         return False
-    name = normalize_intelligence_method(method)
+    name = str(method or "").strip()
     if name == "govern":
         return bool(str(data.get("status") or "").strip())
     return any(

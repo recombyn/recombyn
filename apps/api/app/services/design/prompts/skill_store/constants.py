@@ -11,18 +11,15 @@ _HOT_RELOAD_STOP = threading.Event()
 _HOT_RELOAD_THREAD: threading.Thread | None = None
 _DISK_SIGNATURE: str | None = None
 
-SOURCE_SEED = "seed"
 SOURCE_ADMIN = "admin"
 SOURCE_FILE = "file"
-_PROTECTED_FROM_SEED = frozenset({SOURCE_ADMIN, SOURCE_FILE})
-_PROTECTED_FROM_FILE = frozenset({SOURCE_ADMIN, SOURCE_SEED})
+_PROTECTED_FROM_FILE = frozenset({SOURCE_ADMIN})
 
 NS_CORE = "core"
 NS_EXT = "ext"
 NS_USER = "user"
 _VALID_NAMESPACES = frozenset({NS_CORE, NS_EXT, NS_USER})
 _SOURCE_TO_NS = {
-    SOURCE_SEED: NS_CORE,
     SOURCE_FILE: NS_EXT,
     SOURCE_ADMIN: NS_USER,
 }
@@ -57,8 +54,6 @@ _SKILL_CATEGORY_ORDER: dict[str, int] = {
     "brand": 1,
     "craft": 2,
     "surface": 3,
-    "deliverable": 3,  # legacy alias for surface
-    "ui": 3,  # legacy alias for surface
     "image": 2,  # helper craft (image_gen), not a competing surface
     "qa": 4,
     "agent": 5,

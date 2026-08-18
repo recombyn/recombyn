@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from app.services.design.runtime.agent_controller import (
+from app.services.design.runtime.graph.state import (
     AgentRunState,
     AgentTurnSchema,
     PaintOpsSchema,
     PaintToolOp,
+)
+from app.services.design.runtime.graph.support import (
     _ask_propose_user_text,
     _chat_fallback_text,
     _ensure_propose_choice_ui,
     _lc_design_needs_canvas_ops,
     _normalize_choice_ui,
-    _normalize_ops_payload,
     _parse_agent_turn,
     _turn_from_structured,
 )
@@ -27,23 +28,25 @@ def test_parse_chat_turn():
     assert t["done"] is True
 
 
-def test_normalize_op_key():
-    ops = _normalize_ops_payload(
-        [{"op_key": "create_text", "args": {"text": "Hi"}}]
-    )
-    assert ops[0]["name"] == "create_text"
-
-
-def test_paint_tool_op_coalesces_flat_and_ops_alias():
+def test_paint_tool_op_requires_name_and_args():
     op = PaintToolOp.model_validate(
-        {"name": "create_shape", "type": "rect", "x": 10, "y": 20, "width": 40, "height": 30}
+        {
+            "name": "create_shape",
+            "args": {
+                "shapeType": "rect",
+                "x": 10,
+                "y": 20,
+                "width": 40,
+                "height": 30,
+            },
+        }
     )
     assert op.name == "create_shape"
     assert op.args.get("shapeType") == "rect"
     assert op.args.get("x") == 10
     painted = PaintOpsSchema.model_validate(
         {
-            "ops": [{"name": "create_text", "args": {"text": "Hi", "x": 1, "y": 2}}],
+            "tool_ops": [{"name": "create_text", "args": {"text": "Hi", "x": 1, "y": 2}}],
             "intent": "create",
         }
     )
@@ -64,7 +67,7 @@ def test_parse_choice_ui_actions():
     t = _parse_agent_turn(
         """
         {"intent":"create","reply":"将添加浅灰矩形",
-         "tool_ops":[{"op_key":"create_shape","args":{"shapeType":"rect"}}],
+         "tool_ops":[{"name":"create_shape","args":{"shapeType":"rect"}}],
          "choice_ui":{"mode":"buttons","options":[
            {"label":"就这样添加","action":"apply"},
            {"label":"我想改颜色","action":"reply"},
@@ -79,29 +82,11 @@ def test_parse_choice_ui_actions():
     assert t["apply_choice"] == "就这样添加"
 
 
-def test_parse_flattened_top_level_mode_options():
-    """Models often emit mode/options at JSON root instead of nested choice_ui."""
-    t = _parse_agent_turn(
-        """
-        {"intent":"ask","reply":"请问行业？","tool_ops":[],"done":false,
-         "mode":"single","options":[
-           {"label":"科技/SaaS","action":"reply"},
-           {"label":"电商/零售","action":"reply"}
-         ]}
-        """
-    )
-    ui = t["choice_ui"]
-    assert ui is not None
-    assert ui["mode"] == "single"
-    assert [o["label"] for o in ui["options"]] == ["科技/SaaS", "电商/零售"]
-    assert all(o["action"] == "reply" for o in ui["options"])
-
-
-def test_legacy_choices_map_apply_choice():
+def test_fallback_choices_map_apply_choice():
     ui = _normalize_choice_ui(
         None,
-        legacy_choices=["改颜色", "确认添加", "取消"],
-        legacy_apply="确认添加",
+        fallback_choices=["改颜色", "确认添加", "取消"],
+        fallback_apply="确认添加",
     )
     assert ui is not None
     by_label = {o["label"]: o["action"] for o in ui["options"]}
@@ -123,8 +108,8 @@ def test_propose_adds_apply_slot_without_inventing_copy():
 def test_choice_ui_text_mode_without_options():
     ui = _normalize_choice_ui(
         {"mode": "text", "placeholder": "品牌、主色、文案…"},
-        legacy_choices=[],
-        legacy_apply="",
+        fallback_choices=[],
+        fallback_apply="",
     )
     assert ui is not None
     assert ui["mode"] == "text"
@@ -188,7 +173,7 @@ def test_lc_design_needs_canvas_ops_blocks_narrate_only():
 
 
 def test_should_route_to_paint():
-    from app.services.design.runtime.agent_controller import _should_route_to_paint
+    from app.services.design.runtime.graph.support import _should_route_to_paint
 
     assert _should_route_to_paint(
         classified="create", turn_intent="chat", has_clarify=False
@@ -224,7 +209,7 @@ def test_turn_from_structured_keeps_reply_and_ops():
             reply="好的，我在狗旁边加一个矩形。",
             tool_ops=[
                 {
-                    "op_key": "create_shape",
+                    "name": "create_shape",
                     "args": {"shapeType": "rect", "x": 100, "y": 250, "width": 200, "height": 150},
                 }
             ],
@@ -281,13 +266,14 @@ def test_heuristic_user_intent_gate():
     )
     assert target.intent == "canvas_op"
     assert target.paint_lane == "edit"
-    assert normalize_user_intent("edit") == "canvas_op"
-    assert normalize_user_intent("create") == "canvas_op"
-    assert normalize_intent_decision("create", "", raw_grade="basic") == (
+    assert normalize_user_intent("canvas_op") == "canvas_op"
+    assert normalize_user_intent("design") == "design"
+    assert normalize_user_intent("edit") == "chat"
+    assert normalize_intent_decision("canvas_op", "edit") == (
         "canvas_op",
-        "create",
+        "edit",
     )
-    assert normalize_intent_decision("create", "", raw_grade="design") == (
+    assert normalize_intent_decision("design", "create") == (
         "design",
         "create",
     )
@@ -323,8 +309,7 @@ def test_paint_tool_keys_structural_not_shape_specific():
     """canvas_op create: shape+text+image — no create_frame / update."""
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import (
-        AgentRunState,
+    from app.services.design.runtime.graph.support import (
         _is_lean_paint_turn,
         _paint_tool_keys_for_turn,
     )
@@ -359,8 +344,7 @@ def test_design_intent_not_lean_even_if_short_prompt():
     """Short Chinese design briefs stay design — lean is canvas_op-only (LLM-owned)."""
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import (
-        AgentRunState,
+    from app.services.design.runtime.graph.support import (
         _is_lean_paint_turn,
         _paint_tool_keys_for_turn,
     )
@@ -423,8 +407,7 @@ def test_lean_paint_user_uses_digest_not_full_scene_dump():
 def test_paint_tool_keys_basic_edit_has_update():
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import (
-        AgentRunState,
+    from app.services.design.runtime.graph.support import (
         _is_lean_paint_turn,
         _paint_tool_keys_for_turn,
     )
@@ -451,7 +434,7 @@ def test_paint_tool_keys_basic_edit_has_update():
 def test_paint_tool_keys_empty_canvas_includes_frame():
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import AgentRunState, _paint_tool_keys_for_turn
+    from app.services.design.runtime.graph.support import _paint_tool_keys_for_turn
     from app.services.design.runtime.decision_log import DesignRunDecision
 
     st = AgentRunState(trace_id="t", task_id="task", goal="new")
@@ -477,7 +460,7 @@ def test_paint_tool_keys_design_create_includes_frame_when_focus_exists():
     """Ambient FOCUS must not block a new plate for design/create."""
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import AgentRunState, _paint_tool_keys_for_turn
+    from app.services.design.runtime.graph.support import _paint_tool_keys_for_turn
     from app.services.design.runtime.decision_log import DesignRunDecision
 
     st = AgentRunState(trace_id="t", task_id="task", goal="login")
@@ -497,7 +480,7 @@ def test_paint_tool_keys_design_create_includes_frame_when_focus_exists():
 
 
 def test_lc_design_needs_canvas_ops_fine_intents():
-    from app.services.design.runtime.agent_controller import (
+    from app.services.design.runtime.graph.support import (
         _is_canvas_work_intent,
         _lc_design_needs_canvas_ops,
     )
@@ -519,8 +502,7 @@ def test_lc_design_needs_canvas_ops_fine_intents():
 def test_paint_tool_keys_with_images_includes_create_image():
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import (
-        AgentRunState,
+    from app.services.design.runtime.graph.support import (
         _is_lean_paint_turn,
         _paint_tool_keys_for_turn,
     )
@@ -541,7 +523,7 @@ def test_paint_tool_keys_with_images_includes_create_image():
 
 
 def test_derive_suggested_place_world_empty_viewport_centers():
-    from app.services.design.runtime.agent_controller import _derive_suggested_place_world
+    from app.services.design.runtime.graph.support import _derive_suggested_place_world
 
     spw = _derive_suggested_place_world(
         {"viewport": {"x": 5000, "y": 2000, "w": 1200, "h": 800}},
@@ -554,7 +536,7 @@ def test_derive_suggested_place_world_empty_viewport_centers():
 
 
 def test_derive_suggested_place_world_aligns_beside_content():
-    from app.services.design.runtime.agent_controller import _derive_suggested_place_world
+    from app.services.design.runtime.graph.support import _derive_suggested_place_world
 
     # One free-canvas node in the left of the viewport → prefer slot to its right.
     spw = _derive_suggested_place_world(
@@ -570,7 +552,7 @@ def test_derive_suggested_place_world_aligns_beside_content():
 
 
 def test_format_spatial_placement_emits_no_invented_slots():
-    from app.services.design.runtime.agent_controller import _format_spatial_placement
+    from app.services.design.runtime.graph.support import _format_spatial_placement
 
     text = _format_spatial_placement(
         {
@@ -588,7 +570,7 @@ def test_format_spatial_placement_emits_no_invented_slots():
 def test_placement_errors_for_offscreen_free_creates():
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import (
+    from app.services.design.runtime.graph.support import (
         _placement_errors_for_free_creates,
     )
 
@@ -625,7 +607,7 @@ def test_placement_errors_for_offscreen_free_creates():
 def test_placement_errors_skip_framed_creates():
     from types import SimpleNamespace
 
-    from app.services.design.runtime.agent_controller import _placement_errors_for_free_creates
+    from app.services.design.runtime.graph.support import _placement_errors_for_free_creates
 
     rt = SimpleNamespace(
         spatial_summary={"viewport": {"x": 4800, "y": 1200, "w": 1400, "h": 900}},
@@ -643,7 +625,7 @@ def test_placement_errors_skip_framed_creates():
 
 
 def test_scene_digest_includes_frame_world_xy():
-    from app.services.design.runtime.agent_controller import _scene_digest
+    from app.services.design.runtime.graph.support import _scene_digest
 
     text = _scene_digest(
         [],

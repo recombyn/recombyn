@@ -19,7 +19,6 @@ from .constants import (
     NS_USER,
     SOURCE_ADMIN,
     SOURCE_FILE,
-    SOURCE_SEED,
     _ALWAYS_ALLOW_OPS,
     _DISK_SIGNATURE,
     _INTERNAL_RESOURCE_KINDS,
@@ -299,7 +298,7 @@ def list_runtime_skills(
     return out
 
 def resolve_storage_skill_key(raw: str, *, scene: str = "") -> str | None:
-    """Map bare / namespaced / legacy refs onto the storage skill_key."""
+    """Map bare / namespaced refs onto the storage skill_key."""
     base, _, _ = parse_skill_pin(raw)
     s = base.strip().lower()
     if not s:
@@ -586,6 +585,16 @@ def _skill_body_for_context(row: dict[str, Any], *, role: str = "paint") -> str:
     return body
 
 
+def _skill_available_for_context(row: dict[str, Any], *, role: str) -> bool:
+    """Do not inject review-only curricula into the action stage."""
+    key = str(row.get("skillKey") or "").strip().lower()
+    graph = _SKILL_GRAPH.get(key) or {}
+    mode = str(row.get("contextMode") or graph.get("context_mode") or "full").lower()
+    if role == "paint" and mode == "review":
+        return False
+    return True
+
+
 def format_skills_details(
     *,
     keys: list[str],
@@ -692,6 +701,8 @@ def format_skills_details_checked(
         name = str(r.get("name") or key)
         when = str(r.get("whenToUse") or "").strip()
         cat = str(r.get("category") or "agent").strip().lower() or "agent"
+        if not _skill_available_for_context(r, role=role):
+            continue
         body = _skill_body_for_context(r, role=role)
         budget = int(_SKILL_CATEGORY_BUDGET.get(cat, 1200))
         if len(body) > budget:
@@ -809,7 +820,7 @@ def preferred_tools_allowlist(
     for r in _iter_skills_for_keys(skill_keys, scene=scene):
         source = str(r.get("source") or "").strip().lower()
         ns = str(r.get("namespace") or _SOURCE_TO_NS.get(source, NS_USER))
-        if source in (SOURCE_SEED, SOURCE_FILE) or ns in (NS_CORE, NS_EXT):
+        if source == SOURCE_FILE or ns in (NS_CORE, NS_EXT):
             only_custom = False
         prefs = r.get("preferredTools") or []
         if prefs:
@@ -848,7 +859,7 @@ def skill_resource_allowlist(
             if source == SOURCE_ADMIN or ns == NS_USER:
                 saw_custom = True
             continue
-        if source in (SOURCE_SEED, SOURCE_FILE) or ns in (NS_CORE, NS_EXT):
+        if source == SOURCE_FILE or ns in (NS_CORE, NS_EXT):
             saw_platform_open = True
         elif source == SOURCE_ADMIN or ns == NS_USER:
             saw_custom = True
@@ -890,7 +901,7 @@ def filter_ops_by_skill_output_schema(
     for op in ops or []:
         if not isinstance(op, dict):
             continue
-        name = str(op.get("name") or op.get("op_key") or "").strip()
+        name = str(op.get("name") or "").strip()
         if not name or name in allowed_ops:
             kept.append(op)
             continue
@@ -931,7 +942,7 @@ def filter_ops_by_skill_allowlist(
         for op in ops or []:
             if not isinstance(op, dict):
                 continue
-            name = str(op.get("name") or op.get("op_key") or "").strip()
+            name = str(op.get("name") or "").strip()
             if not name or name in allow:
                 kept.append(op)
                 continue

@@ -173,7 +173,7 @@ function applySvgEffects(
     return;
   }
 
-  // `BackgroundImage` in SVG filters is deprecated and is disabled by modern
+  // `BackgroundImage` in SVG filters is disabled by modern
   // browsers in many nested/shared SVG setups. CSS backdrop-filter is the
   // primary interactive path; the SVG branch below remains for exported SVGs.
   const backdropFilter = backdrop

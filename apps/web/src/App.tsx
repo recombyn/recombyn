@@ -39,6 +39,14 @@ function applySessionUser(
   );
 }
 
+async function runQuietly(task: () => Promise<void>): Promise<void> {
+  try {
+    await task();
+  } catch {
+    /* ignore */
+  }
+}
+
 function App() {
   const dispatch = useDispatch();
 
@@ -60,14 +68,12 @@ function App() {
 
     async function prefetchWallet() {
       if (!getToken()) return;
-      try {
+      await runQuietly(async () => {
         await queryClient.prefetchQuery({
           ...apiQuery.walletWalletMe.queryOptions(),
           staleTime: 30_000,
         });
-      } catch {
-        /* ignore */
-      }
+      });
     }
 
     async function refreshMe() {
@@ -117,14 +123,12 @@ function App() {
     }
 
     async function prefetchBillingFlag() {
-      try {
+      await runQuietly(async () => {
         await queryClient.prefetchQuery({
           ...apiQuery.authAuthConfig.queryOptions(),
           staleTime: 60_000,
         });
-      } catch {
-        /* keep default off */
-      }
+      });
     }
 
     async function boot() {

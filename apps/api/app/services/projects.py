@@ -206,7 +206,7 @@ def _row_thumb_custom(row: Any) -> bool:
 
 
 def _parse_thumb_entries(raw: str | None) -> list[str]:
-    """Decode thumbnail_key — JSON array or legacy single COS key / URL."""
+    """Decode thumbnail_key JSON array."""
     text = (raw or "").strip()
     if not text:
         return []
@@ -224,7 +224,7 @@ def _parse_thumb_entries(raw: str | None) -> list[str]:
                 if len(out) >= 4:
                     break
             return out
-    return [text]
+    return []
 
 
 def _encode_thumb_entries(entries: list[str] | None) -> str | None:
@@ -237,8 +237,6 @@ def _encode_thumb_entries(entries: list[str] | None) -> str | None:
             break
     if not cleaned:
         return None
-    if len(cleaned) == 1:
-        return cleaned[0]
     encoded = json.dumps(cleaned, ensure_ascii=False)
     # Legacy MySQL VARCHAR(512) — prefer a shorter collage over failing PUT /projects.
     if len(encoded) <= 500:
@@ -673,7 +671,7 @@ def _next_thumbnail(
     """Resolve next thumbnail_key (+ JSON array) and custom flag.
 
     Priority: custom client urls/data → keep custom lock → server auto from
-    document elements (or clear when document has no tiles) → legacy client
+    document elements (or clear when document has no tiles) → client
     urls/data → keep existing (only when document was not provided).
     """
     # User-uploaded / explicit custom cover.

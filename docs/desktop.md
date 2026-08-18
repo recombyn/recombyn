@@ -17,7 +17,7 @@ You can run Recombyn as a desktop app (Tauri v2). Two flavors: **Local** (bundle
 
 **Billing UI:** Local flavor hides plans / redeem / upgrade (no cloud account switch in-app — use the Cloud desktop build for that).
 
-**Models:** Local does **not** expose the platform LLM catalog (no Seedream / OpenRouter entries for end users). Add your own OpenAI-compatible providers + API keys under Agent settings (BYOK). Wallet holds are skipped.
+**Models:** Local does **not** expose the platform LLM catalog (no Seedream / OpenRouter entries for end users). Add your own OpenAI-style providers + API keys under Agent settings (BYOK). Wallet holds are skipped.
 
 ## Prerequisites
 

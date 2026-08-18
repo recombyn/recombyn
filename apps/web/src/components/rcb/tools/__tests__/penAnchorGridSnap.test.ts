@@ -129,7 +129,7 @@ describe('pen draw full flow (click → snap → path)', () => {
     expect(bounds.width).toBeGreaterThan(0);
   });
 
-  it('edit-drag: start off-grid legacy + move → ends on lattice', () => {
+  it('edit-drag: start off-grid then move → ends on lattice', () => {
     const start = { x: 14.3, y: 11.7 };
     const pointer = { x: 20.2, y: 15.1 };
     const dx = pointer.x - 14.3;

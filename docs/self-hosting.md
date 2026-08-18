@@ -225,8 +225,8 @@ User turn
 
 | Namespace | Source | Notes |
 |-----------|--------|--------|
-| `core` | Legacy `source=seed` only (not shipped) | Prefer file packs; bare keys stay BC aliases |
-| `ext` | **`skills/foundation|domains`** + `plugins/skills/` (+ legacy `seeds/design_skills`) | Same canonical layout; `.agents/skills` is IDE-only |
+| `core` | File packs under `skills/foundation` | Bare keys; prefer file packs |
+| `ext` | **`skills/foundation|domains`** + `plugins/skills/` | Same canonical layout; `.agents/skills` is IDE-only |
 | `user` | Admin API | Always `user.<local>`; cannot claim core keys |
 
 Env: `DESIGN_SKILLS_HOT_RELOAD` (default true), `DESIGN_SKILLS_HOT_RELOAD_INTERVAL_SEC`, `DESIGN_SKILLS_PLUGIN_DIRS` (extra roots). Manual: Admin `POST /api/v1/admin/design/skills/resync`.
@@ -253,7 +253,7 @@ Do not duplicate craft into `paint_system` / `react_system`. Brush / Lottie → 
 
 ## BYOK / secrets
 
-User OpenAI-compatible endpoints (custom LLM providers) store API keys encrypted (AES-GCM). Set a dedicated `BYOK_AES_KEY` (32+ chars) in production; empty falls back to a derive-from-`CARD_KEY_SALT` path for local only.
+User OpenAI-style endpoints (custom LLM providers) store API keys encrypted (AES-GCM). Set a dedicated `BYOK_AES_KEY` (32+ chars) in production; empty falls back to a derive-from-`CARD_KEY_SALT` path for local only.
 
 ## Quick path (Docker)
 

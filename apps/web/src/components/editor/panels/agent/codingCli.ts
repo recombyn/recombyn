@@ -73,10 +73,10 @@ You are editing a Recombyn design canvas. Always read \`scene.json\` in this wor
 When the user asks for design changes, end your reply with ONE JSON fence that the editor will apply:
 
 \`\`\`json
-{ "ops": [ { "name": "create_shape", "args": { "shapeType": "rect", "x": 40, "y": 40, "width": 200, "height": 120, "fill": "#ffffff" } } ] }
+{ "tool_ops": [ { "name": "create_shape", "args": { "shapeType": "rect", "x": 40, "y": 40, "width": 200, "height": 120, "fill": "#ffffff" } } ] }
 \`\`\`
 
-Allowed \`name\` values (subset): create_frame, create_shape, create_text, create_image, create_svg, update_node, update_frame, delete_nodes, delete_frame, align_nodes, distribute_nodes, reorder_nodes, duplicate_nodes, set_canvas_background, set_viewport.
+Allowed \`name\` values (subset): create_frame, duplicate_frame, reorder_frames, fit_frame_to_content, lock_frames, hide_frames, clip_frames, create_shape, create_path, create_text, create_image, create_svg, update_node, edit_path_points, append_path_points, simplify_path, smooth_path, close_path, apply_brush_preset, update_frame, hide_nodes, delete_nodes, delete_frame, align_nodes, distribute_nodes, reorder_nodes, duplicate_nodes, rotate_nodes, bind_nodes_to_frame, unbind_nodes, set_canvas_background, set_viewport, set_active_tool, set_grid.
 
 Hard rules:
 - Prefer \`update_node\` with existing \`nodeId\` from scene.json over recreating.
@@ -168,7 +168,7 @@ export function buildCodingCliEnrichedPrompt(opts: {
       'User request (only this part is from the user):',
       opts.userPrompt.trim(),
       '',
-      'When done, emit a final ```json fence with { "ops": [...] } so the editor can paint the canvas.',
+      'When done, emit a final ```json fence with { "tool_ops": [...] } so the editor can paint the canvas.',
     ].join('\n'),
   ].join('\n\n');
 }

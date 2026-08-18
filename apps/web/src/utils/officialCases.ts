@@ -35,7 +35,7 @@ export type OfficialCaseMeta = {
   coverDocument?: unknown | null;
   /** Up to 4 cover tiles for list collage. */
   thumbnailUrls?: string[] | null;
-  /** @deprecated first tile — prefer thumbnailUrls */
+  /** First tile URL; prefer thumbnailUrls when available. */
   thumbnail?: string | null;
   /** HD PNG panel URLs from admin approve — left-rail images. */
   panelUrls?: Array<{ id: string; name?: string; url: string }> | null;

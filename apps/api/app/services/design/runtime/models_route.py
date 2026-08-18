@@ -12,7 +12,6 @@ Lanes (not difficulty tiers):
   - vision    — must understand attached images
   - image     — image-generation catalog slot (not a text chat lane)
 
-Legacy Admin keys ``simple|medium|complex`` still parse → ``fast|standard|reasoning``.
 """
 
 from __future__ import annotations
@@ -28,14 +27,6 @@ _log = logging.getLogger(__name__)
 
 ROUTE_LANES = ("fast", "standard", "reasoning", "vision")
 IMAGE_SLOT = "image"
-
-# Old product keys → new lanes (read path only).
-_LEGACY_LANE_ALIASES = {
-    "simple": "fast",
-    "medium": "standard",
-    "complex": "reasoning",
-    "else": "standard",
-}
 
 LANE_LABELS_ZH = {
     "fast": "轻量",
@@ -268,37 +259,20 @@ def normalize_paint_lane(raw: str | None, *, intent: str) -> str:
 
 
 def normalize_user_intent(raw: str | None) -> str:
-    """Map classifier / legacy labels → chat | canvas_op | design."""
+    """Accept only the canonical classifier intents."""
     s = str(raw or "").strip().lower()
     if s in USER_INTENTS:
         return s
-    # Legacy two-axis / create|edit labels.
-    if s in ("create", "edit"):
-        return "canvas_op"
-    if s in ("basic",):
-        return "canvas_op"
-    if s == "ask":
-        return "design"
     return "chat"
 
 
 def normalize_intent_decision(
     raw_intent: str | None,
     raw_lane: str | None = None,
-    *,
-    raw_grade: str | None = None,
 ) -> tuple[str, str]:
-    """Return (intent, paint_lane). Accepts legacy work_grade / create|edit."""
+    """Return the canonical (intent, paint_lane) pair."""
     s = str(raw_intent or "").strip().lower()
-    g = str(raw_grade or "").strip().lower()
     lane = str(raw_lane or "").strip().lower()
-    if s in ("create", "edit"):
-        # Old primary create|edit + optional work_grade.
-        if g == "design":
-            return "design", normalize_paint_lane(lane or s, intent="design")
-        return "canvas_op", normalize_paint_lane(lane or s, intent="canvas_op")
-    if s == "basic":
-        return "canvas_op", normalize_paint_lane(lane or "create", intent="canvas_op")
     intent = normalize_user_intent(s)
     return intent, normalize_paint_lane(lane, intent=intent)
 
@@ -325,19 +299,14 @@ def normalize_lane(raw: str | None) -> str:
     s = str(raw or "").strip().lower()
     if not s:
         return "standard"
-    s = _LEGACY_LANE_ALIASES.get(s, s)
     if s in ROUTE_LANES or s == IMAGE_SLOT:
         return s
     return "standard"
 
 
 def parse_model_lanes(rules: dict[str, str] | None) -> dict[str, str]:
-    """Parse Admin lane→model map from ``precheck.model_threshold`` (or ``model_lanes``)."""
-    raw = str(
-        (rules or {}).get("precheck.model_lanes")
-        or (rules or {}).get("precheck.model_threshold")
-        or ""
-    ).strip()
+    """Parse Admin lane→model map from ``precheck.model_threshold``."""
+    raw = str((rules or {}).get("precheck.model_threshold") or "").strip()
     out: dict[str, str] = {}
     if not raw:
         return out
@@ -346,27 +315,14 @@ def parse_model_lanes(rules: dict[str, str] | None) -> dict[str, str]:
         if not part or "->" not in part:
             continue
         left, right = part.split("->", 1)
-        key = normalize_lane(left.strip().lower())
-        # Preserve explicit vision/image keys; normalize_lane maps else→standard.
         left_l = left.strip().lower()
-        if left_l in ("vision", "image"):
-            key = left_l
-        elif left_l == "else":
-            key = "else"
+        allowed = set(ROUTE_LANES) | {IMAGE_SLOT, "else"}
+        if left_l not in allowed:
+            continue
+        key = left_l
         val = right.strip()
         if key and val:
             out[key] = val
-    # Promote legacy-only maps that never used new names.
-    for legacy, lane in (("simple", "fast"), ("medium", "standard"), ("complex", "reasoning")):
-        if lane not in out:
-            # Re-parse raw for un-normalized legacy keys.
-            for part in raw.split(";"):
-                part = part.strip()
-                if not part or "->" not in part:
-                    continue
-                left, right = part.split("->", 1)
-                if left.strip().lower() == legacy and right.strip():
-                    out.setdefault(lane, right.strip())
     if "else" in out:
         out.setdefault("fast", out["else"])
         out.setdefault("standard", out["else"])
@@ -393,18 +349,12 @@ def parse_fallback_chain(rules: dict[str, str] | None) -> list[str]:
 def enabled_lanes(rules: dict[str, str] | None) -> list[str]:
     raw = str(
         (rules or {}).get("precheck.route_lanes")
-        or (rules or {}).get("precheck.task_tiers")
         or "fast|standard|reasoning|vision"
     ).strip()
     lanes = [normalize_lane(x) for x in _split_list(raw, "|;,")]
     # Drop image from chat lanes if present.
     lanes = [x for x in lanes if x in ROUTE_LANES]
     return lanes or ["fast", "standard", "reasoning", "vision"]
-
-
-# Back-compat
-def enabled_tiers(rules: dict[str, str] | None) -> list[str]:
-    return enabled_lanes(rules)
 
 
 def clamp_lane(lane: str, enabled: list[str] | None) -> str:
@@ -426,10 +376,6 @@ def clamp_lane(lane: str, enabled: list[str] | None) -> str:
         if cand in enabled_l:
             return cand
     return enabled_l[0]
-
-
-def clamp_tier(tier: str, enabled: list[str] | None) -> str:
-    return clamp_lane(tier, enabled)
 
 
 def pick_fallback_model(
@@ -613,7 +559,6 @@ def pin_user_locked_model_routes(
     out["precheck.model_threshold"] = (
         f"fast->{mid};standard->{mid};reasoning->{mid};else->{mid}"
     )
-    out["precheck.model_lanes"] = out["precheck.model_threshold"]
     out["precheck.vision_model"] = mid
     out["precheck.fallback_chain"] = mid
     out["agent.review.model"] = mid
@@ -624,13 +569,13 @@ def apply_user_route_overrides(
     rules: dict[str, str] | None,
     overrides: dict[str, Any] | None,
 ) -> dict[str, str]:
-    """Merge user Auto prefs. Accepts new lanes and legacy simple/medium/complex."""
+    """Merge user Auto preferences for canonical model lanes."""
     out = dict(rules or {})
     if not overrides or not isinstance(overrides, dict):
         return out
 
     lanes = parse_model_lanes(out)
-    for key in ("fast", "standard", "reasoning", "simple", "medium", "complex"):
+    for key in ("fast", "standard", "reasoning"):
         raw = overrides.get(key)
         mid = str(raw or "").strip()
         if mid and mid.lower() not in ("auto", "platform", "default"):
@@ -649,7 +594,6 @@ def apply_user_route_overrides(
             if k and v and k in ("fast", "standard", "reasoning", "else", "vision", "image")
         )
         out["precheck.model_threshold"] = serialized
-        out["precheck.model_lanes"] = serialized
 
     vision = str(
         overrides.get("vision") or overrides.get("vision_model") or ""
@@ -705,7 +649,6 @@ def sanitize_rules_for_openrouter_region(
     if changed:
         serialized = _serialize_lanes(lanes)
         out["precheck.model_threshold"] = serialized
-        out["precheck.model_lanes"] = serialized
     vision = str(out.get("precheck.vision_model") or "").strip()
     if is_openrouter_model_ref(vision):
         out["precheck.vision_model"] = (
@@ -770,25 +713,6 @@ def heuristic_route_lane(
         needs_image_gen=False,
         rationale="heuristic: default_standard",
     )
-
-
-def estimate_task_tier(
-    prompt: str,
-    *,
-    rules: dict[str, str] | None = None,
-    skill_category: str | None = None,
-    scene: str | None = None,
-    has_images: bool = False,
-    canvas_node_count: int = 0,
-) -> str:
-    """Back-compat name → returns a lane id (fast|standard|reasoning|vision)."""
-    del rules, skill_category
-    return heuristic_route_lane(
-        prompt,
-        has_images=has_images,
-        canvas_node_count=canvas_node_count,
-        scene=scene,
-    ).lane
 
 
 def model_for_lane(
@@ -1047,11 +971,9 @@ async def classify_user_intent(
             raw_clarification_options = [
                 option.model_dump() for option in structured.clarification_options
             ]
-            raw_grade = None
         elif isinstance(structured, dict):
             raw_intent = structured.get("intent")
             raw_lane = structured.get("paint_lane") or structured.get("paintLane")
-            raw_grade = structured.get("work_grade") or structured.get("workGrade")
             rationale = structured.get("rationale")
             reply = structured.get("reply")
             raw_action = structured.get("proposal_action") or structured.get(
@@ -1069,9 +991,7 @@ async def classify_user_intent(
                 type(structured).__name__,
             )
             return fallback
-        intent, lane = normalize_intent_decision(
-            raw_intent, raw_lane, raw_grade=raw_grade
-        )
+        intent, lane = normalize_intent_decision(raw_intent, raw_lane)
         if intent not in USER_INTENTS:
             _log.warning(
                 "intent_classify invalid intent=%r; using heuristic", raw_intent
