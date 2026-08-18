@@ -21,30 +21,36 @@ from app.services.design.runtime.graph.state import (
     merge_reference_into_brief,
     parse_design_brief,
 )
-from app.services.design.runtime.graph.support import (
-    _absorb_ask_choices,
-    _append_prompt_pack,
-    _bump,
+from app.services.design.runtime.graph.emit_sse import (
+    _emit,
+    _flush_host_events,
+)
+from app.services.design.runtime.graph.llm_io import (
     _chat_fallback_text,
     _clip_llm_raw,
-    _commit,
-    _emit,
     _emit_ux_tip,
-    _flush_host_events,
-    _format_thought_messages,
-    _goto_cmd,
     _interaction_mode_rules_pack,
     _llm_io_fields,
-    _parse_agent_turn,
-    _persist_progress,
     _resolve_and_log_model,
-    _resolve_paint_want,
-    _should_route_to_paint,
     _stream_llm_text,
     _thinking_field,
+    _ui_thought_text,
+)
+from app.services.design.runtime.graph.scene_log import (
+    _bump,
+    _commit,
+    _goto_cmd,
+    _persist_progress,
+)
+from app.services.design.runtime.graph.turns import (
+    _absorb_ask_choices,
+    _append_prompt_pack,
+    _format_thought_messages,
+    _parse_agent_turn,
+    _resolve_paint_want,
+    _should_route_to_paint,
     _turn_from_structured,
     _turn_has_clarify,
-    _ui_thought_text,
 )
 from app.services.design.runtime.host import assemble_stage_system
 from app.services.design.runtime.host.resources import load_deferred_resources

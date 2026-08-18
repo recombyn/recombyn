@@ -24,7 +24,7 @@ from app.services.design.runtime.graph.state import (
     tournament_dim_total,
     tournament_match_prefers,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 
 # Label → base multi-dim profile (0–100). Lane character, not canvas paint.
 _LABEL_BASE: dict[str, dict[str, float]] = {

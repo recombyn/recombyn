@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-META_NAMES = ("_meta.json", "meta.json")
-SKILL_MD_NAMES = ("SKILL.md", "skill.md")
+META_NAMES = ("_meta.json",)
+SKILL_MD_NAMES = ("SKILL.md",)
 
 _DISABLED = frozenset({False, "false", "0", 0, "no", "off"})
 
@@ -16,7 +16,7 @@ def pack_has_product_meta(pack_dir: Path) -> bool:
 
 
 def parse_extends(meta: dict[str, Any]) -> list[str]:
-    raw = meta.get("extends") or meta.get("requires") or meta.get("depends_on") or []
+    raw = meta.get("extends") or []
     if isinstance(raw, str):
         raw = [x.strip() for x in raw.split(",") if x.strip()]
     if not isinstance(raw, list):
@@ -33,38 +33,18 @@ def parse_extends(meta: dict[str, Any]) -> list[str]:
 
 
 def normalize_pack_meta(meta: dict[str, Any], *, folder: str) -> dict[str, Any] | None:
-    """Normalize extension-friendly aliases onto the product skill meta shape.
+    """Normalize pack meta onto the product skill shape.
 
-    Accepts optional plugin-style fields (``id``, ``trigger_keywords``, ``enabled``,
-    ``author``, ``permissions``) without requiring a separate plugin runtime.
     Returns ``None`` when the pack is disabled.
     """
     out = dict(meta)
     if "enabled" in out and out.get("enabled") in _DISABLED:
         return None
 
-    if not str(out.get("skill_key") or out.get("skillKey") or "").strip():
-        alt = str(out.get("id") or out.get("name") or folder or "").strip()
-        if alt:
-            out["skill_key"] = alt
-
-    triggers = out.get("triggers")
-    keywords = out.get("trigger_keywords") or out.get("triggerKeywords")
-    if (not triggers) and isinstance(keywords, list):
-        words = [str(x).strip() for x in keywords if str(x).strip()]
-        if words:
-            out["triggers"] = [
-                {
-                    "intent_in": ["create", "edit"],
-                    "prompt_includes_any": words,
-                }
-            ]
-
-    # permissions is documentation / future ACL; preferred_tools remains the live gate.
-    if out.get("allowed_resources") is None and out.get("allowedResources") is None:
-        perms = out.get("permissions")
-        if isinstance(perms, list) and perms:
-            out["allowed_resources"] = ["tools"]
+    key = str(out.get("skill_key") or folder or "").strip()
+    if not key:
+        return None
+    out["skill_key"] = key
 
     author = str(out.get("author") or "").strip()
     if author:

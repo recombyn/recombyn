@@ -199,111 +199,6 @@ def _csv_has(csv: str, token: str) -> bool:
     return bool(token) and token.strip().lower() in parts
 
 
-def _pack_kind_from_node(node: dict[str, Any]) -> str:
-    """prompt_website / id=prompt_vision / configRef=pack.mobile → website|vision|mobile."""
-    for raw in (
-        str(node.get("phaseKey") or ""),
-        str(node.get("id") or ""),
-        str(node.get("configRef") or ""),
-    ):
-        s = raw.strip().lower()
-        if not s:
-            continue
-        if s.startswith("prompt_"):
-            return s[7:]
-        if s.startswith("pack."):
-            return s[5:]
-        if s.startswith("pack:"):
-            return s[5:]
-    pk = str(node.get("promptKey") or "").strip().lower()
-    if pk.startswith("pack."):
-        return pk[5:]
-    return ""
-
-
-def _scenes_from_node(node: dict[str, Any], kind: str) -> str:
-    inj = node.get("inject") if isinstance(node.get("inject"), dict) else {}
-    raw = str(inj.get("scenes") or node.get("scenes") or "").strip()
-    if raw:
-        return raw
-    return kind or ""
-
-
-def list_prompt_nodes_from_flow(*, graph: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Legacy helper — Admin flowchart removed; only honor an explicit graph arg."""
-    raw_graph = graph if isinstance(graph, dict) else {}
-    out: list[dict[str, Any]] = []
-    for n in (raw_graph.get("nodes") or []):
-        if not isinstance(n, dict):
-            continue
-        if str(n.get("kind") or "").strip().lower() != "prompt":
-            continue
-        packs = n.get("promptPacks")
-        if isinstance(packs, dict) and packs:
-            order = 0
-            for kind, raw_pack in packs.items():
-                k = str(kind or "").strip().lower()
-                if not k:
-                    continue
-                if isinstance(raw_pack, dict):
-                    body = str(raw_pack.get("body") or "").strip()
-                    title = str(
-                        raw_pack.get("title") or KIND_LABELS.get(k, k)
-                    ).strip()
-                    when = str(
-                        raw_pack.get("whenToUse") or raw_pack.get("when_to_use") or ""
-                    ).strip()
-                    scenes = str(raw_pack.get("scenes") or "").strip() or ""
-                else:
-                    body = str(raw_pack or "").strip()
-                    title = KIND_LABELS.get(k, k)
-                    when = ""
-                    scenes = ""
-                if not body:
-                    continue
-                out.append(
-                    {
-                        "id": 0,
-                        "kind": k,
-                        "type": PACK_TYPE_NEED,
-                        "title": title,
-                        "body": body,
-                        "whenToUse": when,
-                        "scenes": scenes,
-                        "sortOrder": order,
-                        "enabled": True,
-                        "updatedAt": None,
-                        "nodeId": str(n.get("id") or ""),
-                    }
-                )
-                order += 10
-            continue
-        # Legacy: one pack per node (prompt_website …)
-        kind = _pack_kind_from_node(n)
-        body = str(n.get("promptText") or "").strip()
-        if not kind or not body:
-            continue
-        title = str(n.get("label") or KIND_LABELS.get(kind, kind)).strip()
-        when = str(n.get("description") or "").strip()
-        out.append(
-            {
-                "id": 0,
-                "kind": kind,
-                "type": PACK_TYPE_NEED,
-                "title": title,
-                "body": body,
-                "whenToUse": when,
-                "scenes": _scenes_from_node(n, kind),
-                "sortOrder": int(n.get("y") or 0),
-                "enabled": True,
-                "updatedAt": None,
-                "nodeId": str(n.get("id") or ""),
-            }
-        )
-    out.sort(key=lambda x: (int(x.get("sortOrder") or 0), str(x.get("kind") or "")))
-    return out
-
-
 # Methodology packs migrated to design_skill (need_skills).
 _NEED_PROMPT_KINDS = frozenset()
 
@@ -663,7 +558,7 @@ def ensure_design_prompt_packs() -> None:
                     continue
                 title = str(item.get("title") or KIND_LABELS.get(kind, kind)).strip() or kind
                 pack_type = normalize_pack_type(item.get("type"), kind=kind)
-                used_by = used_by_csv(item.get("usedBy") or item.get("used_by"))
+                used_by = used_by_csv(item.get("usedBy"))
                 session.add(
                     DesignPromptPack(
                         kind=kind,

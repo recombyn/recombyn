@@ -1,5 +1,4 @@
 from app.services.design.prompts.prompt_pack_store import (
-    list_prompt_nodes_from_flow,
     seed_prompt_overlay_nodes,
 )
 from app.services.design.prompts.skill_store import format_skills_details
@@ -31,25 +30,6 @@ def test_playbooks_live_in_design_skills_packs():
     assert "frontend_ui" not in keys
     details = format_skills_details(keys=["poster_craft", "image_gen"], scene="website")
     assert "skill: poster_craft" in details or "poster_craft" in details
-
-
-
-def test_list_prompt_nodes_from_explicit_graph():
-    graph = {
-        "nodes": [
-            {
-                "id": "prompt_custom",
-                "kind": "prompt",
-                "phaseKey": "prompt_custom",
-                "promptText": "custom body with create_shape",
-                "inject": {"scenes": "all"},
-            }
-        ],
-        "edges": [],
-    }
-    rows = list_prompt_nodes_from_flow(graph=graph)
-    assert any(r["kind"] == "custom" for r in rows)
-    assert any("create_shape" in str(r.get("body") or "") for r in rows)
 
 
 def test_ensure_prompt_packs_resyncs_body_from_seed(tmp_path, monkeypatch):

@@ -1077,7 +1077,6 @@ function mapCreateShapeType(shapeType: string): string {
 
 function pickSvgMarkup(args: Record<string, unknown>): string {
   if (args.svg != null) return String(args.svg);
-  if (args.iconSvg != null) return String(args.iconSvg);
   return '';
 }
 
@@ -1298,12 +1297,12 @@ function applyShapeFill(
 ) {
   const fillType = String(args.fillType || 'solid').toLowerCase();
   const c0 = String(args.fill ?? fallbackFill);
-  const c1 = String(args.fillEnd ?? args.fillTo ?? c0);
+  const c1 = String(args.fillEnd ?? c0);
   const fillOpacity =
     args.fillOpacity != null ? Math.min(100, Math.max(0, num(args.fillOpacity, 100))) : undefined;
 
   if (fillType === 'image') {
-    const src = String(args.fillImageSrc ?? args.imageSrc ?? args.src ?? '').trim();
+    const src = String(args.fillImageSrc ?? '').trim();
     if (!src) {
       node.attrs = {
         ...node.attrs,
@@ -1356,7 +1355,7 @@ function applyShapeFill(
   }
 
   if (fillType === 'linear' || fillType === 'radial' || fillType === 'angular') {
-    const angle = num(args.gradientAngle ?? args.angle, fillType === 'angular' ? 0 : 90);
+    const angle = num(args.gradientAngle, fillType === 'angular' ? 0 : 90);
     node.attrs = {
       ...node.attrs,
       'fill-type': fillType,
@@ -1558,11 +1557,11 @@ function parseNodeIds(args: Record<string, unknown>): string[] {
   return [...new Set(args.nodeIds.map((x) => String(x)).filter(Boolean))];
 }
 
-/** nodeIds[] or single nodeId/id (outline_text / image_process style). */
+/** nodeIds[] or a single nodeId (outline_text / image_process). */
 function parseNodeIdsOrSingle(args: Record<string, unknown>): string[] {
   const many = parseNodeIds(args);
   if (many.length) return many;
-  const one = String(args.nodeId || args.id || '').trim();
+  const one = String(args.nodeId || '').trim();
   return one ? [one] : [];
 }
 
@@ -1801,9 +1800,7 @@ function placementRewriteError(
     args.x != null ||
     args.y != null ||
     args.width != null ||
-    args.height != null ||
-    args.w != null ||
-    args.h != null;
+    args.height != null;
   if (!hasGeom) return null;
   if (!placed.clamped && !(placed.scale > 0 && placed.scale < 0.999)) return null;
   return {
@@ -2055,7 +2052,7 @@ function execCreateShape(
   pushHistory: () => void
 ): AgentToolResult {
 
-  const shapeType = String(args.shapeType || args.type || 'rect');
+  const shapeType = String(args.shapeType || 'rect');
   const mapped = mapCreateShapeType(shapeType);
   const width = Math.max(1, num(args.width, 120));
   const height = Math.max(1, num(args.height, 80));
@@ -2239,7 +2236,7 @@ function execCreateText(
   pushHistory: () => void
 ): AgentToolResult {
 
-  const text = String(args.text ?? args.content ?? '');
+  const text = String(args.text ?? '');
   const missXY = requireCreateXY('create_text', args);
   if (missXY) return missXY;
   const target = ctx.targetFrameId ? frameById(doc, ctx.targetFrameId) : null;
@@ -2248,8 +2245,7 @@ function execCreateText(
   const baseStyle = parseNodeTextStyle({});
   const nextStyle: Record<string, unknown> = { ...baseStyle };
   if (args.fontSize != null) nextStyle.fontSize = num(args.fontSize, 14);
-  // Seed/docs use fill; models also emit color — accept both.
-  const textFill = args.color ?? args.fill ?? args.fillColor;
+  const textFill = args.fill;
   if (textFill != null) nextStyle.fill = String(textFill);
   if (args.fontWeight != null) nextStyle.fontWeight = String(args.fontWeight);
   if (args.fontFamily != null) nextStyle.fontFamily = String(args.fontFamily);
@@ -2382,17 +2378,13 @@ const UPDATE_NODE_STYLE_ARG_KEYS = [
   'lineHeight',
   'letterSpacing',
   'textDecoration',
-  'color',
 ] as const;
 
 function updateNodeFillTouched(args: Record<string, unknown>): boolean {
   return (
     args.fillType != null ||
     args.fill != null ||
-    args.fillColor != null ||
-    args.backgroundColor != null ||
     args.fillEnd != null ||
-    args.fillTo != null ||
     args.gradientAngle != null ||
     args.meshSize != null ||
     args.meshPoints != null ||
@@ -2408,8 +2400,8 @@ function patchUpdateNodeGeometry(
   doc: SceneDocument,
   targetFrameId: string | null | undefined
 ) {
-  const argWidth = args.width ?? args.w;
-  const argHeight = args.height ?? args.h;
+  const argWidth = args.width;
+  const argHeight = args.height;
   if (args.x != null && args.y != null) {
     const target = targetFrameId ? frameById(doc, targetFrameId) : null;
     const w =
@@ -2454,10 +2446,10 @@ function applyUpdateNodeTextPatch(opts: {
   if (args.lineHeight != null) stylePatch.lineHeight = num(args.lineHeight, 1.4);
   if (args.letterSpacing != null) stylePatch.letterSpacing = num(args.letterSpacing, 0);
   if (args.textDecoration != null) stylePatch.textDecoration = String(args.textDecoration);
-  if (args.color != null && fillRaw == null) {
-    shell.attrs['fill-color'] = String(args.color);
+  if (args.fill != null && fillRaw == null) {
+    shell.attrs['fill-color'] = String(args.fill);
     shell.attrs['fill-type'] = 'solid';
-    stylePatch.fill = String(args.color);
+    stylePatch.fill = String(args.fill);
   }
   if (args.text == null && !Object.keys(stylePatch).length) return;
   const style = {
@@ -2490,7 +2482,7 @@ function execUpdateNode(
   doc: SceneDocument,
   _pushHistory: () => void
 ): AgentToolResult {
-  const nodeId = String(args.nodeId || args.id || '');
+  const nodeId = String(args.nodeId || '');
   if (!nodeId) return { status: 'error', summary: 'nodeId required' };
   const latest = ctx.getDocument()?.deltaSetLike?.[nodeId];
   if (!latest) return { status: 'error', summary: `Node not found: ${nodeId}` };
@@ -2505,7 +2497,7 @@ function execUpdateNode(
   );
 
   const shell = { attrs: { ...(latest.attrs || {}) } as Record<string, unknown> };
-  const fillRaw = args.fill ?? args.fillColor ?? args.backgroundColor;
+  const fillRaw = args.fill;
   const fillTypeArg =
     args.fillType != null ? String(args.fillType).toLowerCase() : null;
   const fillTouched = updateNodeFillTouched(args);
@@ -2515,7 +2507,7 @@ function execUpdateNode(
       shell,
       {
         ...args,
-        fillType: fillTypeArg || args.fillType || 'solid',
+        fillType: fillTypeArg || 'solid',
         fill: fillRaw ?? shell.attrs['fill-color'] ?? '#FFFFFF',
       },
       String(fillRaw ?? shell.attrs['fill-color'] ?? '#FFFFFF')
@@ -2571,7 +2563,7 @@ function execUpdateNode(
     });
     if (pe != null) shell.attrs.pressureEnabled = pe;
   }
-  const shapeTypeRaw = args.shapeType ?? args.type;
+  const shapeTypeRaw = args.shapeType;
   if (shapeTypeRaw != null && String(shapeTypeRaw).trim() && latest.key === 'shape') {
     const st = String(shapeTypeRaw).trim().toLowerCase();
     shell.attrs.shapeType = st === 'ellipse' ? 'circle' : st;
@@ -2973,7 +2965,7 @@ function execListCapabilities(
         'For unavailable capabilities, tell the user the manual path; do not pretend they ran',
       ],
     };
-  
+
 }
 
 function execSetViewport(
@@ -2983,47 +2975,34 @@ function execSetViewport(
   pushHistory: () => void
 ): AgentToolResult {
     const ui = ctx.canvasUi;
-    let action = String(args.action || args.mode || '').toLowerCase();
-    if (!action && truthy(args.fit)) action = 'fit';
-    if (!action && (args.percent != null || args.zoom != null)) action = 'set';
+    const action = String(args.action || '').toLowerCase();
     if (!ui?.zoomIn && !ui?.setZoom && !ui?.fitView) {
       return {
         status: 'error',
         summary: 'Zoom bridge missing in this session. Use the bottom-left zoom control.',
       };
     }
-    if (action === 'zoom_in' || action === 'in') {
+    if (action === 'zoom_in') {
       ui.zoomIn?.();
       return {
         status: 'success',
         summary: `Zoomed in (~${Math.round((ui.getZoom?.() || 1) * 100)}%)`,
       };
     }
-    if (action === 'zoom_out' || action === 'out') {
+    if (action === 'zoom_out') {
       ui.zoomOut?.();
       return {
         status: 'success',
         summary: `Zoomed out (~${Math.round((ui.getZoom?.() || 1) * 100)}%)`,
       };
     }
-    if (action === 'fit' || action === 'reset' || action === 'fit_view') {
+    if (action === 'fit') {
       if (typeof ui.fitView === 'function') ui.fitView();
       else ui.setZoom?.(1);
       return { status: 'success', summary: 'Fit / reset canvas zoom' };
     }
-    if (
-      action === 'set' ||
-      action === 'percent' ||
-      args.percent != null ||
-      args.zoom != null
-    ) {
-      let z = 1;
-      if (args.percent != null) z = num(args.percent, 100) / 100;
-      else if (args.zoom != null) {
-        const raw = num(args.zoom, 1);
-        z = raw > 12 ? raw / 100 : raw;
-      }
-      z = Math.min(12, Math.max(0.05, z));
+    if (action === 'set') {
+      const z = Math.min(12, Math.max(0.05, num(args.percent, 100) / 100));
       if (!ui.setZoom) {
         return {
           status: 'error',
@@ -3037,7 +3016,7 @@ function execSetViewport(
       status: 'error',
       summary: 'set_viewport needs action: zoom_in|zoom_out|fit|set (optional percent)',
     };
-  
+
 }
 
 function execSetActiveTool(
@@ -3087,7 +3066,7 @@ function execSetCanvasBackground(
   doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
-    const color = String(args.color ?? args.backgroundColor ?? args.fill ?? '').trim();
+    const color = String(args.color ?? '').trim();
     const fillType = String(args.fillType || 'solid').toLowerCase();
     if (!color && fillType === 'solid') {
       return { status: 'error', summary: 'set_canvas_background requires color' };
@@ -3143,7 +3122,7 @@ function execSetCanvasBackground(
       summary: `Canvas background updated (${fillType}${color ? ` ${color}` : ''})`,
       artifacts: meta,
     };
-  
+
 }
 
 function execSetAgentMode(
@@ -3171,7 +3150,7 @@ function execSetAgentMode(
       summary: `Agent mode set to ${mode}`,
       artifacts: { mode },
     };
-  
+
 }
 
 function execToggleEditorPanel(
@@ -3180,7 +3159,7 @@ function execToggleEditorPanel(
   _doc: SceneDocument,
   _pushHistory: () => void
 ): AgentToolResult {
-  const spec = resolveEditorPanel(String(args.panel || args.name || ''));
+  const spec = resolveEditorPanel(String(args.panel || ''));
   const supported = supportedTogglePanelIds().join(' | ');
   if (!spec) {
     return {
@@ -3243,7 +3222,7 @@ function execAskUser(
       artifacts: { ask: true, options },
       next_actions: options.length ? options : ['Wait for user reply'],
     };
-  
+
 }
 
 function execFinish(
@@ -3254,7 +3233,7 @@ function execFinish(
 ): AgentToolResult {
     const summary = String(args.summary || 'Done');
     return { status: 'success', summary, artifacts: { done: true } };
-  
+
 }
 
 function execCreateSvg(
@@ -3268,7 +3247,7 @@ function execCreateSvg(
     const target = ctx.targetFrameId ? frameById(doc, ctx.targetFrameId) : null;
     const missXY = requireCreateXY('create_svg', args);
     if (missXY) return missXY;
-    const svgRaw = String(args.svg || args.iconSvg || args.content || '').trim();
+    const svgRaw = String(args.svg || '').trim();
     if (!svgRaw) {
       return {
         status: 'error',
@@ -3305,7 +3284,7 @@ function execCreateSvg(
       artifacts: { nodeId: id, shapeType: 'svg' },
       next_actions: ['Continue layout'],
     };
-  
+
 }
 
 function execCreateLottie(
@@ -3315,7 +3294,7 @@ function execCreateLottie(
   pushHistory: () => void
 ): AgentToolResult {
   const raw =
-    args.animationData ?? args.lottie ?? args.json ?? args.animation ?? args.content;
+    args.animationData;
   if (raw == null || (typeof raw === 'string' && !String(raw).trim())) {
     return {
       status: 'error',
@@ -3324,7 +3303,7 @@ function execCreateLottie(
     };
   }
 
-  const replaceId = String(args.replaceNodeId || args.targetNodeId || '').trim();
+  const replaceId = String(args.replaceNodeId || '').trim();
   if (replaceId && isLottieGeneratorNode(doc?.deltaSetLike?.[replaceId])) {
     const plate = doc.deltaSetLike[replaceId];
     const width =
@@ -3343,7 +3322,7 @@ function execCreateLottie(
       x: Number(plate.x) || 0,
       y: Number(plate.y) || 0,
       name: String(args.name || 'Lottie'),
-      genPrompt: String(args.genPrompt || args.prompt || '').trim() || undefined,
+      genPrompt: String(args.genPrompt || '').trim() || undefined,
     });
     if (next === ctx.getDocument()) {
       return {
@@ -3415,7 +3394,7 @@ function execCreateImage(
   const placeErr = placementRewriteError('create_image', args, placed);
   if (placeErr) return placeErr;
   const userImages = Array.isArray(ctx.userImages) ? ctx.userImages : [];
-  const genPrompt = String(args.genPrompt || args.prompt || '').trim();
+  const genPrompt = String(args.genPrompt || '').trim();
   let src = '';
   let sourceKind: 'attachment' | 'src' | 'placeholder' = 'placeholder';
   if (args.attachmentIndex != null) {
@@ -3455,7 +3434,7 @@ function execCreateImage(
     name: String(args.name || (sourceKind === 'placeholder' ? 'Image Placeholder' : 'Image')),
     assetKind: 'image',
   });
-  const letteringText = String(args.letteringText || args.textContent || '').trim();
+  const letteringText = String(args.letteringText || '').trim();
   if (genPrompt || letteringText) {
     node.attrs = {
       ...(node.attrs || {}),
@@ -3485,7 +3464,7 @@ function execAlignNodes(
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
-    const rawMode = String(args.mode || args.align || '').trim();
+    const rawMode = String(args.mode || '').trim();
     const mode = normalizeAlignMode(rawMode);
     const allowedAlign = new Set([
       'left',
@@ -3524,7 +3503,7 @@ function execAlignNodes(
       summary: `Aligned ${boxes.length} nodes (${mode})`,
       artifacts: { nodeIds: boxes.map((b) => b.id), mode },
     };
-  
+
 }
 
 function execDistributeNodes(
@@ -3582,7 +3561,7 @@ function execDistributeNodes(
       summary: `Distributed ${sorted.length} nodes (${axis})`,
       artifacts: { nodeIds: sorted.map((b) => b.id), axis },
     };
-  
+
 }
 
 function execBooleanOp(
@@ -3647,7 +3626,7 @@ function execBooleanOp(
         : `Boolean ${mode} → ${id}`,
       artifacts: { nodeId: id, mode, removed: boxes.map((b) => b.id) },
     };
-  
+
 }
 
 function execReorderNodes(
@@ -3657,16 +3636,12 @@ function execReorderNodes(
   pushHistory: () => void
 ): AgentToolResult {
     const ids = parseNodeIds(args);
-    const raw = String(args.action || args.order || '').toLowerCase();
+    const raw = String(args.action || '').toLowerCase();
     const actionMap: Record<string, 'front' | 'back' | 'forward' | 'backward'> = {
       front: 'front',
       back: 'back',
       forward: 'forward',
       backward: 'backward',
-      bring_to_front: 'front',
-      send_to_back: 'back',
-      bring_forward: 'forward',
-      send_backward: 'backward',
     };
     const action = actionMap[raw];
     if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
@@ -3680,7 +3655,7 @@ function execReorderNodes(
       summary: `Reordered ${ids.length} node(s) (${action})`,
       artifacts: { nodeIds: ids, action },
     };
-  
+
 }
 
 function execGroupNodes(
@@ -3698,7 +3673,7 @@ function execGroupNodes(
       summary: `Grouped ${ids.length} nodes`,
       artifacts: { nodeIds: ids },
     };
-  
+
 }
 
 function execUngroupNodes(
@@ -3716,7 +3691,7 @@ function execUngroupNodes(
       summary: `Ungrouped ${ids.length} node(s)`,
       artifacts: { nodeIds: ids },
     };
-  
+
 }
 
 function execDuplicateNodes(
@@ -3754,7 +3729,7 @@ function execDuplicateNodes(
       summary: `Duplicated ${created.length} node(s)`,
       artifacts: { nodeIds: created },
     };
-  
+
 }
 
 function execFlipNodes(
@@ -3803,7 +3778,7 @@ function execFlipNodes(
       summary: `Flipped ${ids.length} node(s)`,
       artifacts: { nodeIds: ids, flipX: doX, flipY: doY },
     };
-  
+
 }
 
 function execRotateNodes(
@@ -3967,7 +3942,7 @@ function execDeleteNodes(
       summary: `Deleted ${removed.length} node(s)`,
       artifacts: { nodeIds: removed },
     };
-  
+
 }
 
 function execDeleteFrame(
@@ -3997,7 +3972,7 @@ function execDeleteFrame(
       summary: `Deleted frame ${fid}`,
       artifacts: { frameId: fid, nodeIds: childIds },
     };
-  
+
 }
 
 function execDuplicateFrame(
@@ -4253,7 +4228,7 @@ function execUpdateFrame(
     if (args.clipContent != null) patch.clipContent = truthy(args.clipContent);
     ctx.dispatch(updateArtboardFrame({ id, patch }));
     return { status: 'success', summary: `Updated frame ${id}`, artifacts: { frameId: id } };
-  
+
 }
 
 function execImageProcess(
@@ -4262,8 +4237,8 @@ function execImageProcess(
   doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
-    const nodeId = String(args.nodeId || args.id || '').trim();
-    const kind = String(args.kind || args.processKind || '').trim();
+    const nodeId = String(args.nodeId || '').trim();
+    const kind = String(args.kind || '').trim();
     const allowed = new Set([
       'upscale',
       'removeBg',
@@ -4323,7 +4298,7 @@ function execImageProcess(
       artifacts: { sourceId: nodeId, kind },
       next_actions: ['Wait for process UI / continue other ops'],
     };
-  
+
 }
 
 function execExportCanvas(
@@ -4357,7 +4332,7 @@ function execExportCanvas(
       summary: `Export started (${format}${nodeIds.length ? `, ${nodeIds.length} nodes` : ', full'})`,
       artifacts: { format, nodeIds, multiplier },
     };
-  
+
 }
 
 function resolveUnknownToolError(name: string): AgentToolResult {

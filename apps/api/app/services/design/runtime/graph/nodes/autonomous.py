@@ -16,7 +16,7 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     parse_autonomous_art_director,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 from app.services.design.runtime.models_route import normalize_user_intent
 
 _HOP_SLOT: dict[str, str] = {

@@ -16,7 +16,7 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     parse_design_research_report,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 
 # Open ANTI-CATEGORY floor — keep small; Private may enrich via Remote.
 _CATEGORY_PATTERNS: dict[str, dict[str, list[str]]] = {

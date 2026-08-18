@@ -18,12 +18,9 @@ from .constants import (
     NS_CORE,
     NS_EXT,
     SOURCE_FILE,
-    _META_NAMES,
     _SKILL_GRAPH,
-    _SKILL_MD_NAMES,
 )
 from .keys import (
-    _slug_local_key,
     qualify_skill_key,
     split_namespace_key,
 )
@@ -59,7 +56,7 @@ def _register_skill_graph(item: dict[str, Any]) -> None:
     _SKILL_GRAPH[key] = {
         "extends": list(item.get("extends") or []),
         "category": str(item.get("category") or "agent").strip().lower() or "agent",
-        "context_mode": str(item.get("context_mode") or item.get("contextMode") or "full")
+        "context_mode": str(item.get("context_mode") or "full")
         .strip()
         .lower()
         or "full",
@@ -134,115 +131,9 @@ def _compact_rules_excerpt(body: str, *, anti_patterns: str = "") -> str:
 
 
 def _skill_md_path(pack_dir: Path) -> Path | None:
-    for name in _SKILL_MD_NAMES:
-        p = pack_dir / name
-        if p.is_file():
-            return p
-    return None
+    p = pack_dir / "SKILL.md"
+    return p if p.is_file() else None
 
-
-def _unquote_yaml_scalar(raw: str) -> str:
-    s = str(raw or "").strip()
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
-        return s[1:-1].strip()
-    return s
-
-def _split_skill_md_frontmatter(text: str) -> tuple[dict[str, Any], str]:
-    """Parse ``SKILL.md`` YAML frontmatter (flat keys only).
-
-    Returns ``(meta, body)``. No frontmatter → ``({}, original_text)``.
-    """
-    raw = str(text or "").lstrip("\ufeff")
-    if not raw.startswith("---"):
-        return {}, raw.strip()
-    lines = raw.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}, raw.strip()
-    end = -1
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            end = i
-            break
-    if end < 1:
-        return {}, raw.strip()
-
-    meta: dict[str, Any] = {}
-    key: str | None = None
-    buf: list[str] = []
-    fold = False
-
-    def flush() -> None:
-        nonlocal key, buf, fold
-        if not key:
-            buf = []
-            fold = False
-            return
-        if fold:
-            meta[key] = " ".join(x.strip() for x in buf if x.strip()).strip()
-        elif buf:
-            meta[key] = _unquote_yaml_scalar("\n".join(buf).strip())
-        else:
-            meta[key] = ""
-        key = None
-        buf = []
-        fold = False
-
-    for line in lines[1:end]:
-        if key and (line.startswith("  ") or line.startswith("\t")):
-            buf.append(line.strip())
-            continue
-        m = re.match(r"^([A-Za-z0-9_-]+)\s*:\s*(.*)$", line)
-        if not m:
-            if key:
-                buf.append(line.strip())
-            continue
-        flush()
-        key = m.group(1).strip()
-        rest = m.group(2).rstrip()
-        fold, buf = _begin_frontmatter_value(rest)
-    flush()
-
-    body = "\n".join(lines[end + 1 :]).strip()
-    return meta, body
-
-
-def _begin_frontmatter_value(rest: str) -> tuple[bool, list[str]]:
-    """Start a YAML scalar buffer; fold=True for block / empty values."""
-    if rest in (">", "|", ">-", "|-", ""):
-        return True, []
-    return False, [rest]
-
-
-def _meta_from_agent_skill_frontmatter(
-    fm: dict[str, Any], *, folder: str
-) -> dict[str, Any] | None:
-    """Build a minimal pack meta from ``SKILL.md`` YAML frontmatter."""
-    if not isinstance(fm, dict) or not fm:
-        return None
-    name = str(fm.get("name") or folder or "").strip()
-    description = str(fm.get("description") or "").strip()
-    if not name and not description:
-        return None
-    key = _slug_local_key(name or folder) or folder
-    when = str(fm.get("when_to_use") or fm.get("whenToUse") or description).strip()
-    display = str(
-        fm.get("displayName") or fm.get("display_name") or fm.get("title") or name or key
-    ).strip() or key
-    return {
-        "skill_key": str(fm.get("skill_key") or fm.get("skillKey") or key).strip() or key,
-        "name": key,
-        "displayName": display,
-        "description": description or when,
-        "when_to_use": when,
-        "category": str(fm.get("category") or "agent").strip() or "agent",
-        "version": fm.get("version") or "1.0.0",
-        "scenes": "all",
-        "preferred_tools": [],
-        "triggers": [],
-        "locales": {
-            "en": {"displayName": display, "description": description or when},
-        },
-    }
 
 def _repo_root() -> Path:
     """``apps/api`` → repository root."""
@@ -330,7 +221,7 @@ def _file_skills_dirs() -> list[Path]:
     return dirs
 
 def _pack_has_product_meta(pack_dir: Path) -> bool:
-    return any((pack_dir / name).is_file() for name in _META_NAMES)
+    return (pack_dir / "_meta.json").is_file()
 
 
 # Skills ship as file packs only (NS_CORE/NS_EXT); no DB seed source.
@@ -456,32 +347,27 @@ def _skill_item_from_parts(
     from .schema import validate_skill_meta
 
     folder = pack_dir.name
-    # _meta.json: `name` is technical id; displayName lives in locales.
-    key = str(meta.get("skill_key") or meta.get("skillKey") or meta.get("name") or folder).strip()
+    key = str(meta.get("skill_key") or folder).strip()
     if not key or key in _SEED_BY_KEY:
         return None
     locales = meta.get("locales") if isinstance(meta.get("locales"), dict) else {}
     loc = _locale_pick(locales)
     display = str(
         loc.get("displayName")
-        or loc.get("display_name")
         or meta.get("displayName")
-        or meta.get("display_name")
-        or meta.get("title")
         or key
     ).strip() or key
     description = str(
         loc.get("description")
         or meta.get("description")
         or meta.get("when_to_use")
-        or meta.get("whenToUse")
         or ""
     ).strip()
-    when = str(meta.get("when_to_use") or meta.get("whenToUse") or description).strip()
+    when = str(meta.get("when_to_use") or description).strip()
     pos = body.strip()
     if not pos:
         return None
-    pack_label, ver_int = _parse_pack_version(meta.get("version") or meta.get("pack_version") or 1)
+    pack_label, ver_int = _parse_pack_version(meta.get("version") or 1)
     logo = _resolve_pack_logo(pack_dir, meta)
     ns_prefix, stripped = split_namespace_key(key)
     if ns_prefix == NS_CORE:
@@ -489,7 +375,7 @@ def _skill_item_from_parts(
     storage_key = qualify_skill_key(NS_EXT, stripped or key) if ns_prefix == NS_EXT else (
         stripped or key
     )
-    # Bare file-pack keys stay bare for BC; namespace column still marks ext.
+    # Bare file-pack keys stay bare; namespace column still marks ext.
     if not ns_prefix:
         storage_key = (stripped or key).strip().lower()
     if storage_key in _SEED_BY_KEY or (stripped or key) in _SEED_BY_KEY:
@@ -499,11 +385,10 @@ def _skill_item_from_parts(
             "skill_key": storage_key,
             "name": display,
             "prompt_positive": pos,
-            "preferred_tools": meta.get("preferred_tools") or meta.get("preferredTools") or [],
-            "allowed_resources": meta.get("allowed_resources")
-            or meta.get("allowedResources"),
-            "input_schema": meta.get("input_schema") or meta.get("inputSchema"),
-            "output_schema": meta.get("output_schema") or meta.get("outputSchema"),
+            "preferred_tools": meta.get("preferred_tools") or [],
+            "allowed_resources": meta.get("allowed_resources"),
+            "input_schema": meta.get("input_schema"),
+            "output_schema": meta.get("output_schema"),
             "namespace": NS_EXT,
         },
         source=SOURCE_FILE,
@@ -518,22 +403,17 @@ def _skill_item_from_parts(
         "category": str(meta.get("category") or "agent").strip() or "agent",
         "when_to_use": when,
         "prompt_positive": pos,
-        "prompt_negative": str(meta.get("prompt_negative") or meta.get("promptNegative") or "").strip(),
+        "prompt_negative": str(meta.get("prompt_negative") or "").strip(),
         "scenes": str(meta.get("scenes") or "all").strip() or "all",
-        "sort_weight": int(meta.get("sort_weight") or meta.get("sortWeight") or 0),
-        "preferred_tools": meta.get("preferred_tools") or meta.get("preferredTools") or [],
-        "allowed_resources": meta.get("allowed_resources")
-        or meta.get("allowedResources"),
-        "input_schema": meta.get("input_schema") or meta.get("inputSchema"),
-        "output_schema": meta.get("output_schema") or meta.get("outputSchema"),
+        "sort_weight": int(meta.get("sort_weight") or 0),
+        "preferred_tools": meta.get("preferred_tools") or [],
+        "allowed_resources": meta.get("allowed_resources"),
+        "input_schema": meta.get("input_schema"),
+        "output_schema": meta.get("output_schema"),
         "triggers": meta.get("triggers") or [],
-        "mutex_group": str(meta.get("mutex_group") or meta.get("mutexGroup") or "").strip(),
+        "mutex_group": str(meta.get("mutex_group") or "").strip(),
         "extends": _parse_extends(meta),
-        "context_mode": str(
-            meta.get("context_mode") or meta.get("contextMode") or "full"
-        )
-        .strip()
-        .lower()
+        "context_mode": str(meta.get("context_mode") or "full").strip().lower()
         or "full",
         "version": ver_int,
         "pack_version": pack_label,
@@ -544,8 +424,8 @@ def _skill_item_from_parts(
         "_path": str(skill_md_path),
         "_pack": str(pack_dir),
         **(
-            {"author": str(meta.get("_author") or meta.get("author") or "").strip()}
-            if str(meta.get("_author") or meta.get("author") or "").strip()
+            {"author": str(meta.get("_author") or "").strip()}
+            if str(meta.get("_author") or "").strip()
             else {}
         ),
     }
@@ -558,11 +438,8 @@ def _load_schema_json(pack_dir: Path) -> tuple[Any, Any]:
     data = _read_json_file(path)
     if not data:
         return None, None
-    inp = data.get("input_schema") or data.get("input") or data.get("inputSchema")
-    out = data.get("output_schema") or data.get("output") or data.get("outputSchema")
-    # Whole file is a single object schema → treat as input.
-    if inp is None and out is None and ("type" in data or "properties" in data):
-        inp = data
+    inp = data.get("input_schema")
+    out = data.get("output_schema")
     return inp, out
 
 
@@ -591,21 +468,15 @@ def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
     if not skill_md:
         return None
     try:
-        raw = skill_md.read_text(encoding="utf-8")
+        body = skill_md.read_text(encoding="utf-8").strip()
     except Exception:
         return None
-    fm, body = _split_skill_md_frontmatter(raw)
     if not body:
         return None
-    meta: dict[str, Any] | None = None
-    for name in _META_NAMES:
-        p = pack_dir / name
-        if p.is_file():
-            meta = _read_json_file(p)
-            if meta:
-                break
-    if not meta:
-        meta = _meta_from_agent_skill_frontmatter(fm, folder=pack_dir.name)
+    meta_path = pack_dir / "_meta.json"
+    if not meta_path.is_file():
+        return None
+    meta = _read_json_file(meta_path)
     if not meta:
         return None
     meta = _normalize_pack_meta(meta, folder=pack_dir.name)
@@ -613,13 +484,9 @@ def _load_pack_dir(pack_dir: Path) -> dict[str, Any] | None:
         return None
 
     schema_in, schema_out = _load_schema_json(pack_dir)
-    if schema_in is not None and not (
-        meta.get("input_schema") or meta.get("inputSchema")
-    ):
+    if schema_in is not None and not meta.get("input_schema"):
         meta["input_schema"] = schema_in
-    if schema_out is not None and not (
-        meta.get("output_schema") or meta.get("outputSchema")
-    ):
+    if schema_out is not None and not meta.get("output_schema"):
         meta["output_schema"] = schema_out
 
     item = _skill_item_from_parts(

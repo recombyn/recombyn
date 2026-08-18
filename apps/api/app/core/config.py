@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -163,31 +163,19 @@ class Settings(BaseSettings):
     # Design Intelligence client (ADR 0017). local = BasicLocal; remote = HTTP provider.
     intelligence_provider: str = Field(
         default="local",
-        validation_alias=AliasChoices(
-            "RECOMBYN_INTELLIGENCE_MODE",
-            "intelligence_provider",
-        ),
+        validation_alias="RECOMBYN_INTELLIGENCE_MODE",
     )
     intelligence_remote_url: str = Field(
         default="",
-        validation_alias=AliasChoices(
-            "RECOMBYN_INTELLIGENCE_URL",
-            "intelligence_remote_url",
-        ),
+        validation_alias="RECOMBYN_INTELLIGENCE_URL",
     )
     intelligence_remote_api_key: str = Field(
         default="",
-        validation_alias=AliasChoices(
-            "RECOMBYN_INTELLIGENCE_API_KEY",
-            "intelligence_remote_api_key",
-        ),
+        validation_alias="RECOMBYN_INTELLIGENCE_API_KEY",
     )
     intelligence_remote_timeout_sec: float = Field(
         default=30.0,
-        validation_alias=AliasChoices(
-            "RECOMBYN_INTELLIGENCE_TIMEOUT_SEC",
-            "intelligence_remote_timeout_sec",
-        ),
+        validation_alias="RECOMBYN_INTELLIGENCE_TIMEOUT_SEC",
     )
 
     expand_table_cells: bool = True
