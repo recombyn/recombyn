@@ -205,18 +205,10 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     boxes.push({ id, box, hit });
     if (hit) {
       lastHitDebug = { x, y, orderLen: order.length, orderHead: order.slice(0, 8), boxes };
-      if (typeof window !== 'undefined') {
-        (window as unknown as { __rcbLastHitDebug?: typeof lastHitDebug }).__rcbLastHitDebug =
-          lastHitDebug;
-      }
       return id;
     }
   }
   lastHitDebug = { x, y, orderLen: order.length, orderHead: [...order].slice(0, 8), boxes };
-  if (typeof window !== 'undefined') {
-    (window as unknown as { __rcbLastHitDebug?: typeof lastHitDebug }).__rcbLastHitDebug =
-      lastHitDebug;
-  }
   return null;
 }
 

@@ -5,8 +5,7 @@ Optional remote adapter posts to a generic HTTP IntelligenceProvider endpoint;
 usable results are applied onto Runtime slots; failures fall back to BasicLocal.
 Do not document proprietary backends here.
 
-Stable surface matches ``DesignIntelligenceClient`` (propose_candidates,
-swarm_direction, govern, autonomous_plan, …). Legacy aliases remain on the Client.
+Stable surface matches ``DesignIntelligenceClient`` canonical methods.
 """
 from __future__ import annotations
 
@@ -14,7 +13,6 @@ import logging
 from typing import Any
 
 from recombyn_intelligence_client import DesignIntelligenceClient, RemoteIntelligenceProvider
-from recombyn_protocol import INTELLIGENCE_METHOD_ALIASES
 
 from app.core.config import settings
 
@@ -24,9 +22,8 @@ _client: DesignIntelligenceClient | None = None
 
 
 def _wire_method(name: str) -> str:
-    """Canonical HTTP path segment (aliases collapse to stable names)."""
-    key = str(name or "").strip()
-    return INTELLIGENCE_METHOD_ALIASES.get(key, key)
+    """Canonical HTTP path segment."""
+    return str(name or "").strip()
 
 
 def apply_intelligence_result(
@@ -292,23 +289,6 @@ class BasicLocalProvider:
         """Principle / knowledge write-back. BasicLocal has no private KG writer."""
         return None
 
-    # Legacy aliases for callers that still talk to the Provider directly.
-    async def candidates(self, rt: Any) -> dict[str, Any] | None:
-        return await self.propose_candidates(rt)
-
-    async def swarm(self, rt: Any) -> dict[str, Any] | None:
-        return await self.swarm_direction(rt)
-
-    async def gate_governance(self, rt: Any) -> dict[str, Any]:
-        return await self.govern(rt)
-
-    async def plan_autonomous(self, rt: Any) -> dict[str, Any] | None:
-        return await self.autonomous_plan(rt)
-
-    async def sync_autonomous(self, rt: Any) -> dict[str, Any] | None:
-        return await self.autonomous_sync(rt)
-
-
 
 
 def build_design_intelligence_client() -> DesignIntelligenceClient:
@@ -406,7 +386,3 @@ def call_remote_billing(
 def quote_remote_task_credits(body: dict[str, Any]) -> dict[str, Any] | None:
     """Optional host credit quote — wire returns credits only."""
     return call_remote_billing("POST", "/billing/quote", json_body=body)
-
-
-# Back-compat alias.
-quote_intelligence_task_credits = quote_remote_task_credits

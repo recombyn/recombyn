@@ -87,7 +87,7 @@ function layoutGeneratorPlateInView(opts: {
   stageEl: HTMLElement;
   natural: { width: number; height: number };
   fit?: { minRatio?: number; maxRatio?: number };
-}): { x: number; y: number; width: number; height: number; debug: Record<string, number> } {
+}): { x: number; y: number; width: number; height: number } {
   const view = opts.stageEl.getBoundingClientRect();
   const zoom = Math.max(0.05, opts.camera.zoom || 1);
   const center = rcbScreenToScene(
@@ -107,32 +107,11 @@ function layoutGeneratorPlateInView(opts: {
     fit: opts.fit,
   });
   const origin = sceneToDocumentCoords(opts.document, laid.left, laid.top);
-  const debug = {
-    zoom,
-    viewW: view.width,
-    viewH: view.height,
-    sceneViewW: view.width / zoom,
-    sceneViewH: view.height / zoom,
-    geomW: laid.width,
-    geomH: laid.height,
-    visualL: laid.visual.left,
-    visualT: laid.visual.top,
-    visualW: laid.visual.width,
-    visualH: laid.visual.height,
-    x: origin.x,
-    y: origin.y,
-    gridSize,
-  };
-  if (typeof window !== 'undefined' && (window as any).__RCB_GENERATOR_PLACE_DEBUG__) {
-    // eslint-disable-next-line no-console
-    console.log('[rcb:generator-place]', debug);
-  }
   return {
     x: origin.x,
     y: origin.y,
     width: laid.width,
     height: laid.height,
-    debug,
   };
 }
 

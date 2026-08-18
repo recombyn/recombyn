@@ -70,7 +70,7 @@ from app.services.wallet.db import (
 
 _log = logging.getLogger(__name__)
 
-# Fallback authorize ceilings if TaskPricing import fails (legacy band).
+# Fallback authorize ceilings if TaskPricing import fails.
 AGENT_HOLD = 30
 PARTIAL_HOLD = 10
 SINGLE_HOLD = 20

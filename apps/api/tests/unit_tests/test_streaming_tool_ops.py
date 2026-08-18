@@ -10,8 +10,8 @@ from app.services.design.ops.tool_ops_contract import (
 
 def test_extract_streaming_complete_ops_from_partial_array():
     partial = (
-        '{"ops":['
-        '{"name":"create_shape","args":{"type":"rect","x":0,"y":0,"width":10,"height":10,"fill":"#fff"}},'
+        '{"tool_ops":['
+        '{"name":"create_shape","args":{"shapeType":"rect","x":0,"y":0,"width":10,"height":10,"fill":"#fff"}},'
         '{"name":"create_text","args":{"text":"hi","x":1,"y":2,"fontSize":12}}'
     )
     ops, seen = extract_streaming_tool_ops(partial)
@@ -24,8 +24,8 @@ def test_extract_streaming_complete_ops_from_partial_array():
 
 def test_extract_streaming_ignores_incomplete_trailing_object():
     partial = (
-        '{"ops":['
-        '{"name":"create_shape","args":{"type":"rect","x":0,"y":0,"width":10,"height":10,"fill":"#fff"}},'
+        '{"tool_ops":['
+        '{"name":"create_shape","args":{"shapeType":"rect","x":0,"y":0,"width":10,"height":10,"fill":"#fff"}},'
         '{"name":"create_text","args":{"text":"hi"'
     )
     ops, _seen = extract_streaming_tool_ops(partial)

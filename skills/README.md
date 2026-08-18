@@ -36,5 +36,4 @@ Design Agent scans (later wins on duplicate `skill_key`):
 
 1. `skills/foundation`
 2. `skills/domains`
-3. `apps/api/seeds/design_skills` (legacy empty shim)
-4. `plugins/skills` (+ `DESIGN_SKILLS_PLUGIN_DIRS`)
+3. `plugins/skills` (+ `DESIGN_SKILLS_PLUGIN_DIRS`)

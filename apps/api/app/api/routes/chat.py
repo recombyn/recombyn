@@ -30,11 +30,9 @@ from app.services.llm.design_tools import design_tool_definitions
 from app.services.llm.usage_log import bind_usage_context
 from app.services.wallet.db import (
     consume_free_daily_quota,
-    get_user_image_credits,
     get_user_plan,
     get_user_tokens,
     is_wallet_billing_enabled,
-    spend_image_credits,
     spend_tokens,
 )
 
@@ -110,19 +108,6 @@ def _charge(user_id: str, amount: int, detail: str) -> None:
         raise HTTPException(status_code=400, detail=str(err)) from err
 
 
-def _charge_image_credits(user_id: str, amount: int, detail: str) -> None:
-    if amount <= 0 or not is_wallet_billing_enabled():
-        return
-    try:
-        spend_image_credits(user_id, amount, detail)
-    except ValueError as err:
-        if str(err) == "insufficient_image_credits":
-            raise HTTPException(status_code=402, detail="Insufficient credits") from err
-        raise HTTPException(status_code=400, detail=str(err)) from err
-
-
-
-
 def _charge_image(
     user_id: str,
     requested_model: str | None,
@@ -146,9 +131,9 @@ def _charge_image(
     if plan == "free":
         mid = _FREE_IMAGE_MODEL
         cost = image_model_credit_cost(mid, count=n, resolution=resolution)
-        bal = get_user_image_credits(user_id)
+        bal = get_user_tokens(user_id)
         if bal >= cost:
-            _charge_image_credits(user_id, cost, "AI image generation")
+            _charge(user_id, cost, "AI image generation")
             return mid, cost
         if consume_free_daily_quota(user_id):
             return mid, 0
@@ -162,7 +147,7 @@ def _charge_image(
         if mid
         else DEFAULT_IMAGE_CREDITS * n
     )
-    _charge_image_credits(user_id, cost, "AI image generation")
+    _charge(user_id, cost, "AI image generation")
     return mid, cost
 
 
@@ -182,7 +167,7 @@ def _charge_video(
         else DEFAULT_IMAGE_CREDITS
     )
     cost = max(DEFAULT_IMAGE_CREDITS, int(cost or DEFAULT_IMAGE_CREDITS))
-    _charge_image_credits(user_id, cost, "AI video generation")
+    _charge(user_id, cost, "AI video generation")
     return requested, cost
 
 
@@ -192,7 +177,7 @@ def _charge_audio(user_id: str, requested_model: str | None) -> tuple[str | None
     if is_desktop_local() or uses_user_platform_byok(user_id, requested):
         return requested, 0
     cost = max(DEFAULT_IMAGE_CREDITS, int(DEFAULT_IMAGE_CREDITS or 1))
-    _charge_image_credits(user_id, cost, "AI audio generation")
+    _charge(user_id, cost, "AI audio generation")
     return requested, cost
 
 
@@ -210,7 +195,7 @@ def get_models(
     platforms_payload = list_byok_platforms()
 
     # Local desktop: no platform catalog (even if machine .env has provider keys).
-    # End users add OpenAI-compatible BYOK in Agent settings; FE merges vault models.
+    # End users add OpenAI-style BYOK in Agent settings; FE merges vault models.
     if is_desktop_local():
         return {
             "models": [],
@@ -221,7 +206,6 @@ def get_models(
             "clientRegion": "local",
             "openrouterAvailable": False,
             "byokPlatforms": platforms_payload,
-            "byokPresets": platforms_payload,
         }
 
     from app.services.geoip import (
@@ -258,7 +242,6 @@ def get_models(
         "clientRegion": country,
         "openrouterAvailable": or_ok,
         "byokPlatforms": platforms_payload,
-        "byokPresets": platforms_payload,
     }
 
 @router.post("/message")

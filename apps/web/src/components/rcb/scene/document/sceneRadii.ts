@@ -469,14 +469,14 @@ export function radiiFromAttrs(attrs: Record<string, unknown> | null | undefined
     attrs?.radiusTR != null ||
     attrs?.radiusBR != null ||
     attrs?.radiusBL != null;
-  // Uniform legacy keys: `radius`, agent/import `cornerRadius`, SVG `rx`/`ry`.
+  // Uniform keys: `radius`, `cornerRadius`, SVG `rx`/`ry`.
   const uniform = num(
     attrs?.radius ?? attrs?.cornerRadius ?? attrs?.rx ?? attrs?.ry,
     NaN
   );
   const stored = parseRadiusVertices(attrs?.radiusVertices);
   // Prefer per-corner attrs whenever present (toolbar / stroke panel).
-  // Fall back to uniform `radius` only for legacy nodes without corner keys.
+  // Fall back to uniform `radius` only when corner keys are absent.
   if (hasCornerAttrs || !linked || !Number.isFinite(uniform)) {
     const fallback = Number.isFinite(uniform)
       ? uniform

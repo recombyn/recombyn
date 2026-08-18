@@ -95,7 +95,7 @@ export type ChatUiMessage = {
   proposedOps?: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
   /** Server-bound Ask proposal id (design_task.meta.ask_proposal). */
   proposalId?: string;
-  /** Ask mode: label of the apply option (compat). */
+  /** Ask mode: label of the apply option. */
   applyChoice?: string;
   /** Ask interaction UI — mode + options; text = freeform reply. */
   choiceUi?: {
@@ -1082,7 +1082,7 @@ export type ExploreItem = {
   tone?: ExploreItemTone;
 };
 
-/** Infer warn/error from copy when emitters did not set tone (legacy rows). */
+/** Infer warn/error from copy when emitters did not set tone. */
 function inferExploreItemTone(text: string): ExploreItemTone {
   const s = String(text || '').toLowerCase();
   if (!s) return 'ok';

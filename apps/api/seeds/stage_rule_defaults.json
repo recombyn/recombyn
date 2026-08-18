@@ -24,7 +24,6 @@
     "agent.attach.place_hint": "User attached {n} image(s) (indices 0..{max_index}). Finished poster/design with baked-in text → STYLE only: do NOT create_image(attachmentIndex) full-bleed (double text). Prefer create_image genPrompt for clean bg/subject. Hero/main title: use create_text+fontFamily only if Available fonts ~≥90% match the ref lettering; else genPrompt + letteringText (transparent bg). Do not map 书法感→catalog calligraphy font. attachmentIndex only for raw photo/product cutouts."
   },
   "descriptions": {
-    "legacy.agent_zero_v3": "Legacy wipe marker v3: rules/skills/flows removed",
     "agent.react.short_plan": "Short plan (extra ReAct round; default off)",
     "agent.react.dual_sample": "Dual sampling (default off)",
     "agent.react.defer_tools": "On-demand tools/skills via need_* (default on)",

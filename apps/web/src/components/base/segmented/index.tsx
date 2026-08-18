@@ -56,14 +56,14 @@ const TRACK_PAD: Record<'xs' | 'sm' | 'md', string> = {
   md: 'p-[3px]',
 };
 
-/** @deprecated Prefer `segmentedTrackClass('xl')` — kept for StylePanelChrome default. */
+/** Track class default for callers that use `xl`. */
 export const SEGMENTED_TRACK = cn(SEGMENTED_TRACK_BASE, TRACK_RADIUS.xl, TRACK_PAD.md);
 
 /** Shared chip chrome without radius. */
 export const SEGMENTED_CHIP_BASE =
   'relative z-[1] flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap font-medium leading-none transition-colors duration-200 outline-none focus-visible:outline-none';
 
-/** @deprecated Prefer `segmentedChipClass('xl')`. */
+/** Chip class default for callers that use `xl`. */
 export const SEGMENTED_CHIP = cn(SEGMENTED_CHIP_BASE, CHIP_RADIUS.xl, 'h-7');
 
 /** Active chip fill lives on the sliding thumb — keep text/shadow tokens here for callers. */
@@ -118,7 +118,7 @@ function SegmentedControlInner<const T extends string = string>({
     // Enable slide only after the first layout pass (avoid animating from 0,0).
     const id = window.requestAnimationFrame(() => setThumbReady(true));
     const track = trackRef.current;
-    if (!track || typeof ResizeObserver === 'undefined') {
+    if (!track) {
       return () => window.cancelAnimationFrame(id);
     }
     const ro = new ResizeObserver(() => measureThumb());

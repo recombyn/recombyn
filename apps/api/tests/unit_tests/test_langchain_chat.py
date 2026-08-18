@@ -96,11 +96,11 @@ def test_thinking_and_usage_helpers():
     }
 
 
-def test_compat_chat_preserves_reasoning_delta():
-    from app.services.llm import LlmEndpoint, _compat_chat_openai_cls
+def test_patched_chat_preserves_reasoning_delta():
+    from app.services.llm import LlmEndpoint, _patched_chat_openai_cls
     from langchain_core.messages import AIMessageChunk
 
-    cls = _compat_chat_openai_cls()
+    cls = _patched_chat_openai_cls()
     llm = cls(
         model="deepseek-chat",
         api_key="sk-test",
@@ -136,7 +136,7 @@ def test_compat_chat_preserves_reasoning_delta():
 
 
 def test_build_chat_model_uses_init_chat_model():
-    from app.services.llm import LlmEndpoint, build_chat_model, _compat_chat_openai_cls
+    from app.services.llm import LlmEndpoint, build_chat_model, _patched_chat_openai_cls
 
     ep = LlmEndpoint(
         base_url="https://example.invalid/v1",
@@ -152,5 +152,5 @@ def test_build_chat_model_uses_init_chat_model():
     )
     # RunnableBinding when callbacks on; bare model when with_usage_callback=False
     bare = getattr(llm, "bound", llm)
-    assert isinstance(bare, _compat_chat_openai_cls())
+    assert isinstance(bare, _patched_chat_openai_cls())
     assert getattr(bare, "_recombyn_catalog_id", None) == "deepseek"

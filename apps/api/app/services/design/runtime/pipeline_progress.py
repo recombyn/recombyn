@@ -51,7 +51,7 @@ class PipelineSseState:
     event_seq: int = 0
 
     def decorate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Attach the stable AgentEvent envelope without changing legacy payloads."""
+        """Attach the stable AgentEvent envelope without changing payload shape."""
         self.remember_task_id(payload)
         self.event_seq += 1
         event_type = str(payload.get("type") or "event")

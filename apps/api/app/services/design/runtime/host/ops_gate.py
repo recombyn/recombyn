@@ -51,27 +51,17 @@ def _validate_ops_payload(
 
 
 def _op_name(op: dict[str, Any]) -> str:
-    return str(op.get("name") or op.get("op_key") or "").strip()
+    return str(op.get("name") or "").strip()
 
 
 def _normalize_ops_payload(raw: Any) -> Any:
-    """Accept op_key / ops aliases before schema validate."""
+    """Pass through a tool_ops list or ``{tool_ops: [...]}`` envelope."""
     if isinstance(raw, list):
-        out = []
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            d = dict(item)
-            if not (d.get("name") or d.get("type") or d.get("op") or d.get("tool")):
-                ok = str(d.get("op_key") or d.get("opKey") or "").strip()
-                if ok:
-                    d["name"] = ok
-            out.append(d)
-        return out
+        return [item for item in raw if isinstance(item, dict)]
     if isinstance(raw, dict):
-        inner = raw.get("ops") or raw.get("tool_ops")
+        inner = raw.get("tool_ops")
         if isinstance(inner, list):
-            return {"ops": _normalize_ops_payload(inner)}
+            return {"tool_ops": _normalize_ops_payload(inner)}
         return raw
     return raw
 

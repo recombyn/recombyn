@@ -9,7 +9,6 @@ You can teach the Design Agent a new category of work with a Skill pack — same
 | `skills/foundation/<key>/` | Shipped core craft (open) |
 | `skills/domains/<key>/` | Shipped surfaces / deliverables (open) |
 | `plugins/skills/<key>/` | Private / self-host extensions (Compose-mounted) |
-| `apps/api/seeds/design_skills/<key>/` | Legacy empty shim (still scanned) |
 
 Do **not** put product skills in `.agents/skills/` — that tree is for Cursor/IDE coding agents only.
 

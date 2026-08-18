@@ -2429,11 +2429,7 @@ function AgentDock({
           canvasUi,
         });
         if (docNow) {
-          try {
-            checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
-          } catch {
-            /* ignore snapshot failure */
-          }
+          checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
         }
         const cwd = await prepareCodingCliWorkspaceDesktop({
           projectId: chatScopeId || '__none__',
@@ -2680,11 +2676,7 @@ function AgentDock({
       nodesPainted: false,
     };
     if (docNow) {
-      try {
-        checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
-      } catch {
-        /* ignore snapshot failure */
-      }
+      checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
     }
 
     dispatch(setAgentBusy(true));
@@ -2713,13 +2705,6 @@ function AgentDock({
       const sendScene = null;
       // Design agent: always Smart — LLM create_frame picks WxH (no CLIENT_SIZE_LOCK).
       const sendCanvasSize = 'auto';
-      console.info('[AgentDock] design send (react p0)', {
-        scene: sendScene,
-        canvasSize: sendCanvasSize,
-        chip: chipNorm,
-        nodes: sceneNodes.length,
-        frames: sceneFrames.length,
-      });
       const onDesignEvent = createDesignAgentEventRouter({
         t,
         assistantId,

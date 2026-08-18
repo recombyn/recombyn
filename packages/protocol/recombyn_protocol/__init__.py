@@ -17,7 +17,6 @@ from recombyn_protocol.billing import (
     BillingEventKind,
     BillingEventSchema,
     BillingMeterSchema,
-    BillingProviderProtocol,
     BudgetCheckSchema,
     BudgetPolicySchema,
     BudgetSchema,
@@ -81,7 +80,6 @@ from recombyn_protocol.design_flow import (
 from recombyn_protocol.intelligence import (
     AUTONOMOUS_HOPS,
     GOVERNANCE_LANES,
-    INTELLIGENCE_METHOD_ALIASES,
     INTELLIGENCE_METHODS,
     INTELLIGENCE_REQUEST_FIELDS,
     TOURNAMENT_DIMS,
@@ -90,7 +88,6 @@ from recombyn_protocol.intelligence import (
     DesignGovernanceSchema,
     GovernanceLaneResultSchema,
     intelligence_wire_methods,
-    normalize_intelligence_method,
     remote_result_usable,
 )
 from recombyn_protocol.paint import (
@@ -141,7 +138,6 @@ __all__ = [
     "DESIGN_BRIEF_P0_FIELDS",
     "DESIGN_BRIEF_P1_FIELDS",
     "GOVERNANCE_LANES",
-    "INTELLIGENCE_METHOD_ALIASES",
     "INTELLIGENCE_METHODS",
     "INTELLIGENCE_REQUEST_FIELDS",
     "MULTI_REVIEW_LANES",
@@ -150,7 +146,6 @@ __all__ = [
     "BillingEventKind",
     "BillingEventSchema",
     "BillingMeterSchema",
-    "BillingProviderProtocol",
     "BudgetCheckSchema",
     "BudgetPolicySchema",
     "BudgetSchema",
@@ -252,7 +247,6 @@ __all__ = [
     "intelligence_wire_methods",
     "merge_nested_op_args",
     "new_design_transaction",
-    "normalize_intelligence_method",
     "paint_op_name",
     "remote_result_usable",
     "resolve_transaction_phase",

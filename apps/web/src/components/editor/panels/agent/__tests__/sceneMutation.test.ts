@@ -66,12 +66,12 @@ describe('Scene Mutation Pipeline', () => {
       currentRevision: 42,
     });
     expect(ok.ok).toBe(true);
-    const legacy = sceneMutationRevision({
+    const prior = sceneMutationRevision({
       source: 'ai',
       baseRevision: 0,
       currentRevision: 5,
     });
-    expect(legacy.ok).toBe(true);
+    expect(prior.ok).toBe(true);
   });
 
   it('gateSceneMutation runs validate → permission → revision in order', () => {

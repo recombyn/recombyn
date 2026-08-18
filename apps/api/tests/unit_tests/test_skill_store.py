@@ -7,7 +7,6 @@ from app.services.design.prompts.skill_store import (
     NS_EXT,
     NS_USER,
     SOURCE_ADMIN,
-    SOURCE_SEED,
     _apply_mutex,
     _load_file_skills,
     _rule_matches,
@@ -195,14 +194,13 @@ def test_parse_pack_version_semver():
 
 
 def test_source_constants():
-    assert SOURCE_SEED == "seed"
     assert SOURCE_ADMIN == "admin"
 
 
 def test_namespace_split_and_qualify(monkeypatch):
-    assert split_namespace_key("core.legacy_key") == (NS_CORE, "legacy_key")
+    assert split_namespace_key("core.sample_key") == (NS_CORE, "sample_key")
     assert split_namespace_key("user:my_brand") == (NS_USER, "my_brand")
-    assert qualify_skill_key(NS_CORE, "legacy_key") == "legacy_key"
+    assert qualify_skill_key(NS_CORE, "sample_key") == "sample_key"
     assert qualify_skill_key(NS_USER, "my_brand") == "user.my_brand"
     assert resolve_storage_skill_key("poster_craft") == "poster_craft"
     # Patch the runtime module binding (resolve_storage_skill_key calls it in-file).
@@ -274,7 +272,7 @@ def test_hot_reload_signature_stable():
 
 
 def test_file_pack_sync_overwrites_body_from_disk():
-    """SOURCE_FILE skills follow seeds/design_skills on ensure (file wins)."""
+    """SOURCE_FILE skills follow disk packs on ensure (file wins)."""
     from sqlmodel import Session
 
     from app.core import db as core_db
@@ -301,49 +299,6 @@ def test_file_pack_sync_overwrites_body_from_disk():
         assert got != "OPS_CUSTOM_BODY_SHOULD_BE_OVERWRITTEN"
         assert "Workflow" in got or "Layer order" in got or "poster" in got.lower()
 
-
-def test_obsolete_seed_skills_pruned():
-    """Legacy SOURCE_SEED rows are deleted on ensure (file packs only)."""
-    from sqlmodel import Session
-
-    from app.core import db as core_db
-    from app.models import DesignSkill
-
-    with Session(core_db.engine) as session:
-        existing = crud.get_design_skill_by_key(
-            session=session, skill_key="design_methodology"
-        )
-        if existing is None:
-            session.add(
-                DesignSkill(
-                    skill_key="design_methodology",
-                    name="legacy",
-                    category="create",
-                    prompt_positive="obsolete body",
-                    source=SOURCE_SEED,
-                    namespace=NS_CORE,
-                    enabled=1,
-                    version=1,
-                    created_at=0.0,
-                    updated_at=0.0,
-                )
-            )
-            session.commit()
-        else:
-            existing.source = SOURCE_SEED
-            existing.namespace = NS_CORE
-            existing.prompt_positive = "obsolete body"
-            session.add(existing)
-            session.commit()
-
-    reset_skills_ready_for_tests()
-    ensure_design_skills(force=True)
-
-    with Session(core_db.engine) as session:
-        row = crud.get_design_skill_by_key(
-            session=session, skill_key="design_methodology"
-        )
-        assert row is None
 
 
 def test_agent_skills_frontmatter_split_and_meta():

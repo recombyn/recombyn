@@ -7,6 +7,8 @@ and re-exports usability for existing ``recombyn_runtime`` imports.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from recombyn_protocol.intelligence import remote_result_usable
@@ -48,6 +50,35 @@ def _painted(rt: Any) -> bool:
     return bool(flag) if flag is not None else False
 
 
+_METHOD_CONTEXT: dict[str, tuple[str, ...]] = {
+    "analyze_reference": ("reference_dna", "reference_analyze", "reference_lock"),
+    "retrieve_memory": ("memory_notes",),
+    "research": ("reference_dna", "reference_analyze", "memory_notes", "design_research"),
+    "strategy": ("design_brief", "design_research", "reference_lock"),
+    "propose_candidates": ("design_brief", "design_research", "design_strategy"),
+    "tournament": ("design_research", "design_strategy", "design_candidates"),
+    "swarm_direction": ("design_research", "design_strategy", "design_tournament"),
+    "simulate": ("design_research", "design_strategy", "design_swarm", "observe_facts"),
+    "counterfactual": ("design_research", "design_strategy", "design_simulation", "observe_facts"),
+    "review": ("design_brief", "design_strategy", "design_simulation", "design_counterfactual", "observe_facts", "judge_verdict"),
+    "optimize": ("design_strategy", "design_simulation", "design_counterfactual"),
+    "govern": ("design_brief", "design_strategy", "observe_facts", "judge_verdict", "visual_diff"),
+    "autonomous_plan": ("design_brief",),
+    "autonomous_sync": ("design_brief", "design_research", "design_strategy", "design_candidates", "design_tournament", "design_swarm", "design_simulation", "design_counterfactual", "design_governance", "autonomous_art_director", "observe_facts"),
+    "write_principle": ("design_research", "design_strategy", "design_governance"),
+}
+
+
+def _run_id(rt: Any) -> str:
+    run = getattr(rt, "run", None)
+    return str(
+        getattr(run, "task_id", "")
+        or getattr(run, "trace_id", "")
+        or getattr(rt, "task_id", "")
+        or ""
+    ).strip()
+
+
 def build_intelligence_request(method: str, rt: Any) -> dict[str, Any]:
     """JSON body for ``POST {base}/v1/{method}`` (RemoteIntelligenceProvider)."""
     flags = getattr(rt, "flags", None)
@@ -62,52 +93,44 @@ def build_intelligence_request(method: str, rt: Any) -> dict[str, Any]:
     ops = getattr(rt, "apply_ops", None)
     apply_ops = list(ops) if isinstance(ops, list) else []
 
-    return {
-        "method": str(method or "").strip(),
+    canonical = str(method or "").strip()
+    values: dict[str, Any] = {
+        "design_brief": brief,
+        "design_research": _as_dict(getattr(rt, "design_research", None)) or _as_dict(_flag(rt, "design_research")),
+        "design_strategy": _as_dict(getattr(rt, "design_strategy", None)) or _as_dict(_flag(rt, "design_strategy")),
+        "design_candidates": _as_dict(getattr(rt, "design_candidates", None)) or _as_dict(_flag(rt, "design_candidates")),
+        "design_tournament": _as_dict(getattr(rt, "design_tournament", None)) or _as_dict(_flag(rt, "design_tournament")),
+        "design_swarm": _as_dict(getattr(rt, "design_swarm", None)) or _as_dict(_flag(rt, "design_swarm")),
+        "design_simulation": _as_dict(getattr(rt, "design_simulation", None)) or _as_dict(_flag(rt, "design_simulation")),
+        "design_counterfactual": _as_dict(getattr(rt, "design_counterfactual", None)) or _as_dict(_flag(rt, "design_counterfactual")),
+        "design_governance": _as_dict(getattr(rt, "design_governance", None)) or _as_dict(_flag(rt, "design_governance")),
+        "autonomous_art_director": _as_dict(getattr(rt, "autonomous_art_director", None)) or _as_dict(_flag(rt, "autonomous_art_director")),
+        "reference_dna": _as_dict(getattr(rt, "reference_dna", None)) or _as_dict(_flag(rt, "reference_dna")),
+        "reference_analyze": _as_dict(getattr(rt, "reference_analyze", None)) or _as_dict(_flag(rt, "reference_analyze")),
+        "reference_lock": _as_dict(getattr(rt, "reference_lock", None)) or _as_dict(_flag(rt, "reference_lock")),
+        "observe_facts": _as_dict(getattr(rt, "observe_facts", None)) or _as_dict(_flag(rt, "observe_facts")),
+        "judge_verdict": _as_dict(getattr(rt, "judge_verdict", None)) or _as_dict(_flag(rt, "judge_verdict")),
+        "visual_diff": _as_dict(_flag(rt, "visual_diff")),
+        "memory_notes": list(_flag(rt, "memory_notes") or []) if isinstance(_flag(rt, "memory_notes"), list) else [],
+    }
+    body: dict[str, Any] = {
+        "method": canonical,
+        "run_id": _run_id(rt),
         "prompt": str(getattr(rt, "prompt", "") or ""),
         "scene_key": str(getattr(rt, "scene_key", "") or ""),
         "intent": str(getattr(rt, "classified_intent", "") or ""),
-        "flags": flag_map,
-        "images": _images(rt),
-        "painted": _painted(rt),
-        "knowledge_written": bool(_flag(rt, "knowledge_written")),
-        "design_brief": brief,
-        "design_research": _as_dict(getattr(rt, "design_research", None))
-        or _as_dict(_flag(rt, "design_research")),
-        "design_strategy": _as_dict(getattr(rt, "design_strategy", None))
-        or _as_dict(_flag(rt, "design_strategy")),
-        "design_candidates": _as_dict(getattr(rt, "design_candidates", None))
-        or _as_dict(_flag(rt, "design_candidates")),
-        "design_tournament": _as_dict(getattr(rt, "design_tournament", None))
-        or _as_dict(_flag(rt, "design_tournament")),
-        "design_swarm": _as_dict(getattr(rt, "design_swarm", None))
-        or _as_dict(_flag(rt, "design_swarm")),
-        "design_simulation": _as_dict(getattr(rt, "design_simulation", None))
-        or _as_dict(_flag(rt, "design_simulation")),
-        "design_counterfactual": _as_dict(getattr(rt, "design_counterfactual", None))
-        or _as_dict(_flag(rt, "design_counterfactual")),
-        "design_governance": _as_dict(getattr(rt, "design_governance", None))
-        or _as_dict(_flag(rt, "design_governance")),
-        "autonomous_art_director": _as_dict(
-            getattr(rt, "autonomous_art_director", None)
-        )
-        or _as_dict(_flag(rt, "autonomous_art_director")),
-        "reference_dna": _as_dict(getattr(rt, "reference_dna", None))
-        or _as_dict(_flag(rt, "reference_dna")),
-        "reference_analyze": _as_dict(getattr(rt, "reference_analyze", None))
-        or _as_dict(_flag(rt, "reference_analyze")),
-        "reference_lock": _as_dict(getattr(rt, "reference_lock", None))
-        or _as_dict(_flag(rt, "reference_lock")),
-        "observe_facts": _as_dict(getattr(rt, "observe_facts", None))
-        or _as_dict(_flag(rt, "observe_facts")),
-        "visual_diff": _as_dict(_flag(rt, "visual_diff")),
-        "judge_verdict": _as_dict(getattr(rt, "judge_verdict", None))
-        or _as_dict(_flag(rt, "judge_verdict")),
-        "eval_patterns": list(_flag(rt, "eval_failure_patterns", "skill_failures") or [])
-        if isinstance(_flag(rt, "eval_failure_patterns", "skill_failures"), list)
-        else [],
-        "memory_notes": list(_flag(rt, "memory_notes") or [])
-        if isinstance(_flag(rt, "memory_notes"), list)
-        else [],
-        "apply_ops": apply_ops[:80],
+        "flags": {
+            key: flag_map[key]
+            for key in ("force_autonomous", "knowledge_written", "eval_failure_patterns")
+            if key in flag_map
+        },
+        "images": _images(rt) if canonical in {"analyze_reference", "research", "review"} else [],
+        "painted": _painted(rt) if canonical in {"autonomous_sync", "review", "govern"} else False,
+        "knowledge_written": bool(_flag(rt, "knowledge_written")) if canonical in {"autonomous_sync", "write_principle"} else False,
+        "apply_ops": apply_ops[:80] if canonical in {"govern", "review"} else [],
     }
+    for key in _METHOD_CONTEXT.get(canonical, ()):
+        body[key] = values.get(key)
+    digest = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    body["input_hash"] = hashlib.sha256(digest.encode("utf-8")).hexdigest()[:32]
+    return body

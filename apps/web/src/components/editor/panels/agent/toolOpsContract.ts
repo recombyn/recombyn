@@ -72,14 +72,14 @@ function tryParseJson(text: string): unknown | null {
 function coerceRawOp(raw: unknown): AgentToolOp | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
-  const name = String(row.name || row.tool || row.type || row.op || '').trim();
+  const name = String(row.name || '').trim();
   if (!name) return null;
-  const argsRaw = row.args ?? row.parameters ?? row.arguments;
+  const argsRaw = row.args;
   const args =
     argsRaw && typeof argsRaw === 'object' && !Array.isArray(argsRaw)
       ? { ...(argsRaw as Record<string, unknown>) }
       : {};
-  const op_id = String(row.op_id || row.opId || args.op_id || '').trim() || undefined;
+  const op_id = String(row.op_id || args.op_id || '').trim() || undefined;
   if (op_id) args.op_id = op_id;
   return { name, args, ...(op_id ? { op_id } : {}) };
 }
@@ -91,12 +91,11 @@ function coerceOpsPayload(data: unknown): AgentToolOp[] {
   }
   if (typeof data !== 'object') return [];
   const obj = data as Record<string, unknown>;
-  const list = obj.ops ?? obj.tools ?? obj.actions ?? obj.tool_ops;
+  const list = obj.tool_ops;
   if (Array.isArray(list)) {
     return list.map(coerceRawOp).filter((x): x is AgentToolOp => Boolean(x));
   }
-  const single = coerceRawOp(obj);
-  return single ? [single] : [];
+  return [];
 }
 
 /** Pull canvas tool_ops from coding-CLI / LLM prose (fenced JSON or embedded object). */
@@ -112,7 +111,7 @@ export function extractToolOpsFromText(text: string): AgentToolOp[] {
     if (ops.length) return ops;
   }
 
-  const marker = raw.search(/\{\s*"(?:ops|tools|actions|tool_ops)"\s*:/);
+  const marker = raw.search(/\{\s*"tool_ops"\s*:/);
   if (marker >= 0) {
     const slice = raw.slice(marker);
     const end = slice.lastIndexOf('}');

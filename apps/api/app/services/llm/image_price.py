@@ -79,9 +79,6 @@ def estimate_openrouter_output_tokens(
     return int(_GEMINI_OUTPUT_TOKENS.get(res, _GEMINI_OUTPUT_TOKENS[DEFAULT_IMAGE_RESOLUTION]))
 
 
-# Back-compat alias used by price_sync.
-estimate_output_image_tokens = estimate_openrouter_output_tokens
-
 
 def price_by_resolution_map(meta: dict[str, Any] | None) -> dict[str, float]:
     if not isinstance(meta, dict):

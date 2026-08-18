@@ -80,18 +80,13 @@ def _image_data_url(data: bytes, mime: str) -> str:
 
 
 def _normalize_asset_url(url: str | None, object_key: str | None) -> str:
-    """Rewrite legacy bare storage keys so FE can hydrate via /uploads/files."""
+    """Normalize storage URL fields for FE."""
     raw = (url or "").strip()
     key = (object_key or "").replace("\\", "/").lstrip("/")
     if not raw and key:
         return _display_url(key)
     if raw.startswith(("http://", "https://", "data:", "/")):
         return raw
-    # Local storage.url_for used to return the bare key (assets/…, uploads/…).
-    if key and (raw == key or raw.startswith(("assets/", "uploads/", "projects/", "font-tasks/"))):
-        return _display_url(key)
-    if raw.startswith(("assets/", "uploads/", "projects/", "font-tasks/")):
-        return _display_url(raw)
     return raw
 
 

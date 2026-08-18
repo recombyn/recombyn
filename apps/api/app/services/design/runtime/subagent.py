@@ -218,7 +218,7 @@ def resolve_auto_need_subagents(
     """Pass-through for declared need_subagents (no auto scout/research).
 
     Ref look + design_brief synthesis belong to Decide. Review is a graph fork,
-    not an auto Decide spawn. ``profile`` / canvas flags kept for call-site compat.
+    not an auto Decide spawn. ``profile`` / canvas flags remain pass-through.
     """
     _ = (profile, has_images, empty_canvas, intent, prompt_chars, already)
     return list(existing or [])

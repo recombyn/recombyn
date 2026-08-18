@@ -512,7 +512,7 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
               radiusBL: Math.max(0, Math.round(next.bl) || 0),
               radiusLinked: next.linked ? 'true' : 'false',
               radiusVertices: serializeRadiusVertices(vertices),
-              // Keep legacy aliases in sync for inventory / import paths.
+              // Keep radius aliases in sync for inventory / import paths.
               radius: Math.max(
                 0,
                 Math.round(Math.max(next.tl, next.tr, next.br, next.bl) || 0)

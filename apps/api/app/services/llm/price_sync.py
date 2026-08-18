@@ -18,7 +18,7 @@ from app.services.llm.image_price import (
     DEFAULT_IMAGE_RESOLUTION,
     build_token_price_by_resolution_cny,
     default_gemini_token_by_resolution,
-    estimate_output_image_tokens,
+    estimate_openrouter_output_tokens,
 )
 
 # Align with usage_log OpenRouter USD→CNY for admin P&L.
@@ -207,7 +207,7 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
                 price_str = _fmt_cny(base_cny, digits=4)
                 unit = "output_image_token"
                 usd_raw = usd_tok
-                base_tok = estimate_output_image_tokens(
+                base_tok = estimate_openrouter_output_tokens(
                     DEFAULT_IMAGE_RESOLUTION, token_by_resolution=tok_map
                 )
                 price_meta = {

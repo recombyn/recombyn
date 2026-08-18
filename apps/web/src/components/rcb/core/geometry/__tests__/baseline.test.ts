@@ -85,7 +85,7 @@ describe('advanceEllipseArcAlong', () => {
     expect(d).toContain('A 20 20 0 0 0');
   });
 
-  it('preserves a legacy reverse arc direction without selecting a new direction mid-drag', async () => {
+  it('preserves reverse arc direction without selecting a new direction mid-drag', async () => {
     const { advanceEllipseArcAlong, ellipseArcPercentFromAlongRad } = await import(
       '@/components/rcb/scene/document/sceneShapes'
     );

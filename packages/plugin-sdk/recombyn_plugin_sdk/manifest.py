@@ -6,7 +6,6 @@ import re
 from typing import Any
 
 FORMAT_NAME = "recombyn-plugin"
-FORMAT = FORMAT_NAME  # alias
 PLUGIN_JSON = "plugin.json"
 PLUGIN_SIG = "plugin.sig"
 KINDS = frozenset({"skill", "canvas"})

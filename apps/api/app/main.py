@@ -65,7 +65,7 @@ except Exception:
     pass
 for _name in (
     "services.design.runtime.orchestrator",
-    "services.design.runtime.agent_controller",
+    "services.design.runtime.graph.build",
     "services.design.runtime.llm_step",
     "design.run_api",
     "design.llm_step",

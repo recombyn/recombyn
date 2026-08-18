@@ -106,13 +106,13 @@ describe('AIOperationQueue', () => {
     expect(aiQueueAckStatus(q)).toBe('rollback');
   });
 
-  it('legacy tool_ops without begin still enqueue (implicit open)', () => {
+    it('implicit-open tool_ops without begin still enqueue', () => {
     const q = createAiOperationQueue();
-    expect(aiQueueEnqueue(q, [op('legacy')])).toBe(true);
+    expect(aiQueueEnqueue(q, [op('implicit')])).toBe(true);
     expect(q.status).toBe('open');
     aiQueueBindTransaction(q, 'tx_late');
     expect(q.transactionId).toBe('tx_late');
-    expect(aiQueueTakeChunk(q)?.[0]?.op_id).toBe('legacy');
+    expect(aiQueueTakeChunk(q)?.[0]?.op_id).toBe('implicit');
   });
 
   it('commit racing ahead of drain does not drop pending chunks', () => {

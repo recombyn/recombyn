@@ -6,13 +6,9 @@ from unittest.mock import MagicMock
 
 from langgraph.types import Command
 
-from app.services.design.runtime.agent_controller import (
-    AgentRunState,
-    AgentRuntime,
+from app.services.design.runtime.graph.build import (
     _bind_design_hold_fns,
     _build_lc_design_graph,
-    _bump,
-    _commit,
     _design_refund_hold_fn,
     _design_settle_hold_fn,
     _design_thread_id,
@@ -20,6 +16,8 @@ from app.services.design.runtime.agent_controller import (
     _unbind_design_hold_fns,
     invalidate_agent_graph_cache,
 )
+from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime
+from app.services.design.runtime.graph.support import _bump, _commit
 from app.services.design.runtime.decision_log import DesignRunDecision
 from app.services.design.runtime.flow_runtime import choose_outgoing_edges, eval_edge_condition
 
@@ -128,8 +126,8 @@ def test_design_hold_fns_bound_outside_checkpoint_state():
         serde = JsonPlusSerializer(
             pickle_fallback=False,
             allowed_msgpack_modules=[
-                ("app.services.design.runtime.agent_controller", "AgentRuntime"),
-                ("app.services.design.runtime.agent_controller", "AgentRunState"),
+                ("app.services.design.runtime.graph.state", "AgentRuntime"),
+                ("app.services.design.runtime.graph.state", "AgentRunState"),
                 ("app.services.design.runtime.decision_log", "DesignRunDecision"),
             ],
         )

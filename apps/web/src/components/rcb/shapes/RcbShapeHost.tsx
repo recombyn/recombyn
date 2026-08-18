@@ -27,20 +27,6 @@ import {
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-function hostJumpLog(event: string, data: Record<string, unknown> = {}) {
-  if (!import.meta.env.DEV) return;
-  const row = { event, t: Math.round(performance.now()), ...data };
-  const w = window as Window & {
-    __rcbJumpLog?: unknown[];
-    __rcbJumpDump?: () => string;
-  };
-  if (!Array.isArray(w.__rcbJumpLog)) w.__rcbJumpLog = [];
-  w.__rcbJumpLog.push(row);
-  if (w.__rcbJumpLog.length > 300) w.__rcbJumpLog.splice(0, w.__rcbJumpLog.length - 300);
-  w.__rcbJumpDump = () => JSON.stringify(w.__rcbJumpLog, null, 2);
-  console.info(JSON.stringify(row));
-}
-
 type Props = {
   nodeId: string;
   document: SceneDocument;
@@ -260,7 +246,6 @@ function RcbShapeHost({
 
     return () => {
       cancelled = true;
-      hostJumpLog('host.unmount', { nodeId, paintToken: String(paintToken).slice(0, 120) });
       unregisterShapeHost(nodeId);
       try {
         layer.remove();

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from langgraph.types import Command
@@ -131,6 +132,59 @@ async def _load_turn_resources(rt: AgentRuntime) -> None:
     await load_deferred_resources(rt, rt.turn)
 
 
+@dataclass(frozen=True)
+class IntelligenceTaskProfile:
+    """Explicit budget for the intelligence layer on one user turn."""
+
+    route: str
+    foundation: tuple[str, ...]
+    hops: tuple[str, ...]
+    review: bool
+    write_principle: bool
+
+
+def _normalized_intensity(intensity: str | None) -> str:
+    value = str(intensity or "medium").strip().lower().replace("_", "-")
+    aliases = {"low": "light", "mid": "medium", "max": "extreme"}
+    return aliases.get(value, value)
+
+
+def intelligence_task_profile(rt: AgentRuntime) -> IntelligenceTaskProfile:
+    """Choose intelligence depth from intent and explicit quality demand.
+
+    Canvas edits are deterministic work. They must not pay for design research
+    unless the user actually asks for a design direction or supplies a brief.
+    """
+    intent = str(
+        getattr(rt, "classified_intent", "")
+        or getattr(getattr(rt, "run", None), "intent", "")
+        or ""
+    ).strip().lower()
+    intensity = _normalized_intensity((rt.flags or {}).get("design_intensity"))
+    quality = str((rt.flags or {}).get("design_quality") or "standard").strip().lower()
+    design_requested = _requires_design_brief(rt, intent)
+    explicit_quality = quality in {"high", "strict", "professional"}
+    if not design_requested and not explicit_quality:
+        return IntelligenceTaskProfile("direct", (), (), False, False)
+
+    hops, write_principle = intel_hops_for_intensity(intensity)
+    review = intensity in {"high", "extreme"} or explicit_quality
+    foundation = ("analyze_reference",) if intensity == "light" and rt.images else (
+        "analyze_reference",
+        "retrieve_memory",
+        "autonomous_plan",
+    )
+    if intensity == "light":
+        hops = ()
+    return IntelligenceTaskProfile(
+        "design" if design_requested else "quality",
+        foundation,
+        tuple(hops),
+        review,
+        write_principle and design_requested,
+    )
+
+
 def intel_hops_for_intensity(intensity: str | None) -> tuple[list[str], bool]:
     """Map design_intensity → optional Intelligence hops + principle write.
 
@@ -138,7 +192,7 @@ def intel_hops_for_intensity(intensity: str | None) -> tuple[list[str], bool]:
     then these hops, then review / optimize / autonomous_sync, then write_principle
     when the second return is True.
     """
-    level = str(intensity or "medium").strip().lower().replace("_", "-")
+    level = _normalized_intensity(intensity)
     if level in ("light", "low"):
         return [], False
     if level in ("medium", "mid", ""):
@@ -524,43 +578,49 @@ async def _node_design_agent(state: GraphState) -> Command:
     rt.last_reason = reason
     from app.services.design.intelligence_runtime import get_design_intelligence_client
 
-    intel = get_design_intelligence_client()
-    await intel.analyze_reference(rt)
-    await intel.retrieve_memory(rt)
-    await intel.autonomous_plan(rt)
+    profile = intelligence_task_profile(rt)
+    rt.flags["intelligence_route"] = profile.route
+    rt.flags["intelligence_hops"] = list(profile.hops)
+    if profile.foundation:
+        intel = get_design_intelligence_client()
+        foundation_runners = {
+            "analyze_reference": intel.analyze_reference,
+            "retrieve_memory": intel.retrieve_memory,
+            "autonomous_plan": intel.autonomous_plan,
+        }
+        for step in profile.foundation:
+            runner = foundation_runners.get(step)
+            if runner is not None:
+                await runner(rt)
+    else:
+        intel = None
 
-    # Design intensity → Intelligence depth (not model thinking effort).
-    # light: ref+memory+plan only
-    # medium: + research/strategy
-    # high: + candidates/tournament/swarm
-    # extreme: + simulate/counterfactual + principle write
-    intensity = str((rt.flags or {}).get("design_intensity") or "medium").strip().lower()
-    hops, write_principle = intel_hops_for_intensity(intensity)
-    hop_runners = {
-        "research": intel.research,
-        "strategy": intel.strategy,
-        "propose_candidates": intel.propose_candidates,
-        "tournament": intel.tournament,
-        "swarm_direction": intel.swarm_direction,
-        "simulate": intel.simulate,
-        "counterfactual": intel.counterfactual,
-    }
-    for hop in hops:
-        runner = hop_runners.get(hop)
+    hop_runners = {}
+    if intel is not None:
+        hop_runners = {
+            "research": intel.research,
+            "strategy": intel.strategy,
+            "propose_candidates": intel.propose_candidates,
+            "tournament": intel.tournament,
+            "swarm_direction": intel.swarm_direction,
+            "simulate": intel.simulate,
+            "counterfactual": intel.counterfactual,
+        }
+    for hop in profile.hops:
+        runner = hop_runners.get(hop) if intel is not None else None
         if runner is not None:
             await runner(rt)
 
     # Review/optimization are expensive and may trigger another design loop.
     # Keep them for explicit quality work or high-risk, multi-stage creation.
-    quality = str((rt.flags or {}).get("design_quality") or "standard").strip().lower()
-    review_required = intensity in {"high", "extreme", "max"} or quality in {"high", "strict"}
-    if review_required:
+    if profile.review and intel is not None:
         await intel.review(rt)
         await intel.optimize(rt)
-    await intel.autonomous_sync(rt)
-    if write_principle:
+    if "autonomous_plan" in profile.foundation and intel is not None:
+        await intel.autonomous_sync(rt)
+    if profile.write_principle and intel is not None:
         await intel.write_principle(rt)
-    intel_suffix = _intel_prompt_suffix(rt)
+    intel_suffix = _intel_prompt_suffix(rt) if profile.foundation else ""
 
     for _round in range(max_rounds):
         round_i = st.round

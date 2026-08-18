@@ -5,6 +5,7 @@ import type { Dispatch } from '@reduxjs/toolkit';
 import {
   addNodeToDocument,
   patchDeltaSetLike,
+  reconcileStackOrder,
   updateNodesInDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
@@ -302,16 +303,8 @@ function applyNodeFrameBindings(
     const order = Array.isArray(next?.stackOrder) ? next.stackOrder.map(String) : [];
     const remaining = order.filter((key) => !detachedKeys.has(key));
     next = { ...next, stackOrder: [...remaining, ...detachedIds.map((id) => `node:${id}`)] };
-    console.warn('[frame-binding-detached]', JSON.stringify({
-      nodeIds: detachedIds,
-      nodes: detachedIds.map((id) => ({
-        nodeId: id,
-        frameId: next.deltaSetLike?.[id]?.attrs?.frameId,
-        frameOrder: next.deltaSetLike?.[id]?.attrs?.frameOrder,
-      })),
-      stackTail: next.stackOrder?.slice(-detachedIds.length),
-    }, null, 2));
   }
+  reconcileStackOrder(next);
   return next;
 }
 
@@ -748,14 +741,6 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         // Persist detachment immediately so the next render cannot restore the
         // old Redux snapshot and make the artboard drag the node again.
         deps.dispatch(setDocumentFromCanvas(next));
-        console.warn('[frame-binding-persist]', JSON.stringify({
-          nodeIds: [...detachedNodeIds],
-          nodes: [...detachedNodeIds].map((id) => ({
-            nodeId: id,
-            frameId: next.deltaSetLike?.[id]?.attrs?.frameId,
-            frameOrder: next.deltaSetLike?.[id]?.attrs?.frameOrder,
-          })),
-        }, null, 2));
         detachedNodeIds.clear();
       }
     }

@@ -39,7 +39,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 | AI 模型入口 | In-process façade (`get_llm_endpoint` / `build_chat_model`) |
 | 异步任务 | Celery worker sharing the API codebase (hydrate / export / image) |
 | 协同 | `apps/collab` WebSocket process |
-| 扩展（Skill） | File packs: `seeds/design_skills` + `plugins/skills` ([ADR 0013](../adr/0013-skill-extensions.md)) |
+| 扩展（Skill） | File packs: `skills/foundation|domains` + `plugins/skills` ([ADR 0013](../adr/0013-skill-extensions.md)) |
 | 扩展（Canvas） | Toolbar plugins: `plugins/canvas` ([ADR 0014](../adr/0014-canvas-plugins.md)) |
 
 → See [ADR 0004](../adr/0004-modular-monolith-first.md).
@@ -59,7 +59,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 | 关系库 | SQLite / MySQL via settings | Document HA as ops guide; shard only with metrics |
 | 任务与协同缓存 | Job store + collab wait | Cache hot project meta; no premature cluster |
 | 协同日志独立 | Collab room vs project DB | ADR when splitting durable collab persistence |
-| 对象存储 | S3-compatible hooks | Default path for uploads in prod compose |
+| 对象存储 | S3-style hooks | Default path for uploads in prod compose |
 | 向量库检索 | Optional memory extra | Keep optional; not core path |
 | 配置中心 | env / Settings | Stay env-based until multi-cluster |
 

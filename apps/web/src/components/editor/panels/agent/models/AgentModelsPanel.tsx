@@ -1,5 +1,5 @@
 /**
- * Account Agent tab: Auto routing prefs + custom OpenAI-compatible providers (Pro).
+ * Account Agent tab: Auto routing prefs + custom OpenAI-style providers (Pro).
  */
 
 import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
@@ -367,9 +367,7 @@ function AgentModelsPanel({
     if (!modelsQuery.isFetched) return;
     const res = modelsQuery.data as ChatModelsResponse | undefined;
     if (res) {
-      const plat = res.byokPlatforms?.length
-        ? res.byokPlatforms
-        : (res.byokPresets as ByokPlatform[] | undefined) ?? [];
+      const plat = res.byokPlatforms ?? [];
       setPlatforms(
         plat.map((p) => ({
           ...p,

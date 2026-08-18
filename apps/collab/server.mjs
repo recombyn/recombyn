@@ -49,13 +49,8 @@ async function maybeStartOtel() {
         : undefined,
     });
     sdk.start();
-    console.info('[collab] OpenTelemetry enabled', { service, endpoint: endpoint || 'noop' });
     return sdk;
-  } catch (err) {
-    console.warn(
-      '[collab] OTel enabled but packages missing — npm i @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/semantic-conventions',
-      err?.message || err
-    );
+  } catch {
     return null;
   }
 }
@@ -215,7 +210,7 @@ function messageListener(conn, doc, message, readOnly) {
         break;
     }
   } catch (err) {
-    console.error('[collab] message error', err);
+    closeConn(doc, conn);
   }
 }
 
@@ -292,8 +287,7 @@ server.on('upgrade', (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req, claims);
     });
-  } catch (err) {
-    console.error('[collab] upgrade error', err);
+  } catch {
     socket.destroy();
   }
 });
@@ -301,17 +295,10 @@ server.on('upgrade', (req, socket, head) => {
 wss.on('connection', (ws, req, claims) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const docName = decodeURIComponent(url.pathname.replace(/^\//, '').split('/')[0] || '');
-  console.info('[collab] join', {
-    room: docName,
-    userId: claims.userId,
-    role: claims.role,
-  });
   setupWSConnection(ws, req, {
     docName,
     readOnly: claims.role === 'view',
   });
 });
 
-server.listen(PORT, HOST, () => {
-  console.info(`[collab] listening ws://${HOST}:${PORT}`);
-});
+server.listen(PORT, HOST);

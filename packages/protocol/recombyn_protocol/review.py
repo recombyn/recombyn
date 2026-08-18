@@ -239,25 +239,6 @@ class ReviewIssueSchema(BaseModel):
 
     model_config = {"extra": "allow"}
 
-    @model_validator(mode="before")
-    @classmethod
-    def _repair_aliases(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        d = dict(data)
-        if not str(d.get("area") or "").strip() and d.get("type"):
-            d["area"] = d.get("type")
-        if not str(d.get("issue") or "").strip() and d.get("problem"):
-            d["issue"] = d.get("problem")
-        if not str(d.get("target") or "").strip() and d.get("nodeId"):
-            d["target"] = d.get("nodeId")
-        sev = str(d.get("severity") or "").strip().lower()
-        if sev in ("high", "medium"):
-            d["severity"] = "major"
-        elif sev == "low":
-            d["severity"] = "minor"
-        return d
-
 
 class ReviewLaneSchema(BaseModel):
     """One of seven Reviewer lanes. Score is this dimension only; Host merges."""

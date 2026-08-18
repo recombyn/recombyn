@@ -68,7 +68,7 @@ describe('measurePlainTextSize', () => {
     const fontSize = 1;
     const size = measurePlainTextSize(text, { fontSize, lineHeight: 1.4 });
     // eslint-disable-next-line no-console
-    console.log('[test:text-measure@fs1]', { size, legacyFloor: 24 });
+    console.log('[test:text-measure@fs1]', { size, oldFloor: 24 });
     expect(size.width).toBeLessThan(24);
     expect(size.width).toBe(Math.max(fontSize, text.length * fontSize));
     expect(size.height).toBe(Math.ceil(fontSize * 1.4));

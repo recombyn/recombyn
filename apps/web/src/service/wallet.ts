@@ -58,7 +58,6 @@ function mergePlanCatalog(rows: WalletPlanRow[] | undefined): Record<PlanId, Pla
       id,
       priceCny: Math.max(0, Math.round(Number(row.priceCny) || 0)),
       creditsIncluded: credits,
-      imageCreditsIncluded: credits,
       dailyRuns:
         row.dailyRuns != null && Number.isFinite(Number(row.dailyRuns))
           ? Math.max(0, Math.round(Number(row.dailyRuns)))
