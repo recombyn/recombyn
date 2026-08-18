@@ -217,10 +217,6 @@ def extract_factual_triples_from_episode(
     return _dedupe_triples(triples)[:24]
 
 
-# Back-compat alias for callers / tests.
-extract_triples_from_episode = extract_factual_triples_from_episode
-
-
 def _dedupe_triples(
     triples: list[tuple[str, str, str]],
 ) -> list[tuple[str, str, str]]:

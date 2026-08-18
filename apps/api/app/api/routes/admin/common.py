@@ -123,9 +123,9 @@ class AdjustTokensIn(BaseModel):
 
 class GenerateCardKeysIn(BaseModel):
     count: int = Field(default=10, ge=1, le=100)
-    """credit = unified 积分 top-up; plan = membership + monthly 积分; token = legacy alias of credit."""
+    """credit = unified 积分 top-up; plan = membership + monthly 积分."""
     kind: str = Field(default="credit", max_length=16)
-    # Face value in 积分 (legacy million-Token faces are converted server-side).
+    # Face value in 积分.
     tokens: int = Field(default=0, ge=0, le=50_000_000)
     planId: str | None = Field(default=None, max_length=16)
     expiresDays: int = Field(default=365, ge=0, le=3650)
@@ -220,7 +220,6 @@ _RUNTIME_SETTING_KEYS = frozenset(
         "precheck.user_preset.balanced",
         "precheck.user_preset.quality",
         "assets.image_default_model",
-        "byok.preset_providers",
         "byok.preset_platforms",
     }
 )

@@ -136,7 +136,7 @@ type DialogProps = {
   onRedeemed?: () => void;
 };
 
-/** Standalone redeem dialog (legacy callers). Prefer AccountSettingsDialog. */
+/** Standalone redeem dialog. Prefer AccountSettingsDialog. */
 function RedeemDialog({ open, onClose, onRedeemed }: DialogProps) {
   const { t } = useTranslation();
   if (isDesktopLocal()) return null;

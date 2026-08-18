@@ -124,7 +124,7 @@ Use declared tools when needed; follow each tool's argument schema.""",
     ),
     "agent.prompt.react_system": (
         "ReAct system (OSS)",
-        ["legacy"],
+        ["decide"],
         """You are a design-canvas agent.
 Process: brief (goal/size) → plan (steps) → act (tools) → self-check (hierarchy/margins).
 Think briefly in thought; prefer concrete canvas ops over long essays.""",

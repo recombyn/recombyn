@@ -11,9 +11,11 @@ import {
   startImageProcess,
   type ImageToolPanelKind,
   isImageToolExternalSessionKind,
+  isNodeLayerToolPanelKind,
 } from '@/store/modules/editor';
 import { buildNodeAdjustFilterCss } from '@/components/rcb/scene/document/sceneFill';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { toolbarBoxForSelection } from '@/components/rcb/selection/selectionLogic';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -107,18 +109,31 @@ function panelStyleRight(
   };
 }
 
+function isLineOrArrow(node: SceneNodeInput): boolean {
+  const t = String(node?.attrs?.shapeType || '');
+  return t === 'line' || t === 'arrow';
+}
+
 function nodeBox(
   document: SceneDocument,
   node: SceneNodeInput
 ): { left: number; top: number; width: number; height: number } | null {
   if (!node) return null;
   const { left, top } = nodeLeftTop(document, node);
-  return {
+  const box = {
     left,
     top,
     width: Math.max(1, Number(node.width) || 1),
     height: Math.max(1, Number(node.height) || 1),
   };
+  // Line/arrow store a fat hit AABB. Dock blend/effects to the shaft AABB
+  // (same as the selection toolbar) so the panel sits at the visual top-right.
+  return (
+    toolbarBoxForSelection(box, {
+      lineChrome: isLineOrArrow(node),
+      node,
+    }) || box
+  );
 }
 
 /** Host for image tool panels positioned relative to the source image. */
@@ -137,11 +152,9 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
   const [brushSize, setBrushSize] = useState(96);
   const [hasStrokes, setHasStrokes] = useState(false);
   const [eraseBusy, setEraseBusy] = useState(false);
-  const [opacityPct, setOpacityPct] = useState(100);
   const maskRef = useRef<EraserMaskOverlayHandle>(null);
   const adjustHistoryPushedRef = useRef(false);
   const adjustBaselineRef = useRef<{ cssFilter: string; adjustValues: unknown } | null>(null);
-  const opacityBaselineRef = useRef(1);
   const liveHistoryPushedRef = useRef(false);
 
   useEffect(() => {
@@ -156,7 +169,13 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
     // Crop / expand / flipRotate / media quick-edit are owned outside this host.
     if (isImageToolExternalSessionKind(panel.kind)) return;
     const node = document?.deltaSetLike?.[panel.nodeId];
-    if (!node || node.key !== 'image') dispatch(closeImageToolPanel());
+    if (!node) {
+      dispatch(closeImageToolPanel());
+      return;
+    }
+    if (!isNodeLayerToolPanelKind(panel.kind) && node.key !== 'image') {
+      dispatch(closeImageToolPanel());
+    }
   }, [document, panel, dispatch]);
 
   useEffect(() => {
@@ -171,16 +190,6 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
     setEraseBusy(false);
     maskRef.current?.clear();
     // Only when opening / switching the eraser target.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panel?.kind, panel?.nodeId]);
-
-  useEffect(() => {
-    if (panel?.kind !== 'opacity' || !panel.nodeId) return;
-    const node = document?.deltaSetLike?.[panel.nodeId];
-    const base = parseLayerOpacity(node?.attrs?.opacity, 1);
-    opacityBaselineRef.current = base;
-    setOpacityPct(layerOpacityToPct(base));
-    // Only when opening / switching the opacity target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel?.kind, panel?.nodeId]);
 
@@ -202,7 +211,9 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
   }, [panel?.kind, panel?.nodeId]);
 
   useEffect(() => {
-    if (panel?.kind !== 'effects' && panel?.kind !== 'blendMode') return;
+    if (panel?.kind !== 'effects' && panel?.kind !== 'blendMode' && panel?.kind !== 'opacity') {
+      return;
+    }
     liveHistoryPushedRef.current = false;
   }, [panel?.kind, panel?.nodeId]);
 
@@ -278,23 +289,6 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
     );
   };
 
-  const writeOpacity = (pct: number, mode: 'preview' | 'commit') => {
-    const node = document?.deltaSetLike?.[panel!.nodeId];
-    const next01 = Math.min(1, Math.max(0, Math.round(pct) / 100));
-    dispatch(
-      patchDocumentNode({
-        nodeId: panel!.nodeId,
-        skipHistory: mode === 'preview',
-        patch: {
-          attrs: {
-            ...(node?.attrs || {}),
-            opacity: next01,
-          },
-        },
-      })
-    );
-  };
-
   const writeAttrPatch = (patch: Record<string, unknown>, mode: 'preview' | 'commit') => {
     const node = document?.deltaSetLike?.[panel.nodeId];
     if (mode === 'preview' && !liveHistoryPushedRef.current) {
@@ -317,41 +311,20 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
 
   let body: ReactNode = null;
   switch (panel.kind) {
-    case 'opacity':
+    case 'opacity': {
+      const node = document?.deltaSetLike?.[panel.nodeId];
       body = (
         <OpacityToolPanel
-          opacityPct={opacityPct}
-          onOpacityPctChange={(v) => {
-            setOpacityPct(v);
-            writeOpacity(v, 'preview');
-          }}
-          onReset={() => {
-            setOpacityPct(100);
-            writeOpacity(100, 'preview');
-          }}
-          onCancel={() => {
-            const node = document?.deltaSetLike?.[panel.nodeId];
-            dispatch(
-              patchDocumentNode({
-                nodeId: panel.nodeId,
-                skipHistory: true,
-                patch: {
-                  attrs: {
-                    ...(node?.attrs || {}),
-                    opacity: opacityBaselineRef.current,
-                  },
-                },
-              })
-            );
-            close();
-          }}
-          onConfirm={() => {
-            writeOpacity(opacityPct, 'commit');
-            close();
-          }}
+          opacityPct={layerOpacityToPct(parseLayerOpacity(node?.attrs?.opacity, 1))}
+          onOpacityPctChange={(v) =>
+            writeAttrPatch({ opacity: Math.min(1, Math.max(0, Math.round(v) / 100)) }, 'preview')
+          }
+          onReset={() => writeAttrPatch({ opacity: 1 }, 'preview')}
+          onClose={close}
         />
       );
       break;
+    }
     case 'eraser':
       body = (
         <EraserToolPanel

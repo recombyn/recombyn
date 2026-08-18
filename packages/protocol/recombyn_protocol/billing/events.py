@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field
 BillingEventKind = Literal[
     "estimate",
     "authorize",
-    "reserve",  # legacy alias of authorize
+    "reserve",
     "capture",
-    "charge",  # legacy alias of capture
+    "charge",
     "release",
     "refund",
     "topup",
@@ -33,9 +33,7 @@ class BillingEventSchema(BaseModel):
     user_id: str = ""
     task_id: str = ""
     credits_delta: int = 0
-    credits_authorized: int | None = None
     credits_reserved: int | None = None
-    credits_captured: int | None = None
     credits_charged: int | None = None
     credits_released: int | None = None
     estimate_low: int | None = None

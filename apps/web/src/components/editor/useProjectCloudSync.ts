@@ -454,12 +454,6 @@ export async function syncOwnedDocumentToCloud(opts: {
     return { status: 'ok', ack: { revision: baseRevision } };
   }
 
-  if (import.meta.env.DEV) {
-    console.info('[project-sync] full PUT', {
-      id,
-      reason: fullPutReason(baseDoc, baseRevision, delta?.preferFull),
-    });
-  }
   return pushProjectToCloud({ id, name, document, baseRevision });
 }
 

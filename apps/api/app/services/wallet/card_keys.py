@@ -1,17 +1,16 @@
 """Card-key generation, hashing, and redemption.
 
 Kinds:
-  - token: top up chat Token balance
-  - credit: top up image 积分 balance
-  - plan: sets membership + monthly Token gift (+ monthly 积分 gift)
+  - credit: top up unified 积分
+  - plan: sets membership + monthly 积分 gift
 
 Pipeline:
   1. Local random plaintext (XXXXX-XXXXX-XXXXX-XXXXX, no ambiguous chars)
   2. hash = HMAC-SHA256(plaintext, CARD_KEY_SALT)
   3. DB stores hash + kind/plan/tokens + status + expires_at (never plaintext)
-  4. Redeem: hash → lookup → credit tokens and/or image_credits and/or set plan
+  4. Redeem: hash → lookup → credit 积分 and/or set plan
 
-Format v2: 4×5 segments (20 chars). Legacy short keys are deleted on upgrade.
+Format v2: 4×5 segments (20 chars).
 """
 
 from __future__ import annotations
@@ -61,9 +60,7 @@ PLAN_IMAGE_CREDITS: dict[str, int] = {
     "ultra": 0,
 }
 VALID_PLAN_IDS = frozenset(PLAN_CREDITS.keys())
-# ``token`` kept as alias of ``credit`` for old admin clients.
-VALID_KINDS = frozenset({"token", "credit", "plan"})
-# Align with services.wallet.billing.TOKENS_PER_CREDIT (legacy million-face → 积分).
+VALID_KINDS = frozenset({"credit", "plan"})
 TOKENS_PER_CREDIT = 15_000
 # Membership length after redeeming a plan card key (calendar days).
 PLAN_DURATION_DAYS = 30
@@ -126,7 +123,7 @@ def hash_card_key(plaintext: str, salt: str | None = None) -> str:
 
 
 def ensure_card_keys_v2() -> None:
-    """One-shot: wipe all legacy short/SHA256 keys (format + hash changed)."""
+    """One-shot: wipe all short/SHA256 keys (format + hash changed)."""
     global _v2_ready
     if _v2_ready:
         return
@@ -154,16 +151,9 @@ def normalize_plan_id(raw: Any) -> str:
     return "free"
 
 
-def _normalize_topup_amount(kind: str, amount: int) -> int:
-    """Convert legacy Token-face amounts into 积分 when admin still sends millions."""
-    amt = int(amount or 0)
-    if amt <= 0:
-        return amt
-    if kind == "token" and amt >= TOKENS_PER_CREDIT:
-        from math import ceil
-
-        return max(1, int(ceil(amt / float(TOKENS_PER_CREDIT))))
-    return amt
+def _normalize_topup_amount(amount: int) -> int:
+    """Normalize top-up amounts to unified 积分."""
+    return int(amount or 0)
 
 
 def resolve_generate_spec(
@@ -174,12 +164,12 @@ def resolve_generate_spec(
 ) -> tuple[str, int, str | None]:
     """
     Normalize generate inputs → (kind, amount, plan_id).
-    Top-ups are stored as kind=credit (积分). Legacy kind=token is aliased.
+    Top-ups are stored as kind=credit (积分).
     ``tokens`` column on card_keys stores the 积分 face value.
     """
     k = str(kind or "credit").strip().lower()
     if k not in VALID_KINDS:
-        raise ValueError("kind must be token, credit, or plan")
+        raise ValueError("kind must be credit or plan")
     if k == "plan":
         pid = normalize_plan_id(plan_id)
         if pid not in VALID_PLAN_IDS:
@@ -190,10 +180,9 @@ def resolve_generate_spec(
 
             amt = int(plan_credit_grant(pid) or PLAN_CREDITS[pid])
         return "plan", amt, pid
-    amt = _normalize_topup_amount(k, int(tokens or 0))
+    amt = _normalize_topup_amount(int(tokens or 0))
     if amt <= 0:
         raise ValueError("amount must be > 0 for credit keys")
-    # Persist as credit; token is a deprecated alias.
     return "credit", amt, None
 
 
@@ -343,7 +332,7 @@ def list_card_keys(*, status: str | None = None, limit: int = 200) -> list[dict[
         db_rows = crud.list_card_keys(session=session, status=status, limit=limit)
     out: list[dict[str, Any]] = []
     for row in db_rows:
-        kind = str(row.kind or "token").strip().lower() or "token"
+        kind = str(row.kind or "credit").strip().lower() or "credit"
         plan_raw = row.plan_id
         plan_id = str(plan_raw).strip().lower() if plan_raw else None
         out.append(
@@ -351,7 +340,7 @@ def list_card_keys(*, status: str | None = None, limit: int = 200) -> list[dict[
                 kid=row.id,
                 code=None,
                 tokens=int(row.tokens or 0),
-                kind=kind if kind in VALID_KINDS else "token",
+                kind=kind if kind in VALID_KINDS else "credit",
                 plan_id=plan_id if plan_id in VALID_PLAN_IDS else None,
                 status=str(row.status),
                 created_at=float(row.created_at),
@@ -425,9 +414,9 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
             if expires is not None and float(expires) < now:
                 raise RedeemError("expired", "Card key expired")
 
-            kind = str(row.kind or "token").strip().lower() or "token"
+            kind = str(row.kind or "credit").strip().lower() or "credit"
             if kind not in VALID_KINDS:
-                kind = "token"
+                raise RedeemError("invalid_kind", "Card key kind is invalid")
             plan_raw = row.plan_id
             plan_id = str(plan_raw).strip().lower() if plan_raw else None
             if kind == "plan" and plan_id not in VALID_PLAN_IDS:
@@ -465,9 +454,7 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
                     gift = int(PLAN_CREDITS.get(plan_id) or 0)
                 amount = gift
             else:
-                gift = _normalize_topup_amount(
-                    "token" if kind == "token" else "credit", amount
-                )
+                gift = _normalize_topup_amount(amount)
                 amount = gift
             if gift <= 0:
                 raise RedeemError("invalid_amount", "Card key amount invalid")
@@ -476,7 +463,6 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
 
             if bal:
                 bal.tokens = next_credits
-                bal.image_credits = 0
                 bal.plan_id = next_plan
                 bal.plan_expires_at = next_expires
                 bal.updated_at = now
@@ -486,7 +472,6 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
                     UserBalance(
                         user_id=user_id,
                         tokens=next_credits,
-                        image_credits=0,
                         plan_id=next_plan,
                         plan_expires_at=next_expires,
                         updated_at=now,
@@ -527,10 +512,8 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
         "kind": "plan" if kind == "plan" else "credit",
         "creditsAdded": gift,
         "tokensAdded": gift,
-        "imageCreditsAdded": 0,
         "credits": next_credits,
         "tokens": next_credits,
-        "imageCredits": next_credits,
         "planId": next_plan if (
             next_plan == "free"
             or next_expires is None

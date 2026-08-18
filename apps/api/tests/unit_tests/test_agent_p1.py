@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.design.runtime.agent_controller import AgentRunState
+from app.services.design.runtime.graph.state import AgentRunState
 
 
 def test_run_state_execution_log():

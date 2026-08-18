@@ -35,7 +35,7 @@ export const sendEmailCode = (data: { email: string; captchaToken?: string }) =>
     mode?: string;
   }>;
 
-/** Consume /activate/:id one-time link → session (legacy magic-link mails). */
+/** Consume /activate/:id one-time link → session (email magic-link mails). */
 export const activateEmailLink = (data: { id: string }) =>
   apiClient.authEmailActivate({ body: data }) as Promise<{
     user: AuthUserDto;

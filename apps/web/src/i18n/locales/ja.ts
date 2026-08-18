@@ -823,6 +823,7 @@ const ja = {
     fitCanvas: '画面に合わせる',
     zoomToPercent: '{{percent}}% にズーム',
     zoomMenu: 'ズーム',
+    fpsHud: 'FPSメーター',
     pathEditSelect: '選択',
     pathEditPen: 'ペン',
     pathEditAddAnchor: 'アンカーを追加',

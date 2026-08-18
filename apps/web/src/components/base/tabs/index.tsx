@@ -20,7 +20,7 @@ export interface TabsProps {
   onChange?: (index: number) => void;
   className?: string;
   TabListClass?: string;
-  /** @deprecated Unused — chips come from SegmentedControl. */
+  /** Unused — chips come from SegmentedControl. */
   TabClass?: string;
   TabPanelsClass?: string;
   /** Passed to SegmentedControl — default soft rect (`xl`). */

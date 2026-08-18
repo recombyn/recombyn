@@ -15,7 +15,7 @@ from app.services.llm.image_tools import (
     uses_llm_for_kind,
 )
 from app.services.wallet.billing import DEFAULT_IMAGE_CREDITS, image_model_credit_cost
-from app.services.wallet.db import is_wallet_billing_enabled, spend_image_credits
+from app.services.wallet.db import is_wallet_billing_enabled, spend_tokens
 
 router = APIRouter(prefix="/image", tags=["image-tools"])
 
@@ -31,7 +31,7 @@ _KIND_CREDIT_COST: dict[str, int] = {
     "detectRegions": 0,
     "replaceText": 30,
     "vector": 20,
-    "adjust": 0,  # FE uses CSS filters; API adjust is legacy / unused
+    "adjust": 0,  # FE uses CSS filters; API adjust is unused
 }
 
 
@@ -49,10 +49,10 @@ def _charge(user_id: str, amount: int, detail: str) -> None:
     if amount <= 0 or not is_wallet_billing_enabled():
         return
     try:
-        spend_image_credits(user_id, amount, detail)
+        spend_tokens(user_id, amount, detail)
     except ValueError as err:
-        if str(err) == "insufficient_image_credits":
-            raise HTTPException(status_code=402, detail="Insufficient tokens") from err
+        if str(err) == "insufficient_tokens":
+            raise HTTPException(status_code=402, detail="Insufficient credits") from err
         raise HTTPException(status_code=400, detail=str(err)) from err
 
 
@@ -78,10 +78,6 @@ def token_cost_for_kind(
     return int(_KIND_CREDIT_COST.get(k, DEFAULT_IMAGE_CREDITS))
 
 
-# Back-compat alias for older callers.
-credit_cost_for_kind = token_cost_for_kind
-
-
 @router.get("/tools")
 def list_image_tools() -> dict[str, Any]:
     kinds = sorted(IMAGE_PROCESS_KINDS)
@@ -89,8 +85,6 @@ def list_image_tools() -> dict[str, Any]:
     return {
         "kinds": kinds,
         "tokens": costs,
-        # Legacy key — same map as tokens.
-        "credits": costs,
     }
 
 
@@ -124,5 +118,5 @@ async def post_image_process(
         raise HTTPException(status_code=502, detail=msg) from err
 
     if isinstance(result, dict):
-        result = {**result, "tokens": cost, "credits": cost}
+        result = {**result, "tokens": cost}
     return result

@@ -21,7 +21,7 @@ Treat the editor runtime as four facts (**this is the product architecture — d
 1. **`SceneDocument`** — unique document source of truth (Redux / collab patches write here).
 2. **`CameraTransform`** — single pan/zoom matrix; only `worldToScreen` / `screenToWorld` / `screenDeltaToWorldDelta` on hot paths. No DOM “correction” of coordinates during gestures.
 3. **Layered render** — current committed ink remains in per-node SVG hosts; Canvas2D is used for the grid and eligible LOD proxies. Media `foreignObject`, selection, guides, and drawing previews share the SVG camera group; only true screen UI stays in the HTML overlay. WebGL is a future backend, not part of the current runtime.
-4. **Independent hit** — root pointer capture → chrome hit → spatial index coarse → precise geometry. `sceneToSvg` stays an **export / compat** path, not the live paint core.
+4. **Independent hit** — root pointer capture → chrome hit → spatial index coarse → precise geometry. `sceneToSvg` stays an **export** path, not the live paint core.
 
 SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`.
 

@@ -245,7 +245,7 @@ async def _load_deferred_subagents(
 ) -> None:
     """Spawn Profile catalog subagents (sync await and/or background)."""
     jobs = parse_need_subagents(
-        turn.get("need_subagents") or turn.get("needSubagents")
+        turn.get("need_subagents")
     )
     pending_job_ids = [
         str(x).strip()
@@ -398,7 +398,7 @@ async def load_deferred_resources(
     need_tools = list(turn.get("need_tools") or [])
     need_skills = list(turn.get("need_skills") or [])
     need_subagents = parse_need_subagents(
-        turn.get("need_subagents") or turn.get("needSubagents")
+        turn.get("need_subagents")
     )
     # Pass-through only — no auto vision_scout / research.
     intent_l = str(turn.get("intent") or st.intent or "").strip() or "create"
@@ -412,19 +412,21 @@ async def load_deferred_resources(
         existing=need_subagents,
     )
     turn["need_subagents"] = need_subagents
-    # Auto-merge enabled skills whose triggers match (empty_canvas / intent / …).
-    # Domain playbooks live in skills + prompts.
-    for k in resolve_triggered_skill_keys(
-        scene=rt.scene_key or "",
-        empty_canvas=_canvas_is_empty(rt),
-        has_images=bool(rt.images),
-        intent=intent_l,
-        prompt_chars=len(str(rt.prompt or "").strip()),
-        prompt=str(rt.prompt or ""),
-        already_loaded=list(st.skills_loaded or []) + list(need_skills),
-    ):
-        if k not in need_skills:
-            need_skills.append(k)
+    # Auto skills are for design/create turns. Explicit pins and need_skills
+    # still work for every intent; ordinary edits must stay deterministic.
+    auto_skill_intents = {"create", "design"}
+    if intent_l in auto_skill_intents:
+        for k in resolve_triggered_skill_keys(
+            scene=rt.scene_key or "",
+            empty_canvas=_canvas_is_empty(rt),
+            has_images=bool(rt.images),
+            intent=intent_l,
+            prompt_chars=len(str(rt.prompt or "").strip()),
+            prompt=str(rt.prompt or ""),
+            already_loaded=list(st.skills_loaded or []) + list(need_skills),
+        ):
+            if k not in need_skills:
+                need_skills.append(k)
 
     # Surface → Core via _meta.extends (dedupe + category order inside expand).
     try:

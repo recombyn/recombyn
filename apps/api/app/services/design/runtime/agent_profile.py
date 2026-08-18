@@ -318,11 +318,6 @@ def _policy_from_routing(routing: dict[str, Any]) -> dict[str, str]:
         put("precheck.router_model", routing.get("router_model"))
     if "lanes" in routing:
         put("precheck.model_threshold", routing.get("lanes"), serialize="lanes")
-        # Keep legacy alias in sync when we write a literal map.
-        if "precheck.model_threshold" in patches and not patches[
-            "precheck.model_threshold"
-        ].startswith("$kv:"):
-            patches["precheck.model_lanes"] = patches["precheck.model_threshold"]
     if "fallback" in routing:
         put("precheck.fallback_chain", routing.get("fallback"), serialize="fallback")
     if "vision_model" in routing:

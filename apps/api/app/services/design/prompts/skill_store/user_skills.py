@@ -22,7 +22,6 @@ from .constants import (
     NS_USER,
     SOURCE_ADMIN,
     SOURCE_FILE,
-    SOURCE_SEED,
     _MAX_USER_SKILL_ZIP_BYTES,
     _MAX_USER_SKILL_ZIP_UNCOMPRESSED,
     _META_NAMES,
@@ -398,7 +397,7 @@ def delete_end_user_skill(*, user_id: str, skill_id: int) -> bool:
         if owner != uid:
             raise ValueError("not_skill_owner")
         src = _normalize_source(_row_get(row, "source"), default=SOURCE_ADMIN)
-        if src in (SOURCE_SEED, SOURCE_FILE):
+        if src != SOURCE_ADMIN:
             raise ValueError("cannot_delete_system_skill")
         ok = crud.delete_owned_design_skill(
             session=session, item_id=int(skill_id), owner_user_id=uid

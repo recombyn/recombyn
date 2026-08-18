@@ -188,7 +188,7 @@ def test_skip_governance_on_empty_intent():
     assert should_skip_design_governance(rt) is True
 
 
-def test_skip_governance_on_legacy_create_edit():
+def test_skip_governance_on_create_edit_intents():
     rt = _rt()
     rt.classified_intent = "edit"
     rt.flags = {"intent": "create"}

@@ -65,7 +65,3 @@ class ProviderBillingAdapter(Protocol):
         policy: BudgetPolicySchema,
         usage: ProviderUsageSchema | None = None,
     ) -> BudgetCheckSchema: ...
-
-
-# Back-compat alias
-BillingProviderProtocol = ProviderBillingAdapter

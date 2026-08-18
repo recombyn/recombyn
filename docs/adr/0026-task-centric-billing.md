@@ -70,7 +70,7 @@ token SKUs.
 Self-host default: TaskPricing + CreditPolicy floor. Cloud hosts may supply a
 quote endpoint; open Runtime never requires proprietary pricing code.
 
-### What is deprecated as product truth
+### What is no longer product truth
 
 Using `15000 tokens = 1 credit` as the **primary** user SKU. Token meters remain
 valid usage inputs; they are not the Design Agent sell unit.
@@ -80,7 +80,7 @@ valid usage inputs; they are not the Design Agent sell unit.
 - Runtime estimates/authorizes from `TaskPricingSchema` (+ meters), not token÷15000 alone.
 - Protocol pin: **0.1.3+**.
 - Capture prefers an optional host quote (`credits_to_charge`); otherwise OSS
-  TaskPricing / legacy hybrid / BYOK agent fee.
+  TaskPricing / BYOK agent fee.
 - `default_oss_task_pricing_catalog()` is the shared authorize floor
   (`packages/protocol/recombyn_protocol/billing/task_pricing.py`).
 - Public docs and ADRs do not describe host markup formulas or private services.

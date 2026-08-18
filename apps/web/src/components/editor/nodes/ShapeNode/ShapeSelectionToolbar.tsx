@@ -62,19 +62,11 @@ import {
   strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
-  buildOutlinePathAsync,
-  canOutlineNode,
-  outlineNodePatch,
-  requestEnterPathEdit,
-} from '@/components/rcb/scene/paint/outlineToPath';
-import {
   nodeLeftTop,
   previewSvgNodeGeometry,
 } from '@/components/rcb/scene/paint/sceneToSvg';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
-import { TbVectorBezier } from 'react-icons/tb';
-import { message } from '@/components/base';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 function readAspectLocked(attrs: Record<string, unknown> | undefined): boolean {
@@ -441,43 +433,9 @@ function ShapeSelectionToolbar({
     );
   };
 
-  const applyOutline = async () => {
-    const hide = message.loading('轮廓化中…', 0);
-    try {
-      const outline = await buildOutlinePathAsync(node);
-      if (!outline?.pathD) {
-        message.error('轮廓化失败');
-        return;
-      }
-      const patch = outlineNodePatch(node, outline);
-      dispatch(
-        patchDocumentNode({
-          nodeId,
-          patch: {
-            key: 'shape',
-            x: patch.x,
-            y: patch.y,
-            width: patch.width,
-            height: patch.height,
-            attrs: patch.attrs,
-          },
-        })
-      );
-      const st = String(node?.attrs?.shapeType || node?.key || '');
-      const fromStrokeOutline =
-        st === 'pen' || st === 'pencil' || st === 'line' || st === 'arrow';
-      requestEnterPathEdit(nodeId, outline.pathD, { fromStrokeOutline });
-      message.success('已轮廓化');
-    } finally {
-      hide();
-    }
-  };
-
   const openStyle = (kind: 'fill' | 'stroke' | 'radius') => {
     dispatch(openShapeStylePanel({ kind, nodeIds: [nodeId] }));
   };
-
-  const showOutline = canOutlineNode(node);
 
   return (
     <>
@@ -668,20 +626,6 @@ function ShapeSelectionToolbar({
               }}
             />
           </label>
-        </Tooltip>
-      ) : null}
-
-      {showOutline ? (
-        <Tooltip tip={t('editor.imageToolbar.outline')} placement="top">
-          <button
-            type="button"
-            aria-label={t('editor.imageToolbar.outline')}
-            className={SEL_TOOL_BTN}
-            onClick={applyOutline}
-          >
-            <TbVectorBezier className="h-4 w-4" />
-            <span>{t('editor.imageToolbar.outline')}</span>
-          </button>
         </Tooltip>
       ) : null}
 

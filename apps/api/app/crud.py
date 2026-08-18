@@ -440,7 +440,6 @@ def ensure_user_balance_row(
     row = UserBalance(
         user_id=uid,
         tokens=int(starting_tokens),
-        image_credits=0,
         plan_id="free",
         plan_expires_at=None,
         updated_at=now,
@@ -2419,7 +2418,7 @@ def list_decision_log_page(
     status: str | None = None,
     q: str | None = None,
 ) -> tuple[list[Any], int]:
-    """Light decision-log list using JSON extract (same SQL as legacy admin path)."""
+    """Light decision-log list using JSON extract."""
     where = [
         "meta_json IS NOT NULL",
         "TRIM(meta_json) != ''",

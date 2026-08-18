@@ -69,7 +69,7 @@ export type ByokPresetDefaults = {
   defaultDuration?: number;
 };
 
-/** One selectable model under a legacy per-endpoint preset. */
+/** One selectable model under a per-endpoint preset. */
 export type ByokPresetModel = {
   apiModel: string;
   label: string;
@@ -91,11 +91,6 @@ export type ByokPlatform = {
   hint?: string;
 };
 
-/** @deprecated Prefer ByokPlatform — older ``byokPresets`` field. */
-export type ByokPresetProvider = ByokPlatform & {
-  models?: ByokPresetModel[];
-};
-
 export type ChatModelsResponse = {
   models: LlmModel[];
   available: boolean;
@@ -108,8 +103,6 @@ export type ChatModelsResponse = {
   openrouterAvailable?: boolean;
   /** Aggregator platforms — one key unlocks catalog models. */
   byokPlatforms?: ByokPlatform[];
-  /** Alias of byokPlatforms for older clients. */
-  byokPresets?: ByokPresetProvider[];
 };
 
 export type GenerateImageInput = {

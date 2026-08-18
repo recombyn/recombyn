@@ -266,9 +266,9 @@ function VideoJsPlayer({
       setBarScale(chrome.visible ? videoPlaybackBarScale(rect.width) * chrome.fit : 0);
     };
     sync();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
-    ro?.observe(el);
-    return () => ro?.disconnect();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [controlsMode, playable]);
 
   const videoStyle = useMemo((): CSSProperties => {

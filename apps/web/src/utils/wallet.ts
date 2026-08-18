@@ -8,7 +8,7 @@
 
 export type PayMethod = 'wechat' | 'alipay' | 'card';
 
-/** free → plus → pro (3 monthly tiers; ultra kept for legacy accounts). */
+/** free → plus → pro (3 monthly tiers; ultra kept for existing accounts). */
 export type PlanId = 'free' | 'plus' | 'pro' | 'ultra';
 
 export type LedgerKind = 'redeem' | 'spend' | 'recharge' | 'plan';
@@ -35,10 +35,6 @@ export type PlanDef = {
   priceCny: number;
   /** Unified 积分 granted each billing month. */
   creditsIncluded: number;
-  /**
-   * @deprecated Same as creditsIncluded (unified wallet).
-   */
-  imageCreditsIncluded?: number;
   /**
    * Free-tier design runs per calendar day (server-enforced when balance < hold).
    */
@@ -71,7 +67,6 @@ export const PLAN_CATALOG: Record<PlanId, PlanDef> = {
     id: 'free',
     priceCny: 0,
     creditsIncluded: 0,
-    imageCreditsIncluded: 0,
     dailyRuns: 1,
   },
   /** ¥49 — 340 积分 / mo（与 Intelligence commercial + 扣费锚点一致）. */
@@ -79,34 +74,31 @@ export const PLAN_CATALOG: Record<PlanId, PlanDef> = {
     id: 'plus',
     priceCny: 49,
     creditsIncluded: 340,
-    imageCreditsIncluded: 340,
     recommended: true,
   },
   pro: {
     id: 'pro',
     priceCny: 149,
     creditsIncluded: 1030,
-    imageCreditsIncluded: 1030,
   },
   ultra: {
     id: 'ultra',
     priceCny: 499,
     creditsIncluded: 4000,
-    imageCreditsIncluded: 4000,
   },
 };
 
 /** Plans shown on the membership picker (3 tiers). */
 export const PLAN_ORDER: PlanId[] = ['free', 'plus', 'pro'];
 
-/** Highest plan currently sold in PLAN_ORDER (Pro). Ultra is legacy-only. */
+/** Highest plan currently sold in PLAN_ORDER (Pro). */
 export function isTopOfferedPlan(id: PlanId | string | null | undefined): boolean {
   const pid = normalizePlanId(id);
   const top = PLAN_ORDER[PLAN_ORDER.length - 1] || 'pro';
   return pid === top || pid === 'ultra';
 }
 
-/** Map legacy ids → current catalog. */
+/** Map historical ids → current catalog. */
 export function normalizePlanId(raw: unknown): PlanId {
   if (raw === 'free' || raw === 'plus' || raw === 'pro' || raw === 'ultra') return raw;
   if (raw === 'hobby') return 'free';

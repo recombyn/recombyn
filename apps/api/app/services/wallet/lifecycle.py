@@ -2,8 +2,6 @@
 
 Wraps wallet spend/credit at the **credit** layer (design holds). Emits Billing
 Protocol event shapes. Commercial packs / margin stay private.
-
-Stripe-shaped aliases: authorize(=reserve), capture(=charge).
 """
 
 from __future__ import annotations
@@ -118,21 +116,6 @@ def reserve_task_credits(
     return {"billingEvent": ev.model_dump(), "taskCost": task.model_dump(), "reserved": n}
 
 
-def authorize_task_credits(
-    *,
-    user_id: str,
-    credits: int,
-    task_id: str = "",
-    detail: str = "",
-) -> dict[str, Any]:
-    """Stripe-shaped alias for ``reserve_task_credits``."""
-    out = reserve_task_credits(
-        user_id=user_id, credits=credits, task_id=task_id, detail=detail
-    )
-    out["lifecycleStage"] = "authorize"
-    return out
-
-
 def settle_task_credits(
     *,
     user_id: str,
@@ -207,33 +190,3 @@ def settle_task_credits(
         "released": released,
         "settledAt": time.time(),
     }
-
-
-def capture_task_credits(
-    *,
-    user_id: str,
-    reserved: int | None = None,
-    actual: int | None = None,
-    hold: int | None = None,
-    capture: int | None = None,
-    task_id: str = "",
-    detail: str = "",
-    pricing_version_ids: list[str] | None = None,
-    usage_event_ids: list[str] | None = None,
-    mutate_wallet: bool = True,
-) -> dict[str, Any]:
-    """Stripe-shaped alias for ``settle_task_credits`` (capture + release)."""
-    reserved_n = int(reserved if reserved is not None else (hold or 0))
-    actual_n = int(actual if actual is not None else (capture or 0))
-    out = settle_task_credits(
-        user_id=user_id,
-        reserved=reserved_n,
-        actual=actual_n,
-        task_id=task_id,
-        detail=detail,
-        pricing_version_ids=pricing_version_ids,
-        usage_event_ids=usage_event_ids,
-        mutate_wallet=mutate_wallet,
-    )
-    out["lifecycleStage"] = "capture"
-    return out

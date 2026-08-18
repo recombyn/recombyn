@@ -517,7 +517,7 @@ async def decompose_image(
     Split an image into canvas layers.
 
     Returns ``{ image, layers, kind, width, height, engines, warnings }``.
-    ``image`` is the background layer (compat with existing finishImageProcess).
+    ``image`` is the background layer.
     """
     if not ocr_available():
         raise RuntimeError(

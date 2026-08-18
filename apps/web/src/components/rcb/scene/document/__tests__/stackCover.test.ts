@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addNodeToDocument,
   createBareDocument,
+  reorderNodesInDocument,
   stackZIndex
 } from '../sceneDocument';
 import {
@@ -25,6 +26,36 @@ function svgRoot(attrs: Record<string, string> = {}) {
 }
 
 describe('unified HTML media stack (foreignObject)', () => {
+  it('keeps frame children out of the world stack and orders them locally', () => {
+    let doc = createBareDocument();
+    doc.frames = [
+      { id: 'frame-a', name: 'A', backgroundColor: '#fff', x: 0, y: 0, width: 300, height: 200 },
+      { id: 'frame-b', name: 'B', backgroundColor: '#fff', x: 400, y: 0, width: 300, height: 200 },
+    ];
+    doc = addNodeToDocument(doc, 'a0', {
+      id: 'a0', key: 'rect', x: 10, y: 10, width: 20, height: 20,
+      attrs: { frameId: 'frame-a' }, children: [],
+    });
+    doc = addNodeToDocument(doc, 'a1', {
+      id: 'a1', key: 'rect', x: 40, y: 10, width: 20, height: 20,
+      attrs: { frameId: 'frame-a' }, children: [],
+    });
+    doc = addNodeToDocument(doc, 'world', {
+      id: 'world', key: 'rect', x: 800, y: 10, width: 20, height: 20,
+      attrs: {}, children: [],
+    });
+
+    expect(doc.stackOrder).toEqual(['frame:frame-a', 'frame:frame-b', 'node:world']);
+    expect(doc.deltaSetLike.a0.attrs.frameOrder).toBe(0);
+    expect(doc.deltaSetLike.a1.attrs.frameOrder).toBe(1);
+    expect(stackZIndex(doc, 'node', 'a1')).toBeGreaterThan(stackZIndex(doc, 'node', 'a0'));
+
+    doc = reorderNodesInDocument(doc, ['a0'], 'front');
+    expect(doc.deltaSetLike.a0.attrs.frameOrder).toBe(1);
+    expect(doc.deltaSetLike.a1.attrs.frameOrder).toBe(0);
+    expect(doc.stackOrder).not.toContain('node:a0');
+  });
+
   it('addNodeToDocument appends new nodes on top of stackOrder', () => {
     let doc = createBareDocument();
     doc = addNodeToDocument(doc, 'lot1', {

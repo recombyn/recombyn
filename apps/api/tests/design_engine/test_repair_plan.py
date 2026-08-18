@@ -64,10 +64,10 @@ def test_spec_issue_compiles_update_node_on_living_title():
     issues = _issues_as_dicts(
         [
             {
-                "severity": "high",
-                "type": "hierarchy",
+                "severity": "major",
+                "area": "hierarchy",
                 "target": "title",
-                "problem": "标题抢夺 Hero 注意力",
+                "issue": "标题抢夺 Hero 注意力",
                 "action": "reduce_size",
                 "patch": {"fontSize": 72},
             }
@@ -194,7 +194,7 @@ def test_prose_only_issues_compile_empty():
     assert ops == []
 
 
-def test_parse_preserves_repair_fields_via_aliases():
+def test_parse_preserves_repair_fields():
     parsed = _parse_review_structured(
         {
             "pass": False,
@@ -210,10 +210,10 @@ def test_parse_preserves_repair_fields_via_aliases():
             },
             "issues": [
                 {
-                    "severity": "high",
-                    "type": "hierarchy",
+                    "severity": "major",
+                    "area": "hierarchy",
                     "target": "title",
-                    "problem": "标题抢夺 Hero 注意力",
+                    "issue": "标题抢夺 Hero 注意力",
                     "action": "reduce_size",
                     "patch": {"fontSize": 72},
                 }

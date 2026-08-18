@@ -14,7 +14,7 @@ describe('rcbDefaultPlaceFontSize (T-tool at zoom)', () => {
   it('at 4000% zoom is ~1 scene px (not document-14 filling the view)', () => {
     const fs = rcbDefaultPlaceFontSize(40, 14);
     // eslint-disable-next-line no-console
-    console.log('[test:text-font@4000%]', { fs, legacy: 14 });
+    console.log('[test:text-font@4000%]', { fs, documentPx: 14 });
     expect(fs).toBe(1);
     expect(fs).toBeLessThan(14);
   });
@@ -48,10 +48,10 @@ describe('rcbDefaultPlaceFontSize (T-tool at zoom)', () => {
   it('empty caret chrome height must not use a document-20px floor', () => {
     const fs = rcbDefaultPlaceFontSize(20, 14); // 0.7 → rounds to 0.5? 14/20=0.7 → 0.5? round*2/2
     const emptyH = Math.ceil(fs * 1.4);
-    const legacyEmptyH = Math.max(fs * 1.4, 20);
+    const oldEmptyH = Math.max(fs * 1.4, 20);
     // eslint-disable-next-line no-console
-    console.log('[test:text-empty-h]', { fs, emptyH, legacyEmptyH });
+    console.log('[test:text-empty-h]', { fs, emptyH, oldEmptyH });
     expect(emptyH).toBeLessThan(20);
-    expect(legacyEmptyH).toBe(20);
+    expect(oldEmptyH).toBe(20);
   });
 });

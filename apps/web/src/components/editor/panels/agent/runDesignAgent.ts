@@ -219,19 +219,21 @@ export function acknowledgeAppliedDesignCommand(
   const normalizedTaskId = String(taskId || '').trim();
   const normalizedSequence = Number(sequence || 0);
   if (!normalizedTaskId || normalizedSequence <= 0) return;
-  void acknowledgeDesignCanvasCommands(normalizedTaskId, normalizedSequence, signal)
-    .catch((error) => console.warn('[design command ack failed]', {
-      commandTaskId: normalizedTaskId,
-      commandSeq: normalizedSequence,
-      error,
-    }));
+  async function ack() {
+    try {
+      await acknowledgeDesignCanvasCommands(normalizedTaskId, normalizedSequence, signal);
+    } catch (error) {
+      console.warn('[design command ack failed]', { commandTaskId: normalizedTaskId, commandSeq: normalizedSequence, error });
+    }
+  }
+  ack();
 }
 
 function overlayArgId(args: Record<string, unknown> | undefined): string | null {
   if (!args) return null;
-  const scalar = [args.id, args.nodeId, args.node_id].map((value) => String(value || '').trim()).find(Boolean);
+  const scalar = String(args.nodeId || '').trim();
   if (scalar) return scalar;
-  const ids = args.ids ?? args.nodeIds;
+  const ids = args.nodeIds;
   return Array.isArray(ids) && ids.length ? String(ids[ids.length - 1] || '').trim() || null : null;
 }
 
@@ -280,10 +282,8 @@ function uniqueReceiptNodeIds(values: unknown[]): string[] {
 }
 
 function expectedNodeIds(args: Record<string, unknown>): string[] {
-  const values: unknown[] = [args.id, args.nodeId, args.node_id];
-  for (const candidate of [args.ids, args.nodeIds, args.node_ids]) {
-    if (Array.isArray(candidate)) values.push(...candidate);
-  }
+  const values: unknown[] = [args.nodeId];
+  if (Array.isArray(args.nodeIds)) values.push(...args.nodeIds);
   return uniqueReceiptNodeIds(values);
 }
 
@@ -390,7 +390,7 @@ export async function applyAgentToolOps(opts: {
     // Host shimmer / @ pin / live plate already bound — never spatialize onto
     // ambient boards (model world x/y or guessed frameId often hits the old plate).
     if (fallback) return fallback;
-    const explicit = String(args.frameId || args.id || '').trim();
+    const explicit = String(args.frameId || '').trim();
     if (explicit) {
       const frames = Array.isArray(doc?.frames) ? doc.frames : [];
       if (frames.some((f) => f && String(f.id) === explicit)) return explicit;
@@ -438,12 +438,6 @@ export async function applyAgentToolOps(opts: {
         const allowedDeletes = allowed.filter((o) =>
           ['delete_frame', 'delete_nodes'].includes(String(o?.name || '').trim())
         );
-        console.info('[tool_ops delete filter]', {
-          raw: rawDeletes.length,
-          allowed: allowedDeletes.length,
-          dropped: rawDeletes.length - allowedDeletes.length,
-          rawOps: rawDeletes,
-        });
       }
       for (let i = 0; i < allowed.length; i++) {
     if (signal?.aborted) break;
@@ -480,20 +474,6 @@ export async function applyAgentToolOps(opts: {
       );
       if (picked) toolCtx.targetFrameId = picked;
     }
-    if (name === 'create_shape' && (args.path != null || String(args.type || args.shapeType || '') === 'path')) {
-      console.info('[tool_ops raw create_shape]', {
-        i,
-        name,
-        type: args.type || args.shapeType,
-        x: args.x,
-        y: args.y,
-        width: args.width,
-        height: args.height,
-        fill: args.fill,
-        stroke: args.stroke,
-        path: args.path != null ? String(args.path) : '',
-      });
-    }
     const res = await executeDesignToolAsync(name, JSON.stringify(args), toolCtx);
     if (name === 'create_frame' && res.status !== 'error') {
       const fid = String(res.artifacts?.frameId || '').trim();
@@ -501,24 +481,6 @@ export async function applyAgentToolOps(opts: {
         outFrameId = fid;
         toolCtx.targetFrameId = fid;
       }
-    }
-    if (name === 'delete_frame' || name === 'delete_nodes') {
-      const docAfter = getDocument();
-      const framesAfter = Array.isArray(docAfter?.frames)
-        ? docAfter.frames.map((f: { id?: string; name?: string }) => ({
-            id: f?.id,
-            name: f?.name,
-          }))
-        : [];
-      console.info('[tool_ops delete]', {
-        i,
-        name,
-        args,
-        status: res.status,
-        summary: res.summary,
-        framesAfter,
-        artifacts: res.artifacts,
-      });
     }
     if (res.status === 'error') {
       console.warn('[tool_ops error]', { i, name, args, summary: res.summary });
@@ -543,7 +505,7 @@ export async function applyAgentToolOps(opts: {
         : [];
       if (outlined.length) nodeIds.push(...outlined);
       else {
-        const nid = String(args.nodeId || args.id || '');
+        const nid = String(args.nodeId || '');
         if (nid) nodeIds.push(nid);
       }
     } else if (name === 'delete_nodes') {
@@ -558,9 +520,6 @@ export async function applyAgentToolOps(opts: {
       }
     }
   }
-      if (deleted > 0) {
-        console.info('[tool_ops delete done]', { deleted, created, updated });
-      }
       return {
         created,
         updated,
@@ -1710,14 +1669,7 @@ async function waitSceneInventorySettled(
 ): Promise<void> {
   const timeoutMs = Math.max(80, opts?.timeoutMs ?? 480);
   const needStable = Math.max(1, opts?.stableFrames ?? 2);
-  const frame = () =>
-    new Promise<void>((resolve) => {
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => resolve());
-      } else {
-        setTimeout(resolve, 16);
-      }
-    });
+  const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const t0 = Date.now();
   let prev = sceneInventoryFingerprint(getDocument());
   let stable = 0;
@@ -2331,13 +2283,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   let liveTaskId: string | null = null;
   let terminalErrorCode: string | null = null;
 
-  if (typeof console !== 'undefined') {
-    console.info('[designAgent] start', {
-      scene: params.scene,
-      canvasSize: params.canvasSize,
-      lockedClientSize,
-    });
-  }
 
   // Cover stays up through paint → review → reflect retry until settle/abort.
   const processLabels = params.processLabels || {};
@@ -2650,15 +2595,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     if (size || lockedClientSize) {
       // User chip wins — backend must not resize the live artboard.
       liveCanvasSize = lockedClientSize || size.toLowerCase();
-      if (typeof console !== 'undefined') {
-        console.info('[designAgent] status size', {
-          fromBackend: size || null,
-          lockedClientSize,
-          using: liveCanvasSize,
-          scene: ev.scene,
-          edit_in_place: ev.edit_in_place,
-        });
-      }
       if (typeof ev.edit_in_place === 'boolean') {
         editInPlace = ev.edit_in_place;
       }
@@ -2814,7 +2750,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     }
     const stage = ev.stage ? String(ev.stage) : '';
     let { detail, summaryRaw, body: activityBody } = activityDetailParts(ev);
-    // Drop legacy English DESIGN_* dumps that used to become row labels.
+    // Drop internal English DESIGN_* dumps that used to become row labels.
     if (isInternalDesignDump(detail)) detail = '';
     if (isInternalDesignDump(summaryRaw)) summaryRaw = '';
     if (isInternalDesignDump(activityBody)) activityBody = '';
@@ -2926,9 +2862,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     const deleteish = ops.filter((o: { name?: string }) =>
       ['delete_frame', 'delete_nodes'].includes(String(o?.name || '').trim())
     );
-    if (deleteish.length) {
-      console.info('[sse tool_ops delete]', deleteish);
-    }
     const txId = String(ev.transaction_id || aiQueue.transactionId || '').trim();
     if (txId) aiQueueBindTransaction(aiQueue, txId);
     if (!aiQueueEnqueue(aiQueue, ops)) return;
@@ -3202,37 +3135,19 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         previewImage = null;
       }
       const txStatus = aiQueueAckStatus(aiQueue);
-      console.info('[scene_feedback] post', {
-        taskId,
-        round,
-        nodeCount: nodes.length,
-        frameCount: frames.length,
-        frames: frames.map((f) => ({ id: f.id, is_empty: f.is_empty })),
-        emptyRects: spatial.empty_rects.length,
-        opFailed: opResults.filter((r) => !r.ok).length,
-        hasPreview: Boolean(previewImage),
-        transactionId: feedbackTxId || null,
-        transactionStatus: feedbackTxId ? txStatus : null,
-      });
-      const feedback = {
+      const feedback: Parameters<typeof postDesignSceneFeedback>[1] = {
         scene_nodes: nodes as Array<Record<string, unknown>>,
-        ...(frames.length
-          ? { scene_frames: frames as Array<Record<string, unknown>> }
-          : {}),
         spatial_summary: spatial as unknown as Record<string, unknown>,
-        ...(opResults.length ? { op_results: opResults } : {}),
-        ...(previewImage ? { preview_image: previewImage } : {}),
         round,
-        ...(feedbackTxId
-          ? {
-              transaction_id: feedbackTxId,
-              transaction_status: txStatus,
-              ...(aiQueue.baseRevision
-                ? { base_revision: aiQueue.baseRevision }
-                : {}),
-            }
-          : {}),
       };
+      if (frames.length) feedback.scene_frames = frames as Array<Record<string, unknown>>;
+      if (opResults.length) feedback.op_results = opResults;
+      if (previewImage) feedback.preview_image = previewImage;
+      if (feedbackTxId) {
+        feedback.transaction_id = feedbackTxId;
+        feedback.transaction_status = txStatus;
+        if (aiQueue.baseRevision) feedback.base_revision = aiQueue.baseRevision;
+      }
       const retryDelaysMs = [0, 750, 2_000];
       let feedbackSent = false;
       for (let attempt = 0; attempt < retryDelaysMs.length; attempt += 1) {

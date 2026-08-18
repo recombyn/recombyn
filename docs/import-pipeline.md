@@ -26,7 +26,7 @@ Coordinates are scaled to `SCENE_TARGET_WIDTH` (default 794) before writing Scen
 
 ## Stage 3: object storage + frontend async import
 
-### S3-compatible storage
+### S3-style storage
 
 Local disk by default. When enabled, page images upload via boto3 (Aliyun OSS, Tencent COS, MinIO, AWS S3):
 

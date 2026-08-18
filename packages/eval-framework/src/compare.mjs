@@ -49,12 +49,11 @@ export function extractTasks(doc) {
   return out;
 }
 
-/** Resolve skill pack version from open `skills/` (+ legacy seeds). */
+/** Resolve skill pack version from open `skills/`. */
 export function loadSkillVersions(repoRoot, keys = ['poster_craft', 'landing_page', 'dashboard_ui', 'image_gen']) {
   const roots = [
     path.join(repoRoot, 'skills', 'foundation'),
     path.join(repoRoot, 'skills', 'domains'),
-    path.join(repoRoot, 'apps', 'api', 'seeds', 'design_skills'),
   ];
   const versions = {};
   for (const key of keys) {

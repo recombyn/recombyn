@@ -84,6 +84,242 @@ function bottomHudCollidesWithTools(opts: {
   return hudRight + BOTTOM_HUD_TOOLS_GAP_PX > toolsLeft;
 }
 
+/**
+ * Opt-in canvas FPS meter (rAF sampler).
+ * Toggle: zoom menu → FPS meter, or `window.__RCB_FPS_HUD__ = true` then
+ * `window.dispatchEvent(new Event('rcb-fps-hud'))`.
+ * Console: `window.__fpsHud.live()` / `.slice(name, t0, t1)`.
+ * Persists in localStorage. Default OFF.
+ */
+const FPS_HUD_STORAGE_KEY = 'recombyn-editor-fps-hud';
+const FPS_HUD_EVENT = 'rcb-fps-hud';
+
+type FpsFrameStats = {
+  n: number;
+  fps: number;
+  min: number;
+  median: number;
+  p95: number;
+  max: number;
+  mean: number;
+  dropped22: number;
+  dropped33: number;
+};
+
+type FpsSlice = {
+  name: string;
+  wallMs: number;
+  frame: FpsFrameStats;
+  longTasks: number;
+  longMaxMs: number;
+};
+
+type FpsLive = FpsFrameStats & {
+  sampleCount: number;
+  longTasks: number;
+  longMaxMs: number;
+};
+
+type FpsHudApi = {
+  live: () => FpsLive;
+  slice: (name: string, t0: number, t1: number) => FpsSlice;
+  now: () => number;
+  enable: () => void;
+  disable: () => void;
+};
+
+declare global {
+  interface Window {
+    __RCB_FPS_HUD__?: boolean;
+    __fpsHud?: FpsHudApi;
+  }
+}
+
+function emptyFpsStats(): FpsFrameStats {
+  return {
+    n: 0,
+    fps: 0,
+    min: 0,
+    median: 0,
+    p95: 0,
+    max: 0,
+    mean: 0,
+    dropped22: 0,
+    dropped33: 0,
+  };
+}
+
+function fpsFrameStats(arr: number[]): FpsFrameStats {
+  if (!arr.length) return emptyFpsStats();
+  const s = [...arr].sort((a, b) => a - b);
+  const q = (p: number) => s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
+  const mean = s.reduce((a, b) => a + b, 0) / s.length;
+  return {
+    n: s.length,
+    fps: +(1000 / mean).toFixed(1),
+    min: +s[0].toFixed(2),
+    median: +q(0.5).toFixed(2),
+    p95: +q(0.95).toFixed(2),
+    max: +s[s.length - 1].toFixed(2),
+    mean: +mean.toFixed(2),
+    dropped22: s.filter((x) => x > 22).length,
+    dropped33: s.filter((x) => x > 33).length,
+  };
+}
+
+function readFpsHudEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.__RCB_FPS_HUD__ === true) return true;
+  if (window.__RCB_FPS_HUD__ === false) return false;
+  try {
+    return localStorage.getItem(FPS_HUD_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeFpsHudEnabled(on: boolean) {
+  if (typeof window === 'undefined') return;
+  window.__RCB_FPS_HUD__ = on;
+  try {
+    if (on) localStorage.setItem(FPS_HUD_STORAGE_KEY, '1');
+    else localStorage.removeItem(FPS_HUD_STORAGE_KEY);
+  } catch {
+    /* ignore quota / private mode */
+  }
+  window.dispatchEvent(new Event(FPS_HUD_EVENT));
+}
+
+function startFpsSampler() {
+  const samples: Array<{ t: number; dt: number }> = [];
+  const longTasks: Array<{ t: number; dur: number }> = [];
+  let last = 0;
+  let raf = 0;
+  let running = true;
+
+  const longObs = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      longTasks.push({ t: entry.startTime, dur: entry.duration });
+    }
+  });
+  try {
+    longObs.observe({ type: 'longtask', buffered: true });
+  } catch {
+    /* longtask not available */
+  }
+
+  function loop(now: number) {
+    if (!running) return;
+    if (last) {
+      samples.push({ t: now, dt: now - last });
+      if (samples.length > 8000) samples.splice(0, samples.length - 4000);
+    }
+    last = now;
+    raf = requestAnimationFrame(loop);
+  }
+  raf = requestAnimationFrame(loop);
+
+  return {
+    live(): FpsLive {
+      const recent = samples.slice(-120);
+      const t0 = recent[0]?.t ?? 0;
+      const t1 = recent[recent.length - 1]?.t ?? 0;
+      const longs = longTasks.filter((x) => x.t >= t0 && x.t <= t1);
+      return {
+        sampleCount: samples.length,
+        ...fpsFrameStats(recent.map((s) => s.dt)),
+        longTasks: longs.length,
+        longMaxMs: longs.length ? +Math.max(...longs.map((x) => x.dur)).toFixed(2) : 0,
+      };
+    },
+    slice(name: string, t0: number, t1: number): FpsSlice {
+      const dts = samples.filter((s) => s.t >= t0 && s.t <= t1).map((s) => s.dt);
+      const longs = longTasks.filter((x) => x.t >= t0 && x.t <= t1);
+      return {
+        name,
+        wallMs: +(t1 - t0).toFixed(2),
+        frame: fpsFrameStats(dts),
+        longTasks: longs.length,
+        longMaxMs: longs.length ? +Math.max(...longs.map((x) => x.dur)).toFixed(2) : 0,
+      };
+    },
+    now() {
+      return performance.now();
+    },
+    stop() {
+      running = false;
+      cancelAnimationFrame(raf);
+      longObs.disconnect();
+    },
+  };
+}
+
+function bindFpsHudWindowApi(sampler: ReturnType<typeof startFpsSampler>) {
+  window.__fpsHud = {
+    live: () => sampler.live(),
+    slice: (name, t0, t1) => sampler.slice(name, t0, t1),
+    now: () => sampler.now(),
+    enable: () => writeFpsHudEnabled(true),
+    disable: () => writeFpsHudEnabled(false),
+  };
+}
+
+function emptyFpsLive(): FpsLive {
+  return { sampleCount: 0, longTasks: 0, longMaxMs: 0, ...emptyFpsStats() };
+}
+
+function FpsHudOverlay() {
+  const { t } = useTranslation();
+  const [live, setLive] = useState<FpsLive>(emptyFpsLive);
+
+  useEffect(() => {
+    const sampler = startFpsSampler();
+    bindFpsHudWindowApi(sampler);
+    const id = window.setInterval(() => {
+      setLive(sampler.live());
+    }, 250);
+    return () => {
+      window.clearInterval(id);
+      sampler.stop();
+      if (window.__fpsHud) {
+        window.__fpsHud = {
+          ...window.__fpsHud,
+          live: () => emptyFpsLive(),
+          slice: (name, t0, t1) => ({
+            name,
+            wallMs: +(t1 - t0).toFixed(2),
+            frame: emptyFpsStats(),
+            longTasks: 0,
+            longMaxMs: 0,
+          }),
+        };
+      }
+    };
+  }, []);
+
+  const fpsLabel = live.n ? String(live.fps) : '—';
+
+  return (
+    <div
+      className="pointer-events-none absolute left-4 top-14 z-20"
+      aria-label={t('editor.fpsHud')}
+    >
+      <div className="min-w-[7.5rem] rounded-md border border-[var(--line)] bg-[var(--panel)] px-2.5 py-1.5 font-mono text-[11px] leading-4 text-[var(--ink)]">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[10px] uppercase tracking-wide text-[var(--muted)]">FPS</span>
+          <span className="text-[16px] font-semibold tabular-nums">{fpsLabel}</span>
+        </div>
+        <div className="mt-0.5 tabular-nums text-[var(--muted)]">
+          {live.median.toFixed(1)}ms · p95 {live.p95.toFixed(1)}
+        </div>
+        <div className="tabular-nums text-[var(--muted)]">
+          drop {live.dropped22} · long {live.longTasks}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HudBtn({
   tip,
   active,
@@ -242,8 +478,32 @@ function EditorBottomHud({
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
+  const [fpsHudOn, setFpsHudOn] = useState(readFpsHudEnabled);
   const bottomHudRef = useRef<HTMLDivElement | null>(null);
   const [stackBottomHud, setStackBottomHud] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setFpsHudOn(readFpsHudEnabled());
+    window.addEventListener(FPS_HUD_EVENT, sync);
+    if (!window.__fpsHud) {
+      window.__fpsHud = {
+        live: () => emptyFpsLive(),
+        slice: (name, t0, t1) => ({
+          name,
+          wallMs: +(t1 - t0).toFixed(2),
+          frame: emptyFpsStats(),
+          longTasks: 0,
+          longMaxMs: 0,
+        }),
+        now: () => performance.now(),
+        enable: () => writeFpsHudEnabled(true),
+        disable: () => writeFpsHudEnabled(false),
+      };
+    }
+    return () => {
+      window.removeEventListener(FPS_HUD_EVENT, sync);
+    };
+  }, []);
 
   useEffect(() => {
     const stage = stageEl;
@@ -308,17 +568,28 @@ function EditorBottomHud({
         key: p.key,
         label: <ZoomMenuLabel label={`${Math.round(p.zoom * 100)}%`} />,
       })),
+      { key: 'fps-divider', type: 'divider', label: '' },
+      {
+        key: 'fps',
+        label: <ZoomMenuLabel label={t('editor.fpsHud')} />,
+      },
     ],
     [t]
   );
 
-  const zoomSelectedKeys = useMemo(
-    () => zoomMenuSelectedKeys({ zoom: camera.zoom, fitActive: zoomFitActive }),
-    [camera.zoom, zoomFitActive]
-  );
+  const zoomSelectedKeys = useMemo(() => {
+    const keys = zoomMenuSelectedKeys({ zoom: camera.zoom, fitActive: zoomFitActive });
+    if (fpsHudOn) keys.push('fps');
+    return keys;
+  }, [camera.zoom, zoomFitActive, fpsHudOn]);
 
   const onZoomMenuClick = useCallback(
     (key: string) => {
+      if (key === 'fps') {
+        writeFpsHudEnabled(!readFpsHudEnabled());
+        setZoomMenuOpen(false);
+        return;
+      }
       if (key === 'fit') onFitView();
       else if (key === 'in') onZoomIn();
       else if (key === 'out') onZoomOut();
@@ -332,32 +603,34 @@ function EditorBottomHud({
   );
 
   return (
-    <div
-      className={cn(
-        'pointer-events-none absolute left-4 z-20 flex flex-col items-start gap-2',
-        stackBottomHud ? 'bottom-[4.75rem]' : 'bottom-4'
-      )}
-    >
-      {minimapOpen ? (
-        <EditorMinimap
-          document={document}
-          frames={frames}
-          camera={camera}
-          stageEl={stageEl}
-          activeFrameId={activeFrameId}
-          selectedFrameIds={selectedFrameIds}
-          selectedNodeIds={selectedNodeIds}
-          onCameraChange={onCameraChange}
-          canvasBg={stageBackground}
-        />
-      ) : null}
-      {shortcutsOpen ? (
-        <EditorShortcutsPanel onClose={() => setShortcutsOpen(false)} />
-      ) : null}
-      <FloatingToolbar
-        ref={bottomHudRef}
-        className="pointer-events-auto w-fit px-2 text-[12px] text-[var(--ink)] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+    <>
+      {fpsHudOn ? <FpsHudOverlay /> : null}
+      <div
+        className={cn(
+          'pointer-events-none absolute left-4 z-20 flex flex-col items-start gap-2',
+          stackBottomHud ? 'bottom-[4.75rem]' : 'bottom-4'
+        )}
       >
+        {minimapOpen ? (
+          <EditorMinimap
+            document={document}
+            frames={frames}
+            camera={camera}
+            stageEl={stageEl}
+            activeFrameId={activeFrameId}
+            selectedFrameIds={selectedFrameIds}
+            selectedNodeIds={selectedNodeIds}
+            onCameraChange={onCameraChange}
+            canvasBg={stageBackground}
+          />
+        ) : null}
+        {shortcutsOpen ? (
+          <EditorShortcutsPanel onClose={() => setShortcutsOpen(false)} />
+        ) : null}
+        <FloatingToolbar
+          ref={bottomHudRef}
+          className="pointer-events-auto w-fit px-2 text-[12px] text-[var(--ink)] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+        >
         {!isDevMode ? (
           <>
             {useCompactTooling ? (
@@ -485,8 +758,9 @@ function EditorBottomHud({
             <HiOutlineChevronDown className="h-3 w-3 shrink-0 text-[var(--muted)]" />
           </button>
         </Dropdown>
-      </FloatingToolbar>
-    </div>
+        </FloatingToolbar>
+      </div>
+    </>
   );
 }
 

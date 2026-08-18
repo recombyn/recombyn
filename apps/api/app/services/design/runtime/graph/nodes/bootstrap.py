@@ -23,9 +23,9 @@ from app.services.design.runtime.graph.support import (
     _persist_progress,
 )
 from app.services.design.runtime.models_route import (
-    clamp_tier,
-    enabled_tiers,
-    estimate_task_tier,
+    clamp_lane,
+    enabled_lanes,
+    heuristic_route_lane,
 )
 
 
@@ -176,13 +176,15 @@ async def _hydrate_pinned_skills(rt: AgentRuntime) -> None:
 
 
 def _apply_task_route_flags(rt: AgentRuntime) -> None:
-    """Estimate task tier + mode flags."""
+    """Estimate route lane + mode flags."""
     st = rt.run
-    st.task_tier = clamp_tier(
-        estimate_task_tier(
-            rt.prompt, rules=rt.rules, skill_category="agent", scene=rt.scene_key or None
-        ),
-        enabled_tiers(rt.rules),
+    st.task_tier = clamp_lane(
+        heuristic_route_lane(
+            rt.prompt,
+            has_images=bool(rt.images),
+            scene=rt.scene_key or None,
+        ).lane,
+        enabled_lanes(rt.rules),
     )
     tier_label = st.task_tier or "-"
     # Do not set vision_used here — only after pixels are actually sent to the LLM.

@@ -15,7 +15,7 @@ def test_schema_version():
 
 
 def test_valid_update_node():
-    raw = '{"ops":[{"name":"update_node","args":{"nodeId":"n1","cornerRadius":8}}]}'
+    raw = '{"tool_ops":[{"name":"update_node","args":{"nodeId":"n1","cornerRadius":8}}]}'
     ops, errs = extract_and_validate_tool_ops(
         raw,
         scene_nodes=[{"id": "n1", "type": "rect", "w": 100, "h": 100}],
@@ -28,14 +28,14 @@ def test_valid_update_node():
 
 
 def test_rejects_unknown_tool():
-    raw = '{"ops":[{"name":"explode_canvas","args":{}}]}'
+    raw = '{"tool_ops":[{"name":"explode_canvas","args":{}}]}'
     ops, errs = extract_and_validate_tool_ops(raw)
     assert not ops
     assert any("tool_not_allowed" in e for e in errs)
 
 
 def test_rejects_unknown_node_id():
-    raw = '{"ops":[{"name":"update_node","args":{"nodeId":"ghost","fill":"#f00"}}]}'
+    raw = '{"tool_ops":[{"name":"update_node","args":{"nodeId":"ghost","fill":"#f00"}}]}'
     ops, errs = extract_and_validate_tool_ops(
         raw,
         scene_nodes=[{"id": "n1"}],
@@ -57,9 +57,9 @@ def test_dedupe_by_op_id():
     assert len(ops) == 1
 
 
-def test_delete_accepts_node_ids_alias():
+def test_delete_nodes_uses_nodeIds():
     raw_ops = [
-        {"name": "delete_nodes", "args": {"node_ids": ["n1"]}},
+        {"name": "delete_nodes", "args": {"nodeIds": ["n1"]}},
     ]
     ops, errs = normalize_agent_tool_ops(
         raw_ops,
@@ -74,11 +74,11 @@ def test_delete_accepts_node_ids_alias():
 def test_delete_plus_create_rejected_prefer_update_shape():
     """Morph via delete+create is invalid — tell model to use update_node (no silent rewrite)."""
     raw_ops = [
-        {"name": "delete_nodes", "args": {"node_ids": ["green1"]}},
+        {"name": "delete_nodes", "args": {"nodeIds": ["green1"]}},
         {
             "name": "create_shape",
             "args": {
-                "type": "ellipse",
+                "shapeType": "ellipse",
                 "x": 10,
                 "y": 20,
                 "width": 100,
@@ -218,51 +218,20 @@ def test_format_op_error_shape():
 
 
 def test_rejects_unknown_tool_uses_code_format():
-    raw = '{"ops":[{"name":"explode_canvas","args":{}}]}'
+    raw = '{"tool_ops":[{"name":"explode_canvas","args":{}}]}'
     ops, errs = extract_and_validate_tool_ops(raw)
     assert not ops
     assert any("code=tool_not_allowed" in e for e in errs)
 
 
 def test_update_node_accepts_shape_type():
-    raw = '{"ops":[{"name":"update_node","args":{"nodeId":"n1","shapeType":"circle"}}]}'
+    raw = '{"tool_ops":[{"name":"update_node","args":{"nodeId":"n1","shapeType":"circle"}}]}'
     ops, errs = extract_and_validate_tool_ops(
         raw,
         scene_nodes=[{"id": "n1", "type": "rect", "w": 100, "h": 100}],
     )
     assert not errs
     assert ops[0]["args"]["shapeType"] == "circle"
-
-
-def test_accepts_parameters_envelope_as_args():
-    """Models often emit OpenAI-style parameters; normalize to args."""
-    raw_ops = [
-        {
-            "name": "create_shape",
-            "parameters": {
-                "shapeType": "rect",
-                "x": 0,
-                "y": 0,
-                "width": 100,
-                "height": 80,
-                "fill": "#fff",
-            },
-        },
-        {
-            "name": "create_text",
-            "arguments": {"text": "Hi", "x": 10, "y": 20, "fontSize": 16},
-        },
-        {
-            "name": "create_image",
-            "parameters": {"genPrompt": "avatar", "x": 0, "y": 0, "width": 64, "height": 64},
-        },
-    ]
-    ops, errs = normalize_agent_tool_ops(raw_ops)
-    assert not errs
-    assert len(ops) == 3
-    assert ops[0]["args"]["shapeType"] == "rect"
-    assert ops[1]["args"]["text"] == "Hi"
-    assert ops[2]["args"]["genPrompt"] == "avatar"
 
 
 def test_create_shape_next_to_images_is_not_rewritten_to_update():

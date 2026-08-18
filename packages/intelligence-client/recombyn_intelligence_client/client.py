@@ -10,8 +10,7 @@ from recombyn_intelligence_client.protocol import IntelligenceProvider
 class DesignIntelligenceClient:
     """Single entry used by Design Runtime. Does not embed provider logic.
 
-    Stable method names are the contract. Legacy aliases keep older call sites
-    working without Kernel rewrites.
+    Stable canonical method names are the only contract.
     """
 
     def __init__(self, provider: IntelligenceProvider) -> None:
@@ -65,20 +64,3 @@ class DesignIntelligenceClient:
 
     async def write_principle(self, rt: Any) -> dict[str, Any] | None:
         return await self._provider.write_principle(rt)
-
-    # ── Legacy aliases (do not use in new Kernel code) ──────────────────────
-
-    async def candidates(self, rt: Any) -> dict[str, Any] | None:
-        return await self.propose_candidates(rt)
-
-    async def swarm(self, rt: Any) -> dict[str, Any] | None:
-        return await self.swarm_direction(rt)
-
-    async def gate_governance(self, rt: Any) -> dict[str, Any]:
-        return await self.govern(rt)
-
-    async def plan_autonomous(self, rt: Any) -> dict[str, Any] | None:
-        return await self.autonomous_plan(rt)
-
-    async def sync_autonomous(self, rt: Any) -> dict[str, Any] | None:
-        return await self.autonomous_sync(rt)

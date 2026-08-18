@@ -16,7 +16,6 @@ from . import constants as _c
 from .constants import (
     SOURCE_ADMIN,
     SOURCE_FILE,
-    SOURCE_SEED,
     _DISK_SIGNATURE,
     _HOT_RELOAD_STOP,
     _HOT_RELOAD_THREAD,
@@ -152,7 +151,7 @@ def _allowed_resources_json(item: dict[str, Any], *, source: str) -> str | None:
     if parsed is None:
         if source == SOURCE_ADMIN:
             return json.dumps(["tools"], ensure_ascii=False)
-        if source in (SOURCE_SEED, SOURCE_FILE):
+        if source == SOURCE_FILE:
             return json.dumps(
                 ["tools"], ensure_ascii=False
             )
@@ -218,9 +217,6 @@ def _upsert_owned_skill(
     next_ver = version
     if row:
         src = _normalize_source(_row_get(row, "source"), default=source)
-        # SOURCE_SEED is legacy-only; never upsert from that source path.
-        if source == SOURCE_SEED:
-            return
         if src in skip_sources:
             return
         try:
@@ -229,7 +225,7 @@ def _upsert_owned_skill(
             cur_ver = 0
         next_ver = (
             max(version, cur_ver + 1)
-            if source in (SOURCE_SEED, SOURCE_FILE)
+            if source == SOURCE_FILE
             else max(version, 1)
         )
         skill_id = int(row.id or 0) or None
@@ -358,20 +354,6 @@ def _skills_disk_signature() -> str:
                 parts.append(f"{root.name}/{pack.name}:err")
     return "|".join(parts)
 
-def _prune_legacy_seed_skills(session: Session) -> None:
-    """Drop leftover SOURCE_SEED rows — playbooks live under ``skills/`` file packs."""
-    from sqlmodel import select
-
-    from app.models import DesignSkill
-
-    for row in session.exec(select(DesignSkill)).all():
-        key = str(_row_get(row, "skill_key") or "").strip()
-        src = _normalize_source(_row_get(row, "source"), default=SOURCE_SEED)
-        if src != SOURCE_SEED or not key:
-            continue
-        session.delete(row)
-        logger.info("pruned legacy seed skill %s (file packs only)", key)
-
 
 def _prune_missing_file_skills(
     session: Session, *, file_keys: set[str]
@@ -412,7 +394,6 @@ def ensure_design_skills(*, force: bool = False) -> None:
             if str(it.get("skill_key") or "").strip()
         }
         with Session(core_db.engine) as session:
-            _prune_legacy_seed_skills(session)
             _prune_missing_file_skills(session, file_keys=file_keys)
             _purge_system_skill_denylist(session)
             for item in file_items:
