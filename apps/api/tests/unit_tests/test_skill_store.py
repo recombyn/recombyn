@@ -301,55 +301,22 @@ def test_file_pack_sync_overwrites_body_from_disk():
 
 
 
-def test_agent_skills_frontmatter_split_and_meta():
-    from app.services.design.prompts.skill_store import (
-        _meta_from_agent_skill_frontmatter,
-        _split_skill_md_frontmatter,
-    )
-
-    fm, body = _split_skill_md_frontmatter(
-        """---
-name: demo-skill
-description: >-
-  Hello world skill for canvas.
-disable-model-invocation: true
----
-
-# Demo
-Do the thing.
-"""
-    )
-    assert fm.get("name") == "demo-skill"
-    assert "Hello world" in str(fm.get("description") or "")
-    assert body.startswith("# Demo")
-    assert "disable-model-invocation" not in body
-    meta = _meta_from_agent_skill_frontmatter(fm, folder="demo-skill")
-    assert meta is not None
-    assert meta["skill_key"] == "demo-skill"
-    assert "Hello world" in meta["when_to_use"]
-
-
-def test_load_pack_dir_agent_skills_only(tmp_path):
+def test_load_pack_dir_requires_meta_json(tmp_path):
     from app.services.design.prompts.skill_store import _load_pack_dir
 
     pack = tmp_path / "demo-skill"
     pack.mkdir()
-    (pack / "SKILL.md").write_text(
-        """---
-name: demo-skill
-description: Agent skills only pack
----
+    (pack / "SKILL.md").write_text("# Body\nKeep this prompt.\n", encoding="utf-8")
+    assert _load_pack_dir(pack) is None
 
-# Body
-Keep this prompt.
-""",
+    (pack / "_meta.json").write_text(
+        '{"skill_key":"demo-skill","when_to_use":"demo","preferred_tools":["create_frame"]}',
         encoding="utf-8",
     )
     item = _load_pack_dir(pack)
     assert item is not None
     assert item["skill_key"] == "demo-skill"
     assert item["prompt_positive"].startswith("# Body")
-    assert "---" not in item["prompt_positive"]
 
 
 def test_oss_ext_packs_present():
@@ -372,15 +339,20 @@ def test_oss_ext_packs_present():
     assert "example_ext" not in keys
 
 
-def test_normalize_pack_meta_aliases():
+def test_normalize_pack_meta_keeps_skill_key():
     from app.services.design.prompts.skill_store.pack_io import _normalize_pack_meta
 
     meta = _normalize_pack_meta(
         {
-            "id": "my_plugin",
-            "trigger_keywords": ["中秋海报", "holiday poster"],
+            "skill_key": "my_plugin",
+            "triggers": [
+                {
+                    "intent_in": ["create", "edit"],
+                    "prompt_includes_any": ["中秋海报", "holiday poster"],
+                }
+            ],
             "author": "ops",
-            "permissions": ["新建画布帧"],
+            "allowed_resources": ["tools"],
             "enabled": True,
         },
         folder="my_plugin",
@@ -411,7 +383,8 @@ def test_plugin_style_pack_loads(tmp_path, monkeypatch):
     pack = root / "kw_poster"
     pack.mkdir(parents=True)
     (pack / "_meta.json").write_text(
-        '{"id":"kw_poster","name":"kw_poster","trigger_keywords":["春节海报"],'
+        '{"skill_key":"kw_poster","name":"kw_poster",'
+        '"triggers":[{"intent_in":["create","edit"],"prompt_includes_any":["春节海报"]}],'
         '"preferred_tools":["create_frame","create_text"],"version":"1.0.0"}',
         encoding="utf-8",
     )
@@ -437,9 +410,9 @@ def test_schema_json_merges_into_pack(tmp_path):
     )
     (pack / "SKILL.md").write_text("# Schema pack\n\nBody.\n", encoding="utf-8")
     (pack / "schema.json").write_text(
-        '{"input":{"type":"object","properties":{"festival":{"type":"string"}},'
+        '{"input_schema":{"type":"object","properties":{"festival":{"type":"string"}},'
         '"required":["festival"]},'
-        '"output":{"type":"object","allowed_ops":["create_frame","create_text"]}}',
+        '"output_schema":{"type":"object","allowed_ops":["create_frame","create_text"]}}',
         encoding="utf-8",
     )
     item = _load_pack_dir(pack)

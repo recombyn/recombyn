@@ -295,7 +295,7 @@ def build_design_intelligence_client() -> DesignIntelligenceClient:
     """Resolve provider from settings. Default is local/basic."""
     mode = str(getattr(settings, "intelligence_provider", "local") or "local").strip().lower()
     local = BasicLocalProvider()
-    if mode in ("remote", "http", "cloud"):
+    if mode == "cloud":
         base = str(getattr(settings, "intelligence_remote_url", "") or "").strip()
         if base:
             key = str(getattr(settings, "intelligence_remote_api_key", "") or "")
@@ -311,7 +311,7 @@ def build_design_intelligence_client() -> DesignIntelligenceClient:
                     apply_result=apply_intelligence_result,
                 )
             )
-        _log.info("intelligence_provider=remote but URL empty; using BasicLocal")
+        _log.info("RECOMBYN_INTELLIGENCE_MODE=cloud but URL empty; using BasicLocal")
     return DesignIntelligenceClient(local)
 
 
@@ -331,7 +331,7 @@ def reset_design_intelligence_client() -> None:
 def remote_billing_base_url() -> str:
     """Optional remote host base URL for credit quotes; else empty."""
     mode = str(getattr(settings, "intelligence_provider", "local") or "local").strip().lower()
-    if mode not in ("remote", "http", "cloud"):
+    if mode != "cloud":
         return ""
     return str(getattr(settings, "intelligence_remote_url", "") or "").strip().rstrip("/")
 

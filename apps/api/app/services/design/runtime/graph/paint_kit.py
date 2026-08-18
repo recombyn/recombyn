@@ -234,8 +234,8 @@ def _wh_from_create_frame_ops(ops: list[dict[str, Any]]) -> tuple[int, int]:
             continue
         args = o.get("args") if isinstance(o.get("args"), dict) else {}
         try:
-            fw = int(args.get("width") or args.get("w") or 0)
-            fh = int(args.get("height") or args.get("h") or 0)
+            fw = int(args.get("width") or 0)
+            fh = int(args.get("height") or 0)
         except (TypeError, ValueError):
             continue
         if fw > 0 and fh > 0:

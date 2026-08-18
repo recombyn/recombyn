@@ -23,30 +23,36 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     GraphState,
 )
-from app.services.design.runtime.graph.support import (
-    _bump,
-    _clip_llm_raw,
-    _commit,
+from app.services.design.runtime.graph.emit_sse import (
     _emit,
     _emit_canvas_size_from_ops,
     _emit_design_loading_artboard,
     _emit_tool_ops_validation_ui,
-    _ensure_paint_tool_details,
-    _goto_cmd,
-    _is_lean_paint_turn,
-    _llm_io_fields,
+    _design_assistant_reply,
+)
+from app.services.design.runtime.graph.llm_io import (
+    _clip_llm_raw,
     _emit_ux_tip,
+    _llm_io_fields,
+    _require_prompt_pack,
+    _resolve_and_log_model,
+    _stream_llm_text,
+)
+from app.services.design.runtime.graph.paint_kit import (
+    _ensure_paint_tool_details,
+    _is_lean_paint_turn,
     _op_errors_for_log,
     _paint_ops_system,
     _paint_ops_user,
-    _design_assistant_reply,
-    _persist_progress,
     _prompt_compact_len,
-    _require_prompt_pack,
-    _resolve_and_log_model,
-    _resolve_paint_want,
-    _stream_llm_text,
 )
+from app.services.design.runtime.graph.scene_log import (
+    _bump,
+    _commit,
+    _goto_cmd,
+    _persist_progress,
+)
+from app.services.design.runtime.graph.turns import _resolve_paint_want
 
 _log = logging.getLogger(__name__)
 

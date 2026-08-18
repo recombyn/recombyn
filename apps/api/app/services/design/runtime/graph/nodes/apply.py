@@ -22,23 +22,29 @@ from app.services.design.runtime.graph.state import (
     new_design_transaction,
     resolve_transaction_phase,
 )
-from app.services.design.runtime.graph.support import (
-    _ask_propose_user_text,
-    _bump,
-    _commit,
+from app.services.design.runtime.graph.emit_sse import (
     _emit,
     _emit_canvas_size_from_ops,
     _emit_deferred_paint_reply,
-    _ensure_propose_choice_ui,
-    _goto_cmd,
-    _hydrate_log_kwargs,
-    _emit_ux_tip,
+)
+from app.services.design.runtime.graph.llm_io import _emit_ux_tip
+from app.services.design.runtime.graph.paint_kit import (
     _ops_for_log,
     _ops_have_create_frame,
-    _persist_progress,
     _paint_ops_for_host,
-    _validate_ops_payload,
 )
+from app.services.design.runtime.graph.scene_log import (
+    _bump,
+    _commit,
+    _goto_cmd,
+    _hydrate_log_kwargs,
+    _persist_progress,
+)
+from app.services.design.runtime.graph.turns import (
+    _ask_propose_user_text,
+    _ensure_propose_choice_ui,
+)
+from app.services.design.runtime.host.ops_gate import _validate_ops_payload
 
 
 def _emit_hydrate_job_progress(rt: AgentRuntime, progress: int, status: str) -> None:

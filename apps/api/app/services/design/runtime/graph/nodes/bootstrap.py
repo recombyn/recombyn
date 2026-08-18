@@ -13,12 +13,11 @@ from app.services.design.readpath.canvas_scene import (
     explicit_canvas_size,
 )
 from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime, GraphState
-from app.services.design.runtime.graph.support import (
+from app.services.design.runtime.graph.emit_sse import _emit
+from app.services.design.runtime.graph.llm_io import _clip_llm_raw, _clip_urls
+from app.services.design.runtime.graph.scene_log import (
     _bump,
-    _clip_llm_raw,
-    _clip_urls,
     _commit,
-    _emit,
     _goto_cmd,
     _persist_progress,
 )

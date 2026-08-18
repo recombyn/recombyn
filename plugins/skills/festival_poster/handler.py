@@ -20,7 +20,7 @@ def _pick_festival(prompt: str, payload: dict[str, Any]) -> str:
 
 
 def _pick_color(prompt: str, payload: dict[str, Any]) -> str:
-    raw = str(payload.get("color_theme") or payload.get("color") or "").strip()
+    raw = str(payload.get("color_theme") or "").strip()
     if raw:
         return raw
     p = str(prompt or "")

@@ -46,8 +46,8 @@ _ALWAYS_ALLOW_OPS = frozenset(
 )
 
 MAX_SKILL_DETAIL_CHARS = 14000
-_META_NAMES = ("_meta.json", "meta.json")
-_SKILL_MD_NAMES = ("SKILL.md", "skill.md")
+_META_NAMES = ("_meta.json",)
+_SKILL_MD_NAMES = ("SKILL.md",)
 # Skill V3 category order: foundation → brand → craft → surface → qa
 _SKILL_CATEGORY_ORDER: dict[str, int] = {
     "foundation": 0,

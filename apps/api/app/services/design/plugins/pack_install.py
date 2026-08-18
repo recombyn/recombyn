@@ -100,12 +100,11 @@ def _repo_plugins_root() -> Path:
 def plugin_entry_allowed(rel: str) -> bool:
     """Whitelist entries for ``.recombyn-plugin`` zips."""
     from app.services.design.prompts.skill_store.constants import (
-        _META_NAMES,
         _ZIP_LOGO_EXTS,
     )
 
     name = Path(rel.replace("\\", "/")).name.lower()
-    if name in _META_NAMES or name in ("skill.md", "design.md"):
+    if name in ("_meta.json", "skill.md"):
         return True
     if name in _PLUGIN_EXTRA_NAMES:
         return True

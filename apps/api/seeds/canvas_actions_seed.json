@@ -5,16 +5,14 @@
       "kind": "mutate",
       "label": "Update node",
       "sort_order": 10,
-      "model_hint": "Patch an existing node by nodeId|id (keeps z-order). Geometry: x,y,width,height. Morph shape: shapeType|type=rect|ellipse|circle|triangle|polygon|star|line|arrow|… (rect→circle = update_node shapeType=circle on same id — NEVER delete+create_shape). Style: fill (solid hex/rgba only — NEVER CSS linear-gradient()/radial-gradient()), fillType=solid|linear|radial|angular|diffuse|image?, fillEnd?, gradientAngle?, stroke,borderWidth,strokeAlign=center|inside|outside (default center; selection chrome sits on mid of stroke band), strokeStyle, strokeLinecap, strokeLinejoin, strokeOpacity, opacity,cornerRadius,rotation,blendMode,name, flipX/flipY, text styles…. Gradients: fillType=linear|radial|angular|diffuse + fill + fillEnd (+ gradientAngle?). Pencil edits: brushStyle (vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft), borderWidth (Size), pathPressure csv, pressureEnabled, pencilFill, pencilOutlineWidth, pencilOutlineColor. Visibility/edit: hidden, locked (boolean).",
+      "model_hint": "Patch an existing node by nodeId (keeps z-order). Geometry: x,y,width,height. Morph shape: shapeType=rect|ellipse|circle|triangle|polygon|star|line|arrow|… (rect→circle = update_node shapeType=circle on same id — NEVER delete+create_shape). Style: fill (solid hex/rgba only — NEVER CSS linear-gradient()/radial-gradient()), fillType=solid|linear|radial|angular|diffuse|image?, fillEnd?, gradientAngle?, stroke,borderWidth,strokeAlign=center|inside|outside (default center; selection chrome sits on mid of stroke band), strokeStyle, strokeLinecap, strokeLinejoin, strokeOpacity, opacity,cornerRadius,rotation,blendMode,name, flipX/flipY, text styles…. Gradients: fillType=linear|radial|angular|diffuse + fill + fillEnd (+ gradientAngle?). Pencil edits: brushStyle (vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft), borderWidth (Size), pathPressure csv, pressureEnabled, pencilFill, pencilOutlineWidth, pencilOutlineColor. Visibility/edit: hidden, locked (boolean).",
       "args_schema": {
         "nodeId": "string",
-        "id": "string?",
         "x": "number?",
         "y": "number?",
         "width": "number?",
         "height": "number?",
         "shapeType": "rect|ellipse|circle|line|arrow|triangle|polygon|star|path|pen|pencil?",
-        "type": "same as shapeType?",
         "sides": "number?",
         "fill": "string? solid hex/rgba — never CSS gradient()",
         "fillType": "solid|linear|radial|angular|diffuse|image?",
@@ -51,7 +49,7 @@
       "kind": "create",
       "label": "Create shape",
       "sort_order": 20,
-      "model_hint": "Add a shape. Args: shapeType|type = rect|ellipse|circle|line|arrow|triangle|polygon|star|path|pen|pencil (+ path for pen/pencil/path; sides for polygon/star), x,y,width,height, fill, stroke, borderWidth, strokeAlign=center|inside|outside (default center — ink + selection indicator sit on stroke mid-band; outside/inside shift the band). Fills: solid → fill=#RRGGBB|rgba(…); gradient → fillType=linear|radial|angular|diffuse + fill + fillEnd + gradientAngle? (example vignette: fillType=linear fill=rgba(0,0,0,0) fillEnd=rgba(0,0,0,0.35) gradientAngle=90). NEVER put CSS linear-gradient()/radial-gradient()/conic-gradient() in fill — rejected by host. Diffuse may pass meshSize/meshPoints. Optional: strokeStyle, strokeLinecap, strokeLinejoin, strokeOpacity. Pen=pen+path (icons: closed path for filled silhouettes). Pencil/板绘=shapeType pencil: filled-ribbon silhouette around an M/L centerline (same outline for live preview and commit). path M/L only; borderWidth=Size (Px); stroke=ribbon fill color. brushStyle=vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft (default vector-ink). Optional pathPressure (csv 0–1, same length as points), pressureEnabled (default true when pathPressure set), pencilFill, pencilOutlineWidth, pencilOutlineColor. Line/arrow are open center strokes (full arrow path includes head). Icons: prefer primitives + boolean_op (cutouts/combines); create_svg/create_icon only for simple single-path marks. For Q-illustration / pencil sketch do NOT collage with circles — use multiple pencil strokes with pressure.",
+      "model_hint": "Add a shape. Args: shapeType = rect|ellipse|circle|line|arrow|triangle|polygon|star|path|pen|pencil (+ path for pen/pencil/path; sides for polygon/star), x,y,width,height, fill, stroke, borderWidth, strokeAlign=center|inside|outside (default center — ink + selection indicator sit on stroke mid-band; outside/inside shift the band). Fills: solid → fill=#RRGGBB|rgba(…); gradient → fillType=linear|radial|angular|diffuse + fill + fillEnd + gradientAngle? (example vignette: fillType=linear fill=rgba(0,0,0,0) fillEnd=rgba(0,0,0,0.35) gradientAngle=90). NEVER put CSS linear-gradient()/radial-gradient()/conic-gradient() in fill — rejected by host. Diffuse may pass meshSize/meshPoints. Optional: strokeStyle, strokeLinecap, strokeLinejoin, strokeOpacity. Pen=pen+path (icons: closed path for filled silhouettes). Pencil/板绘=shapeType pencil: filled-ribbon silhouette around an M/L centerline (same outline for live preview and commit). path M/L only; borderWidth=Size (Px); stroke=ribbon fill color. brushStyle=vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft (default vector-ink). Optional pathPressure (csv 0–1, same length as points), pressureEnabled (default true when pathPressure set), pencilFill, pencilOutlineWidth, pencilOutlineColor. Line/arrow are open center strokes (full arrow path includes head). Icons: prefer primitives + boolean_op (cutouts/combines); create_svg/create_icon only for simple single-path marks. For Q-illustration / pencil sketch do NOT collage with circles — use multiple pencil strokes with pressure.",
       "args_schema": {
         "shapeType": "rect|ellipse|circle|line|arrow|triangle|polygon|star|path|pen|pencil",
         "x": "number",
@@ -191,10 +189,9 @@
       "kind": "mutate",
       "label": "Outline text",
       "sort_order": 35,
-      "model_hint": "Convert text node(s) to editable path letterforms (fontkit). Args: nodeId|id or nodeIds[]. Target must be text with content. After outline: style with update_node fill/stroke; combine letterforms with boolean_op. Prefer create_text + fontFamily only when Available fonts ~≥90% match; use outline_text when you need path geometry (boolean, warp, stroke-only glyphs). FE runs this async — do not expect sync create_shape path as a substitute unless fonts cannot outline.",
+      "model_hint": "Convert text node(s) to editable path letterforms (fontkit). Args: nodeId or nodeIds[]. Target must be text with content. After outline: style with update_node fill/stroke; combine letterforms with boolean_op. Prefer create_text + fontFamily only when Available fonts ~≥90% match; use outline_text when you need path geometry (boolean, warp, stroke-only glyphs). FE runs this async — do not expect sync create_shape path as a substitute unless fonts cannot outline.",
       "args_schema": {
         "nodeId": "string?",
-        "id": "string?",
         "nodeIds": "string[]?"
       }
     },
@@ -203,7 +200,7 @@
       "kind": "create",
       "label": "Create image",
       "sort_order": 40,
-      "model_hint": "Add an image node. Args: src|url or attachmentIndex (user attach), x,y,width,height. Or genPrompt for AI image hydrate. Optional letteringText=visible text in the image (helps later replaceText). Optional removeBg=true|cutoutMode=product|hair — host auto-cutouts after gen (required for ecommerce product plates so no white box remains). Atmosphere/poster heroes: genPrompt must be SCENE ONLY — no baked titles/dates/logos; put copy in create_text. Finished poster refs with baked text: STYLE only — prefer genPrompt clean bg, not full-bleed attachmentIndex. Lettering gate: use create_text+fontFamily only if Available fonts match the needed look ~≥90%; otherwise (esp. hero/main title) genPrompt + letteringText. Do not hardcode brush/calligraphy mood → catalog calligraphy font.",
+      "model_hint": "Add an image node. Args: src or attachmentIndex (user attach), x,y,width,height. Or genPrompt for AI image hydrate. Optional letteringText=visible text in the image (helps later replaceText). Optional removeBg=true|cutoutMode=product|hair — host auto-cutouts after gen (required for ecommerce product plates so no white box remains). Atmosphere/poster heroes: genPrompt must be SCENE ONLY — no baked titles/dates/logos; put copy in create_text. Finished poster refs with baked text: STYLE only — prefer genPrompt clean bg, not full-bleed attachmentIndex. Lettering gate: use create_text+fontFamily only if Available fonts match the needed look ~≥90%; otherwise (esp. hero/main title) genPrompt + letteringText. Do not hardcode brush/calligraphy mood → catalog calligraphy font.",
       "args_schema": {
         "src": "string?",
         "attachmentIndex": "number?",
@@ -238,10 +235,9 @@
       "kind": "create",
       "label": "Create Lottie",
       "sort_order": 52,
-      "model_hint": "Add a Lottie / Bodymovin motion plate. Prefer genPrompt (natural-language motion brief) — backend hydrates to animationData. Or pass animationData (Bodymovin JSON object/string with layers + w/h). Args: genPrompt|prompt and/or animationData, x,y,width,height, name?, durationSec? (hint for hydrate, default 3). Use for UI motion (loading, success, empty-state loop), not for static icons (use create_shape/boolean/create_svg) and not for video (create_image/video flows).",
+      "model_hint": "Add a Lottie / Bodymovin motion plate. Prefer genPrompt (natural-language motion brief) — backend hydrates to animationData. Or pass animationData (Bodymovin JSON object/string with layers + w/h). Args: genPrompt and/or animationData, x,y,width,height, name?, durationSec? (hint for hydrate, default 3). Use for UI motion (loading, success, empty-state loop), not for static icons (use create_shape/boolean/create_svg) and not for video (create_image/video flows).",
       "args_schema": {
         "genPrompt": "string? motion brief for hydrate",
-        "prompt": "string? alias of genPrompt",
         "animationData": "object|string? Bodymovin JSON",
         "x": "number",
         "y": "number",
@@ -526,11 +522,9 @@
       "kind": "canvas",
       "label": "Canvas background",
       "sort_order": 180,
-      "model_hint": "Set infinite-canvas stage background (not artboard fill). Args: color|fill|backgroundColor (solid hex/rgba — never CSS gradient()), fillType?=solid|linear|radial|angular|diffuse|image, fillEnd?, gradientAngle?, opacity?",
+      "model_hint": "Set infinite-canvas stage background (not artboard fill). Args: color (solid hex/rgba — never CSS gradient()), fillType?=solid|linear|radial|angular|diffuse|image, fillEnd?, gradientAngle?, opacity?",
       "args_schema": {
         "color": "string?",
-        "fill": "string?",
-        "backgroundColor": "string?",
         "fillType": "solid|linear|radial|angular|diffuse|image?",
         "fillEnd": "string?",
         "gradientAngle": "number?",
@@ -542,11 +536,10 @@
       "kind": "canvas",
       "label": "Viewport",
       "sort_order": 190,
-      "model_hint": "Zoom/fit. Args: action=zoom_in|zoom_out|fit|set; for set pass percent (e.g. 100) or zoom (1.0).",
+      "model_hint": "Zoom/fit. Args: action=zoom_in|zoom_out|fit|set; for set pass percent (e.g. 100).",
       "args_schema": {
         "action": "zoom_in|zoom_out|fit|set",
-        "percent": "number?",
-        "zoom": "number?"
+        "percent": "number?"
       }
     },
     {

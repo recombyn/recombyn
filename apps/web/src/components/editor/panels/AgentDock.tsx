@@ -3096,7 +3096,7 @@ function AgentDock({
     const mineLabel = t('agent.skillsMine');
     const officialLabel = t('agent.skillsOfficial');
     return skillCatalog.map((s) => ({
-      id: String(s.skillKey || s.id),
+      id: String(s.skillKey || ''),
       label: s.name,
       hint: s.whenToUse || s.description || undefined,
       group: s.mine ? mineLabel : officialLabel,
@@ -3145,11 +3145,9 @@ function AgentDock({
   };
 
   const pickSkillMention = (pickId: string) => {
-    const skill = skillCatalog.find(
-      (s) => String(s.skillKey || s.id) === pickId || String(s.id) === pickId
-    );
+    const skill = skillCatalog.find((s) => String(s.skillKey) === pickId);
     if (!skill) return;
-    const key = String(skill.skillKey || skill.id);
+    const key = String(skill.skillKey);
     const ctx: ComposerContext = {
       key: `skill:${key}`,
       label: skill.name,

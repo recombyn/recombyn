@@ -22,12 +22,10 @@ from app.services.design.runtime.graph.state import (
     _SCENE_WAIT_SEC,
     parse_design_brief,
 )
-from app.services.design.runtime.graph.support import (
-    _bump,
-    _emit,
-    _emit_ux_tip,
-    _structure_verify_issues,
-)
+from app.services.design.runtime.graph.emit_sse import _emit
+from app.services.design.runtime.graph.llm_io import _emit_ux_tip
+from app.services.design.runtime.graph.paint_kit import _structure_verify_issues
+from app.services.design.runtime.graph.scene_log import _bump
 
 # PR10 deterministic QA — facts only. Do not treat these as taste.
 _PLATE_AREA_RATIO = 0.85
@@ -859,7 +857,7 @@ def _create_op_xy(op: dict[str, Any]) -> tuple[float, float] | None:
     args = op.get("args") if isinstance(op.get("args"), dict) else op
     if not isinstance(args, dict):
         return None
-    frame_id = str(args.get("frameId") or args.get("frame_id") or "").strip()
+    frame_id = str(args.get("frameId") or "").strip()
     if frame_id:
         return None
     try:

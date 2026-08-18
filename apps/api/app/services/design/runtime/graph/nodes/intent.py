@@ -7,15 +7,16 @@ from typing import Any
 from langgraph.types import Command
 
 from app.services.design.runtime.graph.state import AgentRuntime, GraphState
-from app.services.design.runtime.graph.support import (
-    _bump,
-    _chat_fallback_text,
-    _clip_llm_raw,
+from app.services.design.runtime.graph.emit_sse import (
     _emit,
     _emit_design_loading_artboard,
-    _emit_ux_tip,
-    _goto_cmd,
 )
+from app.services.design.runtime.graph.llm_io import (
+    _chat_fallback_text,
+    _clip_llm_raw,
+    _emit_ux_tip,
+)
+from app.services.design.runtime.graph.scene_log import _bump, _goto_cmd
 from app.services.design.runtime.models_route import (
     build_design_plan,
     classify_user_intent,

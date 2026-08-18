@@ -13,6 +13,6 @@ PAINT_MODES: frozenset[str] = frozenset({PAINT_MODE_OPS, PAINT_MODE_IMG_LAYERS})
 
 def normalize_paint_mode(raw: str | None) -> PaintMode:
     mode = str(raw or "").strip().lower().replace("-", "_")
-    if mode in ("img_layers", "imglayers", "image_layers", "gen_layers", "生图拆层"):
+    if mode == "img_layers":
         return PAINT_MODE_IMG_LAYERS
     return PAINT_MODE_OPS

@@ -18,7 +18,7 @@ from app.services.design.runtime.graph.state import (
     parse_design_candidate_set,
     parse_design_strategy,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 
 # Spec lanes: Editorial / Minimal Product / Art Direction / Experimental / Brand-led
 _CANDIDATE_LANES: tuple[tuple[str, str, dict[str, str]], ...] = (

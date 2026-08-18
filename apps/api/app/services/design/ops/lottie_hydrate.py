@@ -415,21 +415,13 @@ def _needs_lottie_hydrate(op: dict[str, Any]) -> bool:
     if not isinstance(op, dict) or str(op.get("name") or "") != "create_lottie":
         return False
     args = op.get("args") if isinstance(op.get("args"), dict) else {}
-    has_data = (
-        args.get("animationData") is not None
-        or args.get("lottie") is not None
-        or args.get("json") is not None
-        or args.get("animation") is not None
-    )
-    if has_data:
-        raw = args.get("animationData")
-        if raw is None:
-            raw = args.get("lottie") or args.get("json") or args.get("animation")
+    raw = args.get("animationData")
+    if raw is not None:
         if isinstance(raw, dict) and raw.get("layers"):
             return False
         if isinstance(raw, str) and raw.strip().startswith("{"):
             return False
-    gen = str(args.get("genPrompt") or args.get("prompt") or "").strip()
+    gen = str(args.get("genPrompt") or "").strip()
     return bool(gen)
 
 
@@ -448,7 +440,7 @@ async def hydrate_tool_ops_lottie(
             out.append(op)
             continue
         args = dict(op.get("args") or {})
-        prompt = str(args.get("genPrompt") or args.get("prompt") or "").strip()
+        prompt = str(args.get("genPrompt") or "").strip()
         try:
             w = int(float(args.get("width") or 200))
         except (TypeError, ValueError):
@@ -458,7 +450,7 @@ async def hydrate_tool_ops_lottie(
         except (TypeError, ValueError):
             h = 200
         try:
-            dur = float(args.get("durationSec") or args.get("duration") or 3)
+            dur = float(args.get("durationSec") or 3)
         except (TypeError, ValueError):
             dur = 3.0
         try:

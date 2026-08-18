@@ -19,14 +19,20 @@ from recombyn_agent_sdk import KERNEL_CANVAS_REQUIRED
 from app.services.design.readpath.canvas_scene import resolve_agent_scene, scene_key as _scene_key
 from app.services.design.runtime.decision_log import DesignRunDecision
 from app.services.design.runtime.host import assemble_stage_system, require_prompt_pack
-from app.services.design.runtime.graph import support as S
-from app.services.design.runtime.graph.support import (
+from app.services.design.runtime.graph.llm_io import (
+    _flag_on,
+    _int_rule,
+    _prompt_text,
+    _resolve_agent_persona,
+)
+from app.services.design.runtime.graph.scene_log import (
     _bump,
     _commit,
     _goto_cmd,
+    _log_graph_hop,
     _persist_progress,
     _persist_task_meta,
-    _log_graph_hop,
+    _resolve_wh,
 )
 from app.services.design.runtime.graph.nodes import (
     _node_action,
@@ -915,8 +921,8 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
 
     sid = _as_text(session_id).strip()
     pid = _as_text(project_id).strip() or "__none__"
-    max_rounds = S._int_rule(rules, "agent.react.max_rounds", _DEFAULT_MAX_ROUNDS) or _DEFAULT_MAX_ROUNDS
-    max_reflect = S._int_rule(rules, "agent.react.max_reflect", _DEFAULT_MAX_REFLECT)
+    max_rounds = _int_rule(rules, "agent.react.max_rounds", _DEFAULT_MAX_ROUNDS) or _DEFAULT_MAX_ROUNDS
+    max_reflect = _int_rule(rules, "agent.react.max_reflect", _DEFAULT_MAX_REFLECT)
     review_loop_max = _review_loop_max_from_profile()
 
     scene_key, _ = resolve_agent_scene(scene, prompt, canvas_size, rules=rules)
@@ -924,7 +930,7 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     nodes = [n for n in (scene_nodes or []) if isinstance(n, dict) and n.get("id")][:120]
     frames = [f for f in (scene_frames or []) if isinstance(f, dict) and f.get("id")][:32]
     focus_id = _as_text(focus_frame_id).strip()
-    w, h = S._resolve_wh(
+    w, h = _resolve_wh(
         canvas_size=canvas_size,
         scene_key=scene_key,
         rules=rules,
@@ -955,7 +961,7 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
 
     tools_host = resolve_tool_host()
     # Defer path only needs the short catalog — skip building full tool bodies.
-    defer_tools = S._flag_on(rules, "agent.react.defer_tools", "1")
+    defer_tools = _flag_on(rules, "agent.react.defer_tools", "1")
     tools_catalog = tools_host.format_catalog(rules)
     tools_block = "" if defer_tools else tools_host.format_full(rules)
     scene_for_cat = scene_key or ""
@@ -971,9 +977,9 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
         user_id=user_id,
         namespaces=skill_namespaces or None,
     )
-    persona = S._resolve_agent_persona(rules, user_selected_model)
-    size_auto_hint = S._prompt_text(rules, "agent.prompt.size_auto")
-    chat_fallback_tmpl = S._prompt_text(rules, "agent.prompt.chat_fallback")
+    persona = _resolve_agent_persona(rules, user_selected_model)
+    size_auto_hint = _prompt_text(rules, "agent.prompt.size_auto")
+    chat_fallback_tmpl = _prompt_text(rules, "agent.prompt.chat_fallback")
     subagents_catalog = format_subagents_catalog(get_active_agent_profile())
     # Decide-stage packs + catalogs (full tool/skill bodies arrive via need_*).
     decide_catalogs = [
