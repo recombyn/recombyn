@@ -804,7 +804,7 @@ function pointsToPath(points: ScenePoint[], closed: boolean): string {
 
 const PATH_SHAPE_TYPES = new Set(['path', 'pen', 'pencil']);
 
-function isEditablePathNode(node: SceneNode | undefined | null): node is SceneNode {
+function isEditablePathNode(node: SceneNode | undefined | null): boolean {
   if (!node || node.key !== 'shape') return false;
   return PATH_SHAPE_TYPES.has(String(node.attrs?.shapeType || '').toLowerCase());
 }
@@ -4122,7 +4122,7 @@ function execFitFrameToContent(
   for (const nodeId of nodeIds) {
     const node = doc.deltaSetLike?.[nodeId];
     if (!node) continue;
-    const lt = nodeLeftTop(node);
+    const lt = nodeLeftTop(doc, node);
     const left = Number(lt.left) || 0;
     const top = Number(lt.top) || 0;
     const width = Math.max(1, Number(node.width) || 1);
