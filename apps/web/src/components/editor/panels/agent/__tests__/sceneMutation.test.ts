@@ -176,7 +176,7 @@ describe('PR8 revision rebase / reject', () => {
 
   it('rejects delete_frame of a still-living artboard', () => {
     const out = rebaseSceneMutationOps(
-      [{ name: 'delete_frame', op_id: 'df', args: { id: 'f1' } }],
+      [{ name: 'delete_frame', op_id: 'df', args: { frameId: 'f1' } }],
       sceneDoc([], ['f1'])
     );
     expect(out.action).toBe('reject');

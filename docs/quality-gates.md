@@ -107,8 +107,6 @@ View in Prometheus **Alerts**. Alertmanager listens on `:9093` (compose profile 
 | **`ci.yml`** (umbrella) | Every PR / main — `check` + web unit + API unit + web build → **`CI / gate`** |
 | `release-docker.yml` | `v*.*.*` tags / dispatch — push api/web/collab to GHCR |
 | `desktop-build.yml` | Dispatch — unsigned Windows Tauri bundle (ADR 0010) |
-| `web-tests.yml` | Path-filtered — web unit + stress + coverage |
-| `api-tests.yml` | Path-filtered — API unit + integration + cov |
 | `e2e-tests.yml` | Path-filtered — Playwright |
 | `perf-k6.yml` | Path-filtered / dispatch — k6 smoke |
 | `dependency-audit.yml` | Lockfile PRs + weekly — soft audit |

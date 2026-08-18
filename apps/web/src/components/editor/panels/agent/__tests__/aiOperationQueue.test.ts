@@ -142,8 +142,8 @@ describe('PR9 AI Overlay', () => {
   it('maps the last tool op onto ephemeral overlay fields', () => {
     const overlay = overlayFromToolOps({
       ops: [
-        { name: 'create_shape', args: { id: 'bg' } },
-        { name: 'update_node', args: { id: 'hero', w: 400 } },
+        { name: 'create_shape', args: { nodeId: 'bg' } },
+        { name: 'update_node', args: { nodeId: 'hero', w: 400 } },
       ],
       frameId: 'frame_1',
       transactionId: 'tx_01',
