@@ -127,7 +127,7 @@ function parsePaintMode() {
     .trim()
     .toLowerCase()
     .replace(/-/g, '_');
-  if (raw === 'img_layers' || raw === 'imglayers' || raw === 'image_layers') {
+  if (raw === 'img_layers') {
     return 'img_layers';
   }
   return 'ops';

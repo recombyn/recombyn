@@ -10,9 +10,9 @@ from langgraph.types import Command
 from app.services.agent_memory.service import memory_service
 from app.services.design.runtime.graph.nodes.bootstrap import _apply_task_route_flags
 from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime, GraphState
-from app.services.design.runtime.graph.support import (
+from app.services.design.runtime.graph.llm_io import _clip_llm_raw
+from app.services.design.runtime.graph.scene_log import (
     _bump,
-    _clip_llm_raw,
     _commit,
     _goto_cmd,
     _persist_progress,

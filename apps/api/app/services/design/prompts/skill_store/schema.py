@@ -96,13 +96,13 @@ def validate_skill_meta(item: dict[str, Any], *, source: str) -> list[str]:
     from .runtime import _parse_allowed_resources
 
     errs: list[str] = []
-    key = str(item.get("skill_key") or item.get("skillKey") or "").strip()
+    key = str(item.get("skill_key") or "").strip()
     if not key:
         errs.append("skill_key_required")
     name = str(item.get("name") or "").strip()
     if not name:
         errs.append("name_required")
-    body = str(item.get("prompt_positive") or item.get("promptPositive") or "").strip()
+    body = str(item.get("prompt_positive") or "").strip()
     if not body:
         errs.append("prompt_positive_required")
     ns = _normalize_namespace(
@@ -121,18 +121,18 @@ def validate_skill_meta(item: dict[str, Any], *, source: str) -> list[str]:
             errs.append("user_skill_cannot_use_ext_namespace")
     if source == SOURCE_FILE and local_key in _CORE_RESERVED_KEYS:
         errs.append(f"file_pack_collides_core:{local_key}")
-    prefs = item.get("preferred_tools") or item.get("preferredTools") or []
+    prefs = item.get("preferred_tools") or []
     if prefs is not None and not isinstance(prefs, (list, str)):
         errs.append("preferred_tools_invalid")
     _, in_errs = validate_skill_io_schema(
-        item.get("input_schema") or item.get("inputSchema"), field="input_schema"
+        item.get("input_schema"), field="input_schema"
     )
     errs.extend(in_errs)
     _, out_errs = validate_skill_io_schema(
-        item.get("output_schema") or item.get("outputSchema"), field="output_schema"
+        item.get("output_schema"), field="output_schema"
     )
     errs.extend(out_errs)
-    ar = item.get("allowed_resources") or item.get("allowedResources")
+    ar = item.get("allowed_resources")
     if ar is not None:
         parsed = _parse_allowed_resources(ar)
         if parsed is None and not isinstance(ar, list) and str(ar).strip():

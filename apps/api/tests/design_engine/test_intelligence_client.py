@@ -5,8 +5,6 @@ from recombyn_intelligence_client import DesignIntelligenceClient, IntelligenceP
 
 from app.services.design.intelligence_runtime import (
     BasicLocalProvider,
-    build_design_intelligence_client,
-    reset_design_intelligence_client,
 )
 from app.services.design.runtime.decision_log import DesignRunDecision
 from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime
@@ -49,18 +47,24 @@ def test_basic_local_is_intelligence_provider():
     assert isinstance(BasicLocalProvider(), IntelligenceProvider)
 
 
-def test_factory_defaults_to_basic_local():
-    reset_design_intelligence_client()
-    client = build_design_intelligence_client()
+def test_factory_local_uses_basic_local(monkeypatch):
+    from app.services.design import intelligence_runtime as ir
+
+    monkeypatch.setattr(ir.settings, "intelligence_provider", "local")
+    ir.reset_design_intelligence_client()
+    client = ir.build_design_intelligence_client()
     assert isinstance(client, DesignIntelligenceClient)
     assert isinstance(client.provider, BasicLocalProvider)
 
 
-def test_client_research_via_basic_local():
+def test_client_research_via_basic_local(monkeypatch):
     import asyncio
 
-    reset_design_intelligence_client()
-    client = build_design_intelligence_client()
+    from app.services.design import intelligence_runtime as ir
+
+    monkeypatch.setattr(ir.settings, "intelligence_provider", "local")
+    ir.reset_design_intelligence_client()
+    client = ir.build_design_intelligence_client()
     rt = _rt()
 
     async def _run():
@@ -91,11 +95,14 @@ def test_remote_empty_dict_not_usable():
     assert remote_result_usable("research", {"summary": "ok", "provider": "x"})
 
 
-def test_stable_client_surface_uses_canonical_methods():
+def test_stable_client_surface_uses_canonical_methods(monkeypatch):
     import asyncio
 
-    reset_design_intelligence_client()
-    client = build_design_intelligence_client()
+    from app.services.design import intelligence_runtime as ir
+
+    monkeypatch.setattr(ir.settings, "intelligence_provider", "local")
+    ir.reset_design_intelligence_client()
+    client = ir.build_design_intelligence_client()
     rt = _rt()
 
     async def _run():

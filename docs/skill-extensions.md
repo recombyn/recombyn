@@ -58,27 +58,23 @@ Everything else is optional; missing files are fine.
 
 | Field | Required | Notes |
 |-------|----------|--------|
-| `skill_key` / `id` / `name` | yes | Technical id |
+| `skill_key` | yes | Technical id (folder name if omitted) |
 | `when_to_use` | recommended | Catalog + routing |
 | `preferred_tools` | recommended | Live op allowlist |
-| `triggers` **or** `trigger_keywords` | recommended | Auto-attach |
+| `triggers` | recommended | Auto-attach (`intent_in` + `prompt_includes_any`) |
 | `version` / `enabled` / `author` | optional | `enabled: false` skips pack |
-| `permissions` | optional | Docs only for now |
-
-### `trigger_keywords` shortcut
-
-Expands to a `create`/`edit` trigger with `prompt_includes_any` when `triggers` is absent.
+| `allowed_resources` | optional | ACL surface |
 
 ## `schema.json` (optional)
 
 ```json
 {
-  "input": { "type": "object", "properties": { "...": {} }, "required": [] },
-  "output": { "type": "object", "allowed_ops": ["create_frame", "create_text"] }
+  "input_schema": { "type": "object", "properties": { "...": {} }, "required": [] },
+  "output_schema": { "type": "object", "allowed_ops": ["create_frame", "create_text"] }
 }
 ```
 
-Aliases: `input_schema` / `output_schema`. Values merge into the skill row (meta fields win if both set). Used for validation hints / future runners — Phase A still relies on `preferred_tools` for live op gating.
+Values merge into the skill row (meta fields win if both set). Used for validation hints / future runners — Phase A still relies on `preferred_tools` for live op gating.
 
 ## `handler.py` (optional ops runner)
 

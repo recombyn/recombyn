@@ -9,12 +9,7 @@ export function normalizeAgentPaintMode(raw: unknown): AgentPaintMode {
     .trim()
     .toLowerCase()
     .replace(/-/g, '_');
-  if (
-    s === 'img_layers' ||
-    s === 'imglayers' ||
-    s === 'image_layers' ||
-    s === 'gen_layers'
-  ) {
+  if (s === 'img_layers') {
     return 'img_layers';
   }
   return 'ops';

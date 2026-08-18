@@ -176,7 +176,7 @@ def test_delete_wins_over_update_on_same_id():
                 "area": "content",
                 "issue": "remove title",
                 "target": "title",
-                "action": "remove",
+                "action": "delete",
             },
         ],
         _poster_nodes(),

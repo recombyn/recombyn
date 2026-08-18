@@ -511,7 +511,7 @@ def _validate_single_op(
         return None
     if name == "create_image":
         has_attach = args.get("attachmentIndex") is not None
-        has_url = bool(str(args.get("src") or args.get("url") or "").strip())
+        has_url = bool(str(args.get("src") or "").strip())
         has_gen = bool(str(args.get("genPrompt") or "").strip())
         if not has_attach and not has_url and not has_gen:
             return format_op_error(
@@ -722,7 +722,7 @@ def _reject_ambient_mutates_on_new_design(
                 )
                 continue
         if name in _CREATE_CONTENT_OPS:
-            fid = str(args.get("frameId") or args.get("frame_id") or "").strip()
+            fid = str(args.get("frameId") or "").strip()
             if fid and fid in frame_ids:
                 errors.append(
                     format_op_error(

@@ -85,7 +85,7 @@ const zhCN = {
     railSkills: '技能',
     skillsTitle: '技能工具箱',
     skillsHint:
-      '上传技能包（.zip / .recombyn-plugin），或关闭不需要的官方技能；Chat 里输入 / 可为当前回合固定使用。\n\n必需文件：\n• _meta.json\n• SKILL.md\n\n可选：\n• assets/icon.png — 列表图标\n• schema.json — 输入/输出 schema\n• handler.py — ops 运行器\n• examples/ — 仅作参考\n\n_meta 字段：skill_key（必填）；when_to_use、preferred_tools、triggers / trigger_keywords（建议）；version、enabled、author（可选）。',
+      '上传技能包（.zip / .recombyn-plugin），或关闭不需要的官方技能；Chat 里输入 / 可为当前回合固定使用。\n\n必需文件：\n• _meta.json\n• SKILL.md\n\n可选：\n• assets/icon.png — 列表图标\n• schema.json — 输入/输出 schema\n• handler.py — ops 运行器\n• examples/ — 仅作参考\n\n_meta 字段：skill_key（必填）；when_to_use、preferred_tools、triggers（建议）；version、enabled、author（可选）。',
     viewAll: '查看全部',
     inspiration: '灵感发现',
     updatedAt: '更新于 {{time}}',

@@ -130,7 +130,7 @@ def assemble_turn_from_lc_tools(
             finish_summary = str(args.get("summary") or "").strip()
         elif name == "ask_user":
             asked = True
-            q = str(args.get("question") or args.get("reply") or "").strip()
+            q = str(args.get("question") or "").strip()
             if q:
                 text = q
             raw_c = args.get("choices")

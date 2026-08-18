@@ -17,7 +17,7 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     parse_design_simulation,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 
 _ATTENTION_KEYS = ("hero", "headline", "cta", "nav", "other")
 _CTA_MIN = 0.10

@@ -18,7 +18,7 @@ from app.services.design.runtime.graph.state import (
     compute_visual_diff,
     parse_design_counterfactual,
 )
-from app.services.design.runtime.graph.support import _emit
+from app.services.design.runtime.graph.emit_sse import _emit
 
 
 def _clamp01(n: float) -> float:

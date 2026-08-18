@@ -46,21 +46,11 @@ _PRODUCT_MODELS = (
 def parse_cutout_mode(meta: dict[str, Any] | None) -> CutoutMode:
     """Default hair/portrait; product when explicitly requested."""
     m = meta or {}
-    raw = str(
-        m.get("cutoutMode")
-        or m.get("cutout_mode")
-        or m.get("mode")
-        or ""
-    ).strip().lower()
-    if raw in ("product", "hard", "hardedge", "hard-edge", "object", "goods"):
+    raw = str(m.get("cutoutMode") or "").strip().lower()
+    if raw == "product":
         return "product"
-    if raw in ("hair", "portrait", "person", "people", "fine"):
+    if raw == "hair":
         return "hair"
-    # Legacy flags
-    if m.get("hardEdge") is True or m.get("hard_edge") is True:
-        return "product"
-    if m.get("preserveHair") is False or m.get("preserve_hair") is False:
-        return "product"
     return "hair"
 
 

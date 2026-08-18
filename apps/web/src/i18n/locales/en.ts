@@ -97,7 +97,7 @@ const en = {
     railSkills: 'Skills',
     skillsTitle: 'Skill toolbox',
     skillsHint:
-      'Upload a skill pack (.zip / .recombyn-plugin), or turn off official ones you do not need. In Chat, type / to pin one for the turn.\n\nRequired files:\n• _meta.json\n• SKILL.md\n\nOptional:\n• assets/icon.png — list icon\n• schema.json — input/output schema\n• handler.py — ops runner\n• examples/ — reference only\n\n_meta fields: skill_key (required); when_to_use, preferred_tools, triggers / trigger_keywords (recommended); version, enabled, author (optional).',
+      'Upload a skill pack (.zip / .recombyn-plugin), or turn off official ones you do not need. In Chat, type / to pin one for the turn.\n\nRequired files:\n• _meta.json\n• SKILL.md\n\nOptional:\n• assets/icon.png — list icon\n• schema.json — input/output schema\n• handler.py — ops runner\n• examples/ — reference only\n\n_meta fields: skill_key (required); when_to_use, preferred_tools, triggers (recommended); version, enabled, author (optional).',
     viewAll: 'View all',
     inspiration: 'Inspiration',
     updatedAt: 'Updated {{time}}',

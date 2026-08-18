@@ -137,8 +137,8 @@ def upsert_token_pack(payload: dict[str, Any]) -> dict[str, Any]:
     # Stamp schema when admin saves a pack based on current defaults.
     if "schemaVersion" not in tokens:
         tokens = {**tokens, "schemaVersion": TOKEN_SCHEMA_VERSION}
-    is_default = 1 if payload.get("isDefault", payload.get("is_default")) else 0
-    sort_order = int(payload.get("sortOrder") or payload.get("sort_order") or 0)
+    is_default = 1 if payload.get("isDefault") else 0
+    sort_order = int(payload.get("sortOrder") or 0)
     enabled = 1 if payload.get("enabled", True) else 0
     note = str(payload.get("note") or "")
     with Session(engine) as session:
