@@ -76,17 +76,17 @@ def admin_patch_user(
     )
     return {"item": item}
 
-@router.post("/users/{user_id}/adjust-tokens")
-def admin_adjust_tokens(
+@router.post("/users/{user_id}/adjust-credits")
+def admin_adjust_credits(
     _admin: AdminUser,
     user_id: str,
-    body: AdjustTokensIn,
+    body: AdjustCreditsIn,
 ) -> dict[str, Any]:
     try:
-        result = adjust_tokens(user_id, body.amount, detail=body.detail)
+        result = adjust_credits(user_id, body.amount, detail=body.detail)
     except ValueError as err:
         msg = str(err)
-        if msg == "insufficient_tokens":
+        if msg == "insufficient_credits":
             raise HTTPException(status_code=400, detail="Insufficient credits") from err
         raise HTTPException(status_code=400, detail=msg) from err
     return result

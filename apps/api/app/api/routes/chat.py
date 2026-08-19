@@ -31,9 +31,9 @@ from app.services.llm.usage_log import bind_usage_context
 from app.services.wallet.db import (
     consume_free_daily_quota,
     get_user_plan,
-    get_user_tokens,
+    get_user_credits,
     is_wallet_billing_enabled,
-    spend_tokens,
+    spend_credits,
 )
 
 from app.services.wallet.billing import DEFAULT_IMAGE_CREDITS, image_model_credit_cost
@@ -42,8 +42,8 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
 
 # Unified 积分 (flat per call; 10× display scale).
-_AGENT_TOKEN_COST = 10
-_MESSAGE_TOKEN_COST = 10
+_AGENT_CREDIT_COST = 10
+_MESSAGE_CREDIT_COST = 10
 # Free plan: image gen locked to Seedream 5.0 Lite (same as FE FREE_IMAGE_MODEL_ID;
 # shares daily free run with Auto design).
 _FREE_IMAGE_MODEL = "doubao-seedream-5-0-lite"
@@ -101,9 +101,9 @@ def _charge(user_id: str, amount: int, detail: str) -> None:
     if amount <= 0 or not is_wallet_billing_enabled():
         return
     try:
-        spend_tokens(user_id, amount, detail)
+        spend_credits(user_id, amount, detail)
     except ValueError as err:
-        if str(err) == "insufficient_tokens":
+        if str(err) == "insufficient_credits":
             raise HTTPException(status_code=402, detail="Insufficient credits") from err
         raise HTTPException(status_code=400, detail=str(err)) from err
 
@@ -131,7 +131,7 @@ def _charge_image(
     if plan == "free":
         mid = _FREE_IMAGE_MODEL
         cost = image_model_credit_cost(mid, count=n, resolution=resolution)
-        bal = get_user_tokens(user_id)
+        bal = get_user_credits(user_id)
         if bal >= cost:
             _charge(user_id, cost, "AI image generation")
             return mid, cost
@@ -265,7 +265,7 @@ async def post_message(
         0
         if (not is_wallet_billing_enabled())
         or uses_user_platform_byok(current_user.id, body.model)
-        else _MESSAGE_TOKEN_COST
+        else _MESSAGE_CREDIT_COST
     )
 
     _charge(current_user.id, msg_cost, "AI chat message")
@@ -333,7 +333,7 @@ async def post_agent_turn(
         0
         if (not is_wallet_billing_enabled())
         or uses_user_platform_byok(current_user.id, body.model)
-        else _AGENT_TOKEN_COST
+        else _AGENT_CREDIT_COST
     )
 
     _charge(current_user.id, agent_cost, "AI agent turn")

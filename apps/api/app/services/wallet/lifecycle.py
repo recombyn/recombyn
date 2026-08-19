@@ -90,11 +90,11 @@ def reserve_task_credits(
     detail: str = "",
 ) -> dict[str, Any]:
     """Reserve (= spend hold) credits via wallet; return BillingEvent reserve."""
-    from app.services.wallet.db import spend_tokens
+    from app.services.wallet.db import spend_credits
 
     n = max(0, int(credits or 0))
     if n > 0:
-        spend_tokens(
+        spend_credits(
             user_id,
             n,
             detail=detail or f"design_hold:{task_id or 'task'}",
@@ -132,7 +132,7 @@ def settle_task_credits(
     When ``mutate_wallet`` is False, only emit BillingEvent / TaskCost envelopes
     (caller already adjusted the ledger — e.g. ``settle_token_hold``).
     """
-    from app.services.wallet.db import credit_tokens, spend_tokens
+    from app.services.wallet.db import grant_credits, spend_credits
 
     hold = max(0, int(reserved or 0))
     used = max(0, int(actual or 0))
@@ -141,12 +141,12 @@ def settle_task_credits(
     if mutate_wallet and uid:
         if used < hold:
             try:
-                credit_tokens(uid, hold - used, detail=f"{note}:release")
+                grant_credits(uid, hold - used, detail=f"{note}:release")
             except Exception:
                 _log.exception("release unused hold failed")
         elif used > hold:
             try:
-                spend_tokens(uid, used - hold, detail=f"{note}:extra")
+                spend_credits(uid, used - hold, detail=f"{note}:extra")
             except ValueError:
                 used = hold
     released = max(0, hold - used)

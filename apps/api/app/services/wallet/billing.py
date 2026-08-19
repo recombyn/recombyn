@@ -22,7 +22,7 @@ from recombyn_protocol.billing import (
     TaskPricingSchema,
 )
 
-from app.services.wallet.db import credit_tokens, spend_tokens
+from app.services.wallet.db import grant_credits, spend_credits
 
 DEFAULT_MARKUP = 1.2
 RULE_MARKUP = "billing.token_markup"
@@ -491,7 +491,7 @@ def settle_token_hold(
     if not uid or hold_n <= 0:
         if uid and total > 0 and hold_n <= 0:
             try:
-                spend_tokens(uid, total, detail=f"{(detail or 'design').strip()[:200]}:charge")
+                spend_credits(uid, total, detail=f"{(detail or 'design').strip()[:200]}:charge")
             except ValueError:
                 pass
         return total
@@ -500,13 +500,13 @@ def settle_token_hold(
     if total < hold_n:
         refund = hold_n - total
         try:
-            credit_tokens(uid, refund, detail=f"{note}:refund:{refund}")
+            grant_credits(uid, refund, detail=f"{note}:refund:{refund}")
         except Exception:
             pass
     elif total > hold_n:
         extra = total - hold_n
         try:
-            spend_tokens(uid, extra, detail=f"{note}:extra:{extra}")
+            spend_credits(uid, extra, detail=f"{note}:extra:{extra}")
         except ValueError:
             total = hold_n
 

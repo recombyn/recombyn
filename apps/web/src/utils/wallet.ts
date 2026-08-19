@@ -129,7 +129,7 @@ export function planAllowsModelId(
   return mid === 'auto' || mid === FREE_IMAGE_MODEL_ID;
 }
 
-export function formatTokens(n: number, opts?: { compact?: boolean }) {
+export function formatCredits(n: number, opts?: { compact?: boolean }) {
   const v = Number.isFinite(n) ? Math.max(0, n) : 0;
   if (opts?.compact && v >= 1000) return `${Math.round(v / 1000)}k`;
   return v.toLocaleString('en-US', { maximumFractionDigits: 0 });

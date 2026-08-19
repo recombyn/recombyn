@@ -18,7 +18,7 @@ const panelBtn =
  * No LLM (removeBg / editText / editElements / CSS adjust) → 0.
  * Local desktop / BYOK also skip platform credits on the server.
  */
-export const IMAGE_TOOL_TOKEN_COST = {
+export const IMAGE_TOOL_CREDIT_COST = {
   upscale: 20,
   removeBg: 0,
   multiAngle: 30,

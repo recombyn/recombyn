@@ -15,7 +15,7 @@ from app.services.llm.image_tools import (
     uses_llm_for_kind,
 )
 from app.services.wallet.billing import DEFAULT_IMAGE_CREDITS, image_model_credit_cost
-from app.services.wallet.db import is_wallet_billing_enabled, spend_tokens
+from app.services.wallet.db import is_wallet_billing_enabled, spend_credits
 
 router = APIRouter(prefix="/image", tags=["image-tools"])
 
@@ -49,14 +49,14 @@ def _charge(user_id: str, amount: int, detail: str) -> None:
     if amount <= 0 or not is_wallet_billing_enabled():
         return
     try:
-        spend_tokens(user_id, amount, detail)
+        spend_credits(user_id, amount, detail)
     except ValueError as err:
-        if str(err) == "insufficient_tokens":
+        if str(err) == "insufficient_credits":
             raise HTTPException(status_code=402, detail="Insufficient credits") from err
         raise HTTPException(status_code=400, detail=str(err)) from err
 
 
-def token_cost_for_kind(
+def credit_cost_for_kind(
     kind: str,
     model: str | None = None,
     *,
@@ -81,10 +81,10 @@ def token_cost_for_kind(
 @router.get("/tools")
 def list_image_tools() -> dict[str, Any]:
     kinds = sorted(IMAGE_PROCESS_KINDS)
-    costs = {k: token_cost_for_kind(k) for k in kinds}
+    costs = {k: credit_cost_for_kind(k) for k in kinds}
     return {
         "kinds": kinds,
-        "tokens": costs,
+        "credits": costs,
     }
 
 
@@ -94,7 +94,7 @@ async def post_image_process(
     body: ImageProcessIn,
 ) -> dict[str, Any]:
     kind = body.kind.strip()
-    cost = token_cost_for_kind(kind, body.model, user_id=current_user.id)
+    cost = credit_cost_for_kind(kind, body.model, user_id=current_user.id)
     # Charge before the model call so insufficient balance fails fast.
     # cost is 0 when no LLM / local desktop / BYOK / wallet billing off.
     _charge(current_user.id, cost, f"AI image tool: {kind}")
@@ -118,5 +118,5 @@ async def post_image_process(
         raise HTTPException(status_code=502, detail=msg) from err
 
     if isinstance(result, dict):
-        result = {**result, "tokens": cost}
+        result = {**result, "credits": cost}
     return result
