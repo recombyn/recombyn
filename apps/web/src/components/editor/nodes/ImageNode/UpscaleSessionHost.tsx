@@ -6,7 +6,7 @@ import { BiExit } from 'react-icons/bi';
 import { DropdownPanel, DropdownPanelItem, Icon, Tooltip } from '@/components/base';
 import {
   PanelConfirmCost,
-  IMAGE_TOOL_TOKEN_COST,
+  IMAGE_TOOL_CREDIT_COST,
 } from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelShell';
 import {
   RcbOverlayPortal,
@@ -55,7 +55,7 @@ export const UPSCALE_PRESETS: UpscalePreset[] = [
   },
 ];
 
-const UPSCALE_COST = IMAGE_TOOL_TOKEN_COST.upscale;
+const UPSCALE_COST = IMAGE_TOOL_CREDIT_COST.upscale;
 
 function nodeBox(document: SceneDocument, node: SceneNodeInput) {
   if (!node) return null;

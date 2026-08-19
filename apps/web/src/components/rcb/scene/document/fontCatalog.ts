@@ -50,6 +50,12 @@ function resolveFontUrl(url: string) {
   }
 }
 
+function numericFontWeight(fontWeight: string | number | undefined): number {
+  if (fontWeight === 'bold' || fontWeight === '700') return 700;
+  if (fontWeight === 'normal' || fontWeight === '400') return 400;
+  return Number(fontWeight);
+}
+
 /** Absolute URL for a catalog face (for @font-face / fontkit outline). */
 export function resolveFontFileUrl(
   fontFamily: string,
@@ -57,12 +63,7 @@ export function resolveFontFileUrl(
   catalog = getFontCatalogSync()
 ): string | null {
   const children = getFontChildren(fontFamily, catalog);
-  const numeric =
-    fontWeight === 'bold' || fontWeight === '700'
-      ? 700
-      : fontWeight === 'normal' || fontWeight === '400'
-        ? 400
-        : Number(fontWeight);
+  const numeric = numericFontWeight(fontWeight);
 
   if (children.length) {
     const exact = children.filter((c) => c.family === fontFamily && c.url);
@@ -291,12 +292,7 @@ export function resolveWeightSelectValue(
   const children = getFontChildren(fontFamily, catalog);
   if (!children.length) return getBaseFontFamily(fontFamily, catalog);
 
-  const numeric =
-    fontWeight === 'bold' || fontWeight === '700'
-      ? 700
-      : fontWeight === 'normal' || fontWeight === '400'
-        ? 400
-        : Number(fontWeight);
+  const numeric = numericFontWeight(fontWeight);
 
   const byFamily = children.filter((c) => c.family === fontFamily);
   if (byFamily.length > 1 && Number.isFinite(numeric)) {

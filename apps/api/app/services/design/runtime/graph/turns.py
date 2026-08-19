@@ -41,13 +41,7 @@ def _thought_context_limits(rt: Any) -> tuple[int, int, int, int]:
 
 
 def _is_canvas_work_intent(raw: str | None) -> bool:
-    s = str(raw or "").strip().lower()
-    if s in CANVAS_WORK_INTENTS:
-        return True
-    # Legacy create|edit still mean "continue to paint".
-    if s in ("create", "edit"):
-        return True
-    return normalize_user_intent(s) in CANVAS_WORK_INTENTS
+    return normalize_user_intent(raw) in CANVAS_WORK_INTENTS
 
 def _resolve_paint_want(rt: Any, turn_intent: str | None = None) -> str:
     """create|edit for paint validation / tool kit."""
@@ -58,7 +52,7 @@ def _resolve_paint_want(rt: Any, turn_intent: str | None = None) -> str:
     if lane in ("edit", "create"):
         return lane
     return paint_ops_intent(
-        getattr(rt, "classified_intent", None) or getattr(rt.run, "intent", None) or t,
+        getattr(rt, "classified_intent", None) or t,
         lane,
     )
 
@@ -111,15 +105,10 @@ def _turn_has_clarify(turn: dict[str, Any] | None) -> bool:
     """True when the model asked the user with chips / choice_ui (not bare ask)."""
     if not isinstance(turn, dict):
         return False
-    if turn.get("choice_ui"):
-        return True
-    choices = turn.get("choices")
-    return isinstance(choices, list) and bool(choices)
+    return bool(turn.get("choice_ui"))
 
 def _clear_ask_choice_state(st: AgentRunState) -> None:
-    st.choices = []
     st.choice_ui = None
-    st.apply_choice = ""
 
 def _normalize_choice_option(raw: Any) -> dict[str, str] | None:
     """One option: label (AI text) + action (format enum)."""
@@ -144,12 +133,7 @@ def _choice_ui_raw_from_turn(obj: dict[str, Any]) -> Any:
     return obj.get("choice_ui")
 
 
-def _normalize_choice_ui(
-    raw: Any,
-    *,
-    fallback_choices: list[str] | None = None,
-    fallback_apply: str = "",
-) -> dict[str, Any] | None:
+def _normalize_choice_ui(raw: Any) -> dict[str, Any] | None:
     """Validate Ask choice format. Content labels stay model-authored."""
     mode = ""
     options_raw: list[Any] = []
@@ -160,24 +144,14 @@ def _normalize_choice_ui(
         placeholder = _as_text(raw.get("placeholder")).strip()[:120]
     elif isinstance(raw, list):
         options_raw = list(raw)
-    if not options_raw and fallback_choices:
-        options_raw = list(fallback_choices)
+    else:
+        return None
     options: list[dict[str, str]] = []
     for item in options_raw[:8]:
         opt = _normalize_choice_option(item)
         if not opt:
             continue
         options.append(opt)
-    apply_label = _as_text(fallback_apply).strip()[:48]
-    if apply_label:
-        matched = False
-        for opt in options:
-            if opt["label"] == apply_label:
-                opt["action"] = "apply"
-                matched = True
-                break
-        if not matched:
-            options.insert(0, {"label": apply_label, "action": "apply"})
     # text mode is valid with zero options (user types freeform).
     if not options and mode != "text":
         return None
@@ -204,52 +178,13 @@ def _normalize_choice_ui(
         out["placeholder"] = placeholder
     return out
 
-def _sync_choice_ui_fields(st: AgentRunState) -> None:
-    """Keep choices[] / apply_choice in sync with choice_ui for SSE clients."""
-    ui = st.choice_ui if isinstance(st.choice_ui, dict) else None
-    if not ui:
-        return
-    opts = [o for o in (ui.get("options") or []) if isinstance(o, dict)]
-    st.choices = [str(o.get("label") or "").strip() for o in opts if str(o.get("label") or "").strip()][:6]
-    apply = next(
-        (
-            str(o.get("label") or "").strip()
-            for o in opts
-            if str(o.get("action") or "") == "apply" and str(o.get("label") or "").strip()
-        ),
-        "",
-    )
-    if apply:
-        st.apply_choice = apply[:48]
-
 def _absorb_ask_choices(st: AgentRunState, turn: dict[str, Any]) -> None:
-    """Persist Ask choice_ui from the model turn (create|edit propose included)."""
-    fallback_choices = list(turn.get("choices") or [])[:6]
-    fallback_apply = _as_text(turn.get("apply_choice")).strip()
-    raw_ui = turn.get("choice_ui") or _choice_ui_raw_from_turn(turn)
-    ui = _normalize_choice_ui(
-        raw_ui,
-        fallback_choices=fallback_choices,
-        fallback_apply=fallback_apply,
-    )
-    st.choice_ui = ui
-    if ui:
-        _sync_choice_ui_fields(st)
-        return
-    st.choices = fallback_choices
-    if fallback_apply:
-        st.apply_choice = fallback_apply[:48]
-        if fallback_apply not in st.choices:
-            st.choices = [fallback_apply] + [c for c in st.choices if c != fallback_apply]
-            st.choices = st.choices[:6]
+    """Persist Ask choice_ui from the model turn."""
+    st.choice_ui = _normalize_choice_ui(_choice_ui_raw_from_turn(turn))
 
 def _ensure_propose_choice_ui(st: AgentRunState) -> dict[str, Any]:
     """Propose must expose format-valid choice_ui; do not invent question content."""
-    ui = _normalize_choice_ui(
-        st.choice_ui,
-        fallback_choices=list(st.choices),
-        fallback_apply=st.apply_choice,
-    )
+    ui = _normalize_choice_ui(st.choice_ui)
     if not ui:
         # Structural chrome only — empty labels → FE i18n for confirm/cancel.
         ui = {
@@ -265,7 +200,6 @@ def _ensure_propose_choice_ui(st: AgentRunState) -> dict[str, Any]:
         opts.insert(0, {"label": "", "action": "apply"})
         ui = {**ui, "options": opts[:8]}
     st.choice_ui = ui
-    _sync_choice_ui_fields(st)
     return ui
 
 def _ask_propose_user_text(*, model_reply: str, detail: str) -> str:
@@ -285,39 +219,7 @@ def _normalize_agent_turn_obj(obj: dict[str, Any] | None) -> dict[str, Any]:
     done = obj.get("done")
     if done is None:
         done = intent in ("chat", "ask", "done")
-    choices: list[str] = []
-    raw_choices = obj.get("choices")
-    if isinstance(raw_choices, list):
-        for c in raw_choices:
-            if isinstance(c, dict):
-                text = _as_text(c.get("label") or "").strip()
-            else:
-                text = _as_text(c).strip()
-            if text and text not in choices:
-                choices.append(text[:48])
-            if len(choices) >= 6:
-                break
-    apply_choice = _as_text(obj.get("apply_choice")).strip()[:48]
-    choice_ui = _normalize_choice_ui(
-        _choice_ui_raw_from_turn(obj),
-        fallback_choices=choices,
-        fallback_apply=apply_choice,
-    )
-    if choice_ui:
-        choices = [
-            str(o.get("label") or "").strip()
-            for o in choice_ui.get("options") or []
-            if str(o.get("label") or "").strip()
-        ][:6]
-        apply_choice = next(
-            (
-                str(o.get("label") or "").strip()
-                for o in choice_ui.get("options") or []
-                if str(o.get("action") or "") == "apply"
-                and str(o.get("label") or "").strip()
-            ),
-            apply_choice,
-        )
+    choice_ui = _normalize_choice_ui(_choice_ui_raw_from_turn(obj))
     need_tools = normalize_need_tools(
         obj.get("need_tools")
     )
@@ -341,8 +243,6 @@ def _normalize_agent_turn_obj(obj: dict[str, Any] | None) -> dict[str, Any]:
         "skill_version_pins": skill_version_pins,
         "skill_input_args": skill_input_args,
         "skill_parse_errs": skill_parse_errs,
-        "choices": choices,
-        "apply_choice": apply_choice,
         "choice_ui": choice_ui,
         "done": bool(done),
         "raw_obj": obj
@@ -434,7 +334,7 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
         pending_blocks = pending_blocks[:6_000] + "\n…(pending truncated)\n\n"
 
     plan_block = ""
-    execution_plan = (getattr(rt, "flags", None) or {}).get("design_plan")
+    execution_plan = getattr(rt, "design_plan", None)
     if isinstance(execution_plan, dict):
         target_ids = [str(value)[:64] for value in execution_plan.get("target_node_ids", []) if str(value).strip()][:8]
         plan_block += (
@@ -551,7 +451,6 @@ __all__ = [
     '_clear_ask_choice_state',
     '_normalize_choice_option',
     '_normalize_choice_ui',
-    '_sync_choice_ui_fields',
     '_absorb_ask_choices',
     '_ensure_propose_choice_ui',
     '_ask_propose_user_text',

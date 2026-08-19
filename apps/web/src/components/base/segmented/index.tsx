@@ -15,6 +15,12 @@ export type SegmentedOption<T extends string = string> = {
 /** Default soft rect (panels); `full` = pill (home category tabs). */
 export type SegmentedRadius = 'xl' | 'full';
 
+const SEGMENTED_SIZE_CLASS: Record<'xs' | 'sm' | 'md', string> = {
+  xs: 'h-6 px-2 text-[11px]',
+  sm: 'h-8 px-1.5 text-[12px]',
+  md: 'h-8 px-3 text-[12px]',
+};
+
 export type SegmentedControlProps<T extends string = string> = {
   /** Option ids — `NoInfer` so T is driven by `value` / `onChange`, not widened option literals. */
   options: SegmentedOption<NoInfer<T>>[];
@@ -64,7 +70,7 @@ export const SEGMENTED_CHIP_BASE =
   'relative z-[1] flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap font-medium leading-none transition-colors duration-200 outline-none focus-visible:outline-none';
 
 /** Chip class default for callers that use `xl`. */
-export const SEGMENTED_CHIP = cn(SEGMENTED_CHIP_BASE, CHIP_RADIUS.xl, 'h-7');
+export const SEGMENTED_CHIP = cn(SEGMENTED_CHIP_BASE, CHIP_RADIUS.xl, 'h-8');
 
 /** Active chip fill lives on the sliding thumb — keep text/shadow tokens here for callers. */
 export const SEGMENTED_CHIP_ACTIVE = 'text-[var(--ink)]';
@@ -180,11 +186,7 @@ function SegmentedControlInner<const T extends string = string>({
             }}
             className={cn(
               segmentedChipClass(radius),
-              size === 'xs'
-                ? 'h-[22px] px-2 text-[11px]'
-                : size === 'sm'
-                  ? 'h-7 px-1.5 text-[12px]'
-                  : 'h-7 px-3 text-[12px]',
+              SEGMENTED_SIZE_CLASS[size],
               fullWidth && 'w-full min-w-0',
               active ? SEGMENTED_CHIP_ACTIVE : SEGMENTED_CHIP_IDLE,
               opt.disabled && 'cursor-not-allowed opacity-50'

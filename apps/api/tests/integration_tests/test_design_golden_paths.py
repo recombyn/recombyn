@@ -37,7 +37,7 @@ def _catalog(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _wallet(monkeypatch):
     monkeypatch.setattr(
-        "app.services.design.runtime.orchestrator.get_user_tokens",
+        "app.services.design.runtime.orchestrator.get_user_credits",
         lambda _uid: 200_000,
     )
     monkeypatch.setattr(
@@ -72,7 +72,7 @@ def test_permission_gate_denies_when_broke(monkeypatch):
         lambda: True,
     )
     monkeypatch.setattr(
-        "app.services.design.runtime.orchestrator.get_user_tokens",
+        "app.services.design.runtime.orchestrator.get_user_credits",
         lambda _uid: 0,
     )
     monkeypatch.setattr(

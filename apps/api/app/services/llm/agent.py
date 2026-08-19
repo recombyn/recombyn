@@ -92,7 +92,7 @@ def assemble_turn_from_lc_tools(
 
     - Natural-language ``content`` → reply / short thought
     - Canvas tool_calls → tool_ops_raw
-    - Meta tools → need_* / choices / done
+    - Meta tools → need_* / choice_ui / done
     """
     import json as _json
 
@@ -101,8 +101,7 @@ def assemble_turn_from_lc_tools(
     text = (content or "").strip()
     ops = tool_calls_to_canvas_ops(tool_calls)
     need_tools: list[str] = []
-    choices: list[str] = []
-    apply_choice = ""
+    ask_labels: list[str] = []
     done = False
     finish_summary = ""
     asked = False
@@ -133,13 +132,13 @@ def assemble_turn_from_lc_tools(
             q = str(args.get("question") or "").strip()
             if q:
                 text = q
-            raw_c = args.get("choices")
+            raw_c = args.get("options")
             if isinstance(raw_c, list):
                 for c in raw_c:
                     s = str(c or "").strip()
-                    if s and s not in choices:
-                        choices.append(s[:24])
-                    if len(choices) >= 6:
+                    if s and s not in ask_labels:
+                        ask_labels.append(s[:24])
+                    if len(ask_labels) >= 6:
                         break
         elif name == "request_tool_schemas":
             need_tools.extend(
@@ -172,14 +171,20 @@ def assemble_turn_from_lc_tools(
     if need_tools:
         done = False
 
+    choice_ui = None
+    if asked and ask_labels:
+        choice_ui = {
+            "mode": "single",
+            "options": [{"label": label, "action": "reply"} for label in ask_labels],
+        }
+
     return {
         "intent": intent,
         "reply": reply,
         "thought": thought,
         "tool_ops_raw": ops or None,
         "need_tools": need_tools,
-        "choices": choices,
-        "apply_choice": apply_choice,
+        "choice_ui": choice_ui,
         "done": done,
         "raw_obj": {"via": "langchain_tools", "tool_calls": tool_calls or []},
     }
@@ -198,7 +203,7 @@ def design_thought_langchain_tools() -> list[Any]:
     class AskUserRuntimeArgs(BaseModel):
         model_config = ConfigDict(extra="forbid")
         question: str = Field(description="Clarifying question before painting")
-        choices: list[str] | None = Field(
+        options: list[str] | None = Field(
             default=None,
             description="Optional short choice chips",
         )
@@ -209,10 +214,10 @@ def design_thought_langchain_tools() -> list[Any]:
             description="Canvas op_keys to load full schemas for",
         )
 
-    def ask_user(question: str, choices: list[str] | None = None) -> str:
-        """Ask the user one clarifying question before painting. Optional short choices chips."""
+    def ask_user(question: str, options: list[str] | None = None) -> str:
+        """Ask the user one clarifying question before painting. Optional short choice chips."""
         return _json.dumps(
-            {"status": "await_user", "question": question, "choices": choices or []},
+            {"status": "await_user", "question": question, "options": options or []},
             ensure_ascii=False,
         )
 

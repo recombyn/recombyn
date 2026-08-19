@@ -113,9 +113,8 @@ export function getShapeBaseline(
           node.attrs?.audioGenerator === 'true' ||
           node.attrs?.audioGenerator === 1 ||
           node.attrs?.audioGenerator === '1'));
-    const r = gen
-      ? { tl: 0, tr: 0, br: 0, bl: 0 }
-      : key === 'text'
+    const r =
+      gen || key === 'text'
         ? { tl: 0, tr: 0, br: 0, bl: 0 }
         : clampCornerRadii(radiiFromAttrs(node.attrs), w, h);
     return {

@@ -12,7 +12,7 @@ import RedeemDialog from '@/components/layout/RedeemDialog';
 import { apiQuery } from '@/service/client';
 import { usePlanCatalog, useWalletSnapshot, type WalletSnapshot } from '@/service/wallet';
 import {
-  formatTokens,
+  formatCredits,
   isTopOfferedPlan,
   normalizePlanId,
   planLabelKey,
@@ -220,7 +220,7 @@ function WalletLedgerPanel({
   const isFreeDaily = planId === 'free' && (plan.dailyRuns ?? 0) > 0;
   const quotaLabel = isFreeDaily
     ? t('wallet.metaDailyRunsValue', { count: plan.dailyRuns ?? 1 })
-    : t('wallet.creditsIncluded', { count: formatTokens(plan.creditsIncluded) });
+    : t('wallet.creditsIncluded', { count: formatCredits(plan.creditsIncluded) });
   const expiresLabel = useMemo(() => {
     if (planId === 'free') return null;
     if (!planExpiresAt || !Number.isFinite(planExpiresAt)) return null;
@@ -301,7 +301,7 @@ function WalletLedgerPanel({
               <div>
                 <div className="text-[12px] text-[var(--muted)]">{t('wallet.creditsBalanceItem')}</div>
                 <div className="mt-1 text-[22px] font-medium tabular-nums tracking-tight text-[var(--ink)]">
-                  {formatTokens(balance)}
+                  {formatCredits(balance)}
                 </div>
               </div>
               <div className="text-right text-[12px] text-[var(--muted)]">
@@ -319,10 +319,10 @@ function WalletLedgerPanel({
                   className="mb-1.5 flex items-center justify-between gap-2 text-[12px]"
                 >
                   <span className="text-[var(--muted)]">
-                    {t('wallet.creditsUsedLabel', { count: formatTokens(planUsed) })}
+                    {t('wallet.creditsUsedLabel', { count: formatCredits(planUsed) })}
                   </span>
                   <span className="font-medium text-[var(--ink)]">
-                    {t('wallet.creditsRemainLabel', { count: formatTokens(planRemaining) })}
+                    {t('wallet.creditsRemainLabel', { count: formatCredits(planRemaining) })}
                   </span>
                 </div>
                 <ProgressBar
@@ -330,18 +330,18 @@ function WalletLedgerPanel({
                   active
                   height={8}
                   aria-label={t('wallet.creditsBarAria', {
-                    used: formatTokens(planUsed),
-                    remain: formatTokens(planRemaining),
-                    total: formatTokens(creditCap),
+                    used: formatCredits(planUsed),
+                    remain: formatCredits(planRemaining),
+                    total: formatCredits(creditCap),
                   })}
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
                   {hasExtra
                     ? t('wallet.creditsExtraHint', {
-                        extra: formatTokens(balance - creditCap),
+                        extra: formatCredits(balance - creditCap),
                       })
                     : t('wallet.creditsBarHint', {
-                        total: formatTokens(creditCap),
+                        total: formatCredits(creditCap),
                       })}
                 </p>
               </div>
@@ -422,7 +422,7 @@ function WalletLedgerPanel({
                   rows.map((row) => {
                     const positive =
                       row.kind === 'redeem' || row.kind === 'recharge' || row.kind === 'plan';
-                    const amountText = formatTokens(Math.abs(Number(row.amount) || 0));
+                    const amountText = formatCredits(Math.abs(Number(row.amount) || 0));
                     const unit = amountUnitLabel(row, t);
                     return (
                       <tr key={row.id} className="border-b border-[var(--line)] last:border-b-0">
@@ -477,7 +477,7 @@ function WalletLedgerPanel({
                           <span className="ml-1 text-[11px] text-[var(--muted)]">{unit}</span>
                         </td>
                         <td className="whitespace-nowrap px-5 py-3 text-right text-[13px] tabular-nums text-[var(--ink)]">
-                          {formatTokens(row.balanceAfter)}
+                          {formatCredits(row.balanceAfter)}
                         </td>
                       </tr>
                     );

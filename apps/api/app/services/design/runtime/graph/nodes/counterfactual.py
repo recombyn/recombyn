@@ -327,7 +327,7 @@ def run_design_counterfactual_pipeline(
 
 def should_run_design_counterfactual(rt: AgentRuntime) -> bool:
     intent = str(
-        getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+        getattr(rt, "classified_intent", "") or ""
     ).strip().lower()
     if intent in ("chat", "ask"):
         return False
@@ -335,12 +335,7 @@ def should_run_design_counterfactual(rt: AgentRuntime) -> bool:
         return True
     if getattr(rt, "visual_snapshot", None) or getattr(rt, "design_strategy", None):
         return True
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
-    return bool(
-        flags.get("design_simulation")
-        or flags.get("design_strategy")
-        or flags.get("observe_facts")
-    )
+    return False
 
 
 def apply_counterfactual_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> None:
@@ -350,10 +345,6 @@ def apply_counterfactual_to_runtime(rt: AgentRuntime, result: dict[str, Any]) ->
     if "tool_ops" in clean:
         clean.pop("tool_ops", None)
     rt.design_counterfactual = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_counterfactual"] = clean
-        if clean.get("repair_plan_draft"):
-            rt.flags["repair_plan_draft"] = clean["repair_plan_draft"]
 
 
 def format_counterfactual_for_decide(result: dict[str, Any] | None) -> str:
@@ -393,11 +384,9 @@ async def run_design_counterfactual(rt: AgentRuntime) -> dict[str, Any] | None:
     try:
         flags = rt.flags if isinstance(rt.flags, dict) else {}
         simulation = getattr(rt, "design_simulation", None)
-        if not isinstance(simulation, dict):
-            simulation = flags.get("design_simulation")
         observe = getattr(rt, "observe_facts", None)
         if not isinstance(observe, dict):
-            observe = flags.get("observe_facts") if isinstance(flags.get("observe_facts"), dict) else None
+            observe = None
         snap = getattr(rt, "visual_snapshot", None)
         if not isinstance(snap, dict):
             snap = None

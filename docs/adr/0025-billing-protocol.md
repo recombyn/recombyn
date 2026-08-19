@@ -23,7 +23,7 @@ billing/
 ├── usage.py          # ProviderUsageSchema, UsageEventSchema
 ├── cost.py           # CostBreakdownSchema (micros), TaskCostSchema
 ├── events.py         # BillingEvent + CreditTransaction + CreditLedger
-├── lifecycle.py      # estimate → reserve → execute → settle (charge/release)
+├── lifecycle.py      # estimate → authorize → execute → settle (capture/release/refund)
 ├── budget.py         # BudgetSchema, BudgetPolicySchema, BudgetCheckSchema
 ├── money.py          # MoneySchema, CurrencySchema, micros helpers
 ├── provider.py       # ProviderSchema, ProviderBillingAdapter
@@ -54,7 +54,7 @@ Public must **not** put `user_price` / `credits_per_token` on Model.
 
 1. Settled usage carries `pricing_version_id` (history never rewritten).
 2. Task sell unit is `TaskCostSchema` (many UsageEvents).
-3. Lifecycle: estimate → authorize/reserve → capture/charge + release.
+3. Lifecycle: estimate → authorize → execute → settle (capture / release / refund).
 4. Money ledger truth = integer **micros**; Credits = `int`.
 5. Protocol pin: `recombyn-protocol` **0.1.3+** (see ADR 0026 for task-centric schemas).
 

@@ -299,13 +299,6 @@ def record_visual_diff(
         pixel_v2=str(preview_image or "").strip() or None,
     )
     rt.visual_diff = diff
-    if isinstance(rt.flags, dict):
-        rt.flags["visual_diff"] = {
-            "deltas": diff.get("deltas") or {},
-            "visual_change": diff.get("visual_change"),
-            "pixel_available": bool(diff.get("pixel_available")),
-            "pixel": (diff.get("pixel") or {}).get("status"),
-        }
     return diff
 
 
@@ -766,12 +759,6 @@ def _review_mode(rt: Any | None = None) -> str:
     return "auto"
 
 
-def _user_wants_taste_review(prompt: str | None) -> bool:
-    """Deprecated: taste complaints are LLM intent/Brief — never keyword-guess."""
-    del prompt
-    return False
-
-
 def _is_paint_retry_turn(rt: Any) -> bool:
     flags = getattr(rt, "flags", None)
     if isinstance(flags, dict):
@@ -921,9 +908,7 @@ def _run_post_paint_critique(
     if not st.painted:
         rt.observe_facts = None
         return []
-    brief = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
-    if not brief:
-        brief = getattr(rt, "design_brief", None)
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     facts = compute_observe_facts(
         nodes=list(rt.scene_nodes or []),
         frames=list(rt.scene_frames or []),

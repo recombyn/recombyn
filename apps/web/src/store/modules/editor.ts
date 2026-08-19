@@ -790,11 +790,9 @@ const editorSlice = createSlice({
     /** Remove artboards and every scene node bound to them (`attrs.frameId`). */
     removeArtboardFrames(state, action) {
       if (!state.document) return;
-      const ids: string[] = Array.isArray(action.payload)
-        ? action.payload.filter(Boolean).map(String)
-        : action.payload
-          ? [String(action.payload)]
-          : [];
+      const ids: string[] = [];
+      if (Array.isArray(action.payload)) ids.push(...action.payload.filter(Boolean).map(String));
+      else if (action.payload) ids.push(String(action.payload));
       if (!ids.length) return;
 
       const nodeIds = nodeIdsBoundToFrames(state.document, ids);

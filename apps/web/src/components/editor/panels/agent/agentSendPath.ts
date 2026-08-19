@@ -100,8 +100,6 @@ export function clearAskProposalFields(m: ChatUiMessage): ChatUiMessage {
   if (
     !(
       m.proposedOps?.length ||
-      m.choices?.length ||
-      m.applyChoice ||
       m.choiceUi ||
       m.proposalId
     )
@@ -112,8 +110,6 @@ export function clearAskProposalFields(m: ChatUiMessage): ChatUiMessage {
     ...m,
     proposedOps: undefined,
     proposalId: undefined,
-    applyChoice: undefined,
-    choices: undefined,
     choiceUi: undefined,
   };
 }
@@ -124,7 +120,7 @@ export function findLastAskMessage(messages: ChatUiMessage[]): ChatUiMessage | u
     .find(
       (m) =>
         m.role === 'assistant' &&
-        Boolean(m.proposedOps?.length || m.choiceUi || m.choices?.length)
+        Boolean(m.proposedOps?.length || m.choiceUi)
     );
 }
 
@@ -452,11 +448,9 @@ export function collectSendChipContext(chips: ComposerContext[]): SendChipContex
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
-  const mentionNodeIds = nodeChipIds.length
-    ? [...new Set([...nodeChipIds, ...markNodeIds])]
-    : markNodeIds.length
-      ? markNodeIds
-      : groupMemberIds;
+  let mentionNodeIds = groupMemberIds;
+  if (nodeChipIds.length) mentionNodeIds = [...new Set([...nodeChipIds, ...markNodeIds])];
+  else if (markNodeIds.length) mentionNodeIds = markNodeIds;
   const attachedImages = chips
     .filter((c) => c.kind === 'attachment' && c.dataUrl)
     .map((c) => String(c.dataUrl))
@@ -510,11 +504,12 @@ export function resolveImageGenPlan(opts: {
   imageGenResolution?: string;
   imageFillTargets: string[];
 } {
-  const imageGenCount = opts.isImageInteraction
-    ? Math.max(1, Math.min(4, Math.round(opts.imageGenCountSetting) || 1))
-    : opts.isImageModelSelected
-      ? 1
-      : 0;
+  let imageGenCount = 0;
+  if (opts.isImageInteraction) {
+    imageGenCount = Math.max(1, Math.min(4, Math.round(opts.imageGenCountSetting) || 1));
+  } else if (opts.isImageModelSelected) {
+    imageGenCount = 1;
+  }
   let imageGenAspect: string | undefined;
   let imageGenResolution: string | undefined;
   const imageFillTargets: string[] = [];

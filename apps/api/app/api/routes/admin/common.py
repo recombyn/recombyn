@@ -15,7 +15,7 @@ from app.api.deps import AdminUser
 from app.core.config import settings
 
 from app.services.admin.users import (
-    adjust_tokens,
+    adjust_credits,
     ensure_super_admin_role,
     get_user,
     list_users,
@@ -117,7 +117,7 @@ class UserPatchIn(BaseModel):
     status: Literal["active", "disabled"] | None = None
     name: str | None = Field(default=None, max_length=80)
 
-class AdjustTokensIn(BaseModel):
+class AdjustCreditsIn(BaseModel):
     amount: int = Field(..., description="Positive credit, negative debit")
     detail: str = Field(default="admin adjust", max_length=500)
 

@@ -39,7 +39,6 @@ jobs:
               intelligence_wire_methods,
               remote_result_usable,
           )
-          from recombyn_runtime import remote_result_usable as runtime_usable
           assert version("recombyn-protocol")
           parts = [int(x) for x in version("recombyn-protocol").split(".")[:3]]
           assert parts >= [0, 1, 3], version("recombyn-protocol")
@@ -48,7 +47,6 @@ jobs:
           assert not remote_result_usable("research", {})
           assert remote_result_usable("research", {"summary": "ok"})
           assert remote_result_usable("govern", {"status": "pass"})
-          assert runtime_usable("govern", {"status": "pass"})
           from recombyn_protocol.billing import (
               BILLING_LIFECYCLE_STAGES,
               BudgetPolicySchema,

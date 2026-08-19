@@ -253,29 +253,25 @@ def run_design_swarm_pipeline(
 
 def should_run_design_swarm(rt: AgentRuntime) -> bool:
     intent = str(
-        getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+        getattr(rt, "classified_intent", "") or ""
     ).strip().lower()
     if intent in ("chat", "ask"):
         return False
     if getattr(rt, "design_strategy", None) or getattr(rt, "design_tournament", None):
         return True
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
-    return bool(flags.get("design_strategy") or flags.get("design_tournament"))
+    return False
 
 
 def apply_swarm_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> None:
-    """Stash swarm + need_subagents; merge AD directions into Brief notes."""
+    """Stash swarm; merge AD directions into Brief notes."""
     clean = parse_design_swarm(result)
     rt.design_swarm = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_swarm"] = clean
-        rt.flags["need_subagents"] = list(clean.get("need_subagents") or [])[:16]
     # Surface for Decide brief gate / prompt packing (existing field).
     directions = list(clean.get("final_direction") or [])
     if directions:
         detail = "ART_DIRECTOR_SWARM:\n" + "\n".join(f"- {d}" for d in directions[:10])
         rt.pending_subagent_details = detail[:2000]
-    brief = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     if isinstance(brief, dict) and directions:
         notes = list(brief.get("swarm_directions") or [])
         for line in directions:
@@ -290,7 +286,7 @@ def apply_swarm_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> None:
             if tip not in avoid:
                 avoid.append(tip)
             brief["avoid"] = avoid[:12]
-        rt.flags["design_brief"] = brief
+        rt.design_brief = brief
 
 
 def format_swarm_for_decide(result: dict[str, Any] | None) -> str:
@@ -337,13 +333,7 @@ async def run_design_swarm(rt: AgentRuntime) -> dict[str, Any] | None:
     )
     try:
         strategy = getattr(rt, "design_strategy", None)
-        if not isinstance(strategy, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            strategy = flags.get("design_strategy")
         tournament = getattr(rt, "design_tournament", None)
-        if not isinstance(tournament, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            tournament = flags.get("design_tournament")
         result = run_design_swarm_pipeline(
             prompt=str(getattr(rt, "prompt", "") or ""),
             strategy=strategy if isinstance(strategy, dict) else None,

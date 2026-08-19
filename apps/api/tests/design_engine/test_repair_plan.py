@@ -254,8 +254,6 @@ def test_repair_command_goes_to_action_not_paint():
     assert cmd.goto == "action"
     assert rt.step_ops
     assert rt.step_ops[0]["name"] == "update_node"
-    assert rt.flags["repair"] is True
-    assert rt.flags["rebuild"] is False
     assert rt.flags["review_action"] == "repair"
     assert rt.classified_paint_lane == "edit"
 

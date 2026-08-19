@@ -101,7 +101,7 @@ def test_subtraction_actions_are_the_correction():
             "subtraction_actions": ["drop extra badges"],
         },
         prev_review={"total": 78},
-        flags={"polish": True, "subtraction": True},
+        flags={"polish": True},
         skills=["poster_craft"],
     )
     assert ("issue:secondary clutter", "corrected_by", "drop extra badges") in triples

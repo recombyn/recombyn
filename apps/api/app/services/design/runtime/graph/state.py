@@ -1392,14 +1392,10 @@ class AgentRunState:
     round: int = 0
     intent: str = "chat"
     reply: str = ""
-    # Quick-reply chips for ask mode (surfaced in result.choices).
-    choices: list[str] = field(default_factory=list)
     # Ask mode: validated ops held until user picks apply action.
     proposed_ops: list[dict[str, Any]] = field(default_factory=list)
     # Stable id for server-bound Ask confirm (chat + design_task.meta).
     proposal_id: str = ""
-    # Ask mode: label of the apply chip (SSE / older clients); typed confirm uses proposal_action.
-    apply_choice: str = ""
     # Ask interaction UI from model: {mode, options:[{label, action}]}.
     choice_ui: dict[str, Any] | None = None
     errors: list[str] = field(default_factory=list)
@@ -1675,10 +1671,10 @@ class AgentRuntime:
     classified_intent: str = ""
     classified_paint_lane: str = ""
     classified_reply: str = ""
-    # Typed intent → execution hand-off. Kept in flags for checkpoints.
+    # Typed intent → execution hand-off.
     design_plan: dict[str, Any] | None = None
-    # Decide → paint/review execution contract (not craft curricula).
-    design_brief: str = ""
+    # Decide → paint/review execution contract (structured; format at prompt time).
+    design_brief: dict[str, Any] | None = None
     # PR10 Observe QA snapshot (facts only; never SceneDocument).
     observe_facts: dict[str, Any] | None = None
     # FE dual-context map (empty_rects / suggested_place / viewport).

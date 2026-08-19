@@ -353,12 +353,12 @@ def _correction_from_review(
             text = str(item).strip()
             if text:
                 return _norm_node(text, limit=64)
-    if flag.get("subtraction") or flag.get("polish"):
+    if flag.get("polish"):
         return "reduce_secondary"
     action = str(src.get("action") or "").strip().lower()
-    if flag.get("rebuild") or action == "rebuild":
+    if action == "rebuild":
         return "rebuild"
-    if flag.get("repair") or action == "repair":
+    if action == "repair":
         return "repair"
     return None
 

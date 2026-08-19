@@ -101,7 +101,7 @@ def test_should_run_on_design_intent():
 
 def test_brief_avoid_merge_from_research():
     rt = _rt(prompt="AI landing 不能千篇一律", intent="design", scene_key="website")
-    rt.flags["design_brief"] = {
+    rt.design_brief = {
         "purpose": "saas landing",
         "audience": "founders",
         "emotion": ["confident"],
@@ -113,10 +113,10 @@ def test_brief_avoid_merge_from_research():
     report = run_design_research_pipeline(prompt=rt.prompt, scene_key=rt.scene_key)
     apply_research_to_runtime(rt, report)
     assert rt.design_research is not None
-    avoid = list(rt.flags["design_brief"]["avoid"])
+    avoid = list(rt.design_brief["avoid"])
     assert "stock handshake" in avoid
     assert any("purple" in str(x).lower() or "glass" in str(x).lower() for x in avoid)
-    assert rt.flags["design_brief"]["design_strategy"]["differentiation"] == "anti_category"
+    assert rt.design_brief["design_strategy"]["differentiation"] == "anti_category"
     block = format_research_for_decide(rt.design_research)
     assert "ANTI-CATEGORY STRATEGY" in block
     assert "avoid:" in block
