@@ -21,7 +21,7 @@ from app.services.design.ops.tool_ops_contract import (
 )
 from app.services.design.prompts.rules_text import exec_trace
 from app.services.design.readpath.canvas_scene import parse_size, scene_key
-from app.services.wallet.db import get_user_tokens
+from app.services.wallet.db import get_user_credits
 
 _log = logging.getLogger(__name__)
 
@@ -270,7 +270,7 @@ async def run_img_layers_job(
         total_tokens=used,
         result_svg="",
     )
-    balance = get_user_tokens(user_id)
+    balance = get_user_credits(user_id)
     yield {
         "type": "result",
         "task_id": task_id,

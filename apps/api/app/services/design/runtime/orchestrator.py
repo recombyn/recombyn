@@ -61,11 +61,11 @@ from app.services.wallet.billing import (
 )
 from app.services.wallet.db import (
     consume_free_daily_quota,
-    credit_tokens,
+    grant_credits,
     free_daily_remaining,
-    get_user_tokens,
+    get_user_credits,
     is_wallet_billing_enabled,
-    spend_tokens,
+    spend_credits,
 )
 
 _log = logging.getLogger(__name__)
@@ -131,9 +131,9 @@ def _reserve_design_hold(
     need = max(0, int(hold or 0))
     if need <= 0:
         return 0, False
-    bal = get_user_tokens(user_id)
+    bal = get_user_credits(user_id)
     if bal >= need:
-        spend_tokens(user_id, need, detail=f"design_hold:{mode}")
+        spend_credits(user_id, need, detail=f"design_hold:{mode}")
         return need, False
     if consume_free_daily_quota(user_id):
         return 0, True
@@ -142,7 +142,7 @@ def _reserve_design_hold(
 
 def _refund_hold(user_id: str, hold: int, *, task_id: str) -> None:
     if hold > 0:
-        credit_tokens(user_id, hold, detail=f"design_refund:{task_id}")
+        grant_credits(user_id, hold, detail=f"design_refund:{task_id}")
 
 
 def _image_extra_credits(rules: dict[str, str] | None, images_hydrated: int) -> int:
@@ -291,7 +291,7 @@ async def run_design_job(
         byok_run = is_byok_model_ref(user_selected_model)
         skip_wallet = not is_wallet_billing_enabled()
         hold_need = _authorize_need(mode, model=user_selected_model)
-        bal = int(get_user_tokens(user_id) or 0)
+        bal = int(get_user_credits(user_id) or 0)
         free_left = int(free_daily_remaining(user_id) or 0)
         can = skip_wallet or bal >= hold_need or free_left > 0 or hold_need <= 0
         yield {
@@ -613,7 +613,7 @@ async def _run_partial(
     task_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     hold_need = _authorize_need("partial", model=user_selected_model, rules=rules)
-    bal = get_user_tokens(user_id)
+    bal = get_user_credits(user_id)
     free_daily = False
     try:
         hold, free_daily = _reserve_design_hold(

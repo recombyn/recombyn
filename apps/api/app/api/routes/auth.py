@@ -122,7 +122,7 @@ def _normalize_email(raw: str) -> str:
 
 def _super_admin_session() -> SessionUser:
     try:
-        ensure_user_balance(_SUPER_ADMIN_ID, starting_tokens=0)
+        ensure_user_balance(_SUPER_ADMIN_ID, starting_credits=0)
         ensure_super_admin_role()
     except Exception:
         logger.exception("Failed to ensure super-admin wallet / role")

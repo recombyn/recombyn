@@ -3,9 +3,9 @@
 import { z } from 'zod';
 
 /**
- * AdjustTokensIn
+ * AdjustCreditsIn
  */
-export const zAdjustTokensIn = z.object({
+export const zAdjustCreditsIn = z.object({
     amount: z.number().int(),
     detail: z.string().max(500).optional().default('admin adjust')
 });
@@ -1150,18 +1150,18 @@ export const zAdminAdminPatchUserPath = z.object({
  */
 export const zAdminAdminPatchUserResponse = z.record(z.unknown());
 
-export const zAdminAdminAdjustTokensBody = zAdjustTokensIn;
+export const zAdminAdminAdjustCreditsBody = zAdjustCreditsIn;
 
-export const zAdminAdminAdjustTokensPath = z.object({
+export const zAdminAdminAdjustCreditsPath = z.object({
     user_id: z.string()
 });
 
 /**
- * Response Admin-Admin Adjust Tokens
+ * Response Admin-Admin Adjust Credits
  *
  * Successful Response
  */
-export const zAdminAdminAdjustTokensResponse = z.record(z.unknown());
+export const zAdminAdminAdjustCreditsResponse = z.record(z.unknown());
 
 export const zAdminAdminUserLedgerPath = z.object({
     user_id: z.string()

@@ -430,7 +430,7 @@ def ensure_user_balance_row(
     *,
     session: Session,
     user_id: str,
-    starting_tokens: int = 0,
+    starting_credits: int = 0,
 ) -> UserBalance:
     uid = (user_id or "").strip()
     row = session.get(UserBalance, uid) if uid else None
@@ -439,7 +439,7 @@ def ensure_user_balance_row(
     now = time.time()
     row = UserBalance(
         user_id=uid,
-        tokens=int(starting_tokens),
+        credits=int(starting_credits),
         plan_id="free",
         plan_expires_at=None,
         updated_at=now,
@@ -848,7 +848,7 @@ def create_card_key(
     *,
     session: Session,
     key_hash: str,
-    tokens: int,
+    credits: int,
     kind: str,
     plan_id: str | None,
     expires_at: float | None,
@@ -859,7 +859,7 @@ def create_card_key(
 
     row = CardKey(
         key_hash=key_hash,
-        tokens=int(tokens),
+        credits=int(credits),
         kind=kind,
         plan_id=plan_id,
         status="unused",
@@ -2507,10 +2507,10 @@ def scale_positive_user_balances(
     *, session: Session, factor: int, updated_at: float
 ) -> None:
     rows = list(
-        session.exec(select(UserBalance).where(UserBalance.tokens > 0)).all()
+        session.exec(select(UserBalance).where(UserBalance.credits > 0)).all()
     )
     for row in rows:
-        row.tokens = int(row.tokens or 0) * int(factor)
+        row.credits = int(row.credits or 0) * int(factor)
         row.updated_at = updated_at
         session.add(row)
 

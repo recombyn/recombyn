@@ -1,4 +1,4 @@
-"""Wallet balances / ledger — unified 积分 stored in ``tokens`` column."""
+"""Wallet balances / ledger — unified 积分 stored in ``credits`` column."""
 
 from __future__ import annotations
 
@@ -55,13 +55,13 @@ def ensure_credits_scale_x10_migration() -> None:
 __all__ = [
     "init_wallet_db",
     "ensure_user_balance",
-    "get_user_tokens",
+    "get_user_credits",
     "get_user_plan",
     "get_wallet",
     "list_ledger",
     "list_ledger_page",
-    "spend_tokens",
-    "credit_tokens",
+    "spend_credits",
+    "grant_credits",
     "is_wallet_billing_enabled",
     "FREE_DAILY_LIMIT",
     "free_daily_remaining",
@@ -84,7 +84,7 @@ def is_wallet_billing_enabled() -> bool:
 
 
 
-def ensure_user_balance(user_id: str, *, starting_tokens: int = 0) -> int:
+def ensure_user_balance(user_id: str, *, starting_credits: int = 0) -> int:
     """Ensure a wallet row exists; return current unified 积分."""
     from sqlmodel import Session
 
@@ -97,13 +97,13 @@ def ensure_user_balance(user_id: str, *, starting_tokens: int = 0) -> int:
         return 0
     with Session(engine) as session:
         row = crud.ensure_user_balance_row(
-            session=session, user_id=uid, starting_tokens=starting_tokens
+            session=session, user_id=uid, starting_credits=starting_credits
         )
-        return int(row.tokens or 0)
+        return int(row.credits or 0)
 
 
 def get_wallet(user_id: str) -> dict[str, Any]:
-    """Unified 积分 + plan. HTTP field is ``credits`` (DB column remains ``tokens``)."""
+    """Unified 积分 + plan. HTTP field and DB column are ``credits``."""
     from sqlmodel import Session
 
     from app import crud
@@ -124,8 +124,8 @@ def get_wallet(user_id: str) -> dict[str, Any]:
     init_wallet_db()
     now = time.time()
     with Session(engine) as session:
-        row = crud.ensure_user_balance_row(session=session, user_id=uid, starting_tokens=0)
-        credits = int(row.tokens or 0)
+        row = crud.ensure_user_balance_row(session=session, user_id=uid, starting_credits=0)
+        credits = int(row.credits or 0)
         stored = normalize_plan(row.plan_id)
         expires_at = float(row.plan_expires_at) if row.plan_expires_at is not None else None
     active = plan_is_active(stored, expires_at, now=now)
@@ -142,9 +142,9 @@ def get_wallet(user_id: str) -> dict[str, Any]:
 
 
 
-def get_user_tokens(user_id: str) -> int:
-    """Unified 积分 balance (column name ``tokens`` is historical)."""
-    return ensure_user_balance(user_id, starting_tokens=0)
+def get_user_credits(user_id: str) -> int:
+    """Unified 积分 balance."""
+    return ensure_user_balance(user_id, starting_credits=0)
 
 
 def normalize_plan(raw: Any) -> str:
@@ -228,7 +228,7 @@ def consume_free_daily_quota(user_id: str, *, limit: int = FREE_DAILY_LIMIT) -> 
         if not bal:
             bal = UserBalance(
                 user_id=uid,
-                tokens=0,
+                credits=0,
                 plan_id="free",
                 plan_expires_at=None,
                 updated_at=now,
@@ -240,7 +240,7 @@ def consume_free_daily_quota(user_id: str, *, limit: int = FREE_DAILY_LIMIT) -> 
             user_id=uid,
             kind="spend",
             amount=0,
-            balance_after=int(bal.tokens or 0),
+            balance_after=int(bal.credits or 0),
             detail=f"{prefix}:run",
             commit=False,
         )
@@ -248,7 +248,7 @@ def consume_free_daily_quota(user_id: str, *, limit: int = FREE_DAILY_LIMIT) -> 
     return True
 
 
-def spend_tokens(
+def spend_credits(
     user_id: str,
     amount: int,
     detail: str = "",
@@ -274,28 +274,28 @@ def spend_tokens(
     if amt <= 0:
         raise ValueError("amount must be > 0")
     if not force and not is_wallet_billing_enabled():
-        return int(get_user_tokens(uid) or 0)
+        return int(get_user_credits(uid) or 0)
     import time
 
     now = time.time()
     note = (detail or "").strip()[:500]
     with Session(engine) as session:
         row = crud.get_user_balance_for_update(session=session, user_id=uid)
-        prev = int(row.tokens) if row else 0
+        prev = int(row.credits) if row else 0
         if prev < amt:
-            raise ValueError("insufficient_tokens")
+            raise ValueError("insufficient_credits")
         next_bal = prev - amt
         if row:
-            if int(row.tokens) < amt:
-                raise ValueError("insufficient_tokens")
-            row.tokens = next_bal
+            if int(row.credits) < amt:
+                raise ValueError("insufficient_credits")
+            row.credits = next_bal
             row.updated_at = now
             session.add(row)
         else:
             session.add(
                 UserBalance(
                     user_id=uid,
-                    tokens=next_bal,
+                    credits=next_bal,
                     plan_id="free",
                     updated_at=now,
                 )
@@ -312,7 +312,7 @@ def spend_tokens(
     return next_bal
 
 
-def credit_tokens(user_id: str, amount: int, detail: str = "") -> int:
+def grant_credits(user_id: str, amount: int, detail: str = "") -> int:
     """Add unified 积分; write ledger kind=recharge."""
     from sqlmodel import Session
 
@@ -333,17 +333,17 @@ def credit_tokens(user_id: str, amount: int, detail: str = "") -> int:
     note = (detail or "").strip()[:500]
     with Session(engine) as session:
         row = crud.get_user_balance_for_update(session=session, user_id=uid)
-        prev = int(row.tokens) if row else 0
+        prev = int(row.credits) if row else 0
         next_bal = prev + amt
         if row:
-            row.tokens = next_bal
+            row.credits = next_bal
             row.updated_at = now
             session.add(row)
         else:
             session.add(
                 UserBalance(
                     user_id=uid,
-                    tokens=next_bal,
+                    credits=next_bal,
                     plan_id="free",
                     updated_at=now,
                 )

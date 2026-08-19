@@ -1,7 +1,7 @@
 import { useMemo, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import ImageToolPanelShell, {
-  IMAGE_TOOL_TOKEN_COST,
+  IMAGE_TOOL_CREDIT_COST,
   PanelFooterActions,
 } from './ImageToolPanelShell';
 
@@ -41,7 +41,7 @@ function ReplaceTextToolPanel({
           confirmLabel={t('editor.imageToolbar.replaceTextConfirm')}
           confirmDisabled={!canSubmit}
           confirmBusy={busy}
-          confirmCost={IMAGE_TOOL_TOKEN_COST.replaceText}
+          confirmCost={IMAGE_TOOL_CREDIT_COST.replaceText}
           onConfirm={() => {
             if (!canSubmit || busy) return;
             setBusy(true);

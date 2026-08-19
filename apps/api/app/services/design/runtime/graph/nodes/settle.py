@@ -26,7 +26,7 @@ from app.services.design.runtime.graph.turns import (
     _resolve_paint_want,
 )
 from app.services.design.runtime.models_route import CANVAS_WORK_INTENTS, normalize_user_intent
-from app.services.wallet.db import get_user_tokens
+from app.services.wallet.db import get_user_credits
 
 _log = logging.getLogger(__name__)
 
@@ -363,7 +363,7 @@ async def _node_settle(state: GraphState) -> Command:
         result_svg="",
     )
     exec_payload = st.to_execution_log()
-    balance = await asyncio.to_thread(get_user_tokens, rt.user_id)
+    balance = await asyncio.to_thread(get_user_credits, rt.user_id)
     _emit({"type": "execution_log", **exec_payload})
     fail_summary = ""
     if scene_unconfirmed:

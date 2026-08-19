@@ -230,7 +230,7 @@ def insert_card_keys(
             row = crud.create_card_key(
                 session=session,
                 key_hash=hash_card_key(plain),
-                tokens=credits_n,
+                credits=credits_n,
                 kind=kind_n,
                 plan_id=plan_n,
                 expires_at=expires_at,
@@ -287,7 +287,7 @@ def generate_card_keys(
             row = crud.create_card_key(
                 session=session,
                 key_hash=hash_card_key(plain),
-                tokens=credits_n,
+                credits=credits_n,
                 kind=kind_n,
                 plan_id=plan_n,
                 expires_at=expires_at,
@@ -332,7 +332,7 @@ def list_card_keys(*, status: str | None = None, limit: int = 200) -> list[dict[
             _row_out(
                 kid=row.id,
                 code=None,
-                credits=int(row.tokens or 0),
+                credits=int(row.credits or 0),
                 kind=kind if kind in VALID_KINDS else "credit",
                 plan_id=plan_id if plan_id in VALID_PLAN_IDS else None,
                 status=str(row.status),
@@ -415,9 +415,9 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
             if kind == "plan" and plan_id not in VALID_PLAN_IDS:
                 raise RedeemError("invalid_plan", "Card key plan is invalid")
 
-            amount = max(0, int(row.tokens or 0))
+            amount = max(0, int(row.credits or 0))
             bal = crud.get_user_balance_for_update(session=session, user_id=user_id)
-            prev_credits = int(bal.tokens) if bal else 0
+            prev_credits = int(bal.credits) if bal else 0
             prev_plan = normalize_plan_id(bal.plan_id) if bal else "free"
             prev_exp_raw = bal.plan_expires_at if bal else None
             prev_expires = float(prev_exp_raw) if prev_exp_raw is not None else None
@@ -453,7 +453,7 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
             next_credits = prev_credits + gift
 
             if bal:
-                bal.tokens = next_credits
+                bal.credits = next_credits
                 bal.plan_id = next_plan
                 bal.plan_expires_at = next_expires
                 bal.updated_at = now
@@ -462,7 +462,7 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
                 session.add(
                     UserBalance(
                         user_id=user_id,
-                        tokens=next_credits,
+                        credits=next_credits,
                         plan_id=next_plan,
                         plan_expires_at=next_expires,
                         updated_at=now,

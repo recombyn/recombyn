@@ -55,7 +55,7 @@ def create_session(user: SessionUser) -> tuple[SessionUser, str]:
         provider=user.provider,
         google_sub=sub if user.provider == "google" else None,
     )
-    ensure_user_balance(persisted.id, starting_tokens=0)
+    ensure_user_balance(persisted.id, starting_credits=0)
     token = secrets.token_urlsafe(32)
     with Session(engine) as session:
         crud.create_auth_session(
