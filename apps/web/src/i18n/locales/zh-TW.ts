@@ -492,7 +492,6 @@ const zhTW = {
     credits: '積分',
     creditsTip:
       '對話、Agent 與出圖共用統一積分餘額。對話按用量折算積分；出圖按張/次扣積分。免費檔每天 1 次 Auto。',
-    creditsLeft: '剩餘 {{left}} / {{total}}',
     creditsIncluded: '每月 {{count}} 積分',
     balanceHint: '對話 / Agent / 出圖均從同一積分餘額扣除',
     balanceTip: '對話 / Agent / 出圖均從同一積分餘額扣除',

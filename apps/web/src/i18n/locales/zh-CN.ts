@@ -508,7 +508,6 @@ const zhCN = {
     credits: '积分',
     creditsTip:
       '对话、Agent 与出图共用统一积分余额。对话按用量折算积分；出图按张/次扣积分。免费档每天 1 次 Auto。',
-    creditsLeft: '剩余 {{left}} / {{total}}',
     creditsIncluded: '每月 {{count}} 积分',
     balanceHint: '对话 / Agent / 出图均从同一积分余额扣除',
     balanceTip: '对话 / Agent / 出图均从同一积分余额扣除',
