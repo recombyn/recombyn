@@ -206,7 +206,7 @@ def extract_factual_triples_from_episode(
     op_names: list[str] = []
     for a in actions or []:
         if isinstance(a, dict):
-            name = str(a.get("op") or a.get("name") or "").strip()
+            name = str(a.get("name") or "").strip()
             if name:
                 op_names.append(name)
         elif isinstance(a, str) and a.strip():
@@ -553,17 +553,15 @@ def _parse_triples_json(
             raw = None
     items: list[Any] = []
     if isinstance(raw, dict):
-        items = raw.get("triples") or raw.get("items") or raw.get("edges") or []
-    elif isinstance(raw, list):
-        items = raw
+        items = raw.get("triples") or []
     sc = (scene or "").strip().lower() or ""
     out: list[tuple[str, str, str]] = []
     for it in items:
         if not isinstance(it, dict):
             continue
-        s = str(it.get("s") or it.get("subject") or "").strip()
-        p = str(it.get("p") or it.get("predicate") or "").strip()
-        o = str(it.get("o") or it.get("object") or "").strip()
+        s = str(it.get("s") or "").strip()
+        p = str(it.get("p") or "").strip()
+        o = str(it.get("o") or "").strip()
         if not p or not o:
             continue
         if p not in allowed:

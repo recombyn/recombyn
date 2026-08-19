@@ -52,7 +52,6 @@ from app.services.wallet.card_keys import (
 )
 from app.services.wallet.db import (
     ensure_user_balance,
-    get_user_tokens,
     get_wallet,
     init_wallet_db,
     list_ledger,
@@ -510,10 +509,8 @@ def email_login(body: EmailLoginIn, request: Request) -> dict[str, Any]:
 
 @router.get("/me", response_model=AuthMeOut)
 def auth_me(current_user: CurrentUser) -> dict[str, Any]:
-    init_wallet_db()
     return {
         "user": _user_payload(current_user),
-        "tokens": get_user_tokens(current_user.id),
     }
 
 
@@ -578,10 +575,9 @@ def _wallet_plan_fields(snap: dict[str, Any]) -> dict[str, Any]:
 def wallet_me(current_user: CurrentUser) -> dict[str, Any]:
     init_wallet_db()
     snap = get_wallet(current_user.id)
-    credits = int(snap.get("credits") or snap.get("tokens") or 0)
+    credits = int(snap.get("credits") or 0)
     return {
         "credits": credits,
-        "tokens": credits,
         **_wallet_plan_fields(snap),
         "ledger": list_ledger(current_user.id),
     }
@@ -600,10 +596,9 @@ def wallet_ledger(
     """
     init_wallet_db()
     snap = get_wallet(current_user.id)
-    credits = int(snap.get("credits") or snap.get("tokens") or 0)
+    credits = int(snap.get("credits") or 0)
     return {
         "credits": credits,
-        "tokens": credits,
         **_wallet_plan_fields(snap),
         **list_ledger_page(current_user.id, page=page, page_size=pageSize, kind=kind),
     }
@@ -640,14 +635,12 @@ def wallet_redeem(
         ) from err
     clear_redeem_rate_limit(user_id=current_user.id, ip=ip)
     snap = get_wallet(current_user.id)
-    credits = int(snap.get("credits") or snap.get("tokens") or 0)
-    added = int(result.get("creditsAdded") or result.get("tokensAdded") or 0)
+    credits = int(snap.get("credits") or 0)
+    added = int(result.get("creditsAdded") or 0)
     return {
         "kind": result.get("kind") or "credit",
         "creditsAdded": added,
-        "tokensAdded": added,
         "credits": credits,
-        "tokens": credits,
         **_wallet_plan_fields(snap),
         "ledger": list_ledger(current_user.id),
     }

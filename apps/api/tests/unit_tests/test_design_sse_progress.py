@@ -53,7 +53,7 @@ def test_agent_event_envelope_is_stable_and_user_visible() -> None:
         "phase": "ops",
         "elapsed_ms": payload["agent_event"]["elapsed_ms"],
         "can_cancel": True,
-        "can_resume": False,
+        "resumable": False,
     }
 
 

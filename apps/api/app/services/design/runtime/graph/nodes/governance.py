@@ -92,9 +92,6 @@ def _palette_colors(brief: dict[str, Any] | None) -> list[str]:
                 colors.extend(str(v) for v in val.values())
             elif isinstance(val, str):
                 colors.append(val)
-    allowed = src.get("allowed_colors") or src.get("brand_colors")
-    if isinstance(allowed, list):
-        colors.extend(str(x) for x in allowed)
     out: list[str] = []
     for c in colors:
         for hit in _HEX.findall(str(c)):
@@ -168,8 +165,8 @@ def check_accessibility_lane(
 ) -> dict[str, Any]:
     src = brief if isinstance(brief, dict) else {}
     a11y = src.get("accessibility") if isinstance(src.get("accessibility"), dict) else {}
-    fg_c = str(fg or a11y.get("fg") or a11y.get("foreground") or "").strip()
-    bg_c = str(bg or a11y.get("bg") or a11y.get("background") or "").strip()
+    fg_c = str(fg or a11y.get("fg") or "").strip()
+    bg_c = str(bg or a11y.get("bg") or "").strip()
     # Spec example path: explicit contrast 2.8:1 fails.
     explicit = a11y.get("contrast_ratio")
     if explicit is not None:
@@ -275,7 +272,7 @@ def check_design_system_lane(*, brief: dict[str, Any] | None = None) -> dict[str
     tokens = src.get("tokens") if isinstance(src.get("tokens"), dict) else {}
     spacing = tokens.get("spacing") if isinstance(tokens.get("spacing"), dict) else {}
     # Explicit violation flag or non-token spacing values.
-    if tokens.get("spacing_violation") or src.get("spacing_token_violation"):
+    if tokens.get("spacing_violation"):
         return {
             "lane": "design_system",
             "status": "fail",
@@ -283,8 +280,8 @@ def check_design_system_lane(*, brief: dict[str, Any] | None = None) -> dict[str
             "evidence": ["spacing_token_violation"],
             "fix": "align spacing to design-system tokens",
         }
-    raw_spacing = spacing.get("values") or spacing.get("used")
-    allowed = spacing.get("allowed") or spacing.get("scale")
+    raw_spacing = spacing.get("used")
+    allowed = spacing.get("allowed")
     if isinstance(raw_spacing, list) and isinstance(allowed, list) and allowed:
         bad = [x for x in raw_spacing if x not in allowed]
         if bad:
@@ -340,21 +337,14 @@ def check_tool_permission_lane(
             "evidence": [],
             "fix": "",
         }
-    allow = allowed_ops or {
-        "create_node",
-        "update_node",
-        "delete_node",
-        "set_frame",
-        "group",
-        "ungroup",
-        "reorder",
-        "set_text",
-        "set_fill",
-        "set_stroke",
-    }
+    allow = allowed_ops
+    if allow is None:
+        from app.services.design.ops.tool_ops_contract import allowed_canvas_tool_keys
+
+        allow = set(allowed_canvas_tool_keys())
     bad: list[str] = []
     for op in ops:
-        name = str(op.get("op") or op.get("type") or op.get("name") or "").strip()
+        name = str(op.get("name") or "").strip()
         if name and name not in allow:
             bad.append(name)
     if bad:

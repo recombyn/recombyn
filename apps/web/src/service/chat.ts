@@ -44,20 +44,15 @@ export type LlmModel = {
   description?: string | null;
   kind?: 'text' | 'image' | 'svg' | 'video' | 'audio';
   referenceTypes?: ModelReferenceType[];
-  reference_types?: ModelReferenceType[];
   thinking?: boolean;
   enabled?: boolean;
   iconUrl?: string | null;
-  icon_url?: string | null;
   iconKey?: string | null;
-  icon_key?: string | null;
   price?: string | null;
   priceMeta?: ImagePriceMeta | null;
-  price_meta?: ImagePriceMeta | null;
   maxAttachments?: number;
-  max_attachments?: number;
   imageLimits?: ImageLimits | null;
-  image_limits?: ImageLimits | null;
+  apiModel?: string;
 };
 
 /** Default generation params carried by image/video preset models. */

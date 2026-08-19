@@ -19,19 +19,21 @@ def merge_nested_op_args(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def coalesce_paint_tool_op(data: Any) -> Any:
-    """Normalize one tool_op envelope to ``{name, args}``."""
+    """Normalize one tool_op envelope to ``{name, args, op_id?}``."""
     if not isinstance(data, dict):
         return data
     d = dict(data)
     args = merge_nested_op_args(d)
+    args.pop("op_id", None)
+    out: dict[str, Any] = {"name": paint_op_name(d), "args": args}
     op_id = d.get("op_id")
     if op_id is not None and str(op_id).strip():
-        args["op_id"] = str(op_id).strip()
-    return {"name": paint_op_name(d), "args": args}
+        out["op_id"] = str(op_id).strip()
+    return out
 
 
 class PaintToolOp(BaseModel):
-    """LangChain envelope for one canvas op — normalized to ``{name, args}``."""
+    """LangChain envelope for one canvas op — ``{name, args}`` plus optional ``op_id``."""
 
     name: str = Field(..., min_length=1)
     args: dict[str, Any] = Field(

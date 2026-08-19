@@ -127,7 +127,7 @@ def slim_review_for_memory(review: dict[str, Any] | None) -> dict[str, Any]:
             out["overall"] = int(src.get("overall"))
         except (TypeError, ValueError):
             pass
-    action = str(src.get("action") or src.get("review_action") or "").strip()
+    action = str(src.get("action") or "").strip()
     if action:
         out["action"] = action
     summary = str(src.get("summary") or "").strip()
@@ -357,7 +357,7 @@ def trim_short_turn(turn: dict[str, Any]) -> dict[str, Any] | None:
     role = str(turn.get("role") or "").strip().lower()
     if role not in ("user", "assistant"):
         return None
-    text = str(turn.get("text") or turn.get("content") or "").strip()
+    text = str(turn.get("text") or "").strip()
     if not text:
         return None
     if re_looks_like_markup(text):
@@ -373,4 +373,4 @@ def trim_short_turn(turn: dict[str, Any]) -> dict[str, Any] | None:
 def re_looks_like_markup(text: str) -> bool:
     import re
 
-    return bool(re.search(r"<svg\b|</svg>|\{\s*\"tool_ops\"|\"ops\"\s*:", text, flags=re.I))
+    return bool(re.search(r"<svg\b|</svg>|\{\s*\"tool_ops\"", text, flags=re.I))

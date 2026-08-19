@@ -4,7 +4,7 @@ Product rule (ADR 0026): **1 credit = AI work value unit**, not a token.
 
 Design runs authorize from ``TaskPricingSchema`` (base + steps).
 Capture prefers an optional remote quote (``credits_to_charge`` only).
-Legacy chat/image helpers remain as OSS fallback when no quote is available.
+OSS chat/image conversion remains when no quote is available.
 
 BYOK: waive provider credit conversion; still charge Agent orchestration
 (CreditPolicySchema.byok_agent_fee_credits).
@@ -70,43 +70,36 @@ _OSS_PLAN_CATALOG: tuple[dict[str, Any], ...] = (
         "period": "month",
     },
 )
-_PLAN_ID_ALIASES = {"studio": "ultra", "basic": "plus", "hobby": "free"}
 _catalog_cache: tuple[float, list[dict[str, Any]]] | None = None
 _CATALOG_TTL_SEC = 60.0
 
 
-def _canonical_plan_id(raw: Any) -> str:
-    pid = str(raw or "").strip().lower()
-    return _PLAN_ID_ALIASES.get(pid, pid)
+def _plan_id(raw: Any) -> str:
+    return str(raw or "").strip().lower()
 
 
 def _sanitize_plan_row(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
-    pid = _canonical_plan_id(raw.get("planId") or raw.get("plan_id"))
+    pid = _plan_id(raw.get("planId"))
     if pid not in ("free", "plus", "pro", "ultra"):
         return None
-    feats = raw.get("features") if isinstance(raw.get("features"), dict) else {}
-    daily = feats.get("daily_runs") if "daily_runs" in feats else raw.get("dailyRuns")
     try:
-        price = int(raw.get("priceCny") if raw.get("priceCny") is not None else raw.get("list_price_cny") or 0)
+        price = int(raw.get("priceCny") or 0)
     except (TypeError, ValueError):
         price = 0
     try:
-        credits = int(
-            raw.get("creditsIncluded")
-            if raw.get("creditsIncluded") is not None
-            else raw.get("credits_grant") or 0
-        )
+        credits = int(raw.get("creditsIncluded") or 0)
     except (TypeError, ValueError):
         credits = 0
     row: dict[str, Any] = {
         "planId": pid,
         "priceCny": max(0, price),
         "creditsIncluded": max(0, credits),
-        "period": str(raw.get("period") or raw.get("credits_period") or "month"),
+        "period": str(raw.get("period") or "month"),
     }
     try:
+        daily = raw.get("dailyRuns")
         if daily is not None:
             row["dailyRuns"] = max(0, int(daily))
     except (TypeError, ValueError):
@@ -145,7 +138,7 @@ def public_plan_catalog(*, force: bool = False) -> list[dict[str, Any]]:
 
 
 def plan_row(plan_id: str) -> dict[str, Any] | None:
-    pid = _canonical_plan_id(plan_id)
+    pid = _plan_id(plan_id)
     for row in public_plan_catalog():
         if row.get("planId") == pid:
             return row
@@ -363,7 +356,7 @@ def image_model_credit_cost(
 
             for m in list_image_models():
                 if str(m.get("id") or "") == mid:
-                    meta = m.get("priceMeta") or m.get("price_meta")
+                    meta = m.get("priceMeta")
                     price_cny = resolve_image_unit_cny(
                         price=m.get("price"),
                         price_meta=meta if isinstance(meta, dict) else None,

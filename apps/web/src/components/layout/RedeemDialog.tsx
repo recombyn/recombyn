@@ -19,8 +19,8 @@ type RedeemPanelProps = {
 
 type RedeemResult = {
   kind?: string;
-  tokensAdded: number;
-  tokens: number;
+  creditsAdded: number;
+  credits: number;
   planId?: string;
   planExpiresAt?: number | null;
   planLocked?: boolean;
@@ -53,11 +53,11 @@ function RedeemPanel({ active = true, onRedeemed, onCancel }: RedeemPanelProps) 
           message.success(
             t('wallet.redeemPlanSuccess', {
               plan: t(`wallet.plan.${planId}`),
-              amount: res.tokensAdded,
+              amount: res.creditsAdded,
             })
           );
         } else {
-          message.success(t('wallet.redeemSuccess', { amount: res.tokensAdded }));
+          message.success(t('wallet.redeemSuccess', { amount: res.creditsAdded }));
         }
         onRedeemed?.();
         setCode('');

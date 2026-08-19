@@ -64,7 +64,7 @@ function lightPen(id: string) {
     y: 0,
     width: 50,
     height: 20,
-    attrs: { shapeType: 'pen', path: 'M0 10 L50 10', stroke: '#000', 'border-width': 2 },
+    attrs: { shapeType: 'pen', path: 'M0 10 L50 10', 'border-color': '#000', 'border-width': 2 },
   };
 }
 

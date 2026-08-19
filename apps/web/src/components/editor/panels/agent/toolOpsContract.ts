@@ -32,7 +32,7 @@ export function dedupeToolOpsById(
 ): AgentToolOp[] {
   const out: AgentToolOp[] = [];
   for (const op of ops) {
-    const oid = String(op.op_id || op.args?.op_id || '').trim();
+    const oid = String(op.op_id || '').trim();
     if (oid) {
       if (seen.has(oid)) continue;
       seen.add(oid);
@@ -54,8 +54,8 @@ export function filterAllowedToolOps(
     if (!name) continue;
     if (enforce && !allow.has(name)) continue;
     const args = { ...(raw?.args && typeof raw.args === 'object' ? raw.args : {}) };
-    const op_id = String(raw.op_id || args.op_id || '').trim() || undefined;
-    if (op_id) args.op_id = op_id;
+    delete args.op_id;
+    const op_id = String(raw.op_id || '').trim() || undefined;
     out.push({ name, args, ...(op_id ? { op_id } : {}) });
   }
   return out;
@@ -79,8 +79,8 @@ function coerceRawOp(raw: unknown): AgentToolOp | null {
     argsRaw && typeof argsRaw === 'object' && !Array.isArray(argsRaw)
       ? { ...(argsRaw as Record<string, unknown>) }
       : {};
-  const op_id = String(row.op_id || args.op_id || '').trim() || undefined;
-  if (op_id) args.op_id = op_id;
+  delete args.op_id;
+  const op_id = String(row.op_id || '').trim() || undefined;
   return { name, args, ...(op_id ? { op_id } : {}) };
 }
 

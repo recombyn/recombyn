@@ -46,8 +46,8 @@ def test_rejects_unknown_node_id():
 
 def test_dedupe_by_op_id():
     raw_ops = [
-        {"name": "update_node", "args": {"nodeId": "n1", "fill": "#111", "op_id": "same-id"}},
-        {"name": "update_node", "args": {"nodeId": "n1", "fill": "#222", "op_id": "same-id"}},
+        {"name": "update_node", "op_id": "same-id", "args": {"nodeId": "n1", "fill": "#111"}},
+        {"name": "update_node", "op_id": "same-id", "args": {"nodeId": "n1", "fill": "#222"}},
     ]
     ops, errs = normalize_agent_tool_ops(
         raw_ops,

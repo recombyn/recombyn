@@ -65,9 +65,9 @@ def test_oss_plan_catalog_plus_sku():
     plus = next(p for p in oss_plan_catalog() if p["planId"] == "plus")
     assert plus["priceCny"] == 49
     assert plus["creditsIncluded"] == 340
-    studio = _sanitize_plan_row(
-        {"plan_id": "studio", "list_price_cny": 499, "credits_grant": 4000}
+    ultra = _sanitize_plan_row(
+        {"planId": "ultra", "priceCny": 499, "creditsIncluded": 4000, "period": "month"}
     )
-    assert studio and studio["planId"] == "ultra"
+    assert ultra and ultra["planId"] == "ultra"
     live = {p["planId"]: p for p in public_plan_catalog(force=True)}
     assert live["plus"]["priceCny"] == 49

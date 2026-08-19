@@ -45,7 +45,7 @@ def normalize_item(raw: Any) -> dict[str, Any] | None:
         }
     if not isinstance(raw, dict):
         return None
-    text = str(raw.get("text") or raw.get("goal") or raw.get("title") or "").strip()
+    text = str(raw.get("text") or "").strip()
     if not text:
         return None
     status = str(raw.get("status") or "todo").strip().lower()
@@ -136,7 +136,7 @@ def parse_subgoals_payload(raw: Any) -> list[str]:
         if isinstance(item, str) and item.strip():
             out.append(item.strip()[:200])
         elif isinstance(item, dict):
-            t = str(item.get("text") or item.get("goal") or "").strip()
+            t = str(item.get("text") or "").strip()
             if t:
                 out.append(t[:200])
         if len(out) >= 8:

@@ -45,7 +45,7 @@ def attach_crops(img_bgr, blocks: list[dict[str, Any]], page_index: int = 0) -> 
     for block in blocks:
         item = dict(block)
         btype = str(item.get("type") or "")
-        layout = str(item.get("layout_type") or btype).lower()
+        layout = str(item.get("layout_type") or "").lower()
 
         if btype == "table" or layout == "table":
             if settings.expand_table_cells:
@@ -70,13 +70,13 @@ def attach_crops(img_bgr, blocks: list[dict[str, Any]], page_index: int = 0) -> 
                 out.append(item)
             continue
 
-        if btype in {"image", "figure"} or layout in {"figure", "image", "equation"}:
+        if btype == "image" or layout in {"figure", "image", "equation"}:
             if not item.get("src"):
                 src = crop_region_to_data_url(img_bgr, item)
                 if src:
                     item["type"] = "image"
                     item["src"] = src
-                    item["layout_type"] = layout or btype
+                    item["layout_type"] = layout or "image"
                 else:
                     item["type"] = "rect"
                     item["fill"] = "#F0F0F0"

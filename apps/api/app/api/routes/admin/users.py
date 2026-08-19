@@ -117,7 +117,7 @@ def admin_generate_card_keys(
     try:
         keys = generate_card_keys(
             count=body.count,
-            tokens=body.tokens,
+            credits=body.credits,
             expires_days=body.expiresDays,
             kind=body.kind,
             plan_id=body.planId,
@@ -131,7 +131,7 @@ def admin_generate_card_keys(
         "count": len(keys),
         "kind": first.get("kind") or body.kind,
         "planId": first.get("planId") or body.planId,
-        "tokens": first.get("tokens") if keys else body.tokens,
+        "credits": first.get("credits") if keys else body.credits,
         "expiresDays": body.expiresDays,
         "keys": keys,
     }

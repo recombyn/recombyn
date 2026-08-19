@@ -1415,7 +1415,7 @@ export function buildComposerContext(
     if (ow * oh < nw * nh * 0.4) continue;
     const kind = nodeKindLabel(node);
     const nodeLabel = numberedNodeLabel(document, id);
-    const fill = String(node.attrs?.['fill-color'] ?? node.attrs?.fill ?? '');
+    const fill = String(node.attrs?.['fill-color'] ?? '');
     let line = `- id=${id} name="${nodeLabel}" kind=${kind} box=${Math.round(nw)}×${Math.round(nh)} at (${Math.round(left)},${Math.round(top)})`;
     if (fill) line += ` fill=${fill}`;
     if (node.key === 'text') {

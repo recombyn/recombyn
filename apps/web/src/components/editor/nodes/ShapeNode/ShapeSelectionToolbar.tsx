@@ -169,11 +169,7 @@ function ShapeSelectionToolbar({
   const sizeBox = valueBox || box;
   const strokeWidth = Math.max(
     1,
-    Math.round(
-      Number(
-        node?.attrs?.['border-width'] ?? node?.attrs?.borderWidth ?? node?.attrs?.strokeWidth ?? 2
-      ) || 2
-    )
+    Math.round(Number(node?.attrs?.['border-width'] ?? 2) || 2)
   );
 
   const activeRatioId = useMemo(
@@ -196,7 +192,7 @@ function ShapeSelectionToolbar({
   const strokeVisible =
     boolEffectAttr(node?.attrs?.['stroke-enabled'], true) &&
     boolEffectAttr(node?.attrs?.['stroke-visible'], true);
-  const strokeColor = String(node?.attrs?.['border-color'] || node?.attrs?.stroke || '#333333');
+  const strokeColor = String(node?.attrs?.['border-color'] || '#333333');
   const strokeStyle = parseStrokeStyle(node?.attrs?.strokeStyle);
   const liveCornerRadius = useSyncExternalStore(
     subscribeLiveCornerRadiusPreview,

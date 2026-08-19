@@ -413,7 +413,7 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
           const attrs = node?.attrs || {};
           await downloadVideoNodeAsset({
             src: String(attrs.src || ''),
-            name: String(node?.name || attrs.name || 'video'),
+            name: String(attrs.name || 'video'),
             uploadKey: attrs.uploadKey != null ? String(attrs.uploadKey) : null,
             cropX: attrs.cropX,
             cropY: attrs.cropY,

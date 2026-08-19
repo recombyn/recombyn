@@ -98,8 +98,8 @@ def _prompt_for(
     if kind in ("editText", "editElements", "detectRegions"):
         return "unused"
     if kind == "replaceText":
-        original = str(m.get("originalText") or m.get("from") or "").strip()
-        new = str(m.get("newText") or m.get("to") or "").strip()
+        original = str(m.get("originalText") or "").strip()
+        new = str(m.get("newText") or "").strip()
         if not original or not new:
             raise ValueError("replaceText requires meta.originalText and meta.newText")
         return (

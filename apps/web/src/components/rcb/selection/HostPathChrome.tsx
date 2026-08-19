@@ -373,7 +373,7 @@ export function isVectorStrokeNode(node: SceneNodeInput, shapeType?: string): bo
  * Vector strokes always use painted path; heavy geo falls back to AABB stand-in.
  */
 export function resolveOutlinePathD(node: SceneNodeInput, gw: number, gh: number): string {
-  const rawPath = String(node?.attrs?.path || node?.attrs?.d || '');
+  const rawPath = String(node?.attrs?.path || '');
   const shapeType = String(node?.attrs?.shapeType || '');
   if (isVectorStrokeNode(node, shapeType)) {
     if (rawPath.trim().length >= 2) return rawPath;

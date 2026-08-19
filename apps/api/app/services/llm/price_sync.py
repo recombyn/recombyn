@@ -175,7 +175,7 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
     for row in rows:
         if str(row.get("provider") or "").lower() != "openrouter":
             continue
-        api_model = str(row.get("apiModel") or row.get("api_model") or "").strip()
+        api_model = str(row.get("apiModel") or "").strip()
         if not api_model:
             skipped.append({"id": row.get("id"), "reason": "no api_model"})
             continue
@@ -192,7 +192,7 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
         endpoints = endpoints_by_id.get(api_model)
 
         price_meta: dict[str, Any]
-        if kind == "image" or "image" in (row.get("referenceTypes") or row.get("reference_types") or []):
+        if kind == "image" or "image" in (row.get("referenceTypes") or []):
             bill = _pick_image_billing(pricing, endpoints)
             if bill is None:
                 skipped.append({"id": row.get("id"), "reason": "no_image_price", "apiModel": api_model})
@@ -263,18 +263,18 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
             "id": row["id"],
             "label": row.get("label") or row["id"],
             "kind": kind if kind in ("text", "image") else "text",
-            "referenceTypes": row.get("referenceTypes") or row.get("reference_types") or ["text"],
+            "referenceTypes": row.get("referenceTypes") or ["text"],
             "provider": "openrouter",
             "apiModel": api_model,
             "description": row.get("description"),
             "iconKey": row.get("iconKey"),
             "iconUrl": row.get("iconUrl"),
             "price": price_str,
-            "maxAttachments": int(row.get("maxAttachments") or row.get("max_attachments") or 8),
+            "maxAttachments": int(row.get("maxAttachments") or 8),
             "thinking": bool(row.get("thinking")),
             "enabled": bool(row.get("enabled", True)),
             "sortOrder": int(row.get("sortOrder") or 100),
-            "imageLimits": row.get("imageLimits") or row.get("image_limits"),
+            "imageLimits": row.get("imageLimits"),
             "priceMeta": price_meta,
         }
         item = upsert_model(payload)

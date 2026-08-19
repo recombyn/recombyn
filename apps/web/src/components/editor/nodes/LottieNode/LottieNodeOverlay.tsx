@@ -290,7 +290,7 @@ function LottiePlateHost({
       animationJson={animationJson}
       loop={readLoop(node.attrs)}
       speed={readSpeed(node.attrs)}
-      plateFill={String(node.attrs?.['fill-color'] || node.attrs?.fill || '').trim()}
+      plateFill={String(node.attrs?.['fill-color'] || '').trim()}
       hidden={Boolean(hidden) || layerHidden}
       mount={mount}
     />

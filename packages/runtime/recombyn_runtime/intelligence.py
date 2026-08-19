@@ -23,14 +23,11 @@ def _as_dict(val: Any) -> dict[str, Any] | None:
     return val if isinstance(val, dict) else None
 
 
-def _flag(rt: Any, *keys: str) -> Any:
+def _flag(rt: Any, key: str) -> Any:
     flags = getattr(rt, "flags", None)
     if not isinstance(flags, dict):
         return None
-    for key in keys:
-        if key in flags and flags[key] is not None:
-            return flags[key]
-    return None
+    return flags.get(key)
 
 
 def _images(rt: Any) -> list[str]:
@@ -53,7 +50,7 @@ def _painted(rt: Any) -> bool:
 _METHOD_CONTEXT: dict[str, tuple[str, ...]] = {
     "analyze_reference": ("reference_dna", "reference_analyze", "reference_lock"),
     "retrieve_memory": ("memory_notes",),
-    "research": ("reference_dna", "reference_analyze", "memory_notes", "design_research"),
+    "research": ("reference_dna", "reference_analyze", "memory_notes", "design_research", "eval_patterns"),
     "strategy": ("design_brief", "design_research", "reference_lock"),
     "propose_candidates": ("design_brief", "design_research", "design_strategy"),
     "tournament": ("design_research", "design_strategy", "design_candidates"),
@@ -112,6 +109,7 @@ def build_intelligence_request(method: str, rt: Any) -> dict[str, Any]:
         "judge_verdict": _as_dict(getattr(rt, "judge_verdict", None)) or _as_dict(_flag(rt, "judge_verdict")),
         "visual_diff": _as_dict(_flag(rt, "visual_diff")),
         "memory_notes": list(_flag(rt, "memory_notes") or []) if isinstance(_flag(rt, "memory_notes"), list) else [],
+        "eval_patterns": list(_flag(rt, "eval_patterns") or []) if isinstance(_flag(rt, "eval_patterns"), list) else [],
     }
     body: dict[str, Any] = {
         "method": canonical,
@@ -121,7 +119,7 @@ def build_intelligence_request(method: str, rt: Any) -> dict[str, Any]:
         "intent": str(getattr(rt, "classified_intent", "") or ""),
         "flags": {
             key: flag_map[key]
-            for key in ("force_autonomous", "knowledge_written", "eval_failure_patterns")
+            for key in ("force_autonomous", "knowledge_written", "eval_patterns")
             if key in flag_map
         },
         "images": _images(rt) if canonical in {"analyze_reference", "research", "review"} else [],

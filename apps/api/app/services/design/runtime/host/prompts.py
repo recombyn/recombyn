@@ -68,10 +68,7 @@ def locale_for_runtime(rt: Any | None = None, *, explicit: str | None = None) ->
     if rt is not None:
         flags = getattr(rt, "flags", None)
         if isinstance(flags, dict) and not client:
-            client = (
-                str(flags.get("locale") or flags.get("output_locale") or "").strip()
-                or None
-            )
+            client = str(flags.get("output_locale") or "").strip() or None
         prompt = str(getattr(rt, "prompt", "") or "")
     profile_locale = "zh-CN"
     try:

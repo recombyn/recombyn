@@ -48,11 +48,8 @@ def _looks_like_css_gradient(raw: object) -> bool:
 
 def _validate_shape_fill_args(name: str, args: dict[str, Any]) -> str | None:
     """Reject CSS gradient strings; require native fillType + fill/fillEnd."""
-    fill_keys = ("fill", "fillColor", "backgroundColor", "color")
-    for key in fill_keys:
-        if key not in args or args.get(key) is None:
-            continue
-        val = args.get(key)
+    if "fill" in args and args.get("fill") is not None:
+        val = args.get("fill")
         if _looks_like_css_gradient(val):
             return format_op_error(
                 f"{name}_css_gradient_fill",
@@ -61,7 +58,7 @@ def _validate_shape_fill_args(name: str, args: dict[str, Any]) -> str | None:
                     "use fillType=linear|radial|angular|diffuse with fill + fillEnd "
                     "(+ gradientAngle?)"
                 ),
-                detail=f"{key}={str(val)[:96]}",
+                detail=f"fill={str(val)[:96]}",
             )
     fill_type_raw = args.get("fillType")
     if fill_type_raw is not None and str(fill_type_raw).strip():
@@ -154,19 +151,6 @@ def allowed_canvas_tool_keys() -> frozenset[str]:
     return frozenset(
         t["op_key"] for t in list_canvas_tools(enabled_only=True) if t.get("op_key")
     )
-
-
-# Models often invent singular / snake variants; map to registry keys.
-_OP_NAME_ALIASES: dict[str, str] = {
-    "delete_node": "delete_nodes",
-    "remove_node": "delete_nodes",
-    "remove_nodes": "delete_nodes",
-}
-
-
-def _canonicalize_op_name(name: str) -> str:
-    key = str(name or "").strip()
-    return _OP_NAME_ALIASES.get(key, key)
 
 
 def format_canvas_tools_for_model(rules: dict[str, str] | None = None) -> str:
@@ -335,16 +319,18 @@ def _max_ops_per_step(rules: dict[str, str] | None) -> int:
 
 
 def _coerce_op_args(item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize one tool_op to an ``args`` dict."""
+    """Canvas args only — ``op_id`` lives on the op envelope."""
     nested = item.get("args")
-    if isinstance(nested, dict):
-        args = dict(nested)
-    else:
-        args = {}
-    op_id = item.get("op_id")
-    if op_id is not None and str(op_id).strip():
-        args["op_id"] = str(op_id).strip()[:64]
+    args = dict(nested) if isinstance(nested, dict) else {}
+    args.pop("op_id", None)
     return args
+
+
+def _envelope_op_id(item: dict[str, Any]) -> str:
+    raw = item.get("op_id")
+    if raw is None:
+        return ""
+    return str(raw).strip()[:64]
 
 
 def _parse_raw_ops(content: str | dict[str, Any] | list[Any] | None) -> list[dict[str, Any]]:
@@ -364,15 +350,18 @@ def _parse_raw_ops(content: str | dict[str, Any] | list[Any] | None) -> list[dic
     for item in ops_raw:
         if not isinstance(item, dict):
             continue
-        name = _canonicalize_op_name(item.get("name") or "")
+        name = str(item.get("name") or "").strip()
         if not name:
             continue
-        out.append({"name": name, "args": _coerce_op_args(item)})
+        row = {"name": name, "args": _coerce_op_args(item)}
+        oid = _envelope_op_id(item)
+        if oid:
+            row["op_id"] = oid
+        out.append(row)
     return out
 
 
-def _stable_op_id(name: str, args: dict[str, Any], index: int) -> str:
-    existing = args.get("op_id")
+def _stable_op_id(name: str, args: dict[str, Any], index: int, existing: str = "") -> str:
     if existing:
         return str(existing).strip()[:64]
     try:
@@ -819,7 +808,7 @@ def normalize_agent_tool_ops(
     classified_intent: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """
-    Allowlist + alias normalize + per-op validation + op_id + dedupe.
+    Allowlist + per-op validation + op_id + dedupe.
 
     Semantic mistakes are rejected with errors for the model to re-emit — never
     silently rewritten (no create→update morph, no inventing nodeId).
@@ -877,7 +866,11 @@ def normalize_agent_tool_ops(
                 )
             )
             continue
-        working.append({"name": name, "args": args})
+        row = {"name": name, "args": args}
+        oid = _envelope_op_id(item)
+        if oid:
+            row["op_id"] = oid
+        working.append(row)
 
     # Validate intent — reject, do not rewrite into a "fixed" op.
     working, morph_errs = _reject_shape_morph_ops(working)
@@ -901,8 +894,7 @@ def normalize_agent_tool_ops(
         if err:
             errors.append(err)
             continue
-        op_id = _stable_op_id(name, args, idx)
-        args["op_id"] = op_id
+        op_id = _stable_op_id(name, args, idx, _envelope_op_id(item))
         normalized.append({"name": name, "args": args, "op_id": op_id})
 
     # Dedupe by op_id (SSE replay / model duplicates).
@@ -1199,9 +1191,8 @@ def tool_ops_for_sse(ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for op in ops:
         name = op.get("name")
         args = dict(op.get("args") or {})
-        oid = op.get("op_id") or args.get("op_id")
-        if oid:
-            args["op_id"] = oid
+        args.pop("op_id", None)
+        oid = op.get("op_id")
         if name == "create_shape" and args.get("path") is not None:
             path = str(args.get("path") or "")
             logger.info(
@@ -1278,18 +1269,18 @@ def tidy_tool_ops_scene(
         nid = str(row.get("id") or "").strip()
         if not nid:
             continue
-        ntype = str(row.get("type") or row.get("nodeType") or "").lower()
-        text = str(row.get("text") or row.get("content") or "").strip()
+        text = str(row.get("text") or "").strip()
+        ntype = str(row.get("type") or "").lower()
         # Drop empty text nodes.
-        if ntype in ("text", "textbox") and not text:
+        if ntype == "text" and not text:
             delete_ids.append(nid)
             notes.append(f"drop_empty_text:{nid[:8]}")
             continue
 
         x = _num(row.get("x"))
         y = _num(row.get("y"))
-        nw = max(1.0, _num(row.get("width") or row.get("w"), 1.0))
-        nh = max(1.0, _num(row.get("height") or row.get("h"), 1.0))
+        nw = max(1.0, _num(row.get("w"), 1.0))
+        nh = max(1.0, _num(row.get("h"), 1.0))
         if clamp_geometry:
             # Clamp into artboard (create path with frame-local coords only).
             cx = min(max(0.0, x), float(w - 1))
@@ -1307,23 +1298,23 @@ def tidy_tool_ops_scene(
                 or abs(ch - nh) > 0.5
             )
             if clamped:
-                row["x"], row["y"], row["width"], row["height"] = cx, cy, cw, ch
+                row["x"], row["y"], row["w"], row["h"] = cx, cy, cw, ch
+                oid = f"tidy-clamp-{nid}"
                 args = {
                     "nodeId": nid,
                     "x": round(cx, 2),
                     "y": round(cy, 2),
                     "width": round(cw, 2),
                     "height": round(ch, 2),
-                    "op_id": f"tidy-clamp-{nid}",
                 }
-                ops.append({"name": "update_node", "args": args, "op_id": args["op_id"]})
+                ops.append({"name": "update_node", "args": args, "op_id": oid})
                 notes.append(f"clamp:{nid[:8]}")
 
         fill = str(row.get("fill") or "").strip().lower()
         fp = (
             f"{ntype}|{fill}|{int(round(_num(row.get('x'))))}|"
-            f"{int(round(_num(row.get('y'))))}|{int(round(_num(row.get('width') or row.get('w'), 1)))}|"
-            f"{int(round(_num(row.get('height') or row.get('h'), 1)))}|{text[:24]}"
+            f"{int(round(_num(row.get('y'))))}|{int(round(_num(row.get('w'), 1)))}|"
+            f"{int(round(_num(row.get('h'), 1)))}|{text[:24]}"
         )
         if fp in seen_fp and ntype not in ("frame", "artboard", "group"):
             delete_ids.append(nid)
@@ -1337,7 +1328,7 @@ def tidy_tool_ops_scene(
         ops.append(
             {
                 "name": "delete_nodes",
-                "args": {"nodeIds": delete_ids, "op_id": oid},
+                "args": {"nodeIds": delete_ids},
                 "op_id": oid,
             }
         )

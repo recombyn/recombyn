@@ -49,7 +49,7 @@ def resolve_video_model(model: str | None = None) -> str:
 def _api_model_id(catalog_id: str) -> str:
     for m in list_video_models():
         if m["id"] == catalog_id:
-            return str(m.get("api_model") or m["id"])
+            return str(m.get("apiModel") or m["id"])
     return catalog_id or ""
 
 

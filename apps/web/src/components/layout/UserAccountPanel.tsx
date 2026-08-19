@@ -287,7 +287,7 @@ function SideFlyout({ children }: { children: ReactNode }) {
 function UserAccountPanel({ open, onOpenChange, children }: Props) {
   const { t, i18n } = useTranslation();
   const user = useSelector((state: any) => state.auth.user);
-  const { tokens, planId } = useWalletSnapshot();
+  const { credits, planId } = useWalletSnapshot();
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const desktopLocal = isDesktopLocal();
@@ -503,7 +503,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
                     </span>
                     <span className="inline-flex shrink-0 items-center gap-1 text-[13px] tabular-nums text-[var(--muted)]">
                       <HiOutlineBolt className="h-3.5 w-3.5" strokeWidth={MENU_STROKE} aria-hidden />
-                      {formatTokens(tokens)}
+                      {formatTokens(credits)}
                       <HiOutlineChevronRight className="h-3.5 w-3.5" aria-hidden />
                     </span>
                   </button>

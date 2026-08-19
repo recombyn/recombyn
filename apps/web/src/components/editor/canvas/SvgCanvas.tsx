@@ -1271,14 +1271,11 @@ function SvgCanvas({
       if (!baseNode) return;
 
       const ink = String(
-        baseNode.attrs?.['border-color'] ||
-          baseNode.attrs?.stroke ||
-          penStrokeColor ||
-          '#333333'
+        baseNode.attrs?.['border-color'] || penStrokeColor || '#333333'
       );
       const sw = Math.max(1, Number(strokeWidth) || penStrokeWidth || 2);
       const baseType = String(baseNode.attrs?.shapeType || 'path');
-      const basePath = String(baseNode.attrs?.path || baseNode.attrs?.d || '').trim();
+      const basePath = String(baseNode.attrs?.path || '').trim();
       const baseClosed =
         baseNode.attrs?.closed === true ||
         baseNode.attrs?.closed === 'true' ||
@@ -1337,9 +1334,7 @@ function SvgCanvas({
       const { result } = computeShapeBoolean([baseBox, addBox], 'union');
       if (!result?.path) return;
 
-      const fillKeep = String(
-        baseNode.attrs?.['fill-color'] || baseNode.attrs?.fill || ink
-      );
+      const fillKeep = String(baseNode.attrs?.['fill-color'] || ink);
       const origin = sceneToDocumentCoords(doc, result.x, result.y);
       dispatch(pushEditorHistory());
       dispatch(

@@ -561,13 +561,8 @@ def _pack_display_fields(meta: dict[str, Any], *, local: str) -> tuple[str, str,
         or meta.get("displayName")
         or local
     ).strip() or local
-    description = str(
-        loc.get("description")
-        or meta.get("description")
-        or meta.get("when_to_use")
-        or ""
-    ).strip()
-    when = str(meta.get("when_to_use") or description).strip()
+    description = str(loc.get("description") or meta.get("description") or "").strip()
+    when = str(meta.get("when_to_use") or "").strip()
     return display, description, when
 
 def _pack_logo_url(meta: dict[str, Any]) -> str | None:

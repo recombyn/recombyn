@@ -394,7 +394,7 @@ def _collect_text_blocks(path: Path) -> tuple[list[dict[str, Any]], str]:
             figures = [
                 b
                 for b in blocks
-                if b.get("type") in {"image", "figure"}
+                if b.get("type") == "image"
                 or str(b.get("layout_type") or "").lower() in {"figure", "image", "equation"}
             ]
             return merge_text_blocks(texts) + figures, engine
@@ -449,7 +449,7 @@ def _collect_subjects(bgr, path: Path, texts: list[dict[str, Any]], mixed_blocks
     for b in mixed_blocks:
         if str(b.get("type") or "") == "text":
             continue
-        layout = str(b.get("layout_type") or b.get("type") or "").lower()
+        layout = str(b.get("layout_type") or "").lower()
         if layout not in {"figure", "image", "equation", "sam"}:
             continue
         region = {

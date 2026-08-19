@@ -65,8 +65,6 @@ def _normalize_reference_types(raw: Any, *, kind: str = 'text') -> list[str]:
     if isinstance(raw, (list, tuple, set)):
         for x in raw:
             t = str(x or '').strip().lower()
-            if t in ('multimodal', 'multi'):
-                t = 'vision'
             if t in REFERENCE_TYPES and t not in items:
                 items.append(t)
     if items:
@@ -156,7 +154,7 @@ def resolve_image_limits(raw: Any = None, *, preset: str | None = None) -> dict[
             out['resolutions'] = [
                 str(x).strip().upper() for x in res if str(x).strip()
             ]
-        dr = raw.get('default_resolution') or raw.get('defaultResolution')
+        dr = raw.get('default_resolution')
         if dr:
             out['default_resolution'] = str(dr).strip().upper()
         if 'supports_output_format' in raw:
@@ -166,12 +164,12 @@ def resolve_image_limits(raw: Any = None, *, preset: str | None = None) -> dict[
         transport = raw.get('transport')
         if transport:
             out['transport'] = str(transport).strip().lower()
-        aspects = raw.get('aspect_ratios') or raw.get('aspectRatios')
+        aspects = raw.get('aspect_ratios')
         if isinstance(aspects, list):
             out['aspect_ratios'] = [
                 str(x).strip() for x in aspects if str(x).strip()
             ]
-        tables = raw.get('size_tables') or raw.get('sizeTables')
+        tables = raw.get('size_tables')
         if isinstance(tables, dict) and tables:
             cleaned: dict[str, dict[str, str]] = {}
             for rk, mapping in tables.items():
@@ -612,23 +610,17 @@ def _pub(r: Any) -> dict[str, Any]:
         'description': _row_get(r, 'description') or None,
         'provider': _row_get(r, 'provider') or 'doubao',
         'kind': kind,
-        'reference_types': ref_types,
         'referenceTypes': ref_types,
-        'api_model': _row_get(r, 'api_model'),
         'apiModel': _row_get(r, 'api_model'),
         'iconKey': _row_get(r, 'icon_key') or None,
         'iconUrl': _row_get(r, 'icon_url') or None,
         'price': (str(price_raw).strip() if price_raw else None),
-        'price_meta': price_meta,
         'priceMeta': price_meta,
-        'pricing_id': (_row_get(r, 'pricing_id') or None),
         'pricingId': (_row_get(r, 'pricing_id') or None),
-        'max_attachments': int(_row_get(r, 'max_attachments') or 8),
         'maxAttachments': int(_row_get(r, 'max_attachments') or 8),
         'thinking': bool(int(_row_get(r, 'thinking') or 0)),
         'enabled': bool(int(_row_get(r, 'enabled') or 0)),
         'sortOrder': int(_row_get(r, 'sort_order') or 100),
-        'image_limits': image_limits,
         'imageLimits': image_limits,
         'createdAt': int(float(created_at) * 1000) if created_at else None,
         'updatedAt': int(float(updated_at) * 1000) if updated_at else None,
@@ -727,10 +719,8 @@ def upsert_model(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         image_limits = None
     limits_json = _serialize_image_limits(image_limits)
-    meta_in_payload = 'priceMeta' in payload or 'price_meta' in payload
+    meta_in_payload = 'priceMeta' in payload
     meta_payload = payload.get('priceMeta')
-    if meta_payload is None:
-        meta_payload = payload.get('price_meta')
     now = time.time()
     with Session(engine) as session:
         # Admin re-adding a previously deleted seed clears the tombstone.
