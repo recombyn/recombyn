@@ -445,20 +445,7 @@ def run_design_governance_pipeline(
 
 
 def apply_governance_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> None:
-    clean = parse_design_governance(result)
-    rt.design_governance = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_governance"] = clean
-        if str(clean.get("status") or "") == "fail":
-            rt.flags["governance_fail"] = True
-            rt.flags["governance_explain"] = list(clean.get("explain") or [])
-            if clean.get("repair_plan"):
-                rt.flags["governance_repair_plan"] = clean["repair_plan"]
-                # Prefer governance draft when no counterfactual draft selected.
-                if not rt.flags.get("repair_plan_draft"):
-                    rt.flags["repair_plan_draft"] = clean["repair_plan"]
-        else:
-            rt.flags.pop("governance_fail", None)
+    rt.design_governance = parse_design_governance(result)
 
 
 def format_governance_for_settle(result: dict[str, Any] | None) -> str:
@@ -510,19 +497,14 @@ def _gate_intent_of(rt: AgentRuntime) -> str:
         frozen = str(flags.get("gate_intent") or "").strip()
         if frozen:
             return normalize_user_intent(frozen)
-        flagged = str(flags.get("intent") or "").strip()
-    else:
-        flagged = ""
     classified = str(getattr(rt, "classified_intent", None) or "").strip()
-    return normalize_user_intent(classified or flagged)
+    return normalize_user_intent(classified)
 
 
 def _has_design_craft_contract(rt: AgentRuntime) -> bool:
     """True when a real design pass left Brief / Strategy / reference — not a tool-op."""
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
     candidates: list[Any] = [
-        flags.get("design_brief"),
-        flags.get("design_strategy"),
+        getattr(rt, "design_brief", None),
         getattr(rt, "design_strategy", None),
         getattr(rt, "design_research", None),
         getattr(rt, "reference_lock", None),
@@ -560,7 +542,7 @@ def skipped_governance_result() -> dict[str, Any]:
 def run_design_governance(rt: AgentRuntime) -> dict[str, Any]:
     """Execute governance gate and stash. Always returns a report."""
     flags = rt.flags if isinstance(rt.flags, dict) else {}
-    brief = flags.get("design_brief") if isinstance(flags.get("design_brief"), dict) else None
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     result = run_design_governance_pipeline(
         brief=brief,
         observe_facts=getattr(rt, "observe_facts", None)
@@ -568,8 +550,6 @@ def run_design_governance(rt: AgentRuntime) -> dict[str, Any]:
         else None,
         strategy=getattr(rt, "design_strategy", None)
         if isinstance(getattr(rt, "design_strategy", None), dict)
-        else flags.get("design_strategy")
-        if isinstance(flags.get("design_strategy"), dict)
         else None,
         reference_lock=getattr(rt, "reference_lock", None)
         if isinstance(getattr(rt, "reference_lock", None), dict)

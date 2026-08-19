@@ -253,9 +253,6 @@ def apply_reference_intelligence(rt: AgentRuntime, compiled: dict[str, Any]) -> 
         rt.reference_dna = dna
     if lock:
         rt.reference_lock = lock
-        if isinstance(rt.flags, dict):
-            rt.flags["reference_lock"] = lock
-            rt.flags["reference_dna"] = dna
 
 
 def _structured_as_dict(raw: Any) -> dict[str, Any]:
@@ -342,7 +339,7 @@ async def run_reference_intelligence(rt: AgentRuntime) -> dict[str, Any] | None:
         dna.get("visual_dna") if isinstance(dna.get("visual_dna"), dict) else {}
     )
     thesis = ""
-    brief = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     if isinstance(brief, dict):
         thesis = str(brief.get("visual_thesis") or "").strip()
     if not thesis:
@@ -396,7 +393,7 @@ def _extract_design_brief(turn: dict[str, Any] | None, rt: AgentRuntime) -> str:
     t = turn if isinstance(turn, dict) else {}
     raw = t.get("design_brief")
     if raw is None or raw == "":
-        raw = getattr(rt, "design_brief", "") or ""
+        raw = rt.design_brief
     parsed = parse_design_brief(raw)
     if not parsed:
         return ""
@@ -454,8 +451,7 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
     t = turn if isinstance(turn, dict) else {}
     raw = t.get("design_brief")
     if raw is None or raw == "":
-        flagged = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
-        raw = flagged if flagged else (getattr(rt, "design_brief", "") or "")
+        raw = rt.design_brief
     parsed = parse_design_brief(raw)
     if not parsed:
         return ""
@@ -484,8 +480,7 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
     paint_text = format_design_brief_for_paint(parsed)
     if not paint_text:
         return ""
-    rt.design_brief = paint_text
-    rt.flags["design_brief"] = parsed
+    rt.design_brief = parsed
     rt.flags.pop("design_brief_missing", None)
     st = rt.run
     thesis = str(parsed.get("visual_thesis") or "").strip()
@@ -650,7 +645,7 @@ async def _node_design_agent(state: GraphState) -> Command:
                 stage="decide",
                 ask_mode=ask_mode,
                 persona=str(rt.persona or ""),
-                locale=str((rt.flags or {}).get("locale") or "") or None,
+                locale=str((rt.flags or {}).get("output_locale") or "") or None,
             )
         else:
             lc_system = _append_prompt_pack(
@@ -709,7 +704,7 @@ async def _node_design_agent(state: GraphState) -> Command:
                         "trace_id": st.trace_id,
                         "user_id": rt.user_id,
                         "scene": rt.scene_key or "",
-                        "intent": str(rt.classified_intent or st.intent or ""),
+                        "intent": str(rt.classified_intent or ""),
                         "round": round_i,
                         "has_images": bool(turn_images),
                         "stage": "decide"

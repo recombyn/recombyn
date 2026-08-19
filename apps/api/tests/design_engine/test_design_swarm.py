@@ -102,17 +102,17 @@ def test_apply_sets_need_subagents_without_ops():
     rt = _rt()
     rt.design_strategy = strategy
     rt.design_tournament = tournament
-    rt.flags["design_brief"] = {"visual_thesis": "product first", "avoid": []}
+    rt.design_brief = {"visual_thesis": "product first", "avoid": []}
     result = run_design_swarm_pipeline(
         prompt=rt.prompt, strategy=strategy, tournament=tournament
     )
     apply_swarm_to_runtime(rt, result)
     assert rt.design_swarm is not None
     assert rt.apply_ops == []
-    assert rt.flags["need_subagents"]
+    assert rt.design_swarm.get("need_subagents")
     assert "ART_DIRECTOR_SWARM" in (rt.pending_subagent_details or "")
-    assert any("keep title size" in str(x).lower() for x in rt.flags["design_brief"].get("avoid") or []) or any(
-        "keep title size" in str(d).lower() for d in rt.flags["design_brief"].get("swarm_directions") or []
+    assert any("keep title size" in str(x).lower() for x in (rt.design_brief or {}).get("avoid") or []) or any(
+        "keep title size" in str(d).lower() for d in (rt.design_brief or {}).get("swarm_directions") or []
     )
     block = format_swarm_for_decide(rt.design_swarm)
     assert "CONFLICT" in block

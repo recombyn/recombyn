@@ -6,7 +6,7 @@ Ark (Doubao Seedream)
   - Resolution chips only select size; price does NOT use pixel÷256 tokens.
 
 OpenRouter
-  - Prefer endpoint billing: flat per_image, or output_image_token × fixed tokens.
+  - Prefer endpoint unit: flat per image, or output_image_token × fixed tokens.
   - Gemini Nano Banana / Pro Image: fixed tokens by resolution tier
     (1K/2K → 1120, 4K → 2000), never area/256.
 """
@@ -83,7 +83,7 @@ def estimate_openrouter_output_tokens(
 def price_by_resolution_map(meta: dict[str, Any] | None) -> dict[str, float]:
     if not isinstance(meta, dict):
         return {}
-    raw = meta.get("price_by_resolution_cny") or meta.get("price_by_resolution")
+    raw = meta.get("price_by_resolution_cny")
     if not isinstance(raw, dict):
         return {}
     out: dict[str, float] = {}
@@ -110,8 +110,8 @@ def _provider_kind(
         return "openrouter"
     if prov in ("doubao", "ark", "volcengine", "火山", "方舟"):
         return "ark"
-    billing = str(meta.get("billing") or meta.get("unit") or "").lower()
-    if "token" in billing:
+    unit = str(meta.get("unit") or "").lower()
+    if "token" in unit:
         return "openrouter"
     return "other"
 
@@ -161,16 +161,14 @@ def resolve_openrouter_image_unit_cny(
     if res in by_res:
         return by_res[res]
 
-    billing = str(meta.get("billing") or meta.get("unit") or "").lower()
+    unit = str(meta.get("unit") or "").lower()
     usd_tok = meta.get("usd_per_output_token")
     try:
         usd_tok_f = float(usd_tok) if usd_tok is not None else None
     except (TypeError, ValueError):
         usd_tok_f = None
 
-    if usd_tok_f and usd_tok_f > 0 and (
-        "token" in billing or billing in ("output_image_token", "per_token")
-    ):
+    if usd_tok_f and usd_tok_f > 0 and "token" in unit:
         fx = float(meta.get("fx_usd_cny") or DEFAULT_USD_CNY)
         if not math.isfinite(fx) or fx <= 0:
             fx = DEFAULT_USD_CNY
@@ -181,8 +179,7 @@ def resolve_openrouter_image_unit_cny(
         )
         return round(tokens * usd_tok_f * fx, 6)
 
-    # Flat per-image (Seedream-via-OR, etc.)
-    if billing in ("per_image", "image") or meta.get("usd") is not None:
+    if unit == "image" or meta.get("usd") is not None:
         return parse_price_amount(price)
 
     return parse_price_amount(price)
@@ -207,8 +204,8 @@ def resolve_image_unit_cny(
         )
     # Unknown provider: prefer explicit OR token meta, else flat catalog price.
     meta = price_meta if isinstance(price_meta, dict) else {}
-    billing = str(meta.get("billing") or meta.get("unit") or "").lower()
-    if "token" in billing:
+    unit = str(meta.get("unit") or "").lower()
+    if "token" in unit:
         return resolve_openrouter_image_unit_cny(
             price=price, price_meta=price_meta, resolution=resolution
         )

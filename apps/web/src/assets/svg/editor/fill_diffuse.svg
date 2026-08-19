@@ -13,7 +13,7 @@
       <stop offset="100%" stop-color="#ddd" stop-opacity="0" />
     </radialGradient>
   </defs>
-  <rect x="3" y="3" width="12" height="12" rx="1.5" fill="#f3f3f3" stroke="currentColor" stroke-width="1" />
+  <rect x="3" y="3" width="12" height="12" rx="1.5" fill="#f3f3f3" stroke="currentColor" stroke-width="1.5" />
   <rect x="3.5" y="3.5" width="11" height="11" rx="1.2" fill="url(#editor-fill-diffuse-a)" />
   <rect x="3.5" y="3.5" width="11" height="11" rx="1.2" fill="url(#editor-fill-diffuse-b)" />
   <rect x="3.5" y="3.5" width="11" height="11" rx="1.2" fill="url(#editor-fill-diffuse-c)" />

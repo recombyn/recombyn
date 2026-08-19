@@ -478,11 +478,9 @@ export function radiiFromAttrs(attrs: Record<string, unknown> | null | undefined
   // Prefer per-corner attrs whenever present (toolbar / stroke panel).
   // Fall back to uniform `radius` only when corner keys are absent.
   if (hasCornerAttrs || !linked || !Number.isFinite(uniform)) {
-    const fallback = Number.isFinite(uniform)
-      ? uniform
-      : stored.length
-        ? stored.reduce((a, b) => a + b, 0) / stored.length
-        : 0;
+    let fallback = 0;
+    if (Number.isFinite(uniform)) fallback = uniform;
+    else if (stored.length) fallback = stored.reduce((a, b) => a + b, 0) / stored.length;
     return {
       tl: Math.max(0, num(attrs?.radiusTL, stored[0] ?? fallback)),
       tr: Math.max(0, num(attrs?.radiusTR, stored[1] ?? fallback)),

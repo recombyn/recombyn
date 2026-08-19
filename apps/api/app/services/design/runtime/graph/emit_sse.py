@@ -55,11 +55,7 @@ def _should_early_open_artboard(rt: Any) -> bool:
     classified = normalize_user_intent(getattr(rt, "classified_intent", None))
     if classified != "design":
         return False
-    lane = (
-        str(getattr(rt, "classified_paint_lane", None) or "").strip()
-        or str(rt.flags.get("paint_lane") or "").strip()
-        or None
-    )
+    lane = str(getattr(rt, "classified_paint_lane", None) or "").strip() or None
     want = paint_ops_intent(classified, lane)
     if want != "create":
         return False
@@ -171,7 +167,7 @@ def _emit_canvas_size_step(
         )
         st.push_log(
             phase="canvas_size",
-            intent=str(rt.classified_intent or st.intent or ""),
+            intent=str(rt.classified_intent or ""),
             summary=f"canvas_size {size} frame_id={frame_id} ({reason})",
         )
     return True
@@ -219,7 +215,7 @@ def _emit_canvas_size_from_ops(rt: Any, step_ops: list[dict[str, Any]]) -> bool:
         )
         st.push_log(
             phase="canvas_size",
-            intent=str(rt.classified_intent or st.intent or ""),
+            intent=str(rt.classified_intent or ""),
             summary=f"multi_artboard {n} (paint_ops)",
         )
         return False

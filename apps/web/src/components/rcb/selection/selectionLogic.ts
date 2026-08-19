@@ -1627,11 +1627,9 @@ export function buildShapeOutlines(opts: {
       isVideoGeneratorNode(node) ||
       isLottieGeneratorNode(node) ||
       isAudioGeneratorNode(node);
-    const edgeHandles: 'all' | 'horizontal' | 'none' = isGen
-      ? 'none'
-      : nodeKey === 'video'
-        ? 'horizontal'
-        : 'all';
+    let edgeHandles: 'all' | 'horizontal' | 'none' = 'all';
+    if (isGen) edgeHandles = 'none';
+    else if (nodeKey === 'video') edgeHandles = 'horizontal';
     const isMeasurePair =
       Boolean(measurePairId) && id === measurePairId && !opts.selectedNodeIds.includes(id);
     out.push({

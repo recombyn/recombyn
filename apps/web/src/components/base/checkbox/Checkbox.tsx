@@ -124,11 +124,9 @@ export const Checkbox = memo(forwardRef<HTMLSpanElement, CheckboxProps>(
     const groupName = groupContext?.name;
 
     const isControlled = controlledChecked !== undefined;
-    const actualChecked = isInGroup
-      ? value !== undefined && groupValue.includes(value)
-      : isControlled
-        ? controlledChecked
-        : uncontrolledChecked;
+    let actualChecked = uncontrolledChecked;
+    if (isInGroup) actualChecked = value !== undefined && groupValue.includes(value);
+    else if (isControlled) actualChecked = controlledChecked;
 
     const actualDisabled = disabled || groupDisabled || false;
 

@@ -26,10 +26,7 @@ def _edge_priority(edge: dict[str, Any]) -> int:
 
 
 def _edge_is_default(edge: dict[str, Any]) -> bool:
-    if "isDefault" in edge:
-        return bool(edge.get("isDefault"))
-    # Legacy: label/condition literally "default"
-    return _edge_condition(edge).lower() in {"default", "else", "*"}
+    return bool(edge.get("isDefault"))
 
 
 def eval_edge_condition(condition: str, ctx: dict[str, Any] | None) -> bool:
@@ -82,15 +79,13 @@ def choose_outgoing_edges(
     """Pick next edges and explain why (match / default / unconditional / none).
 
     Returns (edges, detail). detail keys: via, edge_id, condition, priority,
-    is_default, candidate_count. ``label`` kept as alias of condition code for
-    older hop logs — never the Chinese display name.
+    is_default, candidate_count.
     """
     outs = sorted(edges, key=lambda e: (_edge_priority(e), str(e.get("id") or "")))
     empty: dict[str, Any] = {
         "via": "none",
         "edge_id": None,
         "condition": None,
-        "label": None,
         "priority": None,
         "is_default": False,
         "candidate_count": len(outs),
@@ -106,7 +101,6 @@ def choose_outgoing_edges(
             "via": "parallel",
             "edge_id": str(first.get("id") or "") or None,
             "condition": cond,
-            "label": cond,
             "priority": _edge_priority(first),
             "is_default": _edge_is_default(first),
             "candidate_count": len(outs),
@@ -131,7 +125,6 @@ def choose_outgoing_edges(
             "via": via,
             "edge_id": str(edge.get("id") or "") or None,
             "condition": cond,
-            "label": cond,
             "priority": _edge_priority(edge),
             "is_default": _edge_is_default(edge),
             "candidate_count": len(outs),
@@ -266,7 +259,6 @@ def walk_agent_flow(
                 "branches": [
                     {
                         "edgeId": str(e.get("id") or ""),
-                        "label": _edge_condition(e),
                         "condition": _edge_condition(e),
                         "priority": _edge_priority(e),
                         "isDefault": _edge_is_default(e),

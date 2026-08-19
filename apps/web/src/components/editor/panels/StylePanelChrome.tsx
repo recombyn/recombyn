@@ -18,7 +18,7 @@ export const PANEL_ICON_TRACK = cn(SEGMENTED_TRACK, 'flex w-full gap-0.5');
 /** Equal-width slot wrapper (Tooltip trigger). */
 export const PANEL_ICON_SLOT = 'min-w-0 flex-1 basis-0';
 
-export const PANEL_ICON_SVG = 'h-3.5 w-3.5';
+export const PANEL_ICON_SVG = 'h-4 w-4';
 
 /** Shared size for style-panel icon toggles (stroke sides / align / cap / join). */
 export const PANEL_ICON_BTN = cn(

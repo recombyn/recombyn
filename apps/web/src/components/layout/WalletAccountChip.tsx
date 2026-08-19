@@ -25,7 +25,7 @@ function WalletAccountChip({ className }: Props) {
   const navigate = useNavigate();
   const [accountOpen, setAccountOpen] = useState(false);
 
-  const tip = `${user?.name || user?.email || ''} · ${t('wallet.tokensLeft', {
+  const tip = `${user?.name || user?.email || ''} · ${t('wallet.creditsLeft', {
     count: formatTokens(credits),
   })}`;
 

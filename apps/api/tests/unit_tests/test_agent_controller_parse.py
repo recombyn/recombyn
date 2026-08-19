@@ -79,24 +79,18 @@ def test_parse_choice_ui_actions():
     assert ui["mode"] == "buttons"
     assert ui["options"][0]["action"] == "apply"
     assert ui["options"][1]["action"] == "reply"
-    assert t["apply_choice"] == "就这样添加"
-
-
-def test_fallback_choices_map_apply_choice():
-    ui = _normalize_choice_ui(
-        None,
-        fallback_choices=["改颜色", "确认添加", "取消"],
-        fallback_apply="确认添加",
-    )
-    assert ui is not None
-    by_label = {o["label"]: o["action"] for o in ui["options"]}
-    assert by_label["确认添加"] == "apply"
-    assert by_label["改颜色"] == "reply"
+    assert ui["options"][0]["label"] == "就这样添加"
 
 
 def test_propose_adds_apply_slot_without_inventing_copy():
     st = AgentRunState(trace_id="t", task_id="k", goal="g")
-    st.choices = ["改颜色", "改大小"]
+    st.choice_ui = {
+        "mode": "buttons",
+        "options": [
+            {"label": "改颜色", "action": "reply"},
+            {"label": "改大小", "action": "reply"},
+        ],
+    }
     ui = _ensure_propose_choice_ui(st)
     assert any(o["action"] == "apply" for o in ui["options"])
     # Model labels preserved — not scrubbed by keywords.
@@ -108,8 +102,6 @@ def test_propose_adds_apply_slot_without_inventing_copy():
 def test_choice_ui_text_mode_without_options():
     ui = _normalize_choice_ui(
         {"mode": "text", "placeholder": "品牌、主色、文案…"},
-        fallback_choices=[],
-        fallback_apply="",
     )
     assert ui is not None
     assert ui["mode"] == "text"
@@ -132,18 +124,18 @@ def test_ask_propose_ignores_ops_detail_when_reply_empty():
 
 def test_lc_design_needs_canvas_ops_blocks_narrate_only():
     assert _lc_design_needs_canvas_ops(
-        classified="create", turn_intent="chat", has_ops=False
+        classified="design", turn_intent="chat", has_ops=False
     )
     assert _lc_design_needs_canvas_ops(
-        classified="edit", turn_intent="done", has_ops=False
+        classified="canvas_op", turn_intent="done", has_ops=False
     )
-    # Agent: bare ask without chips still paints when classified create.
+    # Agent: bare ask without chips still paints when classified design.
     assert _lc_design_needs_canvas_ops(
-        classified="create", turn_intent="ask", has_ops=False, has_clarify=False
+        classified="design", turn_intent="ask", has_ops=False, has_clarify=False
     )
     # Ask mode: intent=ask waits on user even without chips.
     assert not _lc_design_needs_canvas_ops(
-        classified="create",
+        classified="design",
         turn_intent="ask",
         has_ops=False,
         has_clarify=False,
@@ -151,21 +143,21 @@ def test_lc_design_needs_canvas_ops_blocks_narrate_only():
     )
     # Clarify chips settle only in Ask mode; Agent still paints.
     assert not _lc_design_needs_canvas_ops(
-        classified="create",
+        classified="design",
         turn_intent="ask",
         has_ops=False,
         has_clarify=True,
         ask_mode=True,
     )
     assert _lc_design_needs_canvas_ops(
-        classified="create",
+        classified="design",
         turn_intent="ask",
         has_ops=False,
         has_clarify=True,
         ask_mode=False,
     )
     assert not _lc_design_needs_canvas_ops(
-        classified="create", turn_intent="chat", has_ops=True
+        classified="design", turn_intent="chat", has_ops=True
     )
     assert not _lc_design_needs_canvas_ops(
         classified="chat", turn_intent="chat", has_ops=False
@@ -176,22 +168,22 @@ def test_should_route_to_paint():
     from app.services.design.runtime.graph.turns import _should_route_to_paint
 
     assert _should_route_to_paint(
-        classified="create", turn_intent="chat", has_clarify=False
+        classified="design", turn_intent="chat", has_clarify=False
     )
     assert not _should_route_to_paint(
-        classified="create",
+        classified="design",
         turn_intent="ask",
         has_clarify=True,
         ask_mode=True,
     )
     assert _should_route_to_paint(
-        classified="create",
+        classified="design",
         turn_intent="ask",
         has_clarify=True,
         ask_mode=False,
     )
     assert not _should_route_to_paint(
-        classified="create",
+        classified="design",
         turn_intent="ask",
         has_clarify=False,
         ask_mode=True,
@@ -374,7 +366,7 @@ def test_lean_paint_user_uses_digest_not_full_scene_dump():
         prompt="删除其他非绿色的元素",
         images=None,
         spatial_summary={},
-        design_brief="",
+        design_brief=None,
         pending_tool_details="TOOL_DETAILS:\n- delete_nodes",
         pending_skill_details="",
         pending_subagent_details="",

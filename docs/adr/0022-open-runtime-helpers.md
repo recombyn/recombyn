@@ -10,12 +10,13 @@ body shape. Empty remote stubs must not override BasicLocal (Kernel quality).
 
 ## Decision
 
-1. Ship `packages/runtime` (`recombyn_runtime`) with:
-   - `build_intelligence_request` (Runtime → HTTP JSON body)
-   - re-export of `remote_result_usable` from `recombyn_protocol` (empty /
-     status-less bodies → unusable). The canonical definition lives in
-     `packages/protocol` so Private can depend on one contract package.
-2. API `RemoteIntelligenceProvider` uses these helpers, then
+1. Ship `packages/runtime` (`recombyn_runtime`) with
+   `build_intelligence_request` (Runtime → HTTP JSON body).
+   Empty / status-less remote bodies are unusable via `remote_result_usable` in
+   `packages/protocol` (`recombyn_protocol`) — import that helper from protocol,
+   not from runtime.
+2. API `RemoteIntelligenceProvider` uses `build_intelligence_request` plus
+   protocol `remote_result_usable`, then
    `apply_intelligence_result` (API-local) writes usable payloads into Runtime
    slots so Decide/Settle see the same fields as BasicLocal.
 3. LangGraph / Scene apply remain in the API; this package stays thin.

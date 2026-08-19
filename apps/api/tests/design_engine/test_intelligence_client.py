@@ -85,7 +85,7 @@ def test_build_intelligence_request_shape():
 
 
 def test_remote_empty_dict_not_usable():
-    from recombyn_runtime import remote_result_usable
+    from recombyn_protocol.intelligence import remote_result_usable
 
     assert not remote_result_usable("research", {})
     assert not remote_result_usable("research", None)
@@ -180,7 +180,7 @@ def test_remote_provider_applies_usable_research(monkeypatch):
     assert result is not None
     assert rt.design_research is not None
     assert rt.design_research.get("category") == "ai_landing"
-    assert rt.flags.get("design_research", {}).get("provider") == "private-research"
+    assert rt.design_research.get("provider") == "private-research"
     assert "tool_ops" not in (rt.design_research or {})
 
 
@@ -242,5 +242,5 @@ def test_remote_applies_advanced_hooks(monkeypatch):
     asyncio.run(_run())
     assert "preference:premium_restraint" in (rt.flags.get("memory_notes") or [])
     assert (rt.judge_verdict or {}).get("score") == 90
-    assert (rt.flags.get("intelligence_optimize") or {}).get("actions")
+    assert (rt.optimization or {}).get("actions")
     assert rt.flags.get("knowledge_written") is True

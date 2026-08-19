@@ -27,7 +27,7 @@ Skills and canvas plugins are folders today. Distributors need a single uploadab
 ### Positive
 
 - One distributor artifact for Skills and Canvas.
-- Legacy plain skill ``.zip`` still works.
+- Skill ``.zip`` without ``plugin.json`` still installs via ``/design/skills/import``.
 - Disk install stays opt-in (self-host).
 
 ### Negative / trade-offs

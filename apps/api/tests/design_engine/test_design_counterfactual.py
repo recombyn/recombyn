@@ -110,7 +110,7 @@ def test_selected_hypothesis_becomes_repair_draft_not_ops():
     assert draft is not None
     assert draft["applied"] is False
     assert draft["actions"]
-    assert rt.flags["repair_plan_draft"]["applied"] is False
+    assert rt.design_counterfactual["repair_plan_draft"]["applied"] is False
     assert rt.apply_ops == []
     assert rt.scene_nodes == [{"id": "n1", "type": "rect"}]
 

@@ -143,9 +143,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
     st.intent = (
         paint_ops_intent(intent, paint_lane) if intent != "chat" else "chat"
     )
-    rt.flags["intent"] = intent
     rt.flags["gate_intent"] = intent
-    rt.flags["paint_lane"] = paint_lane
     plan = build_design_plan(
         prompt=rt.prompt,
         intent=intent,
@@ -155,10 +153,8 @@ async def _node_intent_classify(state: GraphState) -> Command:
     )
     if plan is not None:
         rt.design_plan = plan.model_dump()
-        rt.flags["design_plan"] = rt.design_plan
     else:
         rt.design_plan = None
-        rt.flags.pop("design_plan", None)
     if session_action:
         rt.flags["session_action"] = session_action
     st.push_log(
@@ -263,7 +259,6 @@ async def _node_intent_classify(state: GraphState) -> Command:
                 for option in clarification_options
             ],
         }
-        st.choices = [option["label"] for option in clarification_options]
         rt.flags["await_user"] = True
         _emit({"type": "token", "text": clarification})
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")

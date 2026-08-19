@@ -1228,8 +1228,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             e["priority"] = 100
             changed = True
         if "isDefault" not in e:
-            cond_s = code.lower()
-            e["isDefault"] = cond_s in {"default", "else", "*"}
+            e["isDefault"] = False
             changed = True
     for n in nodes:
         if str(n.get("kind") or "").lower() != "join":
@@ -1522,7 +1521,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             if str(e.get("target") or "") != "model_route":
                 continue
             cond = str(e.get("condition") or "").strip()
-            if cond and cond not in {"", "default", "else", "*"}:
+            if cond:
                 continue
             e["target"] = "thought"
             changed = True
@@ -1684,7 +1683,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                         e["isDefault"] = False
                         changed = True
                     else:
-                        # 无条件的遗留 observe→end：改走校验门禁
+                        # Empty observe→end skips the structure gate; send it through verify.
                         e["target"] = "verify"
                         e["condition"] = "scene_ready"
                         e["priority"] = 5

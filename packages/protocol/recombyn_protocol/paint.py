@@ -59,8 +59,6 @@ class AgentTurnSchema(BaseModel):
     need_tools: list[Any] = Field(default_factory=list)
     need_skills: list[Any] = Field(default_factory=list)
     need_subagents: list[Any] = Field(default_factory=list)
-    choices: list[Any] = Field(default_factory=list)
-    apply_choice: str = ""
     choice_ui: Any = None
     done: bool | None = None
 
@@ -76,7 +74,6 @@ class DecideTurnSchema(BaseModel):
     need_tools: list[Any] = Field(default_factory=list)
     need_skills: list[Any] = Field(default_factory=list)
     need_subagents: list[Any] = Field(default_factory=list)
-    choices: list[Any] = Field(default_factory=list)
     choice_ui: Any = None
     design_brief: Any = None
     done: bool | None = None

@@ -76,7 +76,7 @@ def test_landing_attention_matches_spec_shape():
 def test_cta_gate_pushes_brief_adjustment():
     rt = _rt(prompt="landing page")
     rt.design_strategy = {"composition_strategy": "hero + sections"}
-    rt.flags["design_brief"] = {"visual_thesis": "product", "avoid": []}
+    rt.design_brief = {"visual_thesis": "product", "avoid": []}
     result = run_design_simulation_pipeline(
         prompt=rt.prompt,
         strategy=rt.design_strategy,
@@ -86,8 +86,8 @@ def test_cta_gate_pushes_brief_adjustment():
     assert rt.design_simulation is not None
     assert rt.apply_ops == []
     assert rt.scene_nodes == []
-    assert rt.flags["design_brief"]["simulation_adjustments"]
-    assert "CTA attention below 10%" in rt.flags["design_brief"]["avoid"]
+    assert rt.design_brief["simulation_adjustments"]
+    assert "CTA attention below 10%" in rt.design_brief["avoid"]
     block = format_simulation_for_decide(rt.design_simulation)
     assert "Predicted Attention" in block
     assert "WARNING:" in block

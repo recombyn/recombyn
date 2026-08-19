@@ -208,8 +208,8 @@ async def _node_paint_ops(state: GraphState) -> Command:
             scene_key=str(rt.scene_key or ""),
             scene_nodes=list(rt.scene_nodes or []),
             scene_frames=list(rt.scene_frames or []),
-            design_brief=rt.flags.get("design_brief")
-            if isinstance(rt.flags.get("design_brief"), dict)
+            design_brief=rt.design_brief
+            if isinstance(rt.design_brief, dict)
             else None,
         )
     except Exception as exc:

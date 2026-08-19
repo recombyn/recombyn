@@ -376,7 +376,7 @@ async def _node_propose(state: GraphState) -> Command:
     except Exception:
         pass
     ui = _ensure_propose_choice_ui(st)
-    apply_label = st.apply_choice or next(
+    apply_label = next(
         (
             str(o.get("label") or "")
             for o in (ui.get("options") or [])
@@ -406,8 +406,6 @@ async def _node_propose(state: GraphState) -> Command:
         intent=st.intent,
         reply=(st.reply or "")[:2000] or None,
         summary=('propose confirm: ' + (apply_label or f"{len(step_ops)} ops"))[:120],
-        **({"choices": list(st.choices)[:6]} if st.choices else {}),
-        **({"apply_choice": st.apply_choice} if st.apply_choice else {}),
         **({"choice_ui": st.choice_ui} if st.choice_ui else {}),
     )
     if text:

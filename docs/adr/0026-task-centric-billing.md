@@ -42,10 +42,13 @@ table below is the **open floor**, not a host list price.
 | `image` | 2 | — | 2 |
 | `chat` | 1 | — | 1 |
 
-Lifecycle aliases (Stripe-shaped):
+Lifecycle (`BILLING_LIFECYCLE_STAGES`):
 
 ```text
-estimate → authorize (=reserve) → execute → capture (=charge) + release | refund
+estimate → authorize → execute → settle
+                                 ├── capture
+                                 ├── release
+                                 └── refund
 ```
 
 `CostBreakdownSchema` may include agent/research/eval/gpu/concurrency micros

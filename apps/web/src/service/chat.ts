@@ -24,13 +24,11 @@ export type ImageLimits = {
 /** Catalog price provenance. */
 export type ImagePriceMeta = {
   source?: string;
-  billing?: string;
   unit?: string;
   usd_per_output_token?: number;
   fx_usd_cny?: number;
   base_resolution?: string;
   price_by_resolution_cny?: Record<string, number | string>;
-  price_by_resolution?: Record<string, number | string>;
   output_image?: number;
   output_image_high?: number;
   high_pixels_threshold?: number;

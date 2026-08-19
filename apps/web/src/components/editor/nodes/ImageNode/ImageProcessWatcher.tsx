@@ -78,7 +78,7 @@ async function refreshWallet() {
 function processFailMessage(err: unknown): string {
   const status = getHttpStatus(err);
   const msg = getHttpErrorMessage(err, '');
-  if (status === 402 || msg === 'Insufficient credits' || msg === 'Insufficient tokens')
+  if (status === 402 || msg === 'Insufficient credits')
     return 'Token 不足，请充值后再试';
   if (status === 401) return '请先登录后再使用 AI 工具';
   if (/timeout/i.test(msg) || (err as { code?: string })?.code === 'ECONNABORTED')

@@ -160,7 +160,7 @@ def test_fail_explain_repair_draft_not_ops():
     assert result["repair_plan"] is not None
     assert result["repair_plan"]["applied"] is False
     apply_governance_to_runtime(rt, result)
-    assert rt.flags.get("governance_fail") is True
+    assert str((rt.design_governance or {}).get("status") or "") == "fail"
     assert rt.apply_ops == []
     assert rt.scene_nodes == []
     block = format_governance_for_settle(result)
@@ -191,7 +191,7 @@ def test_skip_governance_on_empty_intent():
 def test_skip_governance_on_create_edit_intents():
     rt = _rt()
     rt.classified_intent = "edit"
-    rt.flags = {"intent": "create"}
+    rt.flags = {}
     rt.apply_ops = [{"name": "create_shape", "args": {"shapeType": "rect"}}]
     assert should_skip_design_governance(rt) is True
 
@@ -199,7 +199,6 @@ def test_skip_governance_on_create_edit_intents():
 def test_skip_governance_on_canvas_op_even_if_painted():
     rt = _rt()
     rt.classified_intent = "canvas_op"
-    rt.flags["intent"] = "canvas_op"
     rt.flags["gate_intent"] = "canvas_op"
     rt.run.intent = "create"
     rt.run.painted = True
@@ -215,7 +214,7 @@ def test_keep_governance_on_design():
     painted_design = _rt()
     painted_design.classified_intent = "design"
     painted_design.flags["gate_intent"] = "design"
-    painted_design.flags["design_brief"] = {"palette": {"dominant": ["#111111"]}}
+    painted_design.design_brief = {"palette": {"dominant": ["#111111"]}}
     painted_design.run.intent = "create"
     painted_design.run.painted = True
     assert should_skip_design_governance(painted_design) is False
@@ -235,7 +234,7 @@ def test_skip_governance_on_design_tool_op_without_brief():
 def test_keep_governance_when_gate_intent_frozen_after_edit_rewrite():
     rt = _rt()
     rt.flags["gate_intent"] = "design"
-    rt.flags["design_brief"] = {"visual_focus": "hero"}
+    rt.design_brief = {"visual_focus": "hero"}
     rt.classified_intent = "edit"
     rt.run.painted = True
     assert should_skip_design_governance(rt) is False
