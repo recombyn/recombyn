@@ -177,6 +177,10 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias="RECOMBYN_INTELLIGENCE_TIMEOUT_SEC",
     )
+    intelligence_circuit_sec: float = Field(
+        default=30.0,
+        validation_alias="RECOMBYN_INTELLIGENCE_CIRCUIT_SEC",
+    )
 
     expand_table_cells: bool = True
     sam_checkpoint: str | None = None
