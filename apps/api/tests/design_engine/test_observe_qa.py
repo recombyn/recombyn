@@ -52,7 +52,7 @@ def test_poster_base_reports_metrics_without_fail():
     assert "edge crowding = false" in lines
 
 
-def test_typography_hierarchy_insufficient_is_fact_not_retry():
+def test_typography_hierarchy_insufficient_is_structure_retry():
     facts = compute_observe_facts(
         nodes=[
             {
@@ -88,7 +88,7 @@ def test_typography_hierarchy_insufficient_is_fact_not_retry():
     assert facts.typography_hierarchy_ok is False
     assert any("Typography hierarchy insufficient" in i for i in facts.issues)
     retry = _observe_retry_issues(facts)
-    assert not any("Typography" in i for i in retry)
+    assert any("Typography" in i for i in retry)
 
 
 def test_whitespace_below_skill_is_fail_not_retry():
@@ -153,7 +153,7 @@ def test_overflow_is_structure_retry():
     assert any(i.startswith("overflow") for i in retry)
 
 
-def test_overlap_and_edge_crowding_are_facts():
+def test_overlap_is_structure_retry_edge_crowding_is_fact():
     facts = compute_observe_facts(
         nodes=[
             {
@@ -182,7 +182,7 @@ def test_overlap_and_edge_crowding_are_facts():
     assert facts.overlap is True
     assert facts.edge_crowding is True
     retry = _observe_retry_issues(facts)
-    assert not any("overlap" in i.lower() for i in retry)
+    assert any("overlap" in i.lower() for i in retry)
     assert not any("edge crowding" in i.lower() for i in retry)
 
 
