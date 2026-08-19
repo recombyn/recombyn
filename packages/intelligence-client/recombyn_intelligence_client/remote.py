@@ -13,7 +13,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
-from recombyn_runtime import build_intelligence_request, remote_result_usable
+from recombyn_protocol.intelligence import remote_result_usable
+from recombyn_runtime import build_intelligence_request
 
 _log = logging.getLogger("recombyn_intelligence_client.remote")
 

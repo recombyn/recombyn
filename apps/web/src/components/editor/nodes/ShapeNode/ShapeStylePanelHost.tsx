@@ -44,6 +44,8 @@ import {
   inflateBoxByTextSelectionPad,
   geometryPatchForStrokeVisibilityToggle,
   geometryPatchForStrokeOutsetChange,
+  type StrokeLinecap,
+  type StrokeLinejoin,
 } from '@/components/rcb/scene/document/sceneEffects';
 import {
   supportsFill,
@@ -60,6 +62,12 @@ import {
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
+
+function parseClosedFlag(closedAttr: unknown): boolean | null {
+  if (closedAttr === true || closedAttr === 'true') return true;
+  if (closedAttr === false || closedAttr === 'false') return false;
+  return null;
+}
 
 function resolvePanelGradient(
   fillGradient: unknown,
@@ -234,22 +242,18 @@ function readStrokeValue(attrs: Record<string, unknown> | undefined): StrokePane
   const roundCaps = shapeType === 'pencil';
   const hasCapAttr = a.strokeLinecap != null;
   const hasJoinAttr = a.strokeLinejoin != null;
+  let linecap: StrokeLinecap = roundCaps ? 'round' : 'butt';
+  if (hasCapAttr) linecap = resolveStrokeLinecap(a);
+  let linejoin: StrokeLinejoin = roundCaps ? 'round' : 'miter';
+  if (hasJoinAttr) linejoin = resolveStrokeLinejoin(a);
   return {
     color: String(a['border-color'] || '#333333'),
     opacity: Math.max(0, Math.min(100, Number(a['stroke-opacity'] ?? 100))),
     width: Number.isFinite(widthNum) ? widthNum : 1,
     style,
     align: resolveStrokeAlign(a),
-    linecap: hasCapAttr
-      ? resolveStrokeLinecap(a)
-      : roundCaps
-        ? 'round'
-        : 'butt',
-    linejoin: hasJoinAttr
-      ? resolveStrokeLinejoin(a)
-      : roundCaps
-        ? 'round'
-        : 'miter',
+    linecap,
+    linejoin,
     sides: readStrokeSides(a),
   };
 }
@@ -394,12 +398,7 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
         boolEffectAttr(a['stroke-enabled'], true) && boolEffectAttr(a['stroke-visible'], true);
       const t = String(a.shapeType || node.key || '');
       const closedAttr = a.closed;
-      const closedExplicit =
-        closedAttr === true || closedAttr === 'true'
-          ? true
-          : closedAttr === false || closedAttr === 'false'
-            ? false
-            : null;
+      const closedExplicit = parseClosedFlag(closedAttr);
       const closed =
         closedExplicit ??
         (typeof a.path === 'string' && /z\s*$/i.test(String(a.path).trim()));
@@ -526,12 +525,7 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
 
   const shapeType = String(firstAttrs?.shapeType || firstNode?.key || 'rect');
   const closedAttr = firstAttrs?.closed;
-  const pathClosedExplicit =
-    closedAttr === true || closedAttr === 'true'
-      ? true
-      : closedAttr === false || closedAttr === 'false'
-        ? false
-        : null;
+  const pathClosedExplicit = parseClosedFlag(closedAttr);
   const pathClosed =
     pathClosedExplicit ??
     (typeof firstAttrs?.path === 'string' && /z\s*$/i.test(String(firstAttrs.path).trim()));

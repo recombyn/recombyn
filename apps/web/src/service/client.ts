@@ -129,15 +129,25 @@ async function clearSessionOnAuthDead(res: Response): Promise<void> {
 }
 
 function isAbortError(error: unknown): boolean {
-  if (error == null || typeof error !== 'object') return false;
-  const e = error as { name?: string; code?: number; message?: string };
-  if (e.name === 'AbortError') return true;
-  // DOMException / fetch abort variants
-  if (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError') {
-    return true;
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current != null; depth += 1) {
+    if (typeof current !== 'object') return false;
+    if (
+      typeof DOMException !== 'undefined' &&
+      current instanceof DOMException &&
+      current.name === 'AbortError'
+    ) {
+      return true;
+    }
+    const e = current as { name?: string; message?: string; cause?: unknown };
+    if (e.name === 'AbortError') return true;
+    const msg = String(e.message || '');
+    if (/aborted|AbortError|signal is aborted|The user aborted a request/i.test(msg)) {
+      return true;
+    }
+    current = e.cause;
   }
-  const msg = String(e.message || '');
-  return /aborted|AbortError|signal is aborted/i.test(msg);
+  return false;
 }
 
 const link = new OpenAPILink(apiRouterContract, {

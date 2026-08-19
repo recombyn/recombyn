@@ -301,31 +301,22 @@ def run_design_tournament_pipeline(
 
 def should_run_design_tournament(rt: AgentRuntime) -> bool:
     intent = str(
-        getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+        getattr(rt, "classified_intent", "") or ""
     ).strip().lower()
     if intent in ("chat", "ask"):
         return False
     bundle = getattr(rt, "design_candidates", None)
-    if isinstance(bundle, dict) and list(bundle.get("candidates") or []):
-        return True
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
-    flagged = flags.get("design_candidates")
-    return isinstance(flagged, dict) and bool(list(flagged.get("candidates") or []))
+    return isinstance(bundle, dict) and bool(list(bundle.get("candidates") or []))
 
 
 def apply_tournament_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> None:
     """Stash tournament; promote Winner as selected candidate (still no paint ops)."""
     clean = parse_design_tournament(result)
     rt.design_tournament = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_tournament"] = clean
     winner = str(clean.get("winner_id") or "").strip()
     if not winner:
         return
     bundle = getattr(rt, "design_candidates", None)
-    if not isinstance(bundle, dict):
-        flags = rt.flags if isinstance(rt.flags, dict) else {}
-        bundle = flags.get("design_candidates")
     if not isinstance(bundle, dict):
         return
     updated = parse_design_candidate_set(bundle)
@@ -378,13 +369,7 @@ async def run_design_tournament(rt: AgentRuntime) -> dict[str, Any] | None:
     )
     try:
         bundle = getattr(rt, "design_candidates", None)
-        if not isinstance(bundle, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            bundle = flags.get("design_candidates")
         research = getattr(rt, "design_research", None)
-        if not isinstance(research, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            research = flags.get("design_research")
         flags = rt.flags if isinstance(rt.flags, dict) else {}
         user_pick = str(flags.get("user_pick") or "").strip()
         result = run_design_tournament_pipeline(

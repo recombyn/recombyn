@@ -78,7 +78,7 @@ def test_chunk_ops_splits_and_keeps_small():
     assert apply_mod._chunk_ops(ops[:5], chunk_size=12) == [ops[:5]]
 
 
-def test_emit_design_transaction_begin_chunk_tool_ops_commit(monkeypatch):
+def test_emit_design_transaction_begin_chunk_commit(monkeypatch):
     emitted: list[dict] = []
     monkeypatch.setattr(apply_mod, "_emit", lambda ev: emitted.append(ev))
     monkeypatch.setattr(apply_mod, "_tool_ops_activity_events", lambda **_k: [])
@@ -97,13 +97,11 @@ def test_emit_design_transaction_begin_chunk_tool_ops_commit(monkeypatch):
     types = [e.get("type") for e in emitted]
     assert types[0] == "transaction.begin"
     assert "transaction.chunk" in types
-    assert "tool_ops" in types
     assert types[-1] == "transaction.commit"
     assert emitted[-1].get("await_ack") is True
     assert types.count("transaction.chunk") == 2
-    assert types.count("tool_ops") == 2
     for ev in emitted:
-        if ev.get("type") == "tool_ops":
+        if ev.get("type") == "transaction.chunk":
             assert ev.get("transaction_id") == tid
             assert "ops" in ev
 

@@ -7,7 +7,7 @@ import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import UserAccountPanel, { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
-import { formatTokens } from '@/utils/wallet';
+import { formatCredits } from '@/utils/wallet';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
@@ -25,8 +25,8 @@ function WalletAccountChip({ className }: Props) {
   const navigate = useNavigate();
   const [accountOpen, setAccountOpen] = useState(false);
 
-  const tip = `${user?.name || user?.email || ''} · ${t('wallet.tokensLeft', {
-    count: formatTokens(credits),
+  const tip = `${user?.name || user?.email || ''} · ${t('wallet.creditsLeft', {
+    count: formatCredits(credits),
   })}`;
 
 
@@ -62,7 +62,7 @@ function WalletAccountChip({ className }: Props) {
             <span className="inline-flex min-w-0 items-center gap-1 text-[var(--ink)]">
               <HiOutlineBolt className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" aria-hidden />
               <span className="min-w-0 truncate text-[12px] font-semibold tabular-nums tracking-tight">
-                {formatTokens(credits)}
+                {formatCredits(credits)}
               </span>
             </span>
           ) : null}

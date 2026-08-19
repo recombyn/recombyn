@@ -118,11 +118,12 @@ export function buildPlazaStyleSkillChip(
   const shortTitle =
     title.length > 12 ? `${title.slice(0, 11)}…` : title;
   const label = shortTitle ? `${labelBase} · ${shortTitle}` : String(labelBase);
-  const panelLines = panels.length
-    ? ['styleImageUrls:', ...panels.map((u, i) => `  ${i + 1}. ${u}`)].join('\n')
-    : thumb
-      ? `styleImageUrl: ${thumb}`
-      : '';
+  let panelLines = '';
+  if (panels.length) {
+    panelLines = ['styleImageUrls:', ...panels.map((u, i) => `  ${i + 1}. ${u}`)].join('\n');
+  } else if (thumb) {
+    panelLines = `styleImageUrl: ${thumb}`;
+  }
   return {
     key: `plaza:${meta.id}`,
     label,

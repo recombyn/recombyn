@@ -35,7 +35,6 @@ const GEMINI_OUTPUT_TOKENS: Record<string, number> = {
 
 export type ImagePriceMeta = {
   source?: string;
-  billing?: string;
   unit?: string;
   usd?: number;
   usd_per_output_token?: number;
@@ -43,7 +42,6 @@ export type ImagePriceMeta = {
   base_resolution?: string;
   token_by_resolution?: Record<string, number>;
   price_by_resolution_cny?: Record<string, number | string>;
-  price_by_resolution?: Record<string, number | string>;
   output_image?: number;
   output_image_high?: number;
   high_pixels_threshold?: number;
@@ -72,8 +70,8 @@ function providerKind(model?: LlmModel | null, meta?: ImagePriceMeta | null): 'a
   const prov = String(model?.provider || '').toLowerCase();
   if (prov === 'openrouter') return 'openrouter';
   if (prov === 'doubao' || prov === 'ark' || prov === 'volcengine') return 'ark';
-  const billing = String(meta?.billing || meta?.unit || '').toLowerCase();
-  if (billing.includes('token')) return 'openrouter';
+  const unit = String(meta?.unit || '').toLowerCase();
+  if (unit.includes('token')) return 'openrouter';
   return 'other';
 }
 
@@ -112,18 +110,18 @@ export function resolveOpenRouterImageUnitCny(
 ): number | null {
   const meta = metaOf(model);
   const res = normalizeResolution(resolution || meta?.base_resolution || '2K');
-  const byRes = meta?.price_by_resolution_cny || meta?.price_by_resolution;
+  const byRes = meta?.price_by_resolution_cny;
   if (byRes && byRes[res] != null) {
     const hit = parsePriceAmount(byRes[res]);
     if (hit != null) return hit;
   }
 
-  const billing = String(meta?.billing || meta?.unit || '').toLowerCase();
+  const unit = String(meta?.unit || '').toLowerCase();
   const usdTok = Number(meta?.usd_per_output_token);
   if (
     Number.isFinite(usdTok) &&
     usdTok > 0 &&
-    (billing.includes('token') || billing === 'output_image_token')
+    unit.includes('token')
   ) {
     const fx = Number(meta?.fx_usd_cny) > 0 ? Number(meta?.fx_usd_cny) : DEFAULT_FX;
     return openrouterOutputTokens(res, meta?.token_by_resolution) * usdTok * fx;
@@ -140,8 +138,8 @@ export function resolveImageUnitCny(
   const kind = providerKind(model, meta);
   if (kind === 'openrouter') return resolveOpenRouterImageUnitCny(model, resolution);
   if (kind === 'ark') return resolveArkImageUnitCny(model, resolution);
-  const billing = String(meta?.billing || meta?.unit || '').toLowerCase();
-  if (billing.includes('token')) return resolveOpenRouterImageUnitCny(model, resolution);
+  const unit = String(meta?.unit || '').toLowerCase();
+  if (unit.includes('token')) return resolveOpenRouterImageUnitCny(model, resolution);
   return resolveArkImageUnitCny(model, resolution);
 }
 

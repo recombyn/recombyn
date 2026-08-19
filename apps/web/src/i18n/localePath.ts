@@ -117,15 +117,16 @@ export function writeStoredI18nLang(lang: string): void {
   }
 }
 
+function navigatorLanguages(): readonly string[] {
+  if (typeof navigator === 'undefined') return [];
+  if (navigator.languages?.length) return navigator.languages;
+  if (navigator.language) return [navigator.language];
+  return [];
+}
+
 /** Map browser `navigator.language(s)` → supported i18n code. */
 export function detectNavigatorI18nLang(
-  languages: readonly string[] | undefined = typeof navigator !== 'undefined'
-    ? navigator.languages?.length
-      ? navigator.languages
-      : navigator.language
-        ? [navigator.language]
-        : []
-    : []
+  languages: readonly string[] | undefined = navigatorLanguages()
 ): string {
   for (const raw of languages || []) {
     const s = String(raw || '').trim();

@@ -1069,15 +1069,3 @@ function AgentModelsPanel({
 }
 
 export default memo(AgentModelsPanel);
-
-// Re-exports for older import paths.
-export {
-  loadAgentRoutePrefs,
-  saveAgentRoutePrefs,
-  routeOverridesForApi,
-  warmOpenrouterAvailability,
-  warmAgentRoutePresetRules,
-  type AgentRoutePreset,
-  type AgentRoutePrefs,
-} from '../agentRoutePrefs';
-export { AgentRoutePrefsEditor, type SharedRouteCatalog } from './AgentRoutePrefsEditor';

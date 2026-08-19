@@ -86,14 +86,16 @@ Token meter 仍可记用量；用户 SKU 是任务积分。
 ## 生命周期
 
 ```text
-estimate → authorize (=reserve) → execute → capture (=charge) + release | refund
+estimate → authorize → execute → settle
+                                 ├── capture
+                                 ├── release
+                                 └── refund
 ```
 
 1. **estimate** — 按 TaskPricing / meter 估分  
 2. **authorize** — 预扣（不够则拒）  
 3. **execute** — 跑任务  
-4. **capture** — 实扣；优先宿主 quote 的 `credits_to_charge`，否则走地板 / BYOK 策略  
-5. **release / refund** — 失败或多余预扣退回  
+4. **settle** — **capture** 实扣（优先宿主 quote 的 `credits_to_charge`，否则走地板 / BYOK 策略）；多余预扣 **release**；事后 **refund**  
 
 账本真值用整数 **micros**；Credits 用 `int`。结算行要带 `pricing_version_id`，历史不改写。
 

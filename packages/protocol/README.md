@@ -4,8 +4,8 @@ Stable **open** contracts for Design Runtime and `intelligence-client`.
 
 **Current pin:** `0.1.3` (prefer `>=0.1.3` for task-centric billing schemas).
 
-- Intelligence method names / aliases / request field keys
-- `remote_result_usable` / `normalize_intelligence_method` / `intelligence_wire_methods`
+- Intelligence method names / request field keys
+- `remote_result_usable` / `intelligence_wire_methods`
 - Design Brief (P0/P1)
 - Reference / Research / Strategy / Candidates / Tournament / Swarm /
   Simulation / Counterfactual / Governance / Autonomous
@@ -30,7 +30,7 @@ Bump `packages/protocol/pyproject.toml` `version` on contract changes.
 
 | Change | Bump |
 |--------|------|
-| New optional field / method alias | patch (`0.1.x`) |
+| New optional field | patch (`0.1.x`) |
 | New required method or request key | minor (`0.x.0`) |
 | Breaking rename / remove | major (`x.0.0`) |
 

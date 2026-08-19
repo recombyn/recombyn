@@ -8,7 +8,7 @@ import { Button, message, ProgressBar } from '@/components/base';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { setUser, type AuthUser } from '@/store/modules/auth';
 import { useBillingEnabled } from '@/service/wallet';
-import { formatTokens } from '@/utils/wallet';
+import { formatCredits } from '@/utils/wallet';
 import { docsUrl } from '@/utils/docsUrl';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
@@ -296,7 +296,7 @@ function AccountProfileTab({
                 {t('wallet.credits')}
               </span>
               <span className="text-[12px] tabular-nums text-[var(--muted)]">
-                {t('wallet.creditsRemaining', { count: formatTokens(credits) })}
+                {t('wallet.creditsRemaining', { count: formatCredits(credits) })}
               </span>
             </div>
             <ProgressBar
@@ -304,9 +304,9 @@ function AccountProfileTab({
               active
               height={8}
               aria-label={t('wallet.creditsBarAria', {
-                used: formatTokens(planUsed),
-                remain: formatTokens(planRemaining),
-                total: formatTokens(creditCap),
+                used: formatCredits(planUsed),
+                remain: formatCredits(planRemaining),
+                total: formatCredits(creditCap),
               })}
             />
           </button>

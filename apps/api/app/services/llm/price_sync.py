@@ -213,7 +213,6 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
                 price_meta = {
                     "source": "openrouter",
                     "currency": "CNY",
-                    "billing": "output_image_token",
                     "unit": "output_image_token",
                     "usd_per_output_token": usd_tok,
                     "base_resolution": DEFAULT_IMAGE_RESOLUTION,
@@ -235,7 +234,6 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
                 price_meta = {
                     "source": "openrouter",
                     "currency": "CNY",
-                    "billing": "per_image",
                     "unit": "image",
                     "usd": usd_raw,
                     "fx_usd_cny": _USD_CNY,
@@ -319,7 +317,6 @@ def sync_openrouter_catalog_prices(*, only_empty: bool = False) -> dict[str, Any
                 "price": item.get("price"),
                 "unit": unit,
                 "usd": usd_raw,
-                "billing": price_meta.get("billing") or unit,
             }
         )
 

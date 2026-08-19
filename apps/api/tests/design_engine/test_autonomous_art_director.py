@@ -102,7 +102,7 @@ def test_sync_marks_intelligence_hops_done_never_paints():
     rt.design_strategy = {"positioning": "premium technical"}
     rt.design_candidates = {"candidates": [{"id": "A"}]}
     rt.design_tournament = {"winner_id": "A"}
-    rt.design_brief = "premium tech landing"
+    rt.design_brief = {"visual_thesis": "premium tech landing"}
     synced = sync_autonomous_hops(plan, rt=rt)
     by_id = {h["id"]: h for h in synced["hops"]}
     assert by_id["research"]["status"] == "done"

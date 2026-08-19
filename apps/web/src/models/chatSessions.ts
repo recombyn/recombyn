@@ -39,8 +39,6 @@ export type ChatSessionMessageDto = {
     args?: Record<string, unknown>;
     op_id?: string;
   }> | null;
-  choices?: string[] | null;
-  applyChoice?: string | null;
   choiceUi?: {
     mode: 'confirm' | 'single' | 'multi' | 'buttons' | 'text';
     placeholder?: string;

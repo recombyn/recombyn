@@ -192,7 +192,7 @@ class UserBalance(SQLModel, table=True):
     __tablename__ = "user_balances"
 
     user_id: str = Field(primary_key=True, max_length=64)
-    tokens: int = Field(default=0)
+    credits: int = Field(default=0)
     plan_id: str = Field(default="free", max_length=16)
     plan_expires_at: Optional[float] = Field(default=None)
     updated_at: float = Field(default=0.0)
@@ -294,7 +294,7 @@ class CardKey(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     key_hash: str = Field(index=True, unique=True, max_length=128)
-    tokens: int = 0
+    credits: int = 0
     kind: str = Field(default="credit", max_length=16)
     plan_id: Optional[str] = Field(default=None, max_length=16)
     status: str = Field(default="unused", max_length=16)

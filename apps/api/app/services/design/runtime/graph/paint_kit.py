@@ -20,6 +20,7 @@ from app.services.design.runtime.models_route import normalize_user_intent
 from app.services.design.runtime.graph.state import (
     _DEFAULT_PAINT_CREATE_TOOLS,
     _DEFAULT_PAINT_EDIT_TOOLS,
+    format_design_brief_for_paint,
 )
 
 _log = logging.getLogger(__name__)
@@ -288,7 +289,7 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
     from app.services.design.runtime.graph.turns import _resolve_paint_want
     st = rt.run
     classified = normalize_user_intent(
-        getattr(rt, "classified_intent", None) or st.intent or ""
+        getattr(rt, "classified_intent", None) or ""
     )
     want = _resolve_paint_want(rt)
     has_images = bool(getattr(rt, "images", None))
@@ -393,7 +394,7 @@ def _paint_ops_system(rt: Any) -> str:
         ask_mode=ask_mode,
         persona=str(getattr(rt, "persona", "") or ""),
         catalog_blocks=[fonts_block] if fonts_block else None,
-        locale=str((getattr(rt, "flags", None) or {}).get("locale") or "") or None,
+        locale=str((getattr(rt, "flags", None) or {}).get("output_locale") or "") or None,
     )
 
 
@@ -408,7 +409,7 @@ def _paint_ops_user(rt: Any) -> str:
     focus_frame = _focus_frame_from_rt(rt)
     spatial_hint = _format_spatial_placement(spatial, focus_frame=focus_frame)
     lean = _is_lean_paint_turn(rt)
-    raw_plan = (getattr(rt, "flags", None) or {}).get("design_plan")
+    raw_plan = getattr(rt, "design_plan", None)
     plan = raw_plan if isinstance(raw_plan, dict) else {}
     plan_block = ""
     if plan:
@@ -442,7 +443,7 @@ def _paint_ops_user(rt: Any) -> str:
         plan_block,
         pending,
     ]
-    brief = str(getattr(rt, "design_brief", "") or "").strip()
+    brief = format_design_brief_for_paint(getattr(rt, "design_brief", None))
     if brief and not lean:
         parts.append(
             "DESIGN_BRIEF (authoritative — execute this; genPrompt must match):\n"

@@ -30,7 +30,6 @@ from app.services.design.runtime.graph.state import (
     judge_overall_from_scores,
     optimization_controller_decide,
     pareto_explain,
-    parse_design_brief,
     sum_review_scores,
 )
 from app.services.design.runtime.graph.emit_sse import _emit
@@ -1448,15 +1447,6 @@ def run_optimization_controller(rt: AgentRuntime, verdict: dict[str, Any]) -> di
     if pareto:
         decision["pareto"] = pareto
     rt.optimization = decision
-    flags["optimization"] = {
-        "decision": decision.get("decision"),
-        "reason": decision.get("reason"),
-        "strategy": decision.get("strategy"),
-        "iteration": decision.get("iteration"),
-        "restore_index": decision.get("restore_index"),
-        "pareto": pareto,
-        "pareto_note": note or None,
-    }
     _emit(
         {
             "type": "optimization",
@@ -1526,11 +1516,8 @@ def _try_restore_snapshot_command(
     rt.step_ops = step_ops
     rt.paint_ops = step_ops
     rt.flags["op_failed"] = False
-    rt.flags["critique_failed"] = False
     rt.flags["review_failed"] = False
     rt.flags["review_action"] = "pass"
-    rt.flags["rebuild"] = False
-    rt.flags["repair"] = False
     rt.flags["retry"] = False
     rt.flags["ok"] = True
     rt.flags["optimization_halt"] = True
@@ -1588,9 +1575,8 @@ def _build_review_user_msg(
     lane: str | None = None,
     seed: dict[str, Any] | None = None,
 ) -> str:
-    brief_raw = getattr(rt, "design_brief", "") or ""
-    brief_obj = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
-    brief = format_design_brief_for_prompt(brief_obj) if brief_obj else str(brief_raw).strip()
+    brief_obj = rt.design_brief if isinstance(rt.design_brief, dict) else None
+    brief = format_design_brief_for_prompt(brief_obj) if brief_obj else ""
     parts = [
         f"USER_GOAL:\n{str(rt.prompt or rt.run.goal or '').strip()[:2000]}",
     ]
@@ -1757,8 +1743,8 @@ async def run_review_lanes(
         rt.run.vision_used = True
         rt.last_images = list(images)[:2]
 
-    brief_obj = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
-    brief = brief_obj if isinstance(brief_obj, dict) else parse_design_brief(brief_obj)
+    brief_obj = rt.design_brief if isinstance(rt.design_brief, dict) else None
+    brief = brief_obj if isinstance(brief_obj, dict) else None
     facts = rt.observe_facts if isinstance(rt.observe_facts, dict) else {}
     scene_text = _scene_digest(rt)
     seeds = {
@@ -1774,7 +1760,7 @@ async def run_review_lanes(
         ask_mode=ask_mode,
         persona=str(rt.persona or ""),
         catalog_blocks=None,
-        locale=str((rt.flags or {}).get("locale") or "") or None,
+        locale=str((rt.flags or {}).get("output_locale") or "") or None,
     )
 
     async def _one(lid: str) -> dict[str, Any]:
@@ -1959,12 +1945,9 @@ def _try_repair_plan_command(
     rt.step_ops = step_ops
     rt.paint_ops = step_ops
     rt.flags["op_failed"] = False
-    rt.flags["critique_failed"] = True
     rt.flags["review_failed"] = True
     rt.flags["review_action"] = "repair"
     rt.flags["review_repair_used"] = True
-    rt.flags["rebuild"] = False
-    rt.flags["repair"] = True
     rt.flags["retry"] = True
     rt.flags["ok"] = False
     rt.flags["repair_ops_count"] = len(step_ops)
@@ -2051,13 +2034,9 @@ def _try_polish_command(
     rt.step_ops = step_ops
     rt.paint_ops = step_ops
     rt.flags["op_failed"] = False
-    rt.flags["critique_failed"] = False
     rt.flags["review_failed"] = False
     rt.flags["review_action"] = str(verdict.get("review_action") or "pass")
-    rt.flags["rebuild"] = False
-    rt.flags["repair"] = False
     rt.flags["polish"] = True
-    rt.flags["subtraction"] = True
     rt.flags["polish_done"] = True
     rt.flags["retry"] = True
     rt.flags["ok"] = not bool(verdict.get("must_fix"))
@@ -2116,12 +2095,9 @@ async def _retry_paint_from_review(
     )
     st.round = round_i + 1
     rt.flags["op_failed"] = False
-    rt.flags["critique_failed"] = True
     rt.flags["review_failed"] = True
     rt.flags["review_action"] = action
     rt.flags["review_repair_used"] = True
-    rt.flags["rebuild"] = action == "rebuild"
-    rt.flags["repair"] = action == "repair"
     rt.flags["retry"] = True
     rt.flags["ok"] = False
     rt.terminal = False
@@ -2447,11 +2423,8 @@ async def _node_review_agent(state: GraphState) -> Command:
 
     rt.flags["scene_ready"] = True
     rt.flags["op_failed"] = False
-    rt.flags["critique_failed"] = bool(must_fix)
     rt.flags["review_failed"] = bool(must_fix)
     rt.flags["review_action"] = action
-    rt.flags["rebuild"] = action == "rebuild"
-    rt.flags["repair"] = action == "repair"
     rt.flags["ok"] = not bool(must_fix)
     rt.flags["retry"] = False
     rt.terminal = True

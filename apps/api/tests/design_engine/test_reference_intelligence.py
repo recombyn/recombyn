@@ -180,7 +180,7 @@ def test_paint_formatter_omits_dna_keeps_lock():
     assert "minimalism" not in paint
 
 
-def test_stash_brief_uses_paint_string_flags_keep_dna():
+def test_stash_brief_keeps_dna_on_runtime():
     rt = _rt(images=["data:image/png;base64,abc"])
     compiled = compile_reference_intelligence(_ANALYZE)
     apply_reference_intelligence(rt, compiled)
@@ -188,6 +188,6 @@ def test_stash_brief_uses_paint_string_flags_keep_dna():
     assert text
     assert "minimalism" not in text
     assert "changing core visual language" in text
-    stored = rt.flags["design_brief"]
+    stored = rt.design_brief
     assert stored["reference_dna"]["visual_dna"]["editorial"] > 0.6
     assert parse_design_brief(stored)["visual_thesis"] == _P0_BRIEF["visual_thesis"]

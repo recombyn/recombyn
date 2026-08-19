@@ -191,7 +191,7 @@ def _user_facing_run_error(
     if "tool_ops_invalid" in low:
         return msg("error.tool_ops_invalid", "画布操作未通过校验，请重试一次。")
     if "insufficient" in low or "credit" in low:
-        return msg("error.insufficient_credits", "Token 不足，请充值后重试。")
+        return msg("error.insufficient_credits", "积分不足，请充值后重试。")
     if "validate_failed" in low or "final_validate" in low or "sparse_svg" in low:
         return msg("error.validate_failed", "结果校验未通过，请换一种描述重试。")
     if "no_vision_model" in low:

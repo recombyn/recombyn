@@ -89,8 +89,7 @@ def test_strategy_merges_into_brief_thesis_and_avoid():
     rt = _rt(prompt="AI SaaS landing 不能千篇一律", intent="design", scene_key="website")
     research = run_design_research_pipeline(prompt=rt.prompt, scene_key=rt.scene_key)
     rt.design_research = research
-    rt.flags["design_research"] = research
-    rt.flags["design_brief"] = {
+    rt.design_brief = {
         "purpose": "saas",
         "audience": "founders",
         "emotion": ["confident"],
@@ -100,13 +99,13 @@ def test_strategy_merges_into_brief_thesis_and_avoid():
         "avoid": [],
     }
     strategy = run_design_strategy_pipeline(
-        prompt=rt.prompt, research=research, brief=rt.flags["design_brief"]
+        prompt=rt.prompt, research=research, brief=rt.design_brief
     )
     apply_strategy_to_runtime(rt, strategy)
     assert rt.design_strategy is not None
-    assert rt.flags["design_brief"]["design_strategy"]["positioning"] == "premium technical"
-    assert str(rt.flags["design_brief"]["visual_thesis"]).strip()
-    assert rt.flags["design_brief"]["avoid"]
+    assert rt.design_brief["design_strategy"]["positioning"] == "premium technical"
+    assert str(rt.design_brief["visual_thesis"]).strip()
+    assert rt.design_brief["avoid"]
     block = format_strategy_for_decide(rt.design_strategy)
     assert "Positioning:" in block
     assert "ANTI-CATEGORY STRATEGY" in block

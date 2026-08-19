@@ -136,19 +136,16 @@ def sync_autonomous_hops(
     slots: dict[str, Any] = {}
     if rt is not None:
         for hop_id, attr in _HOP_SLOT.items():
-            val = getattr(rt, attr, None)
-            if val is None and isinstance(rt.flags, dict):
-                val = rt.flags.get(attr)
-            slots[hop_id] = val
+            slots[hop_id] = getattr(rt, attr, None)
         if not observe:
             observe = getattr(rt, "observe_facts", None)
         if not governance:
             governance = getattr(rt, "design_governance", None)
-        brief = str(getattr(rt, "design_brief", "") or "").strip()
+        brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
         if brief:
             slots["brief"] = brief
         intent = str(
-            getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+            getattr(rt, "classified_intent", "") or ""
         ).strip()
         if intent:
             slots["intent"] = intent
@@ -222,9 +219,6 @@ def apply_autonomous_to_runtime(rt: AgentRuntime, plan: dict[str, Any]) -> None:
     if "tool_ops" in clean:
         clean.pop("tool_ops", None)
     rt.autonomous_art_director = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["autonomous_art_director"] = clean
-        rt.flags["autonomous_mode"] = bool(clean.get("active"))
 
 
 def format_autonomous_for_decide(plan: dict[str, Any] | None) -> str:
@@ -258,9 +252,7 @@ async def run_autonomous_controller(
     force = flags.get("force_autonomous")
     force_b = bool(force) if force is not None else None
     prompt = str(getattr(rt, "prompt", "") or "")
-    intent = str(
-        getattr(rt, "classified_intent", "") or getattr(st, "intent", "") or ""
-    ).strip()
+    intent = str(getattr(rt, "classified_intent", "") or "").strip()
 
     if phase == "plan":
         # Chat/ask never enter autonomous OS.
@@ -300,8 +292,6 @@ async def run_autonomous_controller(
 
     # sync
     prior = getattr(rt, "autonomous_art_director", None)
-    if not isinstance(prior, dict):
-        prior = flags.get("autonomous_art_director")
     if not isinstance(prior, dict) or not prior.get("active"):
         return prior if isinstance(prior, dict) else None
     synced = sync_autonomous_hops(prior, rt=rt)

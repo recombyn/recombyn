@@ -99,7 +99,7 @@ function CornerRadiusPanel({
       setUniform(v);
       return;
     }
-    const idx = key === 'tl' ? 0 : key === 'tr' ? 1 : key === 'br' ? 2 : 3;
+    const idx = { tl: 0, tr: 1, br: 2, bl: 3 }[key];
     const vs = ensureVertices(value, 4).slice();
     vs[idx] = v;
     emit({ linked: false, vertices: vs });

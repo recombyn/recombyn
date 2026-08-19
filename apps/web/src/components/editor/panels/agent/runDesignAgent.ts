@@ -978,6 +978,12 @@ function toolOpFromPath(g: SvgElGeom): ToolOp | null {
   };
 }
 
+function cssTextAlignFromAnchor(textAnchor: string): 'left' | 'center' | 'right' {
+  if (textAnchor === 'middle') return 'center';
+  if (textAnchor === 'end') return 'right';
+  return 'left';
+}
+
 function toolOpFromText(g: SvgElGeom): ToolOp | null {
   const text = String(g.el.textContent || '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
@@ -1010,7 +1016,7 @@ function toolOpFromText(g: SvgElGeom): ToolOp | null {
       color: g.fill === 'transparent' ? '#333333' : g.fill,
       fontFamily,
       fontWeight: /bold|700|800|900/i.test(fontWeight) ? 'bold' : 'normal',
-      textAlign: textAnchor === 'middle' ? 'center' : textAnchor === 'end' ? 'right' : 'left',
+      textAlign: cssTextAlignFromAnchor(textAnchor),
       name: g.name || '文字',
     },
   };
@@ -1878,11 +1884,9 @@ export type AgentStepEvent =
       type: 'done';
       summary?: string;
       painted?: boolean;
-      choices?: string[];
       proposedOps?: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
       proposalId?: string;
       taskId?: string;
-      applyChoice?: string;
       choiceUi?: AskChoiceUi;
     }
   | { type: 'error'; code: string; resumable?: boolean }
@@ -2255,15 +2259,12 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   let pendingDone: {
     summary?: string;
     painted?: boolean;
-    choices?: string[];
     proposedOps?: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
     proposalId?: string;
     taskId?: string;
-    applyChoice?: string;
     choiceUi?: AskChoiceUi;
   } | null = null;
   let resultSummary = '';
-  let resultChoices: string[] = [];
   let lastPaintedSvg = '';
   let activitySeq = 0;
   /** Chat / session_control path — ignore Explored stage SSE after divert. */
@@ -2924,23 +2925,19 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
 
         // Host already opened one plate → drop model create_frame (avoid duplicate).
         // Multi-artboard batches keep every create_frame so sibling boards are created.
-        const paintOps =
-          multiArtboards
-            ? chunk
-            : live.frameId || pinned
-              ? chunk.filter((o) => String(o?.name || '').trim() !== 'create_frame')
-              : chunk;
+        let paintOps = chunk;
+        if (!multiArtboards && (live.frameId || pinned)) {
+          paintOps = chunk.filter((o) => String(o?.name || '').trim() !== 'create_frame');
+        }
 
-        const frameId = multiArtboards
-          ? null
-          : bindToBoard
-            ? resolveToolOpsFrameId({
+        const frameId = !multiArtboards && bindToBoard
+          ? resolveToolOpsFrameId({
                 editInPlace,
                 liveFrameId: live.frameId,
                 targetFrameId: params.targetFrameId,
                 pinnedFrameId: params.pinnedFrameId,
               })
-            : null;
+          : null;
         if (frameId) {
           live.frameId = frameId;
           // Cover through tool_ops → observe → review → reflect (not only blank boards).
@@ -3249,9 +3246,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       });
       return;
     }
-    if (Array.isArray(ev.choices) && ev.choices.length) {
-      resultChoices = ev.choices.map((c) => String(c).trim()).filter(Boolean).slice(0, 6);
-    }
     let resultProposed:
       | Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>
       | undefined;
@@ -3265,7 +3259,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         }))
         .slice(0, 80);
     }
-    const applyChoice = String(ev.apply_choice || '').trim() || undefined;
     const choiceUi = normalizeChoiceUi(ev.choice_ui);
     const proposalId = String(ev.proposal_id || '').trim() || undefined;
     const resultTaskId = String(ev.task_id || '').trim() || undefined;
@@ -3277,11 +3270,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         toolOpsApplied ||
         Boolean(ev.tool_ops_applied) ||
         blankArtboard,
-      choices: resultChoices.length ? resultChoices : undefined,
       proposedOps: resultProposed?.length ? resultProposed : undefined,
       proposalId,
       taskId: resultTaskId,
-      applyChoice,
       choiceUi,
     };
     emitMemory(
@@ -3343,14 +3334,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           return;
         }
         case 'chat_done': {
-          // Ask proposals also finish without paint — do NOT wipe proposedOps / choices.
+          // Ask proposals also finish without paint — do NOT wipe proposedOps / choiceUi.
           if (pendingDone?.proposedOps?.length) return;
           // Model returned reply-only — clear Thought / Explored chrome.
           chatDiverted = true;
           pendingDone = {
             summary: pendingDone?.summary || resultSummary || '',
             painted: false,
-            choices: pendingDone?.choices,
+            choiceUi: pendingDone?.choiceUi,
           };
           params.onEvent({ type: 'chat' });
           return;
@@ -3479,16 +3470,15 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             (ev.ok === false && Array.isArray(ev.issues) && ev.issues.length
               ? String(ev.issues[0] || '')
               : '');
+          let critiqueDetail: string | undefined;
+          if (tasteDetail) critiqueDetail = tasteDetail.slice(0, 120);
+          else if (ev.source === 'review_agent') critiqueDetail = 'Review Agent';
           params.onEvent({
             type: 'activity',
             id: `critique-${ev.round}`,
             kind: ev.ok === false ? 'skipped' : 'tool',
             status: 'done',
-            detail: tasteDetail
-              ? tasteDetail.slice(0, 120)
-              : ev.source === 'review_agent'
-                ? 'Review Agent'
-                : undefined,
+            detail: critiqueDetail,
           });
           const scores =
             ev.scores && typeof ev.scores === 'object'
@@ -3498,12 +3488,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             ev.visual_diff && typeof ev.visual_diff === 'object'
               ? ev.visual_diff
               : null;
-          const overall =
-            typeof ev.overall === 'number'
-              ? ev.overall
-              : typeof ev.total === 'number'
-                ? ev.total
-                : null;
+          let overall: number | null = null;
+          if (typeof ev.overall === 'number') overall = ev.overall;
+          else if (typeof ev.total === 'number') overall = ev.total;
           const strengths = Array.isArray(ev.strengths)
             ? ev.strengths.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 4)
             : [];
@@ -3827,13 +3814,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         type: 'done',
         summary,
         painted: Boolean(pendingDone.painted),
-        choices: pendingDone.choices?.length ? pendingDone.choices : undefined,
         proposedOps: pendingDone.proposedOps?.length
           ? pendingDone.proposedOps
           : undefined,
         proposalId: pendingDone.proposalId || undefined,
         taskId: pendingDone.taskId || undefined,
-        applyChoice: pendingDone.applyChoice || undefined,
         choiceUi: pendingDone.choiceUi,
       });
     }

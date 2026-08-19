@@ -115,7 +115,7 @@ START → bootstrap
 | `paint_ops` | shared | Structured `tool_ops`; executes DESIGN_BRIEF |
 | `observe` | shared | FE `interrupt` + deterministic structure critique only |
 | `review` | **forked** | Craft gate. Default Profile `review_mode=auto`; **user `design_intensity` overrides** (see below) |
-| `propose` / `action` / settle | shared | Ask hold / emit ops / finish |
+| `propose` / `action` / settle | shared | Ask hold / emit ops / finish. Ask chips persist as `choice_ui` only (SSE + chat meta). |
 
 ### Observe ↔ scene feedback (do not infinite-repaint)
 

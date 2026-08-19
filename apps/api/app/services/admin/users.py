@@ -11,12 +11,12 @@ from app.core.db import engine
 from app.models import User, UserBalance
 from app.services.db import init_schema
 from app.services.wallet.db import (
-    credit_tokens,
+    grant_credits,
     get_wallet,
     list_ledger_page,
     normalize_plan,
     plan_is_active,
-    spend_tokens,
+    spend_credits,
 )
 
 
@@ -82,7 +82,7 @@ def update_user(
     return get_user(uid)
 
 
-def adjust_tokens(user_id: str, amount: int, detail: str = "") -> dict[str, Any]:
+def adjust_credits(user_id: str, amount: int, detail: str = "") -> dict[str, Any]:
     """Positive amount credits; negative spends (absolute)."""
     uid = (user_id or "").strip()
     if not uid:
@@ -92,9 +92,9 @@ def adjust_tokens(user_id: str, amount: int, detail: str = "") -> dict[str, Any]
         raise ValueError("amount must be non-zero")
     note = (detail or "admin adjust").strip()[:500]
     if amt > 0:
-        balance = credit_tokens(uid, amt, detail=note)
+        balance = grant_credits(uid, amt, detail=note)
     else:
-        balance = spend_tokens(uid, abs(amt), detail=note, force=True)
+        balance = spend_credits(uid, abs(amt), detail=note, force=True)
 
     return {"userId": uid, "credits": balance, "amount": amt}
 
@@ -148,7 +148,7 @@ def _user_to_out(user: User, bal: UserBalance | None) -> dict[str, Any]:
         "provider": user.provider or "email",
         "role": user.role or "user",
         "status": user.status or "active",
-        "credits": int(bal.tokens or 0) if bal else 0,
+        "credits": int(bal.credits or 0) if bal else 0,
         "planId": plan_id,
         "planStored": stored,
         "planExpiresAt": int(expires_at * 1000) if expires_at is not None else None,

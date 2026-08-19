@@ -258,7 +258,7 @@ def run_design_research_pipeline(
 def should_run_design_research(rt: AgentRuntime) -> bool:
     """Skip chat-only / empty prompts. Create/design goals always research."""
     intent = str(
-        getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+        getattr(rt, "classified_intent", "") or ""
     ).strip().lower()
     if intent in ("chat", "ask"):
         return False
@@ -280,15 +280,10 @@ def _eval_patterns_from_rt(rt: AgentRuntime) -> list[dict[str, Any]]:
 
 
 def apply_research_to_runtime(rt: AgentRuntime, report: dict[str, Any]) -> None:
-    """Stash report on Runtime + flags. Merge avoid into Brief when present."""
+    """Stash report on Runtime. Merge avoid into Brief when present."""
     clean = parse_design_research_report(report)
     rt.design_research = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_research"] = clean
-        rt.flags["anti_category_strategy"] = list(
-            clean.get("anti_category_strategy") or []
-        )[:16]
-    brief = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     if isinstance(brief, dict):
         avoid = list(brief.get("avoid") or [])
         for item in list(clean.get("avoid") or []):
@@ -305,7 +300,7 @@ def apply_research_to_runtime(rt: AgentRuntime, report: dict[str, Any]) -> None:
                 "visual_thesis": "",
                 "positioning": "",
             }
-        rt.flags["design_brief"] = brief
+        rt.design_brief = brief
 
 
 def format_research_for_decide(report: dict[str, Any] | None) -> str:

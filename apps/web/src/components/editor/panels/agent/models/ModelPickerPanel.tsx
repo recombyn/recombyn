@@ -590,11 +590,9 @@ function ModelPickerPanel({
           const selected = m.id === selectedId;
           const freePick = m.id === 'auto' || m.id === FREE_IMAGE_MODEL_ID;
           const locked = autoOnly && !freePick;
-          const tip = locked
-            ? t('agent.freeModelLocked')
-            : autoOnly && freePick
-              ? t('agent.freeModelItemHint')
-              : undefined;
+          let tip: string | undefined;
+          if (locked) tip = t('agent.freeModelLocked');
+          else if (autoOnly && freePick) tip = t('agent.freeModelItemHint');
           return (
             <button
               key={m.id}

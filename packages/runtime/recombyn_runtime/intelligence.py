@@ -1,8 +1,7 @@
-"""Intelligence remote request / usability helpers (open).
+"""Intelligence remote request helpers (open).
 
-``remote_result_usable`` lives in ``recombyn_protocol`` (shared contract).
-This module keeps ``build_intelligence_request`` (needs Runtime-shaped objects)
-and re-exports usability for existing ``recombyn_runtime`` imports.
+``remote_result_usable`` lives in ``recombyn_protocol``.
+This module builds ``build_intelligence_request`` (needs Runtime-shaped objects).
 """
 
 from __future__ import annotations
@@ -11,11 +10,8 @@ import hashlib
 import json
 from typing import Any
 
-from recombyn_protocol.intelligence import remote_result_usable
-
 __all__ = [
     "build_intelligence_request",
-    "remote_result_usable",
 ]
 
 
@@ -75,7 +71,7 @@ def build_intelligence_request(method: str, rt: Any) -> dict[str, Any]:
     """JSON body for ``POST {base}/v1/{method}`` (RemoteIntelligenceProvider)."""
     flags = getattr(rt, "flags", None)
     flag_map = dict(flags) if isinstance(flags, dict) else {}
-    brief = _as_dict(_flag(rt, "design_brief"))
+    brief = _as_dict(getattr(rt, "design_brief", None))
     ops = getattr(rt, "apply_ops", None)
     apply_ops = list(ops) if isinstance(ops, list) else []
 

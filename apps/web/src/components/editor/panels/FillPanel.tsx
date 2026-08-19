@@ -76,6 +76,15 @@ const FILL_TYPE_TIP: Record<FillType, string> = {
   image: '图片填充',
 };
 
+const FILL_TYPE_ICON: Record<FillType, string> = {
+  solid: 'editor-fill-solid',
+  linear: 'editor-fill-linear',
+  radial: 'editor-fill-radial',
+  angular: 'editor-fill-angular',
+  diffuse: 'editor-fill-diffuse',
+  image: 'editor-fill-image',
+};
+
 const IMAGE_ADJUST_ROWS: Array<{ key: keyof FillImageAdjust; label: string }> = [
   { key: 'exposure', label: '曝光' },
   { key: 'contrast', label: '对比度' },
@@ -106,12 +115,9 @@ function resolveFillTypePatch(
         fillImageAdjust: value.fillImageAdjust ?? DEFAULT_FILL_IMAGE_ADJUST,
       };
     default: {
-      const g =
-        parseFillType(value.fillType) === next
-          ? gradient.type === next
-            ? gradient
-            : defaultGradient(next, solid)
-          : defaultGradient(next, solid);
+      const keepCurrent =
+        parseFillType(value.fillType) === next && gradient.type === next;
+      const g = keepCurrent ? gradient : defaultGradient(next, solid);
       g.type = next;
       return {
         fillType: next,
@@ -265,22 +271,7 @@ function FitModeSelect({
 
 function TypeIcon({ type, active }: { type: FillType; active?: boolean }) {
   const tone = active ? 'text-[var(--ink)]' : 'text-[var(--muted)]';
-  const name =
-    type === 'solid'
-      ? 'editor-fill-solid'
-      : type === 'linear'
-        ? 'editor-fill-linear'
-        : type === 'radial'
-          ? 'editor-fill-radial'
-          : type === 'angular'
-            ? 'editor-fill-angular'
-            : type === 'diffuse'
-              ? 'editor-fill-diffuse'
-              : type === 'image'
-                ? 'editor-fill-image'
-                : null;
-  if (!name) return null;
-  return <Icon name={name} width={18} height={18} className={tone} />;
+  return <Icon name={FILL_TYPE_ICON[type]} width={20} height={20} className={tone} />;
 }
 
 const CHECKER =
