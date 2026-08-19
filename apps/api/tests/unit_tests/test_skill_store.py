@@ -153,6 +153,82 @@ def test_resolve_triggered_skips_chat():
     )
 
 
+def test_edit_line_spacing_does_not_auto_trigger_typography():
+    keys = resolve_triggered_skill_keys(
+        scene="website",
+        empty_canvas=False,
+        has_images=False,
+        intent="edit",
+        prompt="把标题行距改成 8px",
+        stage="paint",
+    )
+    assert "typography" not in keys
+
+
+def test_festival_poster_prompt_triggers_poster_craft():
+    keys = resolve_triggered_skill_keys(
+        scene="website",
+        empty_canvas=True,
+        has_images=False,
+        intent="create",
+        prompt="做一张音乐节海报",
+        stage="plan",
+    )
+    assert "poster_craft" in keys
+    review_keys = resolve_triggered_skill_keys(
+        scene="website",
+        empty_canvas=True,
+        has_images=False,
+        intent="create",
+        prompt="做一张音乐节海报",
+        stage="review",
+    )
+    assert "poster_craft" not in review_keys
+
+
+def test_canvas_op_does_not_auto_trigger_surface_skills():
+    keys = resolve_triggered_skill_keys(
+        scene="website",
+        empty_canvas=False,
+        has_images=False,
+        intent="create",
+        prompt="做一张音乐节海报",
+        classified_intent="canvas_op",
+        stage="paint",
+    )
+    assert keys == []
+
+
+def test_scope_filters_skill_details_by_stage():
+    paint = format_skills_details(
+        keys=["polish", "poster_craft"], scene="website", stage="paint"
+    )
+    assert "skill: poster_craft" in paint
+    assert "skill: polish" not in paint
+    review = format_skills_details(
+        keys=["polish", "poster_craft"], scene="website", stage="review", role="review"
+    )
+    assert "skill: polish" in review
+    assert "skill: poster_craft" not in review
+
+
+def test_typography_requires_design_brief_context():
+    without_brief = format_skills_details(
+        keys=["typography"],
+        scene="website",
+        stage="paint",
+        has_design_brief=False,
+    )
+    assert "skill: typography" not in without_brief
+    with_brief = format_skills_details(
+        keys=["typography"],
+        scene="website",
+        stage="paint",
+        has_design_brief=True,
+    )
+    assert "skill: typography" in with_brief
+
+
 def test_mutex_keeps_highest_weight():
     rows = [
         {"skillKey": "a", "mutexGroup": "g", "sortWeight": 10},

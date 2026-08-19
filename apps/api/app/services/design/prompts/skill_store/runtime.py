@@ -539,6 +539,45 @@ def expand_skill_extends(
     return sorted(ordered, key=sort_key)
 
 
+def _skill_graph_for_row(row: dict[str, Any]) -> dict[str, Any]:
+    key = str(row.get("skillKey") or row.get("skill_key") or "").strip().lower()
+    return dict(_SKILL_GRAPH.get(key) or {})
+
+
+def _skill_scope(row: dict[str, Any]) -> frozenset[str]:
+    graph = _skill_graph_for_row(row)
+    raw = graph.get("scope") if graph.get("scope") is not None else row.get("scope")
+    if isinstance(raw, str):
+        parts = [p.strip().lower() for p in raw.replace(",", " ").split() if p.strip()]
+    elif isinstance(raw, list):
+        parts = [str(x).strip().lower() for x in raw if str(x).strip()]
+    else:
+        parts = []
+    allowed = {p for p in parts if p in ("plan", "paint", "review")}
+    if not allowed:
+        return frozenset({"plan", "paint", "review"})
+    return frozenset(allowed)
+
+
+def _skill_in_stage(row: dict[str, Any], stage: str) -> bool:
+    want = str(stage or "").strip().lower()
+    if not want:
+        return True
+    return want in _skill_scope(row)
+
+
+def _required_context_ready(
+    row: dict[str, Any], *, has_design_brief: bool
+) -> bool:
+    graph = _skill_graph_for_row(row)
+    required = graph.get("required_context") or []
+    if not isinstance(required, list):
+        return True
+    if "design_brief" in {str(x).strip().lower() for x in required} and not has_design_brief:
+        return False
+    return True
+
+
 def _skill_body_for_context(row: dict[str, Any], *, role: str = "paint") -> str:
     """Pick full / rules / review body to avoid qa prompt bloat."""
     key = str(row.get("skillKey") or "").strip().lower()
@@ -564,10 +603,14 @@ def _skill_body_for_context(row: dict[str, Any], *, role: str = "paint") -> str:
     return body
 
 
-def _skill_available_for_context(row: dict[str, Any], *, role: str) -> bool:
-    """Do not inject review-only curricula into the action stage."""
+def _skill_available_for_context(
+    row: dict[str, Any], *, role: str, stage: str = ""
+) -> bool:
+    """Skip review-only context_mode on paint; honor _meta.json scope."""
     mode = str(row.get("contextMode") or "full").lower()
     if role == "paint" and mode == "review":
+        return False
+    if stage and not _skill_in_stage(row, stage):
         return False
     return True
 
@@ -581,6 +624,8 @@ def format_skills_details(
     version_pins: dict[str, int | str] | None = None,
     input_args: dict[str, Any] | None = None,
     role: str = "paint",
+    stage: str = "",
+    has_design_brief: bool = True,
 ) -> str:
     text, _errs = format_skills_details_checked(
         keys=keys,
@@ -590,6 +635,8 @@ def format_skills_details(
         version_pins=version_pins,
         input_args=input_args,
         role=role,
+        stage=stage,
+        has_design_brief=has_design_brief,
     )
     return text
 
@@ -602,6 +649,8 @@ def format_skills_details_checked(
     version_pins: dict[str, int | str] | None = None,
     input_args: dict[str, Any] | None = None,
     role: str = "paint",
+    stage: str = "",
+    has_design_brief: bool = True,
 ) -> tuple[str, list[str]]:
     """Return (details_markdown, validation_errors).
 
@@ -678,10 +727,16 @@ def format_skills_details_checked(
         name = str(r.get("name") or key)
         when = str(r.get("whenToUse") or "").strip()
         cat = str(r.get("category") or "agent").strip().lower() or "agent"
-        if not _skill_available_for_context(r, role=role):
+        if not _skill_available_for_context(r, role=role, stage=stage):
+            continue
+        if not _required_context_ready(r, has_design_brief=has_design_brief):
             continue
         body = _skill_body_for_context(r, role=role)
+        graph = _skill_graph_for_row(r)
+        cap = int(graph.get("max_prompt_chars") or 0)
         budget = int(_SKILL_CATEGORY_BUDGET.get(cat, 1200))
+        if cap > 0:
+            budget = min(budget, cap)
         if len(body) > budget:
             body = body[: budget - 1].rstrip() + "…"
         neg = str(r.get("promptNegative") or "").strip()
@@ -1123,17 +1178,27 @@ def resolve_triggered_skill_keys(
     prompt: str = "",
     already_loaded: list[str] | None = None,
     max_n: int = 6,
+    stage: str = "",
+    classified_intent: str = "",
+    has_design_brief: bool = True,
 ) -> list[str]:
     loaded = {str(x).strip().lower() for x in (already_loaded or []) if str(x).strip()}
     matched: list[dict[str, Any]] = []
     prompt_text = str(prompt or "")
     if not prompt_chars and prompt_text:
         prompt_chars = len(prompt_text.strip())
-    # Ref-heavy turns: fewer playbooks so paint + vision stay within context.
+    classified = str(classified_intent or intent or "").strip().lower()
+    skip_auto_craft = classified in ("canvas_op", "chat")
     effective_max = min(max_n, 3) if has_images else max_n
     for row in list_runtime_skills(scene=scene):
         key = str(row.get("skillKey") or "").strip().lower()
         if not key or key in loaded:
+            continue
+        if skip_auto_craft:
+            continue
+        if not _skill_in_stage(row, stage):
+            continue
+        if not _required_context_ready(row, has_design_brief=has_design_brief):
             continue
         rules = row.get("triggers") or []
         if not rules:

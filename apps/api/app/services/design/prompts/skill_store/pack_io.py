@@ -60,6 +60,11 @@ def _register_skill_graph(item: dict[str, Any]) -> None:
         .strip()
         .lower()
         or "full",
+        "scope": list(item.get("scope") or []),
+        "required_context": list(item.get("required_context") or []),
+        "quality_signals": list(item.get("quality_signals") or []),
+        "trigger_confidence": item.get("trigger_confidence"),
+        "max_prompt_chars": int(item.get("max_prompt_chars") or 0),
         "rules_excerpt": str(item.get("_rules_excerpt") or "").strip(),
         "review_docs": str(item.get("_review_docs") or "").strip(),
     }
@@ -410,6 +415,11 @@ def _skill_item_from_parts(
         "extends": _parse_extends(meta),
         "context_mode": str(meta.get("context_mode") or "full").strip().lower()
         or "full",
+        "scope": list(meta.get("scope") or []),
+        "required_context": list(meta.get("required_context") or []),
+        "quality_signals": list(meta.get("quality_signals") or []),
+        "trigger_confidence": meta.get("trigger_confidence"),
+        "max_prompt_chars": int(meta.get("max_prompt_chars") or 0),
         "version": ver_int,
         "pack_version": pack_label,
         "logo": logo,
