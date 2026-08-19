@@ -1889,7 +1889,7 @@ export type AgentStepEvent =
       taskId?: string;
       choiceUi?: AskChoiceUi;
     }
-  | { type: 'error'; code: string; resumable?: boolean }
+  | { type: 'error'; code: string; resumable?: boolean; message?: string }
   | {
       type: 'paused';
       taskId: string;
@@ -3711,6 +3711,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           params.onEvent({
             type: 'error',
             code: String(ev.code || '').trim() || 'internal_error',
+            message: String((ev as { message?: string }).message || '').trim() || undefined,
           });
           return;
         default:
@@ -3804,7 +3805,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     clearProcessPill();
 
     if (terminalErrorCode) {
-      params.onEvent({ type: 'error', code: terminalErrorCode });
+      params.onEvent({
+        type: 'error',
+        code: terminalErrorCode,
+        message: resultSummary || undefined,
+      });
       return;
     }
 

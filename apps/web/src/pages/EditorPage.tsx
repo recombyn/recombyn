@@ -1002,14 +1002,6 @@ function EditorPage() {
     if (!isMobileViewport) setAgentOpen(false);
   }, [isMobileViewport]);
 
-  const toggleAgentPanel = useCallback(() => {
-    if (agentOpen) {
-      setAgentOpen(false);
-      return;
-    }
-    openAgentPanel();
-  }, [agentOpen, openAgentPanel]);
-
   const openShareDialog = useCallback(() => {
     setShareOpen(true);
   }, []);
@@ -1017,11 +1009,6 @@ function EditorPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        if (workspaceMode === 'dev') return;
-        e.preventDefault();
-        toggleAgentPanel();
-      }
       if (e.key === 'Escape') {
         setAgentOpen(false);
         setInspectOpen(false);
@@ -1031,7 +1018,7 @@ function EditorPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [workspaceMode, toggleAgentPanel]);
+  }, []);
 
   useEffect(() => {
     if (!isMobileViewport) return;
