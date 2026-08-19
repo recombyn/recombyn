@@ -48,27 +48,14 @@ def runtime_skill_keys() -> frozenset[str]:
     if _c._RUNTIME_SKILL_KEYS is not None:
         return _c._RUNTIME_SKILL_KEYS
     keys = {str(k).strip() for k in _SEED_BY_KEY if str(k).strip()}
-    # Qualified aliases for core.
-    for k in list(keys):
-        keys.add(f"{NS_CORE}.{k}")
     try:
         with Session(core_db.engine) as session:
             rows = crud.list_design_skill_keys_enabled(session=session)
-            for k, ns_raw in rows:
+            for k, _ns_raw in rows:
                 k = str(k or "").strip()
                 if not k:
                     continue
                 keys.add(k)
-                ns = _normalize_namespace(ns_raw, source=None)
-                # If row has bare key, also accept qualified form.
-                ns_prefix, local = split_namespace_key(k)
-                if not ns_prefix:
-                    keys.add(f"{ns}.{k}")
-                    if ns == NS_CORE:
-                        keys.add(k)
-                else:
-                    keys.add(local)
-                    keys.add(k)
     except Exception:
         pass
     _c._RUNTIME_SKILL_KEYS = frozenset(keys)
@@ -303,10 +290,6 @@ def resolve_storage_skill_key(raw: str, *, scene: str = "") -> str | None:
     s = base.strip().lower()
     if not s:
         return None
-    if s.startswith("skill."):
-        s = s[6:]
-    if s.startswith("skill_"):
-        s = s[6:]
     ns, local = split_namespace_key(s)
     rows = list_runtime_skills(scene=scene, enabled_only=True)
     by_key = {str(r.get("skillKey") or "").strip().lower(): r for r in rows}
@@ -376,11 +359,7 @@ def format_skills_catalog(
         ver = int(r.get("version") or 1)
         ns = str(r.get("namespace") or NS_USER)
         kind = str(r.get("skillKind") or skill_kind_for_namespace(ns))
-        q = str(r.get("qualifiedKey") or key)
-        line = f"- `{key}` [{ns}/{kind}] v{ver}"
-        if q != key:
-            line += f" alias:`{q}`"
-        line += f" — {name}"
+        line = f"- `{key}` [{ns}/{kind}] v{ver} — {name}"
         if when:
             line += f"（{when[:80]}）"
         lines.append(line)
@@ -565,7 +544,7 @@ def _skill_body_for_context(row: dict[str, Any], *, role: str = "paint") -> str:
     key = str(row.get("skillKey") or "").strip().lower()
     graph = _SKILL_GRAPH.get(key) or {}
     category = str(row.get("category") or graph.get("category") or "agent").lower()
-    mode = str(row.get("contextMode") or graph.get("context_mode") or "full").lower()
+    mode = str(row.get("contextMode") or "full").lower()
     body = str(row.get("promptPositive") or "").strip()
     rules = str(graph.get("rules_excerpt") or "").strip()
     review_docs = str(graph.get("review_docs") or "").strip()
@@ -587,9 +566,7 @@ def _skill_body_for_context(row: dict[str, Any], *, role: str = "paint") -> str:
 
 def _skill_available_for_context(row: dict[str, Any], *, role: str) -> bool:
     """Do not inject review-only curricula into the action stage."""
-    key = str(row.get("skillKey") or "").strip().lower()
-    graph = _SKILL_GRAPH.get(key) or {}
-    mode = str(row.get("contextMode") or graph.get("context_mode") or "full").lower()
+    mode = str(row.get("contextMode") or "full").lower()
     if role == "paint" and mode == "review":
         return False
     return True
@@ -745,7 +722,7 @@ def format_skills_details_checked(
 def _normalize_loaded_skill_keys(
     skill_keys: list[str], *, scene: str = ""
 ) -> set[str]:
-    """Map need_skills refs (bare / namespaced / aliases) → storage skill_keys."""
+    """Map need_skills refs (bare / namespaced) → storage skill_keys."""
     raw = {str(k).strip().lower() for k in skill_keys if str(k).strip()}
     if not raw:
         return set()
@@ -1011,19 +988,10 @@ def parse_need_skills_with_pins(
             continue
         if key in ("all", "*"):
             return ["*"], {}, {}, errs
-        if key.startswith("skill."):
-            key = key[6:]
-        if key.startswith("skill_"):
-            key = key[6:]
         storage = resolve_storage_skill_key(key, scene=scene) or key
-        if known and storage not in known and key not in known and f"core.{key}" not in known:
-            # Also accept qualified forms already in known
-            ns, local = split_namespace_key(key)
-            alt = f"{ns}.{local}" if ns else f"core.{key}"
-            if alt not in known and storage not in known:
-                errs.append(f"skill_unknown:{key_raw}")
-                continue
-            storage = resolve_storage_skill_key(key, scene=scene) or storage
+        if known and storage not in known:
+            errs.append(f"skill_unknown:{key_raw}")
+            continue
         if storage in seen:
             continue
         seen.add(storage)
@@ -1108,7 +1076,7 @@ def _rule_matches(
         if int(prompt_chars or 0) < need:
             return False
 
-    raw_intents = rule.get("intent_in") or rule.get("intents")
+    raw_intents = rule.get("intent_in")
     if raw_intents is not None:
         if isinstance(raw_intents, str):
             want = {p.strip().lower() for p in raw_intents.split(",") if p.strip()}
@@ -1121,7 +1089,7 @@ def _rule_matches(
         if want and not intent_l:
             return False
 
-    raw_includes = rule.get("prompt_includes_any") or rule.get("promptIncludesAny")
+    raw_includes = rule.get("prompt_includes_any")
     if raw_includes is not None:
         if isinstance(raw_includes, str):
             needles = [p.strip().lower() for p in raw_includes.split(",") if p.strip()]
@@ -1139,10 +1107,8 @@ def _rule_matches(
         "empty_canvas",
         "has_images",
         "intent_in",
-        "intents",
         "min_prompt_chars",
         "prompt_includes_any",
-        "promptIncludesAny",
     }
     return bool(keys)
 

@@ -541,7 +541,7 @@ function MultiSelectionToolbar({
       boolEffectAttr(a['stroke-enabled'], true) && boolEffectAttr(a['stroke-visible'], true)
     );
   });
-  const strokeColor = String(firstAttrs['border-color'] || firstAttrs.stroke || '#333333');
+  const strokeColor = String(firstAttrs['border-color'] || '#333333');
   const radiusSample = radiiFromAttrs(firstAttrs).tl;
 
   const groupId = selectionSharedGroupId(document, opNodeIds);

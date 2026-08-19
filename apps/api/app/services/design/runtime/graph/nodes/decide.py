@@ -150,9 +150,10 @@ class IntelligenceTaskProfile:
 
 
 def _normalized_intensity(intensity: str | None) -> str:
-    value = str(intensity or "medium").strip().lower().replace("_", "-")
-    aliases = {"low": "light", "mid": "medium", "max": "extreme"}
-    return aliases.get(value, value)
+    value = str(intensity or "medium").strip().lower()
+    if value in ("light", "medium", "high", "extreme"):
+        return value
+    return "medium"
 
 
 def intelligence_task_profile(rt: AgentRuntime) -> IntelligenceTaskProfile:
@@ -199,9 +200,9 @@ def intel_hops_for_intensity(intensity: str | None) -> tuple[list[str], bool]:
     when the second return is True.
     """
     level = _normalized_intensity(intensity)
-    if level in ("light", "low"):
+    if level == "light":
         return [], False
-    if level in ("medium", "mid", ""):
+    if level == "medium":
         return ["research", "strategy"], False
     if level == "high":
         return [
@@ -394,8 +395,6 @@ def _extract_design_brief(turn: dict[str, Any] | None, rt: AgentRuntime) -> str:
     """Return prompt-ready brief string; empty when missing/invalid for gate."""
     t = turn if isinstance(turn, dict) else {}
     raw = t.get("design_brief")
-    if raw is None:
-        raw = t.get("designBrief")
     if raw is None or raw == "":
         raw = getattr(rt, "design_brief", "") or ""
     parsed = parse_design_brief(raw)
@@ -454,8 +453,6 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
     """Validate + stash brief. Returns paint-facing text, or '' when missing/incomplete."""
     t = turn if isinstance(turn, dict) else {}
     raw = t.get("design_brief")
-    if raw is None:
-        raw = t.get("designBrief")
     if raw is None or raw == "":
         flagged = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
         raw = flagged if flagged else (getattr(rt, "design_brief", "") or "")
@@ -463,8 +460,8 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
     if not parsed:
         return ""
 
-    turn_analyze = t.get("reference_analyze") or t.get("referenceAnalyze")
-    turn_dna = t.get("reference_dna") or t.get("referenceDna")
+    turn_analyze = t.get("reference_analyze")
+    turn_dna = t.get("reference_dna")
     if turn_analyze and not getattr(rt, "reference_analyze", None):
         apply_reference_intelligence(
             rt, compile_reference_intelligence(turn_analyze, turn_dna)

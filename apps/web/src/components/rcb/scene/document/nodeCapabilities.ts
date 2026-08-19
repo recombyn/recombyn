@@ -138,7 +138,7 @@ function isClosedFilletPath(node: SceneNodeRef): boolean {
   const closed = node.attrs.closed;
   if (closed === false || closed === 'false' || closed === 0 || closed === '0') return false;
   if (closed === true || closed === 'true' || closed === 1 || closed === '1') return true;
-  const d = String(node.attrs.path || node.attrs.d || '').trim();
+  const d = String(node.attrs.path || '').trim();
   return /z\s*$/i.test(d);
 }
 
@@ -148,7 +148,7 @@ function isClosedFilletPath(node: SceneNodeRef): boolean {
  * Same threshold as `requestEnterPathEdit` (skip auto-enter).
  */
 function isMultiGlyphOutlinePath(node: SceneNodeRef): boolean {
-  const d = String(node?.attrs?.path || node?.attrs?.d || '').trim();
+  const d = String(node?.attrs?.path || '').trim();
   if (!d) return false;
   const rings = d.split(/(?=[Mm])/).filter((s) => s.trim()).length;
   return rings >= 4;
@@ -236,7 +236,7 @@ export function supportsFill(node: SceneNodeRef) {
   )
     return true;
   if (node.key === 'path') {
-    const d = String(node.attrs?.path || node.attrs?.d || '');
+    const d = String(node.attrs?.path || '');
     if (node.attrs?.closed === false || node.attrs?.closed === 'false') return false;
     return (
       node.attrs?.closed === true ||
@@ -248,7 +248,7 @@ export function supportsFill(node: SceneNodeRef) {
   const t = String(node.attrs?.shapeType || 'rect');
   if (t === 'line' || t === 'arrow' || t === 'pencil') return false;
   if (t === 'pen' || t === 'path') {
-    const d = String(node.attrs?.path || node.attrs?.d || '');
+    const d = String(node.attrs?.path || '');
     if (node.attrs?.closed === false || node.attrs?.closed === 'false') return false;
     return (
       node.attrs?.closed === true ||

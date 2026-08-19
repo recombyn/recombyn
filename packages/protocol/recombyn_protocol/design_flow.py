@@ -105,7 +105,6 @@ class DesignResearchReportSchema(BaseModel):
     avoid: list[str] = Field(default_factory=list)
     adopt: list[str] = Field(default_factory=list)
     anti_category_strategy: list[str] = Field(default_factory=list)
-    hypotheses: list[str] = Field(default_factory=list)
     why_effective: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
     summary: str = ""

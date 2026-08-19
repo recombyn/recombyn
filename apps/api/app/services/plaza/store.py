@@ -502,6 +502,51 @@ def _isolate_plaza_cover(
     return urls[0] if urls else None
 
 
+def _overlay_json_list(raw: Any) -> list[Any]:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def _overlay_plain_text(attrs: dict[str, Any]) -> str:
+    origin_lines: list[str] = []
+    for block in _overlay_json_list(attrs.get("ORIGIN_DATA")):
+        if not isinstance(block, dict):
+            continue
+        children = block.get("children")
+        if not isinstance(children, list):
+            continue
+        origin_lines.append(
+            "".join(str(c.get("text") or "") for c in children if isinstance(c, dict))
+        )
+    origin = "\n".join(part for part in origin_lines if part).strip()
+    if origin:
+        return origin
+    data_lines: list[str] = []
+    for run in _overlay_json_list(attrs.get("DATA")):
+        if not isinstance(run, dict):
+            continue
+        chars = run.get("chars")
+        if not isinstance(chars, list):
+            continue
+        data_lines.append(
+            "".join(str(item.get("char") or "") for item in chars if isinstance(item, dict))
+        )
+    data = "\n".join(data_lines).strip()
+    if data:
+        return data
+    md = attrs.get("markdown")
+    if isinstance(md, str) and md.strip():
+        return md.strip()
+    return ""
+
+
 def _document_has_overlay_text(document: dict[str, Any] | None) -> bool:
     """True when the board has readable text — list covers must not be raw bitmaps alone."""
     if not isinstance(document, dict):
@@ -516,7 +561,7 @@ def _document_has_overlay_text(document: dict[str, Any] | None) -> bool:
         if kind != "text":
             continue
         attrs = raw.get("attrs") if isinstance(raw.get("attrs"), dict) else {}
-        if str(attrs.get("text") or "").strip():
+        if _overlay_plain_text(attrs):
             return True
     return False
 

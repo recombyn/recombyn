@@ -397,7 +397,7 @@ function ExportSelectionPanel({
         const attrs = node?.attrs || {};
         await downloadVideoNodeAsset({
           src: String(attrs.src || ''),
-          name: String(node?.name || attrs.name || name || 'video'),
+          name: String(attrs.name || name || 'video'),
           uploadKey: attrs.uploadKey != null ? String(attrs.uploadKey) : null,
           cropX: Number(attrs.cropX) || 0,
           cropY: Number(attrs.cropY) || 0,

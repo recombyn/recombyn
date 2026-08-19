@@ -117,23 +117,17 @@ def parse_need_subagents(raw: Any) -> list[dict[str, Any]]:
             aid = item.strip()
             if not aid:
                 continue
-            job = {"id": aid, "agent_id": aid, "task": "", "background": False}
+            job = {"id": aid, "task": "", "background": False}
         elif isinstance(item, dict):
-            aid = str(
-                item.get("id") or item.get("agent_id") or item.get("subagent") or ""
-            ).strip()
+            aid = str(item.get("id") or "").strip()
             job_id = str(item.get("job_id") or "").strip() or None
             # Poll-only: {"job_id": "..."} without a new spawn id.
             if not aid and not job_id:
                 continue
-            bg = item.get("background")
-            if bg is None:
-                bg = item.get("async")
             job = {
                 "id": aid,
-                "agent_id": aid,
-                "task": str(item.get("task") or item.get("prompt") or "").strip(),
-                "background": bool(bg),
+                "task": str(item.get("task") or "").strip(),
+                "background": bool(item.get("background")),
                 "images": item.get("images"),
                 "timeout": item.get("timeout"),
                 "job_id": job_id,
@@ -409,12 +403,7 @@ async def run_subagent(
     if not isinstance(payload, dict):
         payload = {}
     duration_ms = max(0, int((time.perf_counter() - t0) * 1000))
-    summary = str(
-        payload.get("summary")
-        or payload.get("text")
-        or payload.get("fix_brief")
-        or ""
-    ).strip()[:400]
+    summary = str(payload.get("summary") or "").strip()[:400]
     return SubAgentResult(
         agent_id=spec.id,
         ok=True,
@@ -437,7 +426,7 @@ async def run_subagents_parallel(
         return []
 
     async def _one(job: dict[str, Any]) -> SubAgentResult:
-        aid = str(job.get("agent_id") or job.get("id") or "").strip()
+        aid = str(job.get("id") or "").strip()
         spec = None
         if profile is not None:
             spec = profile.get_subagent(aid)

@@ -87,7 +87,7 @@ describe('unified HTML media stack (foreignObject)', () => {
         y: 20,
         width: 80,
         height: 60,
-        attrs: { animationData: anim, fill: '#FFFFFF' },
+        attrs: { animationData: anim, 'fill-color': '#FFFFFF' },
       },
       'lot1'
     );

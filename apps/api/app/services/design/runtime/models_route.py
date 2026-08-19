@@ -204,17 +204,7 @@ def normalize_session_action(raw: str | None) -> str:
     s = str(raw or "").strip().lower()
     if s in SESSION_ACTIONS:
         return s
-    aliases = {
-        "clear": "clear_context",
-        "clearcontext": "clear_context",
-        "new_chat": "clear_context",
-        "newchat": "clear_context",
-        "reset": "clear_context",
-        "reset_chat": "clear_context",
-        "cancel": "stop",
-        "abort": "stop",
-    }
-    return aliases.get(s, "")
+    return ""
 
 
 def normalize_proposal_action(
@@ -453,7 +443,7 @@ def model_supports_vision(model_ref: str | None) -> bool:
 
         item = get_model(low)
         if item:
-            types = item.get("referenceTypes") or item.get("reference_types") or []
+            types = item.get("referenceTypes") or []
             if isinstance(types, list) and types:
                 return "vision" in types
     except Exception:
@@ -595,15 +585,11 @@ def apply_user_route_overrides(
         )
         out["precheck.model_threshold"] = serialized
 
-    vision = str(
-        overrides.get("vision") or overrides.get("vision_model") or ""
-    ).strip()
+    vision = str(overrides.get("vision") or "").strip()
     if vision and vision.lower() not in ("auto", "platform", "default"):
         out["precheck.vision_model"] = vision
 
-    image = str(
-        overrides.get("image") or overrides.get("image_default_model") or ""
-    ).strip()
+    image = str(overrides.get("image") or "").strip()
     if image and image.lower() not in ("auto", "platform", "default"):
         out["assets.image_default_model"] = image
 
@@ -782,11 +768,11 @@ def scene_target_catalog(scene_nodes: list[dict[str, Any]] | None) -> str:
         if not isinstance(node, dict):
             continue
         node_id = str(node.get("id") or "").strip()[:64]
-        node_type = str(node.get("type") or node.get("kind") or "node").strip()[:32]
+        node_type = str(node.get("type") or "node").strip()[:32]
         if not node_id:
             continue
         name = ""
-        for key in ("name", "title", "text", "content", "label"):
+        for key in ("name", "text"):
             value = str(node.get(key) or "").strip().replace("\n", " ")
             if value:
                 name = value[:80]
@@ -973,15 +959,11 @@ async def classify_user_intent(
             ]
         elif isinstance(structured, dict):
             raw_intent = structured.get("intent")
-            raw_lane = structured.get("paint_lane") or structured.get("paintLane")
+            raw_lane = structured.get("paint_lane")
             rationale = structured.get("rationale")
             reply = structured.get("reply")
-            raw_action = structured.get("proposal_action") or structured.get(
-                "proposalAction"
-            )
-            raw_session = structured.get("session_action") or structured.get(
-                "sessionAction"
-            )
+            raw_action = structured.get("proposal_action")
+            raw_session = structured.get("session_action")
             raw_clarification_needed = structured.get("needs_clarification")
             raw_clarification = structured.get("clarification")
             raw_clarification_options = structured.get("clarification_options")

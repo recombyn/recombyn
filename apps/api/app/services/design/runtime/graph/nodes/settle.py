@@ -391,12 +391,12 @@ async def _node_settle(state: GraphState) -> Command:
     ]
     strengths = [
         str(x).strip()
-        for x in list(judge.get("strengths") or flags.get("review_strengths") or [])[:4]
+        for x in list(judge.get("strengths") or [])[:4]
         if str(x).strip()
     ]
     weaknesses = [
         str(x).strip()
-        for x in list(judge.get("weaknesses") or flags.get("review_weaknesses") or [])[:4]
+        for x in list(judge.get("weaknesses") or [])[:4]
         if str(x).strip()
     ]
     next_steps: list[str] = []
@@ -409,7 +409,7 @@ async def _node_settle(state: GraphState) -> Command:
             next_steps.append(fix)
         elif issue:
             next_steps.append(issue)
-    market_gap = str(judge.get("market_gap") or flags.get("market_gap") or "").strip()
+    market_gap = str(judge.get("market_gap") or "").strip()
     summary_payload: dict[str, Any] = {
         "type": "design_summary",
         "visibility": "user",

@@ -17,10 +17,8 @@ describe('pen outline keeps miter tips', () => {
         // Very acute tip — SVG default miterlimit 4 would bevel; we keep miter.
         path: `M 10 90 L 55 ${tipY} L 100 90`,
         'border-width': sw,
-        borderWidth: sw,
         'border-color': '#111',
         strokeLinejoin: 'miter',
-        'stroke-linejoin': 'miter',
       },
     };
     const out = buildOutlinePath(node, { zoom: 1 });
@@ -46,10 +44,8 @@ describe('pen outline keeps miter tips', () => {
         // Closure vertex is the acute tip — must join like mid-path miters.
         path: `M 55 ${tipY} L 100 90 L 10 90 Z`,
         'border-width': sw,
-        borderWidth: sw,
         'border-color': '#111',
         strokeLinejoin: 'miter',
-        'stroke-linejoin': 'miter',
       },
     };
     const out = buildOutlinePath(node, { zoom: 1 });

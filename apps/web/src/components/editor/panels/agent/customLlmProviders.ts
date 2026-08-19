@@ -99,7 +99,7 @@ export type CustomLlmProvider = {
   baseUrl: string;
   /** Upstream chat model id (e.g. gpt-4o, deepseek-chat). */
   apiModel: string;
-  /** text | vision(multimodal). Legacy ``image`` is normalized to text. */
+  /** text | vision | image | video | platform. */
   modelKind: CustomModelKind;
   /** Built-in brand icon key (openai / claude / doubao / 鈥?. */
   iconKey?: string;
@@ -122,9 +122,9 @@ function normalizeModelKind(raw: unknown): CustomModelKind {
   const v = String(raw || '')
     .trim()
     .toLowerCase();
-  if (v === 'vision' || v === 'multimodal' || v === 'multi') return 'vision';
-  if (v === 'image' || v === 't2i' || v === 'i2i') return 'image';
-  if (v === 'video' || v === 't2v' || v === 'i2v') return 'video';
+  if (v === 'vision') return 'vision';
+  if (v === 'image') return 'image';
+  if (v === 'video') return 'video';
   if (v === 'platform') return 'platform';
   return 'text';
 }
@@ -237,10 +237,10 @@ function readLocalRaw(): CustomLlmProvider[] {
         apiKeyCipher: p.apiKeyCipher ? String(p.apiKeyCipher) : undefined,
         apiKeyHint: p.apiKeyHint ? String(p.apiKeyHint) : undefined,
         baseUrl: String(p.baseUrl || '').replace(/\/+$/, ''),
-        apiModel: String(p.apiModel || p.model || '').trim(),
-        modelKind: normalizeModelKind(p.modelKind ?? p.kind),
-        iconKey: String(p.iconKey || p.icon_key || '').trim(),
-        iconUrl: String(p.iconUrl || p.icon_url || '').trim(),
+        apiModel: String(p.apiModel || '').trim(),
+        modelKind: normalizeModelKind(p.modelKind),
+        iconKey: String(p.iconKey || '').trim(),
+        iconUrl: String(p.iconUrl || '').trim(),
         createdAt: Number(p.createdAt) || Date.now(),
         serverBacked: Boolean(p.serverBacked),
       }));

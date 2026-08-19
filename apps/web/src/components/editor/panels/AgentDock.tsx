@@ -3098,7 +3098,7 @@ function AgentDock({
     return skillCatalog.map((s) => ({
       id: String(s.skillKey || ''),
       label: s.name,
-      hint: s.whenToUse || s.description || undefined,
+      hint: s.whenToUse || undefined,
       group: s.mine ? mineLabel : officialLabel,
       ...(s.logo ? { thumbUrl: s.logo } : {}),
     }));

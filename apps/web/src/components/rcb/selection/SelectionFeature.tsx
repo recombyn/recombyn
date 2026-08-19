@@ -1041,7 +1041,7 @@ function SelectionFeature({
           shapeType !== 'arrow'
         ) {
           const box = liveOriginsNow[0].box;
-          const d = String(singleNode?.attrs?.path || singleNode?.attrs?.d || '');
+          const d = String(singleNode?.attrs?.path || '');
           const [a, b] = pathLocalEndpoints(d, box.width, box.height, 'path');
           pathEpLocal0 = a;
           pathEpLocal1 = b;

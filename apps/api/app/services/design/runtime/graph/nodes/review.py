@@ -186,7 +186,7 @@ _REPAIR_DELETE_ACTIONS = frozenset({"delete"})
 _REPAIR_REDUCE_ACTIONS = frozenset({"reduce_size"})
 _REPAIR_INCREASE_ACTIONS = frozenset({"increase_size"})
 _REPAIR_FORBIDDEN_PATCH_KEYS = frozenset(
-    {"nodeid", "id", "frameid", "type", "name", "op_id", "opid", "tool"}
+    {"nodeid", "id", "frameid", "type", "name", "op_id", "tool"}
 )
 _REPAIR_PATCH_KEYS = frozenset(
     {
@@ -199,7 +199,7 @@ _REPAIR_PATCH_KEYS = frozenset(
         "fill",
         "opacity",
         "stroke",
-        "strokewidth",
+        "borderwidth",
         "x",
         "y",
         "width",
@@ -228,6 +228,20 @@ def _repair_norm_action(raw: Any) -> str:
     return str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
 
 
+def _scene_delta_to_update_args(snap: dict[str, Any], cur: dict[str, Any]) -> dict[str, Any]:
+    """Scene snapshot uses w/h; update_node args use width/height."""
+    raw: dict[str, Any] = {}
+    for key, val in snap.items():
+        if key == "id" or val == cur.get(key):
+            continue
+        raw[key] = val
+    if "w" in raw:
+        raw["width"] = raw.pop("w")
+    if "h" in raw:
+        raw["height"] = raw.pop("h")
+    return _sanitize_repair_patch(raw)
+
+
 def _sanitize_repair_patch(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
@@ -252,8 +266,8 @@ def _scale_existing_node(node: dict[str, Any], factor: float) -> dict[str, Any]:
     if fs > 0:
         return {"fontSize": max(8, int(round(fs * factor)))}
     try:
-        w = float(node.get("w") if node.get("w") is not None else node.get("width") or 0)
-        h = float(node.get("h") if node.get("h") is not None else node.get("height") or 0)
+        w = float(node.get("w") or 0)
+        h = float(node.get("h") or 0)
     except (TypeError, ValueError):
         return {}
     if w <= 8 or h <= 8:
@@ -349,8 +363,8 @@ _POLISH_MAX_DELETES = 4
 
 
 def _is_image_node(node: dict[str, Any]) -> bool:
-    kind = str(node.get("type") or node.get("key") or "").strip().lower()
-    if kind in ("image", "img"):
+    kind = str(node.get("type") or "").strip().lower()
+    if kind == "image":
         return True
     return bool(str(node.get("src") or "").strip()) and kind not in ("text",)
 
@@ -1161,7 +1175,7 @@ def build_judge_top_issues(
         if not _accept(text):
             continue
         sev = str(item.get("severity") or "").strip().lower()
-        lane = str(item.get("lane") or item.get("area") or "").strip()
+        lane = str(item.get("lane") or "").strip()
         if lane == "aesthetic":
             lane = "anti_slop"
         if sev == "blocker":
@@ -1180,7 +1194,7 @@ def build_judge_top_issues(
                 {
                     "issue": text[:200],
                     "evidence": evidence,
-                    "fix": str(item.get("fix_hint") or item.get("fix") or "").strip()[:200],
+                    "fix": str(item.get("fix_hint") or "").strip()[:200],
                     "lane": lane,
                 },
             )
@@ -1289,7 +1303,7 @@ def attach_judge(rt: AgentRuntime, verdict: dict[str, Any]) -> dict[str, Any]:
         anti_slop_hits=verdict.get("anti_slop_hits")
         if isinstance(verdict.get("anti_slop_hits"), list)
         else [],
-        llm_overall=verdict.get("overall", verdict.get("total")),
+        llm_overall=verdict.get("overall"),
         visual_diff=visual_diff,
     )
     rt.judge_verdict = judge
@@ -1332,11 +1346,8 @@ def _slim_restore_node(node: dict[str, Any]) -> dict[str, Any]:
         "y",
         "w",
         "h",
-        "width",
-        "height",
         "fontSize",
         "fill",
-        "fillColor",
         "text",
         "opacity",
         "rotation",
@@ -1348,7 +1359,7 @@ def _slim_restore_node(node: dict[str, Any]) -> dict[str, Any]:
         "lineHeight",
         "letterSpacing",
         "stroke",
-        "strokeWidth",
+        "borderWidth",
         "color",
     ):
         if node.get(key) is not None:
@@ -1371,9 +1382,7 @@ def compile_restore_ops(
         cur = living.get(nid)
         if not cur:
             continue
-        patch = _sanitize_repair_patch(
-            {k: v for k, v in snap.items() if k != "id" and v != cur.get(k)}
-        )
+        patch = _scene_delta_to_update_args(snap, cur)
         if patch:
             ops.append({"name": "update_node", "args": {"nodeId": nid, **patch}})
     if extra:
@@ -1566,7 +1575,7 @@ def _scene_digest(rt: AgentRuntime) -> str:
     lines = [body[:2200], "RECENT_PAINT_OPS:"]
     for op in ops:
         if isinstance(op, dict):
-            lines.append(f"- {str(op.get('name') or op.get('tool') or '')[:40]}")
+            lines.append(f"- {str(op.get('name') or '')[:40]}")
     return "\n".join(lines)[:2800]
 
 
@@ -2304,13 +2313,6 @@ async def _node_review_agent(state: GraphState) -> Command:
         else None,
     }
     judge = rt.judge_verdict if isinstance(rt.judge_verdict, dict) else {}
-    if isinstance(rt.flags, dict):
-        if strengths:
-            rt.flags["review_strengths"] = strengths
-        if weaknesses:
-            rt.flags["review_weaknesses"] = weaknesses
-        if market_gap:
-            rt.flags["market_gap"] = market_gap
     if isinstance(rt.judge_verdict, dict):
         if strengths:
             rt.judge_verdict["strengths"] = strengths

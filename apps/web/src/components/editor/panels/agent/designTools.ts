@@ -286,7 +286,7 @@ export function rebaseSceneMutationOps(
   const kept: AgentToolOp[] = [];
   for (const op of ops) {
     const name = String(op.name || '').trim();
-    const opId = String(op.op_id || op.args?.op_id || '');
+    const opId = String(op.op_id || '');
     const args = op.args && typeof op.args === 'object' ? op.args : {};
     const drop = (reason: string) => {
       dropped.push({ op_id: opId, name, reason });
@@ -443,7 +443,7 @@ function mutationRejectResults(
   reason: string
 ): SceneMutationOpResult[] {
   return ops.map((op) => ({
-    op_id: String(op.op_id || op.args?.op_id || ''),
+    op_id: String(op.op_id || ''),
     name: String(op.name || ''),
     ok: false,
     error: reason,
@@ -1398,21 +1398,18 @@ function applyStrokeExtras(node: SceneNodeInput, args: Record<string, unknown>) 
     const v = String(args.strokeAlign);
     if (v === 'center' || v === 'inside' || v === 'outside') {
       attrs.strokeAlign = v;
-      attrs['stroke-align'] = v;
     }
   }
   if (args.strokeLinecap != null) {
     const v = String(args.strokeLinecap);
     if (v === 'butt' || v === 'round' || v === 'square') {
       attrs.strokeLinecap = v;
-      attrs['stroke-linecap'] = v;
     }
   }
   if (args.strokeLinejoin != null) {
     const v = String(args.strokeLinejoin);
     if (v === 'miter' || v === 'round' || v === 'bevel') {
       attrs.strokeLinejoin = v;
-      attrs['stroke-linejoin'] = v;
     }
   }
   if (args.strokeOpacity != null) {
@@ -1423,17 +1420,6 @@ function applyStrokeExtras(node: SceneNodeInput, args: Record<string, unknown>) 
     const s = sides as Record<string, unknown>;
     for (const key of ['T', 'R', 'B', 'L'] as const) {
       if (s[key] != null) attrs[key] = truthy(s[key]) ? 'true' : 'false';
-    }
-  } else {
-    for (const key of ['strokeTop', 'strokeRight', 'strokeBottom', 'strokeLeft'] as const) {
-      if (args[key] == null) continue;
-      const map = {
-        strokeTop: 'T',
-        strokeRight: 'R',
-        strokeBottom: 'B',
-        strokeLeft: 'L',
-      } as const;
-      attrs[map[key]] = truthy(args[key]) ? 'true' : 'false';
     }
   }
   node.attrs = attrs;
@@ -2339,10 +2325,6 @@ const UPDATE_NODE_STYLE_ARG_KEYS = [
   'strokeLinejoin',
   'strokeOpacity',
   'strokeSides',
-  'strokeTop',
-  'strokeRight',
-  'strokeBottom',
-  'strokeLeft',
   'shadowEnabled',
   'shadowVisible',
   'shadowColor',

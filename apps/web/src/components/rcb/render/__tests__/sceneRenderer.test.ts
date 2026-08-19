@@ -71,7 +71,7 @@ function rectDoc(): SceneDocument {
         y: 20,
         width: 100,
         height: 50,
-        attrs: { shapeType: 'rect', fill: '#fff' },
+        attrs: { shapeType: 'rect', 'fill-color': '#fff' },
         children: [],
       },
     },
@@ -349,7 +349,7 @@ describe('LOD path / text / shape paint', () => {
       zoom: 0.2,
       node: {
         key: 'shape',
-        attrs: { shapeType: 'pencil', path: 'M0 20 L80 20', stroke: '#111' },
+        attrs: { shapeType: 'pencil', path: 'M0 20 L80 20', 'border-color': '#111' },
       } as SceneNodeInput,
     });
     expect(ops).toContain('stroke');
@@ -430,7 +430,7 @@ describe('LOD path / text / shape paint', () => {
       paintCanvasPathInk(ctx as unknown as CanvasRenderingContext2D, {
         node: {
           key: 'shape',
-          attrs: { shapeType: 'pen', path: 'M0 10 L40 10', stroke: '#000', 'border-width': 2 },
+          attrs: { shapeType: 'pen', path: 'M0 10 L40 10', 'border-color': '#000', 'border-width': 2 },
         } as SceneNodeInput,
         width: 40,
         height: 20,
@@ -784,7 +784,7 @@ describe('LOD path / text / shape paint', () => {
           y: 0,
           width: 50,
           height: 20,
-          attrs: { shapeType: 'pen', path: 'M0 10 L50 10', stroke: '#000' },
+          attrs: { shapeType: 'pen', path: 'M0 10 L50 10', 'border-color': '#000' },
           children: [],
         },
       },
@@ -906,7 +906,7 @@ describe('hitTestWithSpatialIndex', () => {
           y: 10,
           width: 80,
           height: 80,
-          attrs: { shapeType: 'rect', fill: '#fff' },
+          attrs: { shapeType: 'rect', 'fill-color': '#fff' },
         },
         back: {
           id: 'back',
@@ -915,7 +915,7 @@ describe('hitTestWithSpatialIndex', () => {
           y: 10,
           width: 80,
           height: 80,
-          attrs: { shapeType: 'rect', fill: '#fff' },
+          attrs: { shapeType: 'rect', 'fill-color': '#fff' },
         },
       },
     } as unknown as SceneDocument;

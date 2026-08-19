@@ -300,7 +300,7 @@ def is_need_prompt_kind(kind: str) -> bool:
 
 def is_need_pack(row: dict[str, Any]) -> bool:
     """Need pack is determined by pack ``type`` code."""
-    t = str(row.get("type") or row.get("pack_type") or "").strip().lower()
+    t = str(row.get("pack_type") or "").strip().lower()
     return t == PACK_TYPE_NEED
 
 
@@ -331,71 +331,6 @@ def _pub(r: Any) -> dict[str, Any]:
         "sortOrder": int(_get("sort_order") or 0),
         "enabled": bool(int(_get("enabled") or 0)),
         "updatedAt": int(float(updated) * 1000) if updated else None,
-    }
-
-
-def seed_prompt_overlay_nodes(*, x0: float = 2280, y0: float = 80, dy: float = 140) -> list[dict[str, Any]]:
-    """Seed need_* prompt overlay nodes (if any remain in seed)."""
-    out: list[dict[str, Any]] = []
-    i = 0
-    for item in _SEED:
-        kind = str(item.get("kind") or "").strip()
-        pack_type = normalize_pack_type(item.get("type"), kind=kind)
-        if pack_type != PACK_TYPE_NEED:
-            continue
-        title = str(item.get("title") or KIND_LABELS.get(kind, kind))
-        when = str(item.get("when_to_use") or "")
-        scenes = str(item.get("scenes") or "")
-        body = str(item.get("body") or "")
-        out.append(
-            {
-                "id": f"prompt_{kind}",
-                "label": title,
-                "description": when,
-                "kind": "prompt",
-                "capability": "prompt",
-                "phaseKey": f"prompt_{kind}",
-                "configRef": f"pack.{kind}",
-                "promptText": body,
-                "inject": {
-                    "mode": "details",
-                    "source": "prompt",
-                    "scenes": scenes,
-                },
-                "x": x0,
-                "y": y0 + i * dy,
-            }
-        )
-        i += 1
-    return out
-
-
-def seed_prompt_bank_node(*, x: float = 2280, y: float = 400) -> dict[str, Any]:
-    """Deprecated helper: packs dict only (for splitting old prompt_bank graphs)."""
-    packs: dict[str, Any] = {}
-    for item in _SEED:
-        kind = str(item.get("kind") or "").strip()
-        if normalize_pack_type(item.get("type"), kind=kind) != PACK_TYPE_NEED:
-            continue
-        packs[kind] = {
-            "title": str(item.get("title") or KIND_LABELS.get(kind, kind)),
-            "whenToUse": str(item.get("when_to_use") or ""),
-            "scenes": str(item.get("scenes") or ""),
-            "body": str(item.get("body") or ""),
-        }
-    return {
-        "id": "prompt_bank",
-        "label": "场景提示词",
-        "description": "已废弃：请拆成独立 prompt_* 节点",
-        "kind": "prompt",
-        "capability": "prompt",
-        "phaseKey": "prompt_bank",
-        "configRef": "prompt_bank",
-        "promptPacks": packs,
-        "promptText": "",
-        "inject": {"mode": "details", "source": "prompt"},
-        "x": x,
-        "y": y,
     }
 
 
@@ -514,7 +449,7 @@ def _apply_seed_fields_to_row(row: Any, seed_item: dict[str, Any], *, kind: str,
     if str(row.scenes or "").strip() != want_scenes:
         row.scenes = want_scenes
         changed = True
-    want_used = used_by_csv(seed_item.get("usedBy") or seed_item.get("used_by"))
+    want_used = used_by_csv(seed_item.get("usedBy"))
     if str(row.used_by or "").strip() != want_used:
         row.used_by = want_used
         changed = True

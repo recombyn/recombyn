@@ -63,7 +63,7 @@ export function canOutlineNode(node: SceneNodeInput): boolean {
   if (t === 'path') return false;
   // Pen / pencil / line: outline the painted SVG stroke (keep visual silhouette).
   if (t === 'pen' || t === 'pencil') {
-    return Boolean(String(node.attrs?.path || node.attrs?.d || '').trim());
+    return Boolean(String(node.attrs?.path || '').trim());
   }
   if (t === 'line' || t === 'arrow') return true;
   return ['rect', 'roundRect', 'circle', 'triangle', 'star', 'polygon', ''].includes(t);
@@ -73,12 +73,12 @@ export function canOutlineNode(node: SceneNodeInput): boolean {
 export function isEditablePathNode(node: SceneNodeInput): boolean {
   if (!node) return false;
   if (node.key === 'path') {
-    return Boolean(String(node.attrs?.path || node.attrs?.d || '').trim());
+    return Boolean(String(node.attrs?.path || '').trim());
   }
   if (node.key !== 'shape') return false;
   const t = String(node.attrs?.shapeType || '');
   if (t === 'pen' || t === 'path') {
-    return Boolean(String(node.attrs?.path || node.attrs?.d || '').trim());
+    return Boolean(String(node.attrs?.path || '').trim());
   }
   return false;
 }
@@ -996,7 +996,7 @@ function readStrokeLinecap(
   attrs: Record<string, unknown> | undefined,
   shapeType?: string
 ): CanvasLineCap {
-  const raw = attrs?.strokeLinecap ?? attrs?.['stroke-linecap'];
+  const raw = attrs?.strokeLinecap;
   if (raw != null) {
     const v = String(raw).toLowerCase();
     if (v === 'butt' || v === 'square' || v === 'round') return v;
@@ -1011,7 +1011,7 @@ function readStrokeLinejoin(
   attrs: Record<string, unknown> | undefined,
   shapeType?: string
 ): CanvasLineJoin {
-  const raw = attrs?.strokeLinejoin ?? attrs?.['stroke-linejoin'];
+  const raw = attrs?.strokeLinejoin;
   if (raw != null) {
     const v = String(raw).toLowerCase();
     if (v === 'bevel' || v === 'miter' || v === 'round') return v;
@@ -1022,7 +1022,7 @@ function readStrokeLinejoin(
 }
 
 function readStrokeMiterLimit(attrs: Record<string, unknown> | undefined): number {
-  const raw = attrs?.strokeMiterlimit ?? attrs?.['stroke-miterlimit'] ?? attrs?.miterLimit;
+  const raw = attrs?.strokeMiterlimit;
   const n = Number(raw);
   // High default: keep acute pen tips. Only clamp when the node stores a limit.
   if (Number.isFinite(n) && n > 0) return Math.min(1000, Math.max(1, n));
@@ -1206,20 +1206,17 @@ function nodeStrokeWidth(node: SceneNodeInput, fallback = 2): number {
   return Math.max(
     1,
     Number(
-      node.attrs?.['border-width'] ??
-        node.attrs?.borderWidth ??
-        node.attrs?.strokeWidth ??
-        fallback
+      node.attrs?.['border-width'] ?? fallback
     ) || fallback
   );
 }
 
 function nodeStrokeInk(node: SceneNodeInput, fallback = '#333333'): string {
-  return String(node.attrs?.['border-color'] || node.attrs?.stroke || fallback);
+  return String(node.attrs?.['border-color'] || fallback);
 }
 
 function nodeFillColor(node: SceneNodeInput, fallback = '#FFFFFF'): string {
-  return String(node.attrs?.['fill-color'] || node.attrs?.fill || fallback);
+  return String(node.attrs?.['fill-color'] || fallback);
 }
 
 /** Bake attrs.angle into path so every shape’s path-edit matches the painted silhouette. */
@@ -1230,7 +1227,7 @@ function withBakedNodeAngle(node: SceneNodeInput, outline: OutlineResult | null)
 }
 
 function outlinePencilLocal(node: SceneNodeInput, _zoom = 1): OutlineResult | null {
-  const raw = String(node.attrs?.path || node.attrs?.d || '').trim();
+  const raw = String(node.attrs?.path || '').trim();
   if (!raw) return null;
   const sw = nodeStrokeWidth(node, 10);
   const brushId = String(node.attrs?.brushStyle || 'vector-ink');
@@ -1256,7 +1253,7 @@ function outlinePencilLocal(node: SceneNodeInput, _zoom = 1): OutlineResult | nu
 }
 
 function outlinePenLocal(node: SceneNodeInput, zoom = 1): OutlineResult | null {
-  const raw = String(node.attrs?.path || node.attrs?.d || '').trim();
+  const raw = String(node.attrs?.path || '').trim();
   if (!raw) return null;
   return withBakedNodeAngle(
     node,
@@ -1746,7 +1743,7 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
   const prev = { ...(node.attrs || {}) };
   const fill =
     outline.fillColor ||
-    String(prev['fill-color'] || prev.fill || '#FFFFFF');
+    String(prev['fill-color'] || '#FFFFFF');
   delete prev.sides;
   delete prev.ORIGIN_DATA;
   delete prev.DATA;
@@ -1793,7 +1790,7 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
   } else {
     // Keep original stroke state — don't invent a border after outlining.
     const prevStrokeOn = String(prev['stroke-enabled'] ?? 'true') !== 'false';
-    const prevBw = Number(prev['border-width'] ?? prev.strokeWidth ?? 0);
+    const prevBw = Number(prev['border-width'] ?? 0);
     if (!prevStrokeOn || !(prevBw > 0)) {
       prev['stroke-enabled'] = 'false';
       prev['stroke-visible'] = 'false';
@@ -1829,7 +1826,6 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
       shapeType: 'path',
       // Mark 轮廓化 / densified silhouette — no R-dots or toolbar radius.
       outlined: 'true',
-      // Single copy — readers use path || d; duplicating doubles history/clone cost.
       path: outline.pathD,
       closed: outline.closed ? 'true' : 'false',
       'fill-color': fillNone ? 'transparent' : fill,

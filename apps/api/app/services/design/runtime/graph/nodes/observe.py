@@ -51,8 +51,8 @@ def _num(v: Any, fallback: float = 0.0) -> float:
 
 
 def _node_box(node: dict[str, Any]) -> tuple[float, float, float, float] | None:
-    w = _num(node.get("w") if node.get("w") is not None else node.get("width"))
-    h = _num(node.get("h") if node.get("h") is not None else node.get("height"))
+    w = _num(node.get("w"))
+    h = _num(node.get("h"))
     if w <= 0 or h <= 0:
         return None
     return (_num(node.get("x")), _num(node.get("y")), w, h)
@@ -83,12 +83,7 @@ def _gap_axis(a0: float, a1: float, b0: float, b1: float) -> float:
 
 
 def _is_text_node(node: dict[str, Any]) -> bool:
-    kind = str(node.get("type") or node.get("key") or "").strip().lower()
-    if kind == "text":
-        return True
-    if node.get("fontSize") is not None or node.get("text"):
-        return True
-    return False
+    return str(node.get("type") or "").strip().lower() == "text"
 
 
 def _parse_pct_range(raw: Any) -> tuple[float | None, float | None]:
@@ -144,7 +139,7 @@ def _pick_focus_frame(
                 return f
     counts: dict[str, int] = {}
     for n in nodes:
-        nid = str(n.get("frameId") or n.get("frame_id") or "").strip()
+        nid = str(n.get("frameId") or "").strip()
         if nid:
             counts[nid] = counts.get(nid, 0) + 1
     if counts:
@@ -158,8 +153,8 @@ def _pick_focus_frame(
 def _frame_box(frame: dict[str, Any] | None) -> tuple[float, float, float, float] | None:
     if not frame:
         return None
-    w = _num(frame.get("w") if frame.get("w") is not None else frame.get("width"))
-    h = _num(frame.get("h") if frame.get("h") is not None else frame.get("height"))
+    w = _num(frame.get("w"))
+    h = _num(frame.get("h"))
     if w <= 0 or h <= 0:
         return None
     return (_num(frame.get("x")), _num(frame.get("y")), w, h)
@@ -225,7 +220,7 @@ def build_scene_visual_snapshot(
             if area > title_area:
                 title_area = area
             continue
-        fill = str(n.get("fill") or n.get("fillColor") or "").strip()
+        fill = str(n.get("fill") or "").strip()
         if fill:
             color_area += area
         if area > hero_area:
@@ -584,7 +579,7 @@ def _normalize_resume_snap(raw: Any) -> dict[str, Any] | None:
     if raw is None:
         return None
     if isinstance(raw, dict):
-        if raw.get("timeout") or raw.get("kind") == "timeout":
+        if raw.get("timeout"):
             return None
         if raw.get("cancelled") or raw.get("paused"):
             return None
@@ -665,7 +660,7 @@ def _op_receipt_issues(
     for op in emitted_ops or []:
         if not isinstance(op, dict):
             continue
-        oid = str(op.get("op_id") or (op.get("args") or {}).get("op_id") or "").strip()
+        oid = str(op.get("op_id") or "").strip()
         if oid:
             expected[oid] = str(op.get("name") or "op").strip() or "op"
     if not expected:

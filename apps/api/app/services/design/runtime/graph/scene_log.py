@@ -223,14 +223,8 @@ def _scene_digest(
     if nodes:
         lines.append("SCENE_NODES:")
         for n in nodes[:limit]:
-            fill = (
-                n.get("fill")
-                or n.get("fillColor")
-                or n.get("backgroundColor")
-                or n.get("color")
-                or ""
-            )
-            stroke = n.get("stroke") or n.get("strokeColor") or ""
+            fill = n.get("fill") or ""
+            stroke = n.get("stroke") or ""
             fill_s = str(fill).strip()[:48]
             stroke_s = str(stroke).strip()[:32]
             color_bit = ""
@@ -239,7 +233,7 @@ def _scene_digest(
             if stroke_s:
                 color_bit += f" stroke={stroke_s}"
             lines.append(
-                f"- id={n.get('id')} type={n.get('type') or n.get('key')} "
+                f"- id={n.get('id')} type={n.get('type') or ''} "
                 f"frameId={n.get('frameId') or ''} "
                 f"text={(str(n.get('text') or '')[:40])}"
                 f"{color_bit}"

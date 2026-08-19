@@ -103,7 +103,7 @@ def ensure_user_balance(user_id: str, *, starting_tokens: int = 0) -> int:
 
 
 def get_wallet(user_id: str) -> dict[str, Any]:
-    """Unified 积分 + plan. ``credits`` and ``tokens`` are the same balance."""
+    """Unified 积分 + plan. HTTP field is ``credits`` (DB column remains ``tokens``)."""
     from sqlmodel import Session
 
     from app import crud
@@ -114,7 +114,6 @@ def get_wallet(user_id: str) -> dict[str, Any]:
     if not uid:
         return {
             "credits": 0,
-            "tokens": 0,
             "planId": "free",
             "planExpiresAt": None,
             "planLocked": False,
@@ -134,7 +133,6 @@ def get_wallet(user_id: str) -> dict[str, Any]:
 
     return {
         "credits": credits,
-        "tokens": credits,
         "planId": effective,
         "planStored": stored,
         "planExpiresAt": expires_at,
