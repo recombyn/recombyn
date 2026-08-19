@@ -12,6 +12,7 @@
   "preferred_tools": ["update_node", "delete_nodes", "move_nodes", "align_nodes"],
   "allowed_resources": ["tools"],
   "triggers": [],
+  "scope": ["review"],
   "mutex_group": "",
   "prompt_negative": "Do not add new decorative layers during polish. Prefer remove/merge/align.",
   "locales": {

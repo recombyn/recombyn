@@ -791,21 +791,18 @@ def _is_high_stakes_review_turn(rt: Any) -> bool:
     return False
 
 
-def _should_route_to_review(
-    rt: Any,
-    *,
-    signals: list[str] | None = None,
-) -> bool:
-    """Sparse Review gate — default auto skips clean first paints.
+def _should_route_to_review(rt: Any) -> bool:
+    """Sparse Review gate — aesthetic / high-stakes only.
 
     Modes (settings / rules / profile ``review_mode``):
     - off: never
     - always: every design paint (canvas_op never)
-    - auto: structure signals, paint retry, or narrow high-stakes
+    - auto: paint retry that is not a live structure fail, or high-stakes
       (ref images + design, multi-artboard)
 
-    Never keyword/length-guess taste from the user prompt — intent LLM owns
-    canvas_op vs design; review follows structural signals only.
+    ``facts.issues`` are Observe structure facts — they never open Review.
+    ``review_repair_used`` forbids a second Review hop.
+    Intent LLM owns canvas_op vs design; no prompt-length/keyword taste guess.
     """
     if not _review_stage_enabled():
         return False
@@ -818,14 +815,11 @@ def _should_route_to_review(
         from app.services.design.runtime.models_route import normalize_user_intent
 
         intent = normalize_user_intent(getattr(rt, "classified_intent", None))
-        # canvas_op: catalog tools only — no Review plate.
         if intent == "canvas_op":
             return False
     except Exception:
         pass
     if mode == "always":
-        return True
-    if list(signals or []):
         return True
     if _is_paint_retry_turn(rt):
         return True
@@ -879,21 +873,125 @@ def _spatial_grounding_issues(rt: AgentRuntime) -> list[str]:
     return issues[:6]
 
 
+def _is_structure_retry_text(text: str) -> bool:
+    """Overflow / overlap / empty / alignment / type hierarchy → paint, not Review."""
+    low = text.lower()
+    if not low:
+        return False
+    if low.startswith(("overflow", "bounds", "overlap", "alignment", "empty")):
+        return True
+    if "typography hierarchy" in low:
+        return True
+    return False
+
+
 def _observe_retry_issues(facts: ObserveFactsSchema) -> list[str]:
-    """Host paint-retry: structure + overflow/bounds only. Type/whitespace → Review."""
+    """Host paint-retry: structure facts only. Taste stays in Review."""
     retry: list[str] = []
-    for item in list(facts.structure_issues) + list(facts.bounds_issues):
+    for item in list(facts.structure_issues) + list(facts.bounds_issues) + list(
+        facts.alignment_issues
+    ):
         text = str(item).strip()
         if text and text not in retry:
             retry.append(text)
     for item in facts.issues:
         text = str(item).strip()
-        low = text.lower()
         if not text or text in retry:
             continue
-        if low.startswith("overflow") or low.startswith("bounds"):
+        if _is_structure_retry_text(text):
             retry.append(text)
     return retry[:10]
+
+
+def _observe_settle(
+    rt: AgentRuntime,
+    *,
+    ok: bool,
+    critique_issues: list[str] | None = None,
+) -> Command:
+    if critique_issues:
+        _emit_ux_tip(
+            rt,
+            "observe_critique_failed",
+            params={"issues": "; ".join(critique_issues[:2])},
+        )
+    rt.flags["scene_ready"] = True
+    rt.flags["op_failed"] = False
+    rt.flags["ok"] = bool(ok)
+    rt.flags["retry"] = False
+    rt.terminal = True
+    return Command(update=_bump(rt), goto="__settle__")
+
+
+def _observe_goto_review(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    *,
+    preview_image: str | None,
+    observe_signals: list[str],
+    critique_issues: list[str],
+) -> Command:
+    from app.services.design.runtime.graph.nodes.review import stash_review_context
+
+    stash_review_context(
+        st.task_id,
+        preview_image=preview_image,
+        signals=observe_signals or list(critique_issues or []),
+    )
+    st.push_log(
+        phase="observe",
+        summary="observe done → Review Agent (auto gate)",
+        has_preview=bool(preview_image) or None,
+        critique_signals=len(critique_issues or []) or None,
+        review_mode=_review_mode(rt),
+    )
+    rt.flags["scene_ready"] = True
+    rt.flags["op_failed"] = False
+    rt.flags["retry"] = False
+    rt.terminal = False
+    return Command(update=_bump(rt), goto="review")
+
+
+async def _route_after_observe_facts(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    *,
+    round_i: int,
+    critique_issues: list[str],
+    preview_image: str | None,
+    observe_signals: list[str],
+) -> Command:
+    """Structure → paint or settle. Review only after that, never from facts.issues."""
+    if rt.flags.get("optimization_halt"):
+        return _observe_settle(rt, ok=True)
+
+    used_review = bool(rt.flags.get("review_repair_used"))
+    can_paint = (
+        bool(critique_issues)
+        and st.reflect_left > 0
+        and not rt.turn.get("done")
+        and st.painted
+        and not used_review
+    )
+    if can_paint:
+        return await _retry_paint_from_critique(
+            rt, st, round_i=round_i, issues=critique_issues
+        )
+    if used_review:
+        return _observe_settle(
+            rt, ok=not bool(critique_issues), critique_issues=critique_issues
+        )
+    if critique_issues:
+        return _observe_settle(rt, ok=False, critique_issues=critique_issues)
+    if _should_route_to_review(rt) and st.painted:
+        return _observe_goto_review(
+            rt,
+            st,
+            preview_image=preview_image,
+            observe_signals=observe_signals,
+            critique_issues=critique_issues,
+        )
+    return _observe_settle(rt, ok=True)
 
 
 def _run_post_paint_critique(
@@ -1200,56 +1298,11 @@ async def _node_observe(
     facts_raw = rt.observe_facts if isinstance(rt.observe_facts, dict) else {}
     facts = ObserveFactsSchema.model_validate(facts_raw) if facts_raw else ObserveFactsSchema()
     observe_signals = format_observe_facts(facts)
-    if rt.flags.get("optimization_halt"):
-        rt.terminal = True
-        rt.flags["retry"] = False
-        rt.flags["ok"] = True
-        rt.flags["scene_ready"] = True
-        rt.flags["op_failed"] = False
-        return Command(update=_bump(rt), goto="__settle__")
-    if (
-        critique_issues
-        and st.reflect_left > 0
-        and not rt.turn.get("done")
-        and st.painted
-    ):
-        # Cheap structural gate before (optional) LLM Review.
-        return await _retry_paint_from_critique(
-            rt, st, round_i=round_i, issues=critique_issues
-        )
-
-    review_triggers = list(facts.issues or [])
-    if _should_route_to_review(rt, signals=review_triggers) and st.painted:
-        from app.services.design.runtime.graph.nodes.review import stash_review_context
-
-        stash_review_context(
-            st.task_id,
-            preview_image=preview_image,
-            signals=observe_signals or list(critique_issues or []),
-        )
-        st.push_log(
-            phase="observe",
-            summary="observe done → Review Agent (auto gate)",
-            has_preview=bool(preview_image) or None,
-            critique_signals=len(critique_issues or []) or None,
-            review_mode=_review_mode(rt),
-        )
-        rt.flags["scene_ready"] = True
-        rt.flags["op_failed"] = False
-        rt.flags["retry"] = False
-        rt.terminal = False
-        return Command(update=_bump(rt), goto="review")
-
-    if critique_issues:
-        _emit_ux_tip(
-            rt,
-            "observe_critique_failed",
-            params={"issues": "; ".join(critique_issues[:2])},
-        )
-
-    rt.flags["scene_ready"] = True
-    rt.flags["op_failed"] = False
-    rt.flags["ok"] = not bool(critique_issues)
-    rt.flags["retry"] = False
-    rt.terminal = True
-    return Command(update=_bump(rt), goto="__settle__")
+    return await _route_after_observe_facts(
+        rt,
+        st,
+        round_i=round_i,
+        critique_issues=critique_issues,
+        preview_image=preview_image,
+        observe_signals=observe_signals,
+    )

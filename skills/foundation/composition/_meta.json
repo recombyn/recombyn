@@ -15,6 +15,8 @@
   "preferred_tools": ["create_frame", "create_image", "create_text", "create_shape", "update_node"],
   "allowed_resources": ["tools"],
   "triggers": [],
+  "scope": ["plan", "paint"],
+  "quality_signals": ["composition"],
   "mutex_group": "",
   "prompt_negative": "Do not create nodes before choosing an archetype. Do not use equal three-card default without a reason.",
   "locales": {

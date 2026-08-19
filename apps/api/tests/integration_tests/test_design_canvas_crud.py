@@ -9,11 +9,23 @@ from typing import Any
 import pytest
 
 from app.services.design.readpath.catalog import ensure_design_catalog
+from app.services.design.runtime.graph.nodes.decide import IntelligenceTaskProfile
 from app.services.design.runtime.graph.state import PaintOpsSchema
+from app.services.design.runtime.graph.turns import _turn_from_structured
 from app.services.design.runtime.models_route import IntentClassifyDecision
 from tests.design_harness import collect_design_events, events_by_type
 
 TEST_USER = "user_eval_canvas_crud"
+
+_P0_BRIEF = {
+    "purpose": "canvas edit",
+    "audience": "general",
+    "emotion": ["clear"],
+    "visual_thesis": "keep layout",
+    "visual_hero": "target node",
+    "composition": {"archetype": "center_hero", "rules": {}},
+    "avoid": ["clutter"],
+}
 
 _BOARD = {
     "canvas_size": "800x600",
@@ -99,6 +111,14 @@ def _wallet_and_fast_observe(monkeypatch):
         "app.services.design.runtime.graph.nodes.observe._SCENE_WAIT_SEC",
         0.05,
     )
+    monkeypatch.setattr(
+        "app.core.config.settings.intelligence_provider",
+        "local",
+    )
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.nodes.decide.intelligence_task_profile",
+        lambda _rt: IntelligenceTaskProfile("direct", (), (), False, False),
+    )
 
 
 def _agent(**kwargs: Any) -> list[dict[str, Any]]:
@@ -127,23 +147,17 @@ def _mock_paint_path(monkeypatch: Any, *, ops: list[dict[str, Any]], intent: str
             rationale="canvas crud",
         )
 
-    async def _stream(
-        *,
-        model_family: str,
-        system: str,
-        user: str,
-        rules: dict[str, str],
-        images: list[str] | None = None,
-        max_tokens: int = 1024,
-        enable_thinking: bool = False,
-        live_emit: bool = False,
-    ) -> tuple[str, str, int, list[dict[str, Any]], str]:
-        del system, user, rules, images, max_tokens, enable_thinking, live_emit
-        content = (
-            f'{{"thought":"crud","intent":"{intent}","reply":"",'
-            f'"need_tools":[],"need_skills":[],"tool_ops":[]}}'
+    async def _decide(*_a: Any, **_k: Any) -> dict[str, Any]:
+        turn = _turn_from_structured(
+            {
+                "thought": "crud",
+                "intent": intent if intent in ("edit", "create") else "edit",
+                "reply": "",
+                "design_brief": _P0_BRIEF,
+            }
         )
-        return model_family, content, 8, [], ""
+        turn["tool_ops_raw"] = None
+        return turn
 
     async def _structured(**_kwargs: Any) -> dict[str, Any]:
         return {
@@ -159,8 +173,8 @@ def _mock_paint_path(monkeypatch: Any, *, ops: list[dict[str, Any]], intent: str
         _classify,
     )
     monkeypatch.setattr(
-        "app.services.design.runtime.graph.nodes.decide._stream_llm_text",
-        _stream,
+        "app.services.design.runtime.graph.nodes.decide._decide_turn_from_llm",
+        _decide,
     )
     monkeypatch.setattr(
         "app.services.llm.agent.ainvoke_structured",
@@ -169,7 +183,7 @@ def _mock_paint_path(monkeypatch: Any, *, ops: list[dict[str, Any]], intent: str
 
 
 def _first_ops(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    batches = events_by_type(events, "tool_ops")
+    batches = events_by_type(events, "transaction.chunk")
     assert batches, events
     ops = batches[0].get("ops") or []
     assert isinstance(ops, list) and ops
@@ -284,8 +298,8 @@ def test_ask_design_propose_then_confirm_apply(monkeypatch):
     _mock_paint_path(monkeypatch, intent="create", ops=create_ops)
 
     propose_events = _ask(prompt="加个标题 Ask Title", scene_nodes=[], **_BOARD)
-    assert not events_by_type(propose_events, "tool_ops") or not (
-        events_by_type(propose_events, "tool_ops")[0].get("ops")
+    assert not events_by_type(propose_events, "transaction.chunk") or not (
+        events_by_type(propose_events, "transaction.chunk")[0].get("ops")
     )
     res = events_by_type(propose_events, "result")[-1]
     proposed = res.get("proposed_ops") or []
@@ -298,7 +312,7 @@ def test_ask_design_propose_then_confirm_apply(monkeypatch):
         scene_nodes=[],
         **_BOARD,
     )
-    applied = events_by_type(confirm_events, "tool_ops")
+    applied = events_by_type(confirm_events, "transaction.chunk")
     assert applied, confirm_events
     names = _op_names([o for o in (applied[0].get("ops") or []) if isinstance(o, dict)])
     assert "create_text" in names
@@ -344,7 +358,7 @@ def test_ask_typed_confirm_via_proposal_id(monkeypatch):
         scene_nodes=[],
         **_BOARD,
     )
-    applied = events_by_type(confirm_events, "tool_ops")
+    applied = events_by_type(confirm_events, "transaction.chunk")
     assert applied, confirm_events
     assert "create_text" in _op_names(
         [o for o in (applied[0].get("ops") or []) if isinstance(o, dict)]
@@ -387,7 +401,7 @@ def test_ask_typed_dismiss_via_proposal_id(monkeypatch):
         scene_nodes=[],
         **_BOARD,
     )
-    assert not events_by_type(dismiss_events, "tool_ops")
+    assert not events_by_type(dismiss_events, "transaction.chunk")
     tokens = "".join(
         str(e.get("text") or "") for e in dismiss_events if e.get("type") == "token"
     )
@@ -764,7 +778,7 @@ def test_ask_all_canvas_ops_propose(
         focus_frame_id="f1",
     )
     # No live apply
-    live = events_by_type(events, "tool_ops")
+    live = events_by_type(events, "transaction.chunk")
     assert not live or not live[0].get("ops")
     res = events_by_type(events, "result")[-1]
     proposed = [o for o in (res.get("proposed_ops") or []) if isinstance(o, dict)]

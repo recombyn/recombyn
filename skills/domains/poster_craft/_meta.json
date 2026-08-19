@@ -47,6 +47,7 @@
     }
   ],
   "mutex_group": "surface",
+  "scope": ["plan", "paint"],
   "prompt_negative": "No unjustified purple-blue glass postcard defaults. No inventing logos/prices/QR. Prefer overlay type over baked titles. Complex atmosphere → image_gen, not crude shape piles.",
   "locales": {
     "zh-CN": {

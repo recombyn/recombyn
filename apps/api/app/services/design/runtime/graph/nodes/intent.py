@@ -86,13 +86,13 @@ async def _node_intent_classify(state: GraphState) -> Command:
     st = rt.run
     pending = _pending_proposal_flag(rt)
     dial_lines: list[str] = []
-    for t in list(getattr(rt, "mem_short", None) or [])[-8:]:
+    for t in list(getattr(rt, "mem_short", None) or [])[-4:]:
         if not isinstance(t, dict):
             continue
         role = "User" if str(t.get("role") or "") == "user" else "Assistant"
         text = str(t.get("text") or "").strip()
         if text:
-            dial_lines.append(f"{role}: {text[:400]}")
+            dial_lines.append(f"{role}: {text[:280]}")
     t_intent = time.perf_counter()
     decision = await classify_user_intent(
         prompt=rt.prompt,
@@ -103,7 +103,6 @@ async def _node_intent_classify(state: GraphState) -> Command:
         scene_nodes=rt.scene_nodes,
         interaction_mode=str(rt.flags.get("mode") or rt.mode or ""),
         pending_proposal=pending,
-        memory_blocks=str(getattr(rt, "mem_blocks", "") or ""),
         recent_dialogue="\n".join(dial_lines),
     )
     intent_ms = max(0, int((time.perf_counter() - t_intent) * 1000))

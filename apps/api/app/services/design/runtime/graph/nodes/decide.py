@@ -9,6 +9,7 @@ from typing import Any
 from langgraph.types import Command
 
 from app.services.design.runtime.graph.state import (
+    AgentRunState,
     AgentRuntime,
     GraphState,
     _DEFAULT_MAX_ROUNDS,
@@ -23,7 +24,6 @@ from app.services.design.runtime.graph.state import (
 )
 from app.services.design.runtime.graph.emit_sse import (
     _emit,
-    _flush_host_events,
 )
 from app.services.design.runtime.graph.llm_io import (
     _chat_fallback_text,
@@ -32,7 +32,6 @@ from app.services.design.runtime.graph.llm_io import (
     _interaction_mode_rules_pack,
     _llm_io_fields,
     _resolve_and_log_model,
-    _stream_llm_text,
     _thinking_field,
     _ui_thought_text,
 )
@@ -46,7 +45,6 @@ from app.services.design.runtime.graph.turns import (
     _absorb_ask_choices,
     _append_prompt_pack,
     _format_thought_messages,
-    _parse_agent_turn,
     _resolve_paint_want,
     _should_route_to_paint,
     _turn_from_structured,
@@ -550,6 +548,100 @@ def _stash_design_brief(rt: AgentRuntime, turn: dict[str, Any], *, round_i: int)
     return paint_text
 
 
+def _raw_decide_filled(raw: Any) -> bool:
+    """True when structured output has a real decide field (not an empty body)."""
+    if raw is None:
+        return False
+    if hasattr(raw, "model_dump"):
+        try:
+            data = raw.model_dump()
+        except Exception:
+            return False
+    else:
+        data = raw
+    if not isinstance(data, dict) or not data:
+        return False
+    if str(data.get("intent") or "").strip():
+        return True
+    if str(data.get("reply") or "").strip():
+        return True
+    if data.get("need_tools") or data.get("need_skills") or data.get("need_subagents"):
+        return True
+    if data.get("design_brief") or data.get("choice_ui"):
+        return True
+    return False
+
+
+async def _ainvoke_decide_structured(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    *,
+    lc_system: str,
+    user_msg: str,
+    turn_images: list[str] | None,
+    round_i: int,
+) -> tuple[dict[str, Any], Any]:
+    from app.services.llm import build_user_message_content
+    from app.services.llm.agent import ainvoke_structured
+
+    user_content = build_user_message_content(user_msg, turn_images)
+    structured_out = await ainvoke_structured(
+        schema=resolve_contract_schema("decide"),
+        messages=[{"role": "user", "content": user_content}],
+        model=st.family,
+        system=lc_system,
+        source="design",
+        run_name=f"design_decide:{st.task_id[:8]}",
+        metadata={
+            "task_id": st.task_id,
+            "trace_id": st.trace_id,
+            "user_id": rt.user_id,
+            "scene": rt.scene_key or "",
+            "intent": str(rt.classified_intent or ""),
+            "round": round_i,
+            "has_images": bool(turn_images),
+            "stage": "decide",
+        },
+        tags=["design", "lc_design", "design_agent", "decide"],
+    )
+    raw = structured_out.get("structured") if isinstance(structured_out, dict) else None
+    turn = _turn_from_structured(raw)
+    turn["tool_ops_raw"] = None
+    return turn, raw
+
+
+async def _decide_turn_from_llm(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    *,
+    lc_system: str,
+    user_msg: str,
+    turn_images: list[str] | None,
+    round_i: int,
+) -> dict[str, Any]:
+    """One structured call; retry once on timeout / empty / schema failure."""
+    last_turn: dict[str, Any] = _turn_from_structured(None)
+    last_turn["tool_ops_raw"] = None
+    for attempt in (0, 1):
+        try:
+            turn, raw = await _ainvoke_decide_structured(
+                rt,
+                st,
+                lc_system=lc_system,
+                user_msg=user_msg,
+                turn_images=turn_images,
+                round_i=round_i,
+            )
+        except Exception:
+            if attempt == 0:
+                continue
+            raise
+        last_turn = turn
+        if _raw_decide_filled(raw):
+            return turn
+    return last_turn
+
+
 async def _node_design_agent(state: GraphState) -> Command:
     """Decision stage: chat / clarify / need_* only. Canvas ops → paint_ops."""
     rt = state["rt"]
@@ -665,54 +757,16 @@ async def _node_design_agent(state: GraphState) -> Command:
         turn: dict[str, Any] = {}
         t_decide = time.perf_counter()
         try:
-            st.family, content, used_hint, llm_ev, llm_think = await _stream_llm_text(
-                model_family=st.family,
-                system=lc_system,
-                user=user_msg,
-                rules=rt.rules,
-                images=turn_images,
-                max_tokens=2048,
-                enable_thinking=True,
-                live_emit=True,
+            turn = await _decide_turn_from_llm(
+                rt,
+                st,
+                lc_system=lc_system,
+                user_msg=user_msg,
+                turn_images=turn_images,
+                round_i=round_i,
             )
-            _flush_host_events(st, llm_ev)
-            st.total_tokens += used_hint
-            st.note_tokens(used_hint, model_id=str(getattr(st, "family", "") or ""), source="decide")
-            turn = _parse_agent_turn(content)
-            # Ignore any accidental tool_ops from decision text — paint stage owns ops.
-            turn["tool_ops_raw"] = None
-            if (
-                not turn.get("intent")
-                and not turn.get("reply")
-                and not turn.get("need_tools")
-                and not turn.get("need_skills")
-                and not turn.get("need_subagents")
-            ):
-                from app.services.llm import build_user_message_content
-                from app.services.llm.agent import ainvoke_structured
-
-                user_content = build_user_message_content(user_msg, turn_images)
-                structured_out = await ainvoke_structured(
-                    schema=resolve_contract_schema("decide"),
-                    messages=[{"role": "user", "content": user_content}],
-                    model=st.family,
-                    system=lc_system,
-                    source="design",
-                    run_name=f"design_decide:{st.task_id[:8]}",
-                    metadata={
-                        "task_id": st.task_id,
-                        "trace_id": st.trace_id,
-                        "user_id": rt.user_id,
-                        "scene": rt.scene_key or "",
-                        "intent": str(rt.classified_intent or ""),
-                        "round": round_i,
-                        "has_images": bool(turn_images),
-                        "stage": "decide"
-                    },
-                    tags=["design", "lc_design", "design_agent", "decide"],
-                )
-                turn = _turn_from_structured(structured_out.get("structured"))
-                turn["tool_ops_raw"] = None
+            llm_think = str(turn.get("thought") or "").strip()
+            content = str(turn.get("reply") or llm_think)
         except Exception as err:  # noqa: BLE001
             st.note_error(f"design_agent_llm_failed: {err}"[:240])
             st.push_log(

@@ -244,3 +244,130 @@ def test_remote_applies_advanced_hooks(monkeypatch):
     assert (rt.judge_verdict or {}).get("score") == 90
     assert (rt.optimization or {}).get("actions")
     assert rt.flags.get("knowledge_written") is True
+
+
+class _StubResearch:
+    async def research(self, _rt: object):
+        return {"summary": "stub-local", "provider": "stub"}
+
+
+def test_remote_builds_request_once_per_call(monkeypatch):
+    import asyncio
+
+    from app.services.design.intelligence_runtime import RemoteIntelligenceProvider
+
+    builds: list[str] = []
+    remote = RemoteIntelligenceProvider(base_url="http://example.invalid")
+
+    def _count(method: str, rt: object):
+        builds.append(method)
+        from recombyn_runtime.intelligence import build_intelligence_request as real
+
+        return real(method, rt)
+
+    monkeypatch.setattr(
+        "recombyn_intelligence_client.remote.build_intelligence_request",
+        _count,
+    )
+
+    async def _ok(_method: str, _payload: object):
+        return {"summary": "ok", "provider": "remote"}
+
+    monkeypatch.setattr(remote, "_post", _ok)
+
+    async def _run():
+        return await remote.research(_rt())
+
+    result = asyncio.run(_run())
+    assert result is not None
+    assert builds == ["research"]
+
+
+def test_circuit_skips_http_after_timeout(monkeypatch):
+    import asyncio
+    import httpx
+
+    from app.services.design.intelligence_runtime import RemoteIntelligenceProvider
+
+    posts: list[str] = []
+
+    class _FailClient:
+        is_closed = False
+
+        async def post(self, url: str, json=None, headers=None):
+            posts.append(url)
+            raise httpx.TimeoutException("timeout")
+
+    fail_client = _FailClient()
+    remote = RemoteIntelligenceProvider(
+        base_url="http://example.invalid",
+        timeout_sec=8.0,
+        circuit_sec=30.0,
+        fallback=_StubResearch(),
+    )
+
+    async def _http():
+        return fail_client
+
+    monkeypatch.setattr(remote, "_http_client", _http)
+
+    async def _run():
+        first = await remote.research(_rt())
+        second = await remote.research(_rt())
+        return first, second
+
+    first, second = asyncio.run(_run())
+    assert first == {"summary": "stub-local", "provider": "stub"}
+    assert second == {"summary": "stub-local", "provider": "stub"}
+    assert len(posts) == 1
+    assert remote._circuit_open() is True
+
+
+def test_hop_cache_skips_http_on_resume(monkeypatch):
+    import asyncio
+
+    from app.services.design.intelligence_runtime import RemoteIntelligenceProvider
+
+    store: dict[tuple[str, str, str], dict] = {}
+    posts: list[str] = []
+
+    def hop_get(key: tuple[str, str, str]):
+        return store.get(key)
+
+    def hop_put(key: tuple[str, str, str], payload: dict):
+        store[key] = payload
+
+    async def _ok(method: str, _payload: object):
+        posts.append(method)
+        return {"summary": "cached", "provider": "remote"}
+
+    first = RemoteIntelligenceProvider(
+        base_url="http://example.invalid",
+        hop_get=hop_get,
+        hop_put=hop_put,
+    )
+    monkeypatch.setattr(first, "_post", _ok)
+
+    async def _run_first():
+        return await first.research(_rt())
+
+    assert asyncio.run(_run_first())["summary"] == "cached"
+    assert posts == ["research"]
+
+    resumed = RemoteIntelligenceProvider(
+        base_url="http://example.invalid",
+        hop_get=hop_get,
+        hop_put=hop_put,
+    )
+
+    async def _forbidden(_method: str, _payload: object):
+        posts.append("should-not-post")
+        return {"summary": "fresh", "provider": "remote"}
+
+    monkeypatch.setattr(resumed, "_post", _forbidden)
+
+    async def _run_resume():
+        return await resumed.research(_rt())
+
+    assert asyncio.run(_run_resume())["summary"] == "cached"
+    assert posts == ["research"]

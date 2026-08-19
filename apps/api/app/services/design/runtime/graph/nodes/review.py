@@ -1597,19 +1597,12 @@ def _build_review_user_msg(
         parts.append(
             "SKILL_CRAFT (this lane's review playbook only):\n" + lane_craft
         )
-    else:
-        skill_craft = str(getattr(rt, "pending_skill_details", "") or "").strip()
-        if skill_craft:
-            parts.append(
-                "SKILL_CRAFT (business playbooks for this run — judge against these):\n"
-                + skill_craft[:4000]
-            )
-        elif list(getattr(rt.run, "skills_loaded", None) or []):
-            keys = ", ".join(str(k) for k in rt.run.skills_loaded[:12])
-            parts.append(
-                f"SKILL_CRAFT: playbook bodies not in context; loaded keys: {keys}. "
-                "Gate on DESIGN_BRIEF fidelity + SCENE; do not invent extra aesthetic curricula."
-            )
+    elif list(getattr(rt.run, "skills_loaded", None) or []):
+        keys = ", ".join(str(k) for k in rt.run.skills_loaded[:12])
+        parts.append(
+            f"SKILL_CRAFT: playbook bodies not in context; loaded keys: {keys}. "
+            "Gate on DESIGN_BRIEF fidelity + SCENE; do not invent extra aesthetic curricula."
+        )
     parts.append(f"SCENE:\n{_scene_digest(rt)}")
     if has_preview:
         parts.append(
@@ -2394,7 +2387,8 @@ async def _node_review_agent(state: GraphState) -> Command:
         )
 
     if (
-        not halt_loop
+        not must_fix
+        and not halt_loop
         and action != "rebuild"
         and not rt.flags.get("polish_done")
         and st.painted
@@ -2402,6 +2396,7 @@ async def _node_review_agent(state: GraphState) -> Command:
     ):
         cmd = _try_polish_command(rt, st, round_i=round_i, verdict=verdict)
         if cmd is not None:
+            rt.flags["review_repair_used"] = True
             return cmd
 
     if must_fix:

@@ -271,3 +271,47 @@ def test_repair_command_none_when_no_living_targets():
     )
     assert cmd is None
     assert rt.step_ops == []
+
+
+def test_observe_after_repair_command_does_not_reenter_review(monkeypatch):
+    import asyncio
+
+    from app.services.design.runtime.graph.nodes import observe as observe_mod
+
+    monkeypatch.setattr(observe_mod, "_emit", lambda ev: None)
+    monkeypatch.setattr(observe_mod, "_emit_ux_tip", lambda *_a, **_k: None)
+    rt = _rt()
+    verdict = {
+        "review_action": "repair",
+        "summary": "title too loud",
+        "fix_brief": "shrink title",
+        "issues": [
+            {
+                "severity": "major",
+                "area": "hierarchy",
+                "issue": "标题抢夺 Hero 注意力",
+                "target": "title",
+                "action": "reduce_size",
+                "patch": {"fontSize": 72},
+            }
+        ],
+        "subtraction_actions": [],
+        "total": 82,
+    }
+    cmd = _try_repair_plan_command(rt, rt.run, round_i=1, verdict=verdict)
+    assert cmd is not None
+    assert rt.flags["review_repair_used"] is True
+
+    async def after_observe():
+        return await observe_mod._route_after_observe_facts(
+            rt,
+            rt.run,
+            round_i=2,
+            critique_issues=["alignment: title/hero left edges 4px apart"],
+            preview_image=None,
+            observe_signals=["overlap = false"],
+        )
+
+    nxt = asyncio.run(after_observe())
+    assert nxt.goto == "__settle__"
+    assert observe_mod._should_route_to_review(rt) is False
