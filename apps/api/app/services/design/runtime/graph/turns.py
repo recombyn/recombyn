@@ -30,14 +30,24 @@ _ASK_CHOICE_MODES = frozenset({"confirm", "single", "multi", "buttons", "text"})
 _ASK_CHOICE_ACTIONS = frozenset({"apply", "reply", "dismiss"})
 
 
-def _thought_context_limits(rt: Any) -> tuple[int, int, int, int]:
-    """Bound memory and scene context by the work being decided."""
+def _thought_context_limits(rt: Any, *, stage: str = "decide") -> tuple[int, int, int, int]:
+    """Bound memory / dialogue / edit_context by stage.
+
+    Returns (memory_limit, dialogue_count, dialogue_limit, edit_context_limit).
+    """
+    if stage == "paint":
+        intent = normalize_user_intent(getattr(rt, "classified_intent", None))
+        if intent == "canvas_op":
+            return 0, 0, 0, 0
+        return 0, 0, 0, 2500
+    if stage == "intent":
+        return 0, 4, 280, 0
     intent = normalize_user_intent(getattr(rt, "classified_intent", None))
     if intent == "canvas_op":
-        return 900, 3, 280, 1400
+        return 900, 3, 280, 0
     if getattr(rt, "pending_skill_details", ""):
-        return 1400, 4, 320, 1800
-    return 1800, 5, 360, 2200
+        return 1400, 4, 320, 0
+    return 1800, 5, 360, 0
 
 
 def _is_canvas_work_intent(raw: str | None) -> bool:
@@ -244,6 +254,7 @@ def _normalize_agent_turn_obj(obj: dict[str, Any] | None) -> dict[str, Any]:
         "skill_input_args": skill_input_args,
         "skill_parse_errs": skill_parse_errs,
         "choice_ui": choice_ui,
+        "design_brief": obj.get("design_brief"),
         "done": bool(done),
         "raw_obj": obj
     }
@@ -285,120 +296,167 @@ def _append_pending_reinject(
     if reinject:
         parts.append(reinject)
 
-def _thought_prompt_variables(rt: Any) -> dict[str, str]:
-    """Variables for LangChain ChatPromptTemplate (thought turn)."""
+def _canvas_size_block(rt: Any) -> str:
     from app.services.design.readpath.canvas_scene import explicit_canvas_size
     from app.services.design.runtime.graph.llm_io import _prompt_text
-    from app.services.design.runtime.graph.scene_log import _scene_digest
-    st = rt.run
-    if rt.w > 0 and rt.h > 0:
-        canvas_size = f"{rt.w}x{rt.h}"
+
+    try:
+        w = int(getattr(rt, "w", 0) or 0)
+        h = int(getattr(rt, "h", 0) or 0)
+    except (TypeError, ValueError):
+        w, h = 0, 0
+    if w > 0 and h > 0:
+        canvas_size = f"{w}x{h}"
         if explicit_canvas_size(getattr(rt, "canvas_size", None)):
-            # Composer chip WxH wins over any size written in USER_PROMPT.
-            canvas_size = (
-                f"{rt.w}x{rt.h}\n"
+            return (
+                f"{w}x{h}\n"
                 "CLIENT_SIZE_LOCK: composer size chip is authoritative. "
                 "Ignore conflicting WxH in USER_PROMPT; layout ONLY inside "
-                f"{rt.w}x{rt.h} (frame-local 0..w, 0..h). Do not emit create_frame "
+                f"{w}x{h} (frame-local 0..w, 0..h). Do not emit create_frame "
                 "with a different size."
             )
-    elif _as_text(rt.canvas_size).strip().lower() in ("", "auto"):
-        hint = (rt.size_auto_hint or _prompt_text(rt.rules, "agent.prompt.size_auto")).strip()
-        canvas_size = ("auto\n" + hint) if hint else "auto"
+        return canvas_size
+    if _as_text(getattr(rt, "canvas_size", "")).strip().lower() in ("", "auto"):
+        hint = (
+            getattr(rt, "size_auto_hint", None)
+            or _prompt_text(getattr(rt, "rules", None) or {}, "agent.prompt.size_auto")
+        ).strip()
+        return ("auto\n" + hint) if hint else "auto"
+    return _as_text(getattr(rt, "canvas_size", "")).strip() or "unknown"
+
+
+def _pending_blocks_for_stage(rt: Any, *, stage: str) -> str:
+    """Decide: skills + subagents (6k). Paint: TOOL_DETAILS only. Never full SCENE JSON."""
+    parts: list[str] = []
+    if stage == "paint":
+        _append_pending_reinject(
+            parts,
+            getattr(rt, "pending_tool_details", "") or "",
+            rules=rt.rules,
+            prompt_key="agent.prompt.pending_tools",
+        )
+        cap = 4_000
+    elif stage == "decide":
+        _append_pending_reinject(
+            parts,
+            getattr(rt, "pending_skill_details", "") or "",
+            rules=rt.rules,
+            prompt_key="agent.prompt.pending_skills",
+        )
+        _append_pending_reinject(
+            parts,
+            getattr(rt, "pending_subagent_details", "") or "",
+            rules=rt.rules,
+            prompt_key="agent.prompt.pending_subagents",
+        )
+        cap = 6_000
     else:
-        canvas_size = _as_text(rt.canvas_size).strip() or "unknown"
+        return ""
+    text = ("\n\n".join(parts) + "\n\n") if parts else ""
+    if len(text) > cap:
+        return text[:cap] + "\n…(pending truncated)\n\n"
+    return text
 
-    memory_limit, dialogue_count, dialogue_limit, edit_context_limit = _thought_context_limits(rt)
-    pending_parts: list[str] = []
-    _append_pending_reinject(
-        pending_parts,
-        rt.pending_tool_details,
-        rules=rt.rules,
-        prompt_key="agent.prompt.pending_tools",
-    )
-    _append_pending_reinject(
-        pending_parts,
-        rt.pending_skill_details,
-        rules=rt.rules,
-        prompt_key="agent.prompt.pending_skills",
-    )
-    _append_pending_reinject(
-        pending_parts,
-        getattr(rt, "pending_subagent_details", "") or "",
-        rules=rt.rules,
-        prompt_key="agent.prompt.pending_subagents",
-    )
-    pending_blocks = ("\n\n".join(pending_parts) + "\n\n") if pending_parts else ""
-    # Decide thought budget — paint reloads TOOL_DETAILS; keep skill essays bounded.
-    if len(pending_blocks) > 6_000:
-        pending_blocks = pending_blocks[:6_000] + "\n…(pending truncated)\n\n"
 
-    plan_block = ""
+def _execution_plan_block(rt: Any) -> str:
     execution_plan = getattr(rt, "design_plan", None)
-    if isinstance(execution_plan, dict):
-        target_ids = [str(value)[:64] for value in execution_plan.get("target_node_ids", []) if str(value).strip()][:8]
-        plan_block += (
-            "EXECUTION_PLAN (authoritative):\n"
-            f"goal={str(execution_plan.get('goal') or '')[:1200]}\n"
-            f"intent={str(execution_plan.get('intent') or '')} "
-            f"lane={str(execution_plan.get('paint_lane') or '')}\n"
-            f"target_frame_id={str(execution_plan.get('target_frame_id') or '')[:64]}\n"
-            f"target_node_ids={', '.join(target_ids) or '(none)'}\n"
-            f"constraints={'; '.join(str(value)[:160] for value in execution_plan.get('constraints', [])[:6]) or '(none)'}\n"
-            f"acceptance={'; '.join(str(value)[:160] for value in execution_plan.get('acceptance_criteria', [])[:6]) or '(none)'}\n\n"
-        )
-    if st.plan:
-        plan_block += (
-            "PLAN:\n"
-            + "\n".join(f"{i+1}. {s}" for i, s in enumerate(st.plan[:12]))
-            + "\n\n"
-        )
-    memory_block = f"MEMORY:\n{rt.mem_blocks[:memory_limit]}\n\n" if rt.mem_blocks else ""
-    recent_dialogue = ""
-    if rt.mem_short:
-        dial_lines: list[str] = []
-        for t in list(rt.mem_short)[-dialogue_count:]:
-            if not isinstance(t, dict):
-                continue
-            role = "User" if str(t.get("role") or "") == "user" else "Assistant"
-            text = _as_text(t.get("text")).strip()
-            if not text:
-                continue
-            dial_lines.append(f"{role}: {text[:dialogue_limit]}")
-        if dial_lines:
-            recent_dialogue = (
-                "RECENT_DIALOGUE (continue this thread; do not re-greet):\n"
-                + "\n".join(dial_lines)
-                + "\n\n"
-            )
-    error_parts: list[str] = []
-    if st.errors:
-        trail = "\n".join(f"- {e}" for e in st.errors[-5:])
-        error_parts.append(f"PRIOR_ERRORS (fix):\n{trail}")
-    if st.reflect_note:
-        error_parts.append(f"LAST_ERROR (fix):\n{st.reflect_note}")
-    error_block = ("\n\n".join(error_parts) + "\n\n") if error_parts else ""
-
-    edit_context = ""
-    # Compact only — full SCENE JSON is redundant with scene_digest (fills included).
-    # Skip on lean turns: paint_kit lean path never reads edit_context.
-    try:
-        from app.services.design.runtime.graph.paint_kit import _is_lean_paint_turn
-
-        lean_turn = _is_lean_paint_turn(rt)
-    except Exception:
-        lean_turn = False
-    if not lean_turn and (rt.scene_nodes or rt.scene_frames):
-        edit_context = _edit_context_block(
-            rt.rules,
-            "",
-            include_full_svg=False,
-            scene_nodes=rt.scene_nodes,
-        )
-        if len(edit_context) > edit_context_limit:
-            edit_context = edit_context[:edit_context_limit] + "\n…(edit_context truncated)"
+    if not isinstance(execution_plan, dict):
+        return ""
+    target_ids = [
+        str(value)[:64]
+        for value in execution_plan.get("target_node_ids", [])
+        if str(value).strip()
+    ][:8]
+    return (
+        "EXECUTION_PLAN (authoritative):\n"
+        f"goal={str(execution_plan.get('goal') or '')[:1200]}\n"
+        f"intent={str(execution_plan.get('intent') or '')} "
+        f"lane={str(execution_plan.get('paint_lane') or '')}\n"
+        f"target_frame_id={str(execution_plan.get('target_frame_id') or '')[:64]}\n"
+        f"target_node_ids={', '.join(target_ids) or '(none)'}\n"
+        f"constraints={'; '.join(str(value)[:160] for value in execution_plan.get('constraints', [])[:6]) or '(none)'}\n"
+        f"acceptance={'; '.join(str(value)[:160] for value in execution_plan.get('acceptance_criteria', [])[:6]) or '(none)'}\n\n"
+    )
 
 
+def _steps_plan_block(st: Any) -> str:
+    plan = getattr(st, "plan", None) or []
+    if not plan:
+        return ""
+    return "PLAN:\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(plan[:12])) + "\n\n"
+
+
+def _memory_block(rt: Any, *, limit: int) -> str:
+    if limit <= 0:
+        return ""
+    mem = str(getattr(rt, "mem_blocks", "") or "")
+    if not mem:
+        return ""
+    return f"MEMORY:\n{mem[:limit]}\n\n"
+
+
+def _dialogue_block(rt: Any, *, count: int, limit: int) -> str:
+    if count <= 0 or limit <= 0:
+        return ""
+    mem_short = getattr(rt, "mem_short", None) or []
+    if not mem_short:
+        return ""
+    dial_lines: list[str] = []
+    for t in list(mem_short)[-count:]:
+        if not isinstance(t, dict):
+            continue
+        role = "User" if str(t.get("role") or "") == "user" else "Assistant"
+        text = _as_text(t.get("text")).strip()
+        if not text:
+            continue
+        dial_lines.append(f"{role}: {text[:limit]}")
+    if not dial_lines:
+        return ""
+    return (
+        "RECENT_DIALOGUE (continue this thread; do not re-greet):\n"
+        + "\n".join(dial_lines)
+        + "\n\n"
+    )
+
+
+def _error_block(st: Any) -> str:
+    parts: list[str] = []
+    errors = getattr(st, "errors", None) or []
+    if errors:
+        trail = "\n".join(f"- {e}" for e in errors[-5:])
+        parts.append(f"PRIOR_ERRORS (fix):\n{trail}")
+    note = str(getattr(st, "reflect_note", "") or "")
+    if note:
+        parts.append(f"LAST_ERROR (fix):\n{note}")
+    if not parts:
+        return ""
+    return "\n\n".join(parts) + "\n\n"
+
+
+def _edit_context_for_paint(rt: Any, *, limit: int) -> str:
+    if limit <= 0:
+        return ""
+    if not (getattr(rt, "scene_nodes", None) or getattr(rt, "scene_frames", None)):
+        return ""
+    edit_context = _edit_context_block(
+        rt.rules,
+        "",
+        include_full_svg=False,
+        scene_nodes=rt.scene_nodes,
+    )
+    if len(edit_context) > limit:
+        return edit_context[:limit] + "\n…(edit_context truncated)"
+    return edit_context
+
+
+def _thought_prompt_variables(rt: Any, *, stage: str = "decide") -> dict[str, str]:
+    """Variables for LangChain ChatPromptTemplate (thought turn) and paint user."""
+    from app.services.design.runtime.graph.scene_log import _scene_digest
+
+    st = rt.run
+    memory_limit, dialogue_count, dialogue_limit, edit_context_limit = (
+        _thought_context_limits(rt, stage=stage)
+    )
     try:
         fw = int(rt.w or 0)
         fh = int(rt.h or 0)
@@ -407,7 +465,7 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
     return {
         "system": str(rt.system or ""),
         "prompt": str(rt.prompt or ""),
-        "canvas_size": canvas_size,
+        "canvas_size": _canvas_size_block(rt),
         "scene": str(rt.scene_key or "-"),
         "scene_digest": _scene_digest(
             rt.scene_nodes,
@@ -416,17 +474,19 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
             focus_w=fw,
             focus_h=fh,
         ),
-        "pending_blocks": pending_blocks,
-        "plan_block": plan_block,
-        "recent_dialogue": recent_dialogue,
-        "memory_block": memory_block,
-        "error_block": error_block,
-        "edit_context": edit_context
+        "pending_blocks": _pending_blocks_for_stage(rt, stage=stage),
+        "plan_block": _execution_plan_block(rt) + _steps_plan_block(st),
+        "recent_dialogue": _dialogue_block(
+            rt, count=dialogue_count, limit=dialogue_limit
+        ),
+        "memory_block": _memory_block(rt, limit=memory_limit),
+        "error_block": _error_block(st),
+        "edit_context": _edit_context_for_paint(rt, limit=edit_context_limit),
     }
 
 def _format_thought_messages(rt: Any) -> tuple[str, str]:
     """Return (system, user) strings via LangChain ChatPromptTemplate."""
-    vars_ = _thought_prompt_variables(rt)
+    vars_ = _thought_prompt_variables(rt, stage="decide")
     messages = _thought_chat_prompt().format_messages(**vars_)
     system = ""
     user = ""
@@ -437,7 +497,9 @@ def _format_thought_messages(rt: Any) -> tuple[str, str]:
             system = content
         elif role in ("human", "user"):
             user = content
-    return system or vars_["system"], user
+    user_out = user
+    _log.debug("decide user_chars=%s", len(user_out or ""))
+    return system or vars_["system"], user_out
 
 __all__ = [
     '_ASK_CHOICE_MODES',

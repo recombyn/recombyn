@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.services.design.runtime.graph.state import (
     AgentRunState,
     AgentTurnSchema,
@@ -212,6 +214,27 @@ def test_turn_from_structured_keeps_reply_and_ops():
     assert "矩形" in turn["reply"]
     assert turn["tool_ops_raw"]
     assert turn["thought"] == "加矩形"
+
+
+def test_turn_from_structured_keeps_design_brief():
+    turn = _turn_from_structured(
+        {
+            "intent": "create",
+            "reply": "开始",
+            "design_brief": {
+                "purpose": "poster",
+                "audience": "general",
+                "emotion": ["clear"],
+                "visual_thesis": "title first",
+                "visual_hero": "headline",
+                "composition": {"archetype": "center_hero"},
+                "avoid": ["clutter"],
+            },
+        }
+    )
+    assert turn["intent"] == "create"
+    brief = turn.get("design_brief") or {}
+    assert brief.get("purpose") == "poster"
 
 
 def test_chat_fallback_fills_persona():
@@ -671,3 +694,151 @@ def test_validate_paint_ops_rejects_unknown_and_keeps_valid():
     )
     assert any(o.get("name") == "create_shape" for o in ops)
     assert errs  # unknown tool rejected
+
+
+def test_raw_decide_filled_requires_a_field():
+    from app.services.design.runtime.graph.nodes.decide import _raw_decide_filled
+
+    assert _raw_decide_filled(None) is False
+    assert _raw_decide_filled({}) is False
+    assert _raw_decide_filled({"intent": "edit"}) is True
+    assert _raw_decide_filled({"reply": "ok"}) is True
+
+
+def test_decide_structured_retries_once_then_stops(monkeypatch):
+    import asyncio
+
+    from app.services.design.runtime.graph.nodes.decide import _decide_turn_from_llm
+    from app.services.design.runtime.graph.state import AgentRunState
+
+    calls: list[str] = []
+
+    async def _empty_then_edit(**_kwargs: Any) -> dict[str, Any]:
+        calls.append("call")
+        if len(calls) == 1:
+            return {"structured": None}
+        return {"structured": {"intent": "edit", "thought": "ok", "reply": ""}}
+
+    monkeypatch.setattr("app.services.llm.agent.ainvoke_structured", _empty_then_edit)
+    st = AgentRunState(trace_id="tr", task_id="task_decide", goal="g")
+    st.family = "doubao"
+
+    class _Rt:
+        user_id = "u"
+        scene_key = ""
+        classified_intent = "design"
+        run = st
+
+    async def _run():
+        return await _decide_turn_from_llm(
+            _Rt(),  # type: ignore[arg-type]
+            st,
+            lc_system="sys",
+            user_msg="hello",
+            turn_images=None,
+            round_i=0,
+        )
+
+    turn = asyncio.run(_run())
+    assert calls == ["call", "call"]
+    assert turn["intent"] == "edit"
+
+    calls.clear()
+
+    async def _once(**_kwargs: Any) -> dict[str, Any]:
+        calls.append("call")
+        return {"structured": {"intent": "chat", "reply": "hi"}}
+
+    monkeypatch.setattr("app.services.llm.agent.ainvoke_structured", _once)
+    turn2 = asyncio.run(_run())
+    assert calls == ["call"]
+    assert turn2["intent"] == "chat"
+    assert turn2["reply"] == "hi"
+
+
+def _stage_context_rt(**extra: Any) -> Any:
+    from types import SimpleNamespace
+
+    skill_essay = "SKILL_ESSAY " + ("typography craft " * 80)
+    st = SimpleNamespace(plan=["do title"], errors=[], reflect_note="", tools_loaded=[])
+    fields = dict(
+        classified_intent="design",
+        prompt="把标题改成 Hello",
+        images=None,
+        spatial_summary={},
+        design_brief={
+            "purpose": "poster",
+            "audience": "teen",
+            "tone": "bold",
+            "constraints": ["one hero"],
+        },
+        pending_tool_details="TOOL_DETAILS:\n- create_text\n- update_node",
+        pending_skill_details=skill_essay,
+        pending_subagent_details="",
+        canvas_size="800x600",
+        size_auto_hint="",
+        scene_nodes=[
+            {
+                "id": "n_title",
+                "type": "text",
+                "text": "Old",
+                "fill": "#111",
+                "frameId": "f1",
+            }
+        ],
+        scene_frames=[{"id": "f1", "w": 800, "h": 600}],
+        focus_id="f1",
+        w=800,
+        h=600,
+        scene_key="poster",
+        system="",
+        mem_blocks="MEMORY_ESSAY " + ("taste " * 120),
+        mem_short=[{"role": "user", "text": "hi there"}],
+        rules={},
+        run=st,
+        flags={},
+        persona="",
+        design_plan={
+            "goal": "edit title",
+            "intent": "design",
+            "paint_lane": "edit",
+            "target_frame_id": "f1",
+            "target_node_ids": ["n_title"],
+            "constraints": [],
+            "acceptance_criteria": [],
+        },
+    )
+    fields.update(extra)
+    return SimpleNamespace(**fields)
+
+
+def test_decide_context_keeps_plan_memory_drops_scene_json():
+    from app.services.design.runtime.graph.turns import (
+        _format_thought_messages,
+        _thought_prompt_variables,
+    )
+
+    rt = _stage_context_rt()
+    vars_ = _thought_prompt_variables(rt, stage="decide")
+    assert "n_title" in vars_["plan_block"]
+    assert "MEMORY:" in vars_["memory_block"]
+    assert "typography craft" in vars_["pending_blocks"]
+    assert "TOOL_DETAILS" not in vars_["pending_blocks"]
+    assert not vars_["edit_context"]
+    _, user = _format_thought_messages(rt)
+    assert '"id": "n_title"' not in user
+    assert "target_node_ids=n_title" in user
+    assert "MEMORY:" in user
+
+
+def test_paint_context_keeps_targets_drops_memory_and_skill_essays():
+    from app.services.design.runtime.graph.paint_kit import _paint_ops_user
+
+    rt = _stage_context_rt()
+    user = _paint_ops_user(rt)
+    assert "n_title" in user
+    assert "target_node_ids=n_title" in user
+    assert "TOOL_DETAILS" in user
+    assert "MEMORY:" not in user
+    assert "SKILL_ESSAY" not in user
+    assert '"id": "n_title"' not in user or "target_node_ids=n_title" in user
