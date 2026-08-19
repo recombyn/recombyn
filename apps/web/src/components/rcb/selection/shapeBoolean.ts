@@ -431,7 +431,7 @@ function sparsifyClosedRing(
 function localBaselinePathD(b: ShapeBox): string {
   const t = String(b.shapeType || 'rect');
   if (t === 'path' || t === 'pen') {
-    const raw = String(b.path || b.attrs?.path || b.attrs?.d || '').trim();
+    const raw = String(b.path || b.attrs?.path || '').trim();
     if (!raw || t === 'pen') return raw;
     // Closed paths keep a sharp base + live radii; boolean must sample the
     // painted fillet or nested boolean / path×rect ops lose round corners.
@@ -963,11 +963,8 @@ export function applyBooleanResultPaint(
   const bw = parseFloat(String(attrs['border-width'] ?? fallback.borderWidth));
   attrs['stroke-enabled'] = 'true';
   attrs['stroke-visible'] = 'true';
-  attrs['border-color'] = String(
-    attrs['border-color'] || attrs.stroke || fallback.stroke || '#333333'
-  );
+  attrs['border-color'] = String(attrs['border-color'] || fallback.stroke || '#333333');
   attrs['border-width'] =
     Number.isFinite(bw) && bw > 0 ? bw : Math.max(1, Number(fallback.borderWidth) || 1);
   attrs.strokeAlign = 'center';
-  attrs['stroke-align'] = 'center';
 }

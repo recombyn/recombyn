@@ -66,10 +66,10 @@ def _summarize_actions(ops: list[Any] | None) -> list[dict[str, Any]]:
     for item in ops or []:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("op") or item.get("type") or item.get("name") or "").strip()
+        name = str(item.get("name") or "").strip()
         if not name:
             continue
-        slim: dict[str, Any] = {"op": name[:64]}
+        slim: dict[str, Any] = {"name": name[:64]}
         for key in ("id", "frameId", "targetId", "name"):
             val = item.get(key)
             if val is not None and str(val).strip():
@@ -280,9 +280,9 @@ def _row_to_hit(r: Any, *, retrieve: str, score: float | None = None) -> dict[st
     except Exception:
         actions = []
     op_names = [
-        str(a.get("op") or "")
+        str(a.get("name") or "")
         for a in actions
-        if isinstance(a, dict) and a.get("op")
+        if isinstance(a, dict) and a.get("name")
     ]
     hit: dict[str, Any] = {
         "id": str(_col(r, "id") or ""),

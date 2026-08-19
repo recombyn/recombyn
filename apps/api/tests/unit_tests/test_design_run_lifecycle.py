@@ -282,7 +282,7 @@ def test_worker_snapshot_preserves_behavior_affecting_request_fields():
         scene="website",
         focus_frame_id="f1",
         scene_nodes=[{"id": "n1", "type": "shape", "x": 1, "secret": "drop"}],
-        scene_frames=[{"id": "f1", "name": "Board", "width": 800, "ignored": True}],
+        scene_frames=[{"id": "f1", "name": "Board", "w": 800, "ignored": True}],
         images=["data:image/png;base64,x", "https://cdn.example.com/a.png"],
         style_group_id=7,
         ref_image_sizes=["10x20"],
@@ -482,7 +482,7 @@ def test_filter_unemitted_ops_idempotent():
     st = AgentRunState(task_id="t", trace_id="tr", goal="")
     ops = [
         {"name": "create_rect", "op_id": "a1", "args": {}},
-        {"name": "create_text", "args": {"op_id": "a2"}},
+        {"name": "create_text", "op_id": "a2", "args": {}},
         {"name": "noop", "args": {}},
     ]
     assert _op_id_of(ops[0]) == "a1"

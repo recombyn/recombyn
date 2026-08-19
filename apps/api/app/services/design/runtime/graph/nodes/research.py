@@ -242,7 +242,6 @@ def run_design_research_pipeline(
             "avoid": avoid[:10],
             "adopt": adopt[:10],
             "anti_category_strategy": anti[:16],
-            "hypotheses": why[:8],
             "why_effective": why[:8],
             "sources": sources[:24],
             "summary": (
@@ -274,7 +273,7 @@ def should_run_design_research(rt: AgentRuntime) -> bool:
 
 def _eval_patterns_from_rt(rt: AgentRuntime) -> list[dict[str, Any]]:
     flags = rt.flags if isinstance(rt.flags, dict) else {}
-    raw = flags.get("eval_failure_patterns") or flags.get("skill_failures")
+    raw = flags.get("eval_patterns")
     if isinstance(raw, list):
         return [x for x in raw if isinstance(x, dict)]
     return []
@@ -326,7 +325,7 @@ def format_research_for_decide(report: dict[str, Any] | None) -> str:
     if anti:
         lines.append("ANTI-CATEGORY STRATEGY:")
         lines.extend(f"- {x}" for x in anti)
-    why = list(src.get("why_effective") or src.get("hypotheses") or [])[:6]
+    why = list(src.get("why_effective") or [])[:6]
     if why:
         lines.append("why_effective:")
         lines.extend(f"- {x}" for x in why)

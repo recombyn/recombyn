@@ -63,7 +63,6 @@ describe('pen/pencil outline → path-edit paint', () => {
         path: polylinePathD(scribble()),
         'border-color': '#112233',
         'border-width': sw,
-        borderWidth: sw,
         brushStyle: 'vector-ink',
       },
     };

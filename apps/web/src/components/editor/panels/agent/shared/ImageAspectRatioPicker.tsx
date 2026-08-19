@@ -160,14 +160,12 @@ function ensureOpenRouterTransport(
 export function modelImageLimits(m?: {
   id?: string;
   provider?: string | null;
-  api_model?: string | null;
   apiModel?: string | null;
   imageLimits?: ImageLimits | null;
-  image_limits?: ImageLimits | null;
 } | null): ImageLimits | null {
-  const fromApi = m?.imageLimits || m?.image_limits || null;
+  const fromApi = m?.imageLimits || null;
   const provider = m?.provider;
-  const apiModel = m?.apiModel || m?.api_model;
+  const apiModel = m?.apiModel;
   const preset = inferImageLimitPreset(m?.id, apiModel, provider);
 
   if (fromApi?.resolutions?.length) {

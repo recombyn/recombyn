@@ -163,16 +163,12 @@ function strokeAttrsFromValue(
   const visible = opts?.visible !== false;
   const attrs: Record<string, unknown> = {
     'border-color': next.color,
-    stroke: next.color,
     'stroke-opacity': Math.max(0, Math.min(100, Math.round(next.opacity))),
     'border-width': Math.max(0, Math.round(next.width) || 0),
     strokeStyle: next.style,
     strokeAlign: next.align ?? 'center',
-    'stroke-align': next.align ?? 'center',
     strokeLinecap: linecap,
-    'stroke-linecap': linecap,
     strokeLinejoin: linejoin,
-    'stroke-linejoin': linejoin,
     'stroke-enabled': visible ? 'true' : 'false',
     'stroke-visible': visible ? 'true' : 'false',
   };
@@ -232,14 +228,14 @@ function readStrokeCorners(
 function readStrokeValue(attrs: Record<string, unknown> | undefined): StrokePanelValue {
   const a = attrs || {};
   const style = parseStrokeStyle(a.strokeStyle);
-  const widthNum = Number(a['border-width'] ?? a.strokeWidth ?? 1);
+  const widthNum = Number(a['border-width'] ?? 1);
   const shapeType = String(a.shapeType || '');
   // Pencil default round; pen + line + arrow default butt (stroke panel).
   const roundCaps = shapeType === 'pencil';
-  const hasCapAttr = a.strokeLinecap != null || a['stroke-linecap'] != null;
-  const hasJoinAttr = a.strokeLinejoin != null || a['stroke-linejoin'] != null;
+  const hasCapAttr = a.strokeLinecap != null;
+  const hasJoinAttr = a.strokeLinejoin != null;
   return {
-    color: String(a['border-color'] || a.stroke || '#333333'),
+    color: String(a['border-color'] || '#333333'),
     opacity: Math.max(0, Math.min(100, Number(a['stroke-opacity'] ?? 100))),
     width: Number.isFinite(widthNum) ? widthNum : 1,
     style,

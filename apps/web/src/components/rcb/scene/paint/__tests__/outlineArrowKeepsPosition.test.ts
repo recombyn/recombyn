@@ -22,9 +22,7 @@ function arrowNode(partial?: {
     height: partial?.height ?? 48,
     attrs: {
       shapeType: 'arrow',
-      stroke: '#222222',
       'border-color': '#222222',
-      borderWidth,
       'border-width': borderWidth,
       'stroke-enabled': 'true',
       angle: partial?.angle ?? 0,

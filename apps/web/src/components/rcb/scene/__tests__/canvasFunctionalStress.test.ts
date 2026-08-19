@@ -231,7 +231,7 @@ describe('canvas functional stress (可用性)', () => {
       height: box.height,
       attrs: {
         shapeType: 'rect',
-        fill: '#eee',
+        'fill-color': '#eee',
         'stroke-enabled': 'false',
         'border-width': 0,
       },
@@ -242,7 +242,7 @@ describe('canvas functional stress (可用性)', () => {
       id: 's',
       attrs: {
         shapeType: 'rect',
-        fill: '#eee',
+        'fill-color': '#eee',
         'stroke-enabled': 'true',
         'border-width': 1,
         'border-color': '#333',

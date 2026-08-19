@@ -23,7 +23,7 @@ describe('node SVG effects', () => {
         attrs: {
           shapeType,
           path: 'M0 16 L80 16',
-          stroke: '#222222',
+          'border-color': '#222222',
           'border-width': 2,
           'shadow-enabled': true,
           'shadow-visible': true,
@@ -56,7 +56,7 @@ describe('node SVG effects', () => {
       height: 32,
       attrs: {
         shapeType: 'rect',
-        fill: '#fff',
+        'fill-color': '#fff',
         'shadow-enabled': true,
         'shadow-visible': true,
         'shadow-x': 0,

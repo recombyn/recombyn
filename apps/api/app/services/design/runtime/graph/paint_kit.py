@@ -169,8 +169,8 @@ def _structure_verify_issues(
     zero_box = 0
     for n in clean_nodes[:80]:
         try:
-            w = float(n.get("w") or n.get("width") or 0)
-            h = float(n.get("h") or n.get("height") or 0)
+            w = float(n.get("w") or 0)
+            h = float(n.get("h") or 0)
         except (TypeError, ValueError):
             w, h = 0.0, 0.0
         if w <= 0 or h <= 0:
@@ -496,7 +496,7 @@ def _ops_for_log(ops: list[dict[str, Any]] | None, *, limit: int = 30) -> list[d
     for op in list(ops or [])[:limit]:
         if not isinstance(op, dict):
             continue
-        name = str(op.get("name") or op.get("op") or op.get("tool") or "").strip()
+        name = str(op.get("name") or "").strip()
         args = op.get("args") if isinstance(op.get("args"), dict) else {}
         slim: dict[str, Any] = {}
         for k, v in list(args.items())[:12]:

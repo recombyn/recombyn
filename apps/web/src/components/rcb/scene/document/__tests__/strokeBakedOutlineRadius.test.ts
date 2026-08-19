@@ -13,7 +13,6 @@ describe('轮廓化后不显示圆角控制点', () => {
       attrs: {
         shapeType: 'line',
         'border-width': 8,
-        stroke: '#111',
         'border-color': '#111',
       },
     };

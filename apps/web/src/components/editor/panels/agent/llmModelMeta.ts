@@ -131,11 +131,11 @@ export function mergeSelectableModels(opts: {
 export function modelReferenceTypes(
   model?: Pick<
     LlmModel,
-    'id' | 'kind' | 'referenceTypes' | 'reference_types' | 'maxAttachments' | 'max_attachments'
+    'id' | 'kind' | 'referenceTypes' | 'maxAttachments'
   > | null
 ): ModelReferenceType[] {
   if (!model) return [];
-  const raw = model.referenceTypes ?? model.reference_types;
+  const raw = model.referenceTypes;
   if (Array.isArray(raw) && raw.length) {
     const out: ModelReferenceType[] = [];
     for (const t of raw) {
@@ -151,7 +151,7 @@ export function modelReferenceTypes(
 export function modelAllowsRouteSlot(
   model: Pick<
     LlmModel,
-    'id' | 'kind' | 'referenceTypes' | 'reference_types' | 'maxAttachments' | 'max_attachments'
+    'id' | 'kind' | 'referenceTypes' | 'maxAttachments'
   > | null | undefined,
   slot: 'fast' | 'standard' | 'reasoning' | 'vision' | 'image'
 ): boolean {
@@ -171,9 +171,9 @@ export function isVolcanoCatalogModel(
 }
 
 export function maxAttachmentsFor(
-  model?: Pick<LlmModel, 'kind' | 'maxAttachments' | 'max_attachments'> | null
+  model?: Pick<LlmModel, 'kind' | 'maxAttachments'> | null
 ): number {
-  const raw = model?.maxAttachments ?? model?.max_attachments;
+  const raw = model?.maxAttachments;
   if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
     return Math.floor(raw);
   }
@@ -230,11 +230,11 @@ export function agentAttachmentLimit(opts: {
 export function modelSupportsVisionInput(
   model?: Pick<
     LlmModel,
-    'id' | 'kind' | 'referenceTypes' | 'reference_types' | 'maxAttachments' | 'max_attachments'
+    'id' | 'kind' | 'referenceTypes' | 'maxAttachments'
   > | null
 ): boolean {
   if (!model || model.kind === 'image') return false;
-  const tagged = model.referenceTypes ?? model.reference_types;
+  const tagged = model.referenceTypes;
   if (Array.isArray(tagged) && tagged.length) {
     return tagged.includes('vision');
   }

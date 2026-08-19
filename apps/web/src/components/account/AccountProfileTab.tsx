@@ -53,7 +53,7 @@ function readAvatarDataUrl(file: File): Promise<string | null> {
 
 type Props = {
   user: AuthUser | null;
-  tokens: number;
+  credits: number;
   creditCap: number;
   planUsed: number;
   planRemaining: number;
@@ -65,7 +65,7 @@ type Props = {
 /** Profile / account / billing cards for the account settings hub. */
 function AccountProfileTab({
   user,
-  tokens,
+  credits,
   creditCap,
   planUsed,
   planRemaining,
@@ -296,7 +296,7 @@ function AccountProfileTab({
                 {t('wallet.credits')}
               </span>
               <span className="text-[12px] tabular-nums text-[var(--muted)]">
-                {t('wallet.creditsRemaining', { count: formatTokens(tokens) })}
+                {t('wallet.creditsRemaining', { count: formatTokens(credits) })}
               </span>
             </div>
             <ProgressBar

@@ -79,7 +79,7 @@ describe('hitTestSceneAtPoint', () => {
           width: 100,
           height: 100,
           // Empty path — Path2D miss; DOM would be the only way to hit if enabled.
-          attrs: { shapeType: 'path', path: '', 'fill-enabled': 'false', borderWidth: 2 },
+          attrs: { shapeType: 'path', path: '', 'fill-enabled': 'false', 'border-width': 2 },
         },
       },
     } as unknown as SceneDocument;

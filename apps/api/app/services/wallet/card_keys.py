@@ -53,15 +53,8 @@ PLAN_CREDITS: dict[str, int] = {
     "pro": 1030,
     "ultra": 4000,
 }
-# Deprecated alias (always 0) — redeem no longer splits image gifts.
-PLAN_IMAGE_CREDITS: dict[str, int] = {
-    "plus": 0,
-    "pro": 0,
-    "ultra": 0,
-}
 VALID_PLAN_IDS = frozenset(PLAN_CREDITS.keys())
 VALID_KINDS = frozenset({"credit", "plan"})
-TOKENS_PER_CREDIT = 15_000
 # Membership length after redeeming a plan card key (calendar days).
 PLAN_DURATION_DAYS = 30
 
@@ -159,13 +152,13 @@ def _normalize_topup_amount(amount: int) -> int:
 def resolve_generate_spec(
     *,
     kind: str,
-    tokens: int,
+    credits: int,
     plan_id: str | None,
 ) -> tuple[str, int, str | None]:
     """
     Normalize generate inputs → (kind, amount, plan_id).
     Top-ups are stored as kind=credit (积分).
-    ``tokens`` column on card_keys stores the 积分 face value.
+    DB column ``tokens`` stores the 积分 face value.
     """
     k = str(kind or "credit").strip().lower()
     if k not in VALID_KINDS:
@@ -174,13 +167,13 @@ def resolve_generate_spec(
         pid = normalize_plan_id(plan_id)
         if pid not in VALID_PLAN_IDS:
             raise ValueError("planId must be plus, pro, or ultra")
-        amt = int(tokens or 0)
-        if amt <= 0 or amt >= TOKENS_PER_CREDIT:
+        amt = int(credits or 0)
+        if amt <= 0:
             from app.services.wallet.billing import plan_credit_grant
 
             amt = int(plan_credit_grant(pid) or PLAN_CREDITS[pid])
         return "plan", amt, pid
-    amt = _normalize_topup_amount(int(tokens or 0))
+    amt = _normalize_topup_amount(int(credits or 0))
     if amt <= 0:
         raise ValueError("amount must be > 0 for credit keys")
     return "credit", amt, None
@@ -190,7 +183,7 @@ def _row_out(
     *,
     kid: Any,
     code: str | None,
-    tokens: int,
+    credits: int,
     kind: str,
     plan_id: str | None,
     status: str,
@@ -201,7 +194,7 @@ def _row_out(
     return {
         "id": str(kid),
         "code": code,
-        "tokens": int(tokens),
+        "credits": int(credits),
         "kind": kind,
         "planId": plan_id,
         "status": status,
@@ -214,7 +207,7 @@ def _row_out(
 def insert_card_keys(
     *,
     plaintexts: list[str],
-    tokens: int,
+    credits: int,
     expires_at: float | None,
     kind: str = "credit",
     plan_id: str | None = None,
@@ -225,8 +218,8 @@ def insert_card_keys(
     from app import crud
     from app.core.db import engine
 
-    kind_n, tokens_n, plan_n = resolve_generate_spec(
-        kind=kind, tokens=tokens, plan_id=plan_id
+    kind_n, credits_n, plan_n = resolve_generate_spec(
+        kind=kind, credits=credits, plan_id=plan_id
     )
     ensure_card_keys_v2()
     require_strong_card_key_salt()
@@ -237,7 +230,7 @@ def insert_card_keys(
             row = crud.create_card_key(
                 session=session,
                 key_hash=hash_card_key(plain),
-                tokens=tokens_n,
+                tokens=credits_n,
                 kind=kind_n,
                 plan_id=plan_n,
                 expires_at=expires_at,
@@ -253,7 +246,7 @@ def insert_card_keys(
 def generate_card_keys(
     *,
     count: int,
-    tokens: int = 0,
+    credits: int = 0,
     expires_days: int = 0,
     kind: str = "credit",
     plan_id: str | None = None,
@@ -269,8 +262,8 @@ def generate_card_keys(
     require_strong_card_key_salt()
     ensure_card_keys_v2()
 
-    kind_n, tokens_n, plan_n = resolve_generate_spec(
-        kind=kind, tokens=tokens, plan_id=plan_id
+    kind_n, credits_n, plan_n = resolve_generate_spec(
+        kind=kind, credits=credits, plan_id=plan_id
     )
 
     expires_at = None
@@ -294,7 +287,7 @@ def generate_card_keys(
             row = crud.create_card_key(
                 session=session,
                 key_hash=hash_card_key(plain),
-                tokens=tokens_n,
+                tokens=credits_n,
                 kind=kind_n,
                 plan_id=plan_n,
                 expires_at=expires_at,
@@ -307,7 +300,7 @@ def generate_card_keys(
                 _row_out(
                     kid=row.id,
                     code=plain,
-                    tokens=tokens_n,
+                    credits=credits_n,
                     kind=kind_n,
                     plan_id=plan_n,
                     status="unused",
@@ -339,7 +332,7 @@ def list_card_keys(*, status: str | None = None, limit: int = 200) -> list[dict[
             _row_out(
                 kid=row.id,
                 code=None,
-                tokens=int(row.tokens or 0),
+                credits=int(row.tokens or 0),
                 kind=kind if kind in VALID_KINDS else "credit",
                 plan_id=plan_id if plan_id in VALID_PLAN_IDS else None,
                 status=str(row.status),
@@ -450,8 +443,6 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
                     base = prev_expires
                 next_expires = base + PLAN_DURATION_DAYS * 86400
                 gift = amount if amount > 0 else int(PLAN_CREDITS.get(plan_id) or 0)
-                if gift >= TOKENS_PER_CREDIT:
-                    gift = int(PLAN_CREDITS.get(plan_id) or 0)
                 amount = gift
             else:
                 gift = _normalize_topup_amount(amount)
@@ -511,9 +502,7 @@ def redeem_card_key(user_id: str, plaintext: str) -> dict[str, Any]:
     return {
         "kind": "plan" if kind == "plan" else "credit",
         "creditsAdded": gift,
-        "tokensAdded": gift,
         "credits": next_credits,
-        "tokens": next_credits,
         "planId": next_plan if (
             next_plan == "free"
             or next_expires is None

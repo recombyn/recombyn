@@ -855,15 +855,9 @@ def _review_loop_max_from_profile() -> int | None:
 
 
 def _normalize_design_intensity(raw: Any) -> str:
-    s = str(raw or "").strip().lower().replace("_", "-")
-    if s in ("light", "low", "轻度"):
-        return "light"
-    if s in ("high", "高"):
-        return "high"
-    if s in ("extreme", "max", "极高"):
-        return "extreme"
-    if s in ("medium", "mid", "中", "标准", ""):
-        return "medium"
+    s = str(raw or "").strip().lower()
+    if s in ("light", "medium", "high", "extreme"):
+        return s
     return "medium"
 
 
@@ -1038,7 +1032,6 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
         spatial_summary=spatial_summary if isinstance(spatial_summary, dict) else None,
     )
     rt.flags["mode"] = ui_mode
-    rt.flags["locale"] = out_locale
     rt.flags["output_locale"] = out_locale
     intensity = _normalize_design_intensity(intensity_in)
     rt.flags["design_intensity"] = intensity

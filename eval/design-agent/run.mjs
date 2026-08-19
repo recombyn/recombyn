@@ -168,8 +168,8 @@ function synthSceneFromOps(ops, round) {
     const args = op.args || {};
     if (name === 'create_frame' || name === 'ensure_frame') {
       fid = String(args.id || args.frame_id || fid);
-      w = Number(args.width || args.w || w) || w;
-      h = Number(args.height || args.h || h) || h;
+      w = Number(args.width || w) || w;
+      h = Number(args.height || h) || h;
     }
   }
   frames.push({ id: fid, name: 'Stress', width: w, height: h });
@@ -187,8 +187,8 @@ function synthSceneFromOps(ops, round) {
       frame_id: fid,
       x: Number(args.x ?? 40 + (i % 4) * 20),
       y: Number(args.y ?? 40 + i * 24),
-      width: Number(args.width ?? args.w ?? 200),
-      height: Number(args.height ?? args.h ?? 40),
+      width: Number(args.width ?? 200),
+      height: Number(args.height ?? 40),
       attrs: {
         ...(args.fill ? { fill: args.fill } : { fill: '#334155' }),
         ...(args.text ? { text: String(args.text) } : {}),

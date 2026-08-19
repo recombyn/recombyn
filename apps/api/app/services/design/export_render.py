@@ -98,11 +98,10 @@ def _attrs(node: dict[str, Any]) -> dict[str, Any]:
 
 
 def _node_box(node: dict[str, Any]) -> tuple[float, float, float, float]:
-    attrs = _attrs(node)
-    x = _num(node.get("x"), _num(attrs.get("x")))
-    y = _num(node.get("y"), _num(attrs.get("y")))
-    w = max(1.0, _num(node.get("width"), _num(attrs.get("width"), 1.0)))
-    h = max(1.0, _num(node.get("height"), _num(attrs.get("height"), 1.0)))
+    x = _num(node.get("x"))
+    y = _num(node.get("y"))
+    w = max(1.0, _num(node.get("width"), 1.0))
+    h = max(1.0, _num(node.get("height"), 1.0))
     return x, y, w, h
 
 
@@ -117,17 +116,15 @@ def _inside_frame(node: dict[str, Any], frame: dict[str, Any]) -> bool:
 
 
 def _image_src(node: dict[str, Any]) -> str:
-    attrs = _attrs(node)
-    for key in ("src", "url", "href", "xlink:href"):
-        raw = str(attrs.get(key) or node.get(key) or "").strip()
-        if raw.startswith(("http://", "https://", "data:image/")):
-            return raw
+    raw = str(_attrs(node).get("src") or "").strip()
+    if raw.startswith(("http://", "https://", "data:image/")):
+        return raw
     return ""
 
 
 def _fill_color(node: dict[str, Any]) -> tuple[int, int, int, int] | None:
     attrs = _attrs(node)
-    raw = attrs.get("fill") or node.get("fill") or attrs.get("backgroundColor")
+    raw = attrs.get("fill-color")
     if raw is None:
         return None
     s = str(raw).strip().lower()
@@ -137,13 +134,7 @@ def _fill_color(node: dict[str, Any]) -> tuple[int, int, int, int] | None:
 
 
 def _node_z(node: dict[str, Any]) -> int:
-    attrs = _attrs(node)
-    return int(
-        _num(
-            node.get("z"),
-            _num(node.get("zIndex"), _num(attrs.get("z"), _num(attrs.get("zIndex")))),
-        )
-    )
+    return int(_num(node.get("z")))
 
 
 def _json_list(raw: Any) -> list[Any]:
@@ -187,10 +178,9 @@ def _text_plain(attrs: dict[str, Any]) -> str:
     if data:
         return data
 
-    for key in ("markdown", "text", "content"):
-        raw = attrs.get(key)
-        if isinstance(raw, str) and raw.strip():
-            return raw
+    md = attrs.get("markdown")
+    if isinstance(md, str) and md.strip():
+        return md.strip()
     return ""
 
 

@@ -18,14 +18,14 @@ def _bg_candidate_from_nodes(nodes: list[dict[str, Any]]) -> dict[str, Any] | No
         if not isinstance(n, dict) or not n.get("id"):
             continue
         try:
-            w = float(n.get("w") or n.get("width") or 0)
-            h = float(n.get("h") or n.get("height") or 0)
+            w = float(n.get("w") or 0)
+            h = float(n.get("h") or 0)
         except (TypeError, ValueError):
             continue
         area = w * h
         if area <= best_area:
             continue
-        fill = n.get("fill") or n.get("backgroundColor")
+        fill = n.get("fill")
         if not fill:
             continue
         best = n

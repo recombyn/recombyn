@@ -25,7 +25,6 @@ const ROUTE_PRESETS_FALLBACK: Record<
   Exclude<AgentRoutePreset, 'platform' | 'custom'>,
   AgentRoutePrefs
 > = {
-  /** Legacy key — same domestic ladder as 标准版 platform defaults. */
   economy: {
     preset: 'economy',
     fast: 'doubao-seed-2-1-turbo',
@@ -313,12 +312,8 @@ export const DESIGN_INTENSITY_VALUES: DesignIntensity[] = [
 export function normalizeDesignIntensity(raw: unknown): DesignIntensity {
   const s = String(raw || '')
     .trim()
-    .toLowerCase()
-    .replace(/_/g, '-');
-  if (s === 'light' || s === 'low' || s === '轻度' || s === '极速') return 'light';
-  if (s === 'high' || s === '高') return 'high';
-  if (s === 'extreme' || s === 'max' || s === '极高') return 'extreme';
-  if (s === 'medium' || s === 'mid' || s === '中' || s === '标准') return 'medium';
+    .toLowerCase();
+  if (s === 'light' || s === 'medium' || s === 'high' || s === 'extreme') return s;
   return 'medium';
 }
 

@@ -23,20 +23,15 @@ def _as_dict(val: Any) -> dict[str, Any] | None:
     return val if isinstance(val, dict) else None
 
 
-def _flag(rt: Any, *keys: str) -> Any:
+def _flag(rt: Any, key: str) -> Any:
     flags = getattr(rt, "flags", None)
     if not isinstance(flags, dict):
         return None
-    for key in keys:
-        if key in flags and flags[key] is not None:
-            return flags[key]
-    return None
+    return flags.get(key)
 
 
 def _images(rt: Any) -> list[str]:
     raw = getattr(rt, "images", None)
-    if not isinstance(raw, list):
-        raw = _flag(rt, "images")
     if not isinstance(raw, list):
         return []
     return [str(x).strip() for x in raw if str(x).strip()][:4]
@@ -44,16 +39,13 @@ def _images(rt: Any) -> list[str]:
 
 def _painted(rt: Any) -> bool:
     run = getattr(rt, "run", None)
-    if run is not None and bool(getattr(run, "painted", False)):
-        return True
-    flag = _flag(rt, "painted")
-    return bool(flag) if flag is not None else False
+    return bool(getattr(run, "painted", False)) if run is not None else False
 
 
 _METHOD_CONTEXT: dict[str, tuple[str, ...]] = {
     "analyze_reference": ("reference_dna", "reference_analyze", "reference_lock"),
     "retrieve_memory": ("memory_notes",),
-    "research": ("reference_dna", "reference_analyze", "memory_notes", "design_research"),
+    "research": ("reference_dna", "reference_analyze", "memory_notes", "design_research", "eval_patterns"),
     "strategy": ("design_brief", "design_research", "reference_lock"),
     "propose_candidates": ("design_brief", "design_research", "design_strategy"),
     "tournament": ("design_research", "design_strategy", "design_candidates"),
@@ -83,35 +75,30 @@ def build_intelligence_request(method: str, rt: Any) -> dict[str, Any]:
     """JSON body for ``POST {base}/v1/{method}`` (RemoteIntelligenceProvider)."""
     flags = getattr(rt, "flags", None)
     flag_map = dict(flags) if isinstance(flags, dict) else {}
-    brief = _as_dict(getattr(rt, "design_brief", None)) or _as_dict(
-        _flag(rt, "design_brief")
-    )
-    # design_brief may be a string on Runtime — keep structured flag only.
-    if not isinstance(brief, dict):
-        brief = _as_dict(_flag(rt, "design_brief"))
-
+    brief = _as_dict(_flag(rt, "design_brief"))
     ops = getattr(rt, "apply_ops", None)
     apply_ops = list(ops) if isinstance(ops, list) else []
 
     canonical = str(method or "").strip()
     values: dict[str, Any] = {
         "design_brief": brief,
-        "design_research": _as_dict(getattr(rt, "design_research", None)) or _as_dict(_flag(rt, "design_research")),
-        "design_strategy": _as_dict(getattr(rt, "design_strategy", None)) or _as_dict(_flag(rt, "design_strategy")),
-        "design_candidates": _as_dict(getattr(rt, "design_candidates", None)) or _as_dict(_flag(rt, "design_candidates")),
-        "design_tournament": _as_dict(getattr(rt, "design_tournament", None)) or _as_dict(_flag(rt, "design_tournament")),
-        "design_swarm": _as_dict(getattr(rt, "design_swarm", None)) or _as_dict(_flag(rt, "design_swarm")),
-        "design_simulation": _as_dict(getattr(rt, "design_simulation", None)) or _as_dict(_flag(rt, "design_simulation")),
-        "design_counterfactual": _as_dict(getattr(rt, "design_counterfactual", None)) or _as_dict(_flag(rt, "design_counterfactual")),
-        "design_governance": _as_dict(getattr(rt, "design_governance", None)) or _as_dict(_flag(rt, "design_governance")),
-        "autonomous_art_director": _as_dict(getattr(rt, "autonomous_art_director", None)) or _as_dict(_flag(rt, "autonomous_art_director")),
-        "reference_dna": _as_dict(getattr(rt, "reference_dna", None)) or _as_dict(_flag(rt, "reference_dna")),
-        "reference_analyze": _as_dict(getattr(rt, "reference_analyze", None)) or _as_dict(_flag(rt, "reference_analyze")),
-        "reference_lock": _as_dict(getattr(rt, "reference_lock", None)) or _as_dict(_flag(rt, "reference_lock")),
-        "observe_facts": _as_dict(getattr(rt, "observe_facts", None)) or _as_dict(_flag(rt, "observe_facts")),
-        "judge_verdict": _as_dict(getattr(rt, "judge_verdict", None)) or _as_dict(_flag(rt, "judge_verdict")),
-        "visual_diff": _as_dict(_flag(rt, "visual_diff")),
+        "design_research": _as_dict(getattr(rt, "design_research", None)),
+        "design_strategy": _as_dict(getattr(rt, "design_strategy", None)),
+        "design_candidates": _as_dict(getattr(rt, "design_candidates", None)),
+        "design_tournament": _as_dict(getattr(rt, "design_tournament", None)),
+        "design_swarm": _as_dict(getattr(rt, "design_swarm", None)),
+        "design_simulation": _as_dict(getattr(rt, "design_simulation", None)),
+        "design_counterfactual": _as_dict(getattr(rt, "design_counterfactual", None)),
+        "design_governance": _as_dict(getattr(rt, "design_governance", None)),
+        "autonomous_art_director": _as_dict(getattr(rt, "autonomous_art_director", None)),
+        "reference_dna": _as_dict(getattr(rt, "reference_dna", None)),
+        "reference_analyze": _as_dict(getattr(rt, "reference_analyze", None)),
+        "reference_lock": _as_dict(getattr(rt, "reference_lock", None)),
+        "observe_facts": _as_dict(getattr(rt, "observe_facts", None)),
+        "judge_verdict": _as_dict(getattr(rt, "judge_verdict", None)),
+        "visual_diff": _as_dict(getattr(rt, "visual_diff", None)),
         "memory_notes": list(_flag(rt, "memory_notes") or []) if isinstance(_flag(rt, "memory_notes"), list) else [],
+        "eval_patterns": list(_flag(rt, "eval_patterns") or []) if isinstance(_flag(rt, "eval_patterns"), list) else [],
     }
     body: dict[str, Any] = {
         "method": canonical,
@@ -121,7 +108,7 @@ def build_intelligence_request(method: str, rt: Any) -> dict[str, Any]:
         "intent": str(getattr(rt, "classified_intent", "") or ""),
         "flags": {
             key: flag_map[key]
-            for key in ("force_autonomous", "knowledge_written", "eval_failure_patterns")
+            for key in ("force_autonomous",)
             if key in flag_map
         },
         "images": _images(rt) if canonical in {"analyze_reference", "research", "review"} else [],

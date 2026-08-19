@@ -92,9 +92,9 @@ export const fetchAuthConfig = () =>
     billingEnabled?: boolean;
   }>;
 
-/** Get the current authenticated user (+ credit balance). */
+/** Get the current authenticated user. */
 export const getMe = () =>
-  apiClient.authAuthMe() as Promise<{ user: AuthUserDto; tokens?: number }>;
+  apiClient.authAuthMe() as Promise<{ user: AuthUserDto }>;
 
 /** Update name / bio / avatar for the signed-in user. */
 export const updateProfile = (payload: {

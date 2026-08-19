@@ -386,11 +386,7 @@ async def run_design_tournament(rt: AgentRuntime) -> dict[str, Any] | None:
             flags = rt.flags if isinstance(rt.flags, dict) else {}
             research = flags.get("design_research")
         flags = rt.flags if isinstance(rt.flags, dict) else {}
-        user_pick = str(
-            flags.get("tournament_user_pick")
-            or flags.get("user_candidate_pick")
-            or ""
-        ).strip()
+        user_pick = str(flags.get("user_pick") or "").strip()
         result = run_design_tournament_pipeline(
             candidates_bundle=bundle if isinstance(bundle, dict) else None,
             research=research if isinstance(research, dict) else None,

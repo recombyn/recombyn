@@ -3,6 +3,7 @@ import { maxRadius, radiiFromAttrs } from '@/components/rcb/scene/document/scene
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { parseNodeText, parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
+import { parseFillGradient, parseFillType } from '@/components/rcb/scene/document/sceneFill';
 import { frameIsEmpty } from './agentMemory';
 /** Pick artboard for edit context: @ chip → last agent frame → active → sole frame. */
 export function resolveDesignTargetFrame(
@@ -55,9 +56,6 @@ export type SceneNodeInventoryItem = {
   y: number;
   w: number;
   h: number;
-  /** Same as w/h — update_node uses width/height. */
-  width: number;
-  height: number;
   /** Full snapshot for @ edits — model may change any field. */
   fill?: string;
   fillType?: string;
@@ -85,24 +83,14 @@ export type SceneNodeInventoryItem = {
 /** Prefer solid fills for inventory (text color + shape fill). */
 function nodeFillForInventory(node: SceneNodeInput): string {
   const attrs = node?.attrs || {};
-  const candidates = [
-    attrs['fill-color'],
-    attrs.fill,
-    attrs.color,
-    attrs['font-color'],
-    attrs.fontColor,
-    attrs.textColor,
-  ];
-  for (const c of candidates) {
-    const s = c != null ? String(c).trim() : '';
-    if (s && s !== 'none' && s !== 'transparent' && typeof c !== 'object') return s;
-  }
-  const grad = attrs.fill;
-  if (grad && typeof grad === 'object') {
-    const rec = grad as Record<string, unknown>;
-    const from = String(rec.from || rec.color || rec.start || '').trim();
-    if (from && from !== 'none' && from !== 'transparent') return from;
-  }
+  const solid = attrs['fill-color'];
+  const s = solid != null ? String(solid).trim() : '';
+  if (s && s !== 'none' && s !== 'transparent') return s;
+  const fillType = parseFillType(attrs['fill-type']);
+  if (fillType === 'solid' || fillType === 'image' || attrs['fill-gradient'] == null) return '';
+  const g = parseFillGradient(attrs['fill-gradient'], fillType, '#FFFFFF');
+  const from = String(g.colorStops?.[0]?.color || '').trim();
+  if (from && from !== 'none' && from !== 'transparent') return from;
   return '';
 }
 
@@ -142,8 +130,8 @@ export function sizeFromCreateFrameOp(
   for (const o of ops) {
     if (String(o?.name || '').trim() !== 'create_frame') continue;
     const args = o?.args && typeof o.args === 'object' ? o.args : {};
-    const width = Math.round(Number(args.width ?? args.w) || 0);
-    const height = Math.round(Number(args.height ?? args.h) || 0);
+    const width = Math.round(Number(args.width) || 0);
+    const height = Math.round(Number(args.height) || 0);
     if (width > 0 && height > 0) return { width, height };
   }
   return null;
@@ -163,9 +151,9 @@ function nodeToInventoryItem(
   const key = String(node.key || '').toLowerCase();
   const shapeType = String(attrs.shapeType || key || 'shape').toLowerCase();
   const fill = nodeFillForInventory(node);
-  const stroke = String(attrs['border-color'] ?? attrs.stroke ?? '').trim();
-  const borderRaw = Number(attrs['border-width'] ?? attrs.strokeWidth);
-  const strokeAlignRaw = String(attrs.strokeAlign || attrs['stroke-align'] || 'center')
+  const stroke = String(attrs['border-color'] ?? '').trim();
+  const borderRaw = Number(attrs['border-width']);
+  const strokeAlignRaw = String(attrs.strokeAlign || 'center')
     .trim()
     .toLowerCase();
   const strokeAlign =
@@ -173,8 +161,8 @@ function nodeToInventoryItem(
       ? strokeAlignRaw
       : 'center';
   const opacityRaw = Number(attrs.opacity);
-  const angleRaw = Number(attrs.angle ?? attrs.rotation);
-  const path = String(attrs.path || attrs.d || '').trim();
+  const angleRaw = Number(attrs.angle);
+  const path = String(attrs.path || '').trim();
   const fillType = String(attrs['fill-type'] || 'solid').trim() || 'solid';
   const w = Math.max(1, Math.round(Number(node.width) || 1));
   const h = Math.max(1, Math.round(Number(node.height) || 1));
@@ -186,8 +174,6 @@ function nodeToInventoryItem(
     y: Math.round(top - originY),
     w,
     h,
-    width: w,
-    height: h,
     fill: fill || undefined,
     fillType,
     stroke: stroke && stroke !== 'transparent' && stroke !== 'none' ? stroke : undefined,
@@ -214,7 +200,7 @@ function nodeToInventoryItem(
     const text = parseNodeText(attrs).trim();
     const style = parseNodeTextStyle(attrs);
     item.text = text.slice(0, 500);
-    const fontSizeRaw = Number(style?.fontSize) || Number(attrs.fontSize ?? attrs['font-size']);
+    const fontSizeRaw = Number(style?.fontSize);
     if (Number.isFinite(fontSizeRaw) && fontSizeRaw > 0) item.fontSize = Math.round(fontSizeRaw);
     const lineHeightRaw = Number(style?.lineHeight);
     if (Number.isFinite(lineHeightRaw) && lineHeightRaw > 0) {

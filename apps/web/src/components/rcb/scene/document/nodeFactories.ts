@@ -138,15 +138,12 @@ export function createShapeNode({
           'border-color': stroke,
           'border-width': strokeW,
           strokeAlign: strokeAlignDefault,
-          'stroke-align': strokeAlignDefault,
           'stroke-enabled': 'true',
           'stroke-visible': 'true',
           // Must live on this early-return path — the general branch never runs
           // for line/arrow (panel showed Butt while paint stayed Round).
           strokeLinecap: 'butt',
-          'stroke-linecap': 'butt',
           strokeLinejoin: 'miter',
-          'stroke-linejoin': 'miter',
           'fill-color': 'transparent',
           'fill-enabled': 'false',
           opacity: opacityVal,
@@ -174,7 +171,6 @@ export function createShapeNode({
         'border-color': stroke,
         'border-width': strokeW,
         strokeAlign: strokeAlignDefault,
-        'stroke-align': strokeAlignDefault,
         'stroke-enabled': 'true',
         'stroke-visible': 'true',
         'fill-enabled':
@@ -208,15 +204,11 @@ export function createShapeNode({
         // Pen / line / arrow → butt+miter (stroke panel default). Pencil stays round.
         ...(shapeType === 'pencil' && {
           strokeLinecap: 'round',
-          'stroke-linecap': 'round',
           strokeLinejoin: 'round',
-          'stroke-linejoin': 'round',
         }),
         ...((shapeType === 'pen' || shapeType === 'line' || shapeType === 'arrow') && {
           strokeLinecap: 'butt',
-          'stroke-linecap': 'butt',
           strokeLinejoin: 'miter',
-          'stroke-linejoin': 'miter',
         }),
         ...(brushStyle ? { brushStyle } : {}),
         ...(shapeType === 'pencil' && pressureEnabled != null

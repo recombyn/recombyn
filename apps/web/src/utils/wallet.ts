@@ -2,7 +2,7 @@
  * Wallet display / catalog helpers — not app state.
  * Balance / plan SoT: TanStack Query via `@/service/wallet`.
  *
- * Unified currency: **积分** (API field `tokens` / `credits` — same balance).
+ * Unified currency: **积分** (API field `credits`).
  * Chat, Agent, and image gen all deduct from one wallet.
  */
 
@@ -98,12 +98,8 @@ export function isTopOfferedPlan(id: PlanId | string | null | undefined): boolea
   return pid === top || pid === 'ultra';
 }
 
-/** Map historical ids → current catalog. */
 export function normalizePlanId(raw: unknown): PlanId {
   if (raw === 'free' || raw === 'plus' || raw === 'pro' || raw === 'ultra') return raw;
-  if (raw === 'hobby') return 'free';
-  if (raw === 'basic') return 'plus';
-  if (raw === 'studio' || raw === 'pro_plus' || raw === 'teams' || raw === 'flagship') return 'ultra';
   return 'free';
 }
 

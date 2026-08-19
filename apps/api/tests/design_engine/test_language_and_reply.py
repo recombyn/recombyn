@@ -73,8 +73,9 @@ def test_design_intensity_maps_review_mode():
         _review_mode_for_intensity,
     )
 
-    assert _normalize_design_intensity("轻度") == "light"
-    assert _normalize_design_intensity("极高") == "extreme"
+    assert _normalize_design_intensity("light") == "light"
+    assert _normalize_design_intensity("extreme") == "extreme"
+    assert _normalize_design_intensity("unknown") == "medium"
     assert _review_mode_for_intensity("light") == "off"
     assert _review_mode_for_intensity("medium") == "auto"
     assert _review_mode_for_intensity("high") == "always"

@@ -131,7 +131,7 @@ export function getShapeBaseline(
     shapeType === 'path' ||
     key === 'path'
   ) {
-    const raw = String(node.attrs?.path || node.attrs?.d || '').trim();
+    const raw = String(node.attrs?.path || '').trim();
     if (!raw) return null;
     const d =
       Math.abs(w - storedW) > 0.05 || Math.abs(h - storedH) > 0.05

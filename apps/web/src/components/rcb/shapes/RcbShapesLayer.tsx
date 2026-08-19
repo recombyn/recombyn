@@ -69,7 +69,7 @@ const MAX_PROXY_PAINT = 4096;
 const LOD_ZOOM_FAR = 0.2;
 
 function isHeavyPathNode(node: SceneNodeInput): boolean {
-  const d = String(node?.attrs?.path || node?.attrs?.d || '');
+  const d = String(node?.attrs?.path || '');
   return d.length >= HEAVY_PATH_D_CHARS;
 }
 

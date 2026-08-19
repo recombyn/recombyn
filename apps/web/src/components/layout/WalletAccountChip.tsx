@@ -20,13 +20,13 @@ type Props = {
 function WalletAccountChip({ className }: Props) {
   const { t } = useTranslation();
   const user = useSelector((state: any) => state.auth.user);
-  const { tokens } = useWalletSnapshot();
+  const { credits } = useWalletSnapshot();
   const billingEnabled = useBillingEnabled();
   const navigate = useNavigate();
   const [accountOpen, setAccountOpen] = useState(false);
 
   const tip = `${user?.name || user?.email || ''} · ${t('wallet.tokensLeft', {
-    count: formatTokens(tokens),
+    count: formatTokens(credits),
   })}`;
 
 
@@ -62,7 +62,7 @@ function WalletAccountChip({ className }: Props) {
             <span className="inline-flex min-w-0 items-center gap-1 text-[var(--ink)]">
               <HiOutlineBolt className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" aria-hidden />
               <span className="min-w-0 truncate text-[12px] font-semibold tabular-nums tracking-tight">
-                {formatTokens(tokens)}
+                {formatTokens(credits)}
               </span>
             </span>
           ) : null}

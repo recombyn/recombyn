@@ -485,7 +485,7 @@ function setHandle(
 function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   const node = document?.deltaSetLike?.[nodeId];
   if (!node) return null;
-  const raw = String(node.attrs?.path || node.attrs?.d || '');
+  const raw = String(node.attrs?.path || '');
   if (!raw.trim()) return null;
   // Normalize arcs / shorthand so anchors parse reliably after outline.
   // Keep multi-contour paths intact (do not sample into one polyline).
@@ -501,29 +501,27 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   const strokeOn =
     node.attrs?.['stroke-enabled'] !== false && node.attrs?.['stroke-enabled'] !== 'false';
   const shapeType = String(node.attrs?.shapeType || node.key || '');
-  const rawBw = Number(
-    node.attrs?.['border-width'] ?? node.attrs?.borderWidth ?? node.attrs?.strokeWidth ?? 0
-  );
+  const rawBw = Number(node.attrs?.['border-width'] ?? 0);
   const strokeFallback =
     shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'line' || shapeType === 'arrow'
       ? 2
       : 0;
   const bw = Number.isFinite(rawBw) && rawBw > 0 ? rawBw : strokeFallback;
   const strokeWidth = strokeOn ? Math.max(0, bw) : 0;
-  const strokeColor = String(node.attrs?.['border-color'] || node.attrs?.stroke || '#333333');
-  const fillColor = String(node.attrs?.['fill-color'] || node.attrs?.fill || '');
+  const strokeColor = String(node.attrs?.['border-color'] || '#333333');
+  const fillColor = String(node.attrs?.['fill-color'] || '');
   const fillEnabled =
     node.attrs?.['fill-enabled'] !== false &&
     node.attrs?.['fill-enabled'] !== 'false' &&
     fillColor &&
     fillColor !== 'transparent';
   const fillRule =
-    String(node.attrs?.['fill-rule'] || node.attrs?.fillRule || 'nonzero') === 'evenodd'
+    String(node.attrs?.['fill-rule'] || 'nonzero') === 'evenodd'
       ? 'evenodd'
       : 'nonzero';
   const anyClosed = parsed.some((s) => s.closed);
-  const joinRaw = String(node.attrs?.strokeLinejoin ?? node.attrs?.['stroke-linejoin'] ?? '').toLowerCase();
-  const capRaw = String(node.attrs?.strokeLinecap ?? node.attrs?.['stroke-linecap'] ?? '').toLowerCase();
+  const joinRaw = String(node.attrs?.strokeLinejoin ?? '').toLowerCase();
+  const capRaw = String(node.attrs?.strokeLinecap ?? '').toLowerCase();
   let strokeLinejoin: 'miter' | 'round' | 'bevel' = 'miter';
   if (joinRaw === 'round' || joinRaw === 'bevel' || joinRaw === 'miter') strokeLinejoin = joinRaw;
   else if (shapeType === 'pencil') strokeLinejoin = 'round';
@@ -706,7 +704,7 @@ function PenPathEditFeature({
 
   const pathNode = nodeId ? document?.deltaSetLike?.[nodeId] : undefined;
   const pathGeomKey = String(
-    pathNode?.attrs?.path || pathNode?.attrs?.d || ''
+    pathNode?.attrs?.path || ''
   );
   const pathNodeWidth = Number(pathNode?.width);
   const pathNodeHeight = Number(pathNode?.height);

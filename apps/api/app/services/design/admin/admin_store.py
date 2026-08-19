@@ -919,111 +919,10 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             )
             changed = True
 
-    # Split prompt_bank → independent prompt_* nodes; never merge packs into one bank.
-    try:
-        from app.services.design.prompts.prompt_pack_store import (
-            seed_prompt_overlay_nodes,
-            seed_prompt_bank_node,
-            KIND_LABELS as _PACK_LABELS,
-        )
-    except Exception:
-        seed_prompt_overlay_nodes = None  # type: ignore[assignment]
-        seed_prompt_bank_node = None  # type: ignore[assignment]
-        _PACK_LABELS = {}
-    if seed_prompt_overlay_nodes is not None:
-        packs_from_bank: dict[str, Any] = {}
-        bank_n = next((n for n in nodes if str(n.get("id") or "") == "prompt_bank"), None)
-        if bank_n is not None and isinstance(bank_n.get("promptPacks"), dict):
-            for k, v in bank_n["promptPacks"].items():
-                kk = str(k).strip()
-                if not kk:
-                    continue
-                if isinstance(v, dict):
-                    packs_from_bank[kk] = dict(v)
-                else:
-                    packs_from_bank[kk] = {"body": str(v)}
-        if bank_n is not None:
-            nodes[:] = [n for n in nodes if str(n.get("id") or "") != "prompt_bank"]
-            ids.discard("prompt_bank")
-            edges[:] = [
-                e
-                for e in edges
-                if str(e.get("source") or "") != "prompt_bank"
-                and str(e.get("target") or "") != "prompt_bank"
-            ]
-            changed = True
-
-        seed_nodes = seed_prompt_overlay_nodes()
-        seed_by_kind = {
-            str(n.get("id") or "")[7:]: n
-            for n in seed_nodes
-            if str(n.get("id") or "").startswith("prompt_")
-        }
-        del packs_from_bank, seed_by_kind
-
-        _KEEP_PROMPT = {
-            "prompt_react",
-            "prompt_plan",
-            "prompt_ask",
-        }
-        drop_scene = {
-            str(n.get("id") or "")
-            for n in nodes
-            if str(n.get("kind") or "").lower() == "prompt"
-            and str(n.get("id") or "").startswith("prompt_")
-            and str(n.get("id") or "") not in _KEEP_PROMPT
-            and not str(n.get("promptKey") or "").startswith("agent.prompt.")
-        }
-        if drop_scene:
-            nodes[:] = [n for n in nodes if str(n.get("id") or "") not in drop_scene]
-            edges[:] = [
-                e
-                for e in edges
-                if str(e.get("source") or "") not in drop_scene
-                and str(e.get("target") or "") not in drop_scene
-            ]
-            ids -= drop_scene
-            changed = True
-
-        # LLM/Agent: prompts live on dedicated prompt nodes, not on the model card.
-        for n in nodes:
-            kind = str(n.get("kind") or "").lower()
-            if kind not in {"llm", "agent"}:
-                continue
-            pk = str(n.get("promptKey") or "").strip()
-            pt = str(n.get("promptText") or "").strip()
-            if not pk and not pt:
-                continue
-            # Keep inject.specs reference; clear inline prompt fields on LLM.
-            if pk or pt:
-                n["promptKey"] = ""
-                n["promptText"] = ""
-                changed = True
-
-        # Remap configRef soft-tags → runtime keys / clear.
-        _config_ref_aliases: dict[str, str] = {}
-        for n in nodes:
-            ref = str(n.get("configRef") or "").strip()
-            if not ref:
-                continue
-            pk = str(n.get("phaseKey") or "").strip()
-            if ref == "models+routes":
-                # Soft tag removed; only model_route nodes keep the real runtime key.
-                n["configRef"] = (
-                    "precheck.model_threshold" if pk == "model_route" else ""
-                )
-                changed = True
-                continue
-            nxt = _config_ref_aliases.get(ref)
-            if nxt and nxt != ref:
-                n["configRef"] = nxt
-                changed = True
-
-    # Expand「资源并行网关」→ 并行 + 工具 + 汇聚（删除 resource_fork 合成节点）。
+    # Expand parallel gateway → 并行 + 工具 + 汇聚.
     edge_ids = {str(e.get("id") or "") for e in edges}
     if "thought" in ids and (
-        "resource_fork" in ids
-        or "parallel" in ids
+        "parallel" in ids
         or "resource_join" in ids
         or "tool_details" in ids
     ):
@@ -1049,44 +948,11 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             if str(hit.get("kind") or "") == "resource" and nid == "parallel":
                 hit["kind"] = "parallel"
                 changed = True
-            if nid == "parallel" and str(hit.get("phaseKey") or "") in ("", "resource_fork"):
-                # Runtime still gathers via resource_fork handler on this node id→phase map.
-                hit["phaseKey"] = "resource_fork"
+            if nid == "parallel" and not str(hit.get("phaseKey") or "").strip():
+                hit["phaseKey"] = "parallel"
                 hit["kind"] = "parallel"
                 hit["label"] = hit.get("label") or "并行网关"
                 changed = True
-
-        # Retire resource_fork id: rename into parallel when needed.
-        if "resource_fork" in ids and "parallel" not in ids:
-            for n in nodes:
-                if str(n.get("id") or "") != "resource_fork":
-                    continue
-                n["id"] = "parallel"
-                n["kind"] = "parallel"
-                n["capability"] = "control"
-                n["phaseKey"] = "resource_fork"
-                lab = str(n.get("label") or "").strip()
-                n["label"] = "并行网关" if (not lab or "资源" in lab) else lab
-                n["description"] = "分叉拉取工具详情；运行时 gather 后汇聚"
-                break
-            for e in edges:
-                if str(e.get("source") or "") == "resource_fork":
-                    e["source"] = "parallel"
-                if str(e.get("target") or "") == "resource_fork":
-                    e["target"] = "parallel"
-            ids.discard("resource_fork")
-            ids.add("parallel")
-            changed = True
-        elif "resource_fork" in ids and "parallel" in ids:
-            # Drop duplicate gateway; rewire to parallel.
-            for e in edges:
-                if str(e.get("source") or "") == "resource_fork":
-                    e["source"] = "parallel"
-                if str(e.get("target") or "") == "resource_fork":
-                    e["target"] = "parallel"
-            nodes[:] = [n for n in nodes if str(n.get("id") or "") != "resource_fork"]
-            ids.discard("resource_fork")
-            changed = True
 
         _ensure_node(
             {
@@ -1095,7 +961,7 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 "description": "分叉拉取工具详情；运行时 gather 后汇聚",
                 "kind": "parallel",
                 "capability": "control",
-                "phaseKey": "resource_fork",
+                "phaseKey": "parallel",
                 "x": tx + 280,
                 "y": ty,
             }
@@ -1269,17 +1135,6 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 priority=5,
                 is_default=False,
             )
-
-        # Drop obsolete need_resources → resource_fork single edge if still present.
-        edges[:] = [
-            e
-            for e in edges
-            if not (
-                str(e.get("source") or "") == "thought"
-                and str(e.get("condition") or "") == "need_resources"
-            )
-        ]
-        edge_ids = {str(e.get("id") or "") for e in edges}
 
     # Also wire orphan prompt nodes when parallel/join already exist (draft without re-expand).
     if "parallel" in ids and "resource_join" in ids:
@@ -1905,21 +1760,6 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
             ):
                 e["condition"] = "intent=ask&no_ops"
                 changed = True
-        # 合并历史拆出的 confirm_* → clarify（同 phaseKey，功能重复）
-        _dup_confirm = {"confirm_resources", "confirm_hydrate", "confirm_retry"}
-        if ids & _dup_confirm:
-            for e in edges:
-                tgt = str(e.get("target") or "")
-                if tgt in _dup_confirm:
-                    e["target"] = "clarify"
-                    changed = True
-                src = str(e.get("source") or "")
-                if src in _dup_confirm:
-                    e["source"] = "clarify"
-                    changed = True
-            nodes[:] = [n for n in nodes if str(n.get("id")) not in _dup_confirm]
-            ids -= _dup_confirm
-            changed = True
         _add_edge(
             "e_ask_chat",
             "ask_thought",
@@ -1951,65 +1791,15 @@ def _normalize_agent_flow_graph(graph: dict[str, Any] | None) -> tuple[dict[str,
                 priority=43,
             )
         if "action" in ids:
-            for e in edges:
-                if str(e.get("source") or "") != "ask_thought":
-                    continue
-                cond = str(e.get("condition") or "")
-                tgt = str(e.get("target") or "")
-                # Legacy Ask: has_ops → propose. Clear edits paint immediately.
-                if cond in ("mode=ask&has_ops", "mode=ask&ops_valid") or (
-                    tgt == "propose" and "ask" in cond and "ops" in cond
-                ):
-                    if tgt != "action" or cond != "mode=ask&ops_valid":
-                        e["target"] = "action"
-                        e["condition"] = "mode=ask&ops_valid"
-                        e["label"] = e.get("label") or "明确需求直接改"
-                        e["isDefault"] = False
-                        try:
-                            pri = int(e.get("priority", 100))
-                        except (TypeError, ValueError):
-                            pri = 100
-                        if pri >= 20:
-                            e["priority"] = 9
-                        changed = True
-                    break
-            else:
-                _add_edge(
-                    "e_ask_propose",
-                    "ask_thought",
-                    "action",
-                    condition="mode=ask&ops_valid",
-                    priority=9,
-                )
-
-    # Collapse leaf model nodes (simple/medium/complex/vision/multimodal)
-    # back into model_route → thought. Tier/vision models live in routeConfig.
-    _LEAF_MODEL_IDS = {
-        "model_simple",
-        "model_medium",
-        "model_complex",
-        "model_vision",
-        "model_multimodal",
-    }
-
-    def _is_leaf_model(n: dict[str, Any]) -> bool:
-        nid = str(n.get("id") or "")
-        pk = str(n.get("phaseKey") or "")
-        return nid in _LEAF_MODEL_IDS or pk in _LEAF_MODEL_IDS
+            _add_edge(
+                "e_ask_propose",
+                "ask_thought",
+                "action",
+                condition="mode=ask&ops_valid",
+                priority=9,
+            )
 
     ids = {str(n.get("id")) for n in nodes}
-    leaf_nodes = [n for n in nodes if _is_leaf_model(n)]
-    if leaf_nodes:
-        leaf_ids = {str(n.get("id")) for n in leaf_nodes}
-        nodes[:] = [n for n in nodes if str(n.get("id")) not in leaf_ids]
-        edges[:] = [
-            e
-            for e in edges
-            if str(e.get("source") or "") not in leaf_ids
-            and str(e.get("target") or "") not in leaf_ids
-        ]
-        ids = {str(n.get("id")) for n in nodes}
-        changed = True
 
     if "model_route" in ids and "ask_thought" in ids:
         has_ask_lane = any(
@@ -2837,8 +2627,8 @@ def _parse_task_meta(raw: Any) -> dict[str, Any]:
     return {}
 
 
-def _skills_from_meta(decision: dict[str, Any], exec_log: dict[str, Any]) -> list[str]:
-    raw = exec_log.get("skills_loaded") or decision.get("skills_loaded") or []
+def _skills_from_meta(exec_log: dict[str, Any]) -> list[str]:
+    raw = exec_log.get("skills_loaded") or []
     if isinstance(raw, str) and raw.strip():
         try:
             raw = json.loads(raw)
@@ -2991,16 +2781,14 @@ def skill_metrics_summary() -> dict[str, Any]:
         )
         route_m = re.match(r"^(agent_graph(?:_ask|_chat)?)(?::v\d+)?$", route_raw)
         route = route_m.group(1) if route_m else route_raw
-        intent = str(
-            decision.get("intent") or exec_log.get("intent") or ""
-        ).strip().lower() or "unknown"
+        intent = str(decision.get("intent") or "").strip().lower() or "unknown"
         _bucket_inc(route_stats, route, failed=failed_b, ok=ok_b, tokens=tok)
         _bucket_inc(intent_stats, intent, failed=failed_b, ok=ok_b, tokens=tok)
 
-        painted = bool(exec_log.get("painted") or decision.get("tool_ops_applied"))
+        painted = bool(exec_log.get("painted"))
         ops_count = int(exec_log.get("ops_count") or 0)
         round_i = int(exec_log.get("round") or 0)
-        skills_used = _skills_from_meta(decision, exec_log)
+        skills_used = _skills_from_meta(exec_log)
         if meta:
             with_meta_n += 1
         if painted:
@@ -3082,19 +2870,13 @@ def skill_metrics_summary() -> dict[str, Any]:
     }
 
 
-def _parse_flow_version(*, route: Any, control: Any, exec_log: dict[str, Any], meta: dict[str, Any]) -> int | None:
-    for raw in (meta.get("flow_version"), exec_log.get("flow_version")):
-        try:
-            n = int(raw)
-            if n > 0:
-                return n
-        except (TypeError, ValueError):
-            pass
-    for raw in (route, control):
-        s = str(raw or "")
-        m = re.search(r":v(\d+)\s*$", s, re.I)
-        if m:
-            return int(m.group(1))
+def _parse_flow_version(raw: Any) -> int | None:
+    try:
+        n = int(raw)
+        if n > 0:
+            return n
+    except (TypeError, ValueError):
+        pass
     return None
 
 
@@ -3140,10 +2922,8 @@ def list_decision_logs(
     for r in rows:
         route_v = _json_scalar(_cell(r, "dl_route"))
         control_v = _json_scalar(_cell(r, "control"))
-        exec_flow = _json_scalar(_cell(r, "el_flow"))
         meta_flow = _json_scalar(_cell(r, "flow_id"))
         skills = _skills_from_meta(
-            {"skills_loaded": _json_scalar(_cell(r, "dl_skills"))},
             {"skills_loaded": _json_scalar(_cell(r, "el_skills"))},
         )
         created_at = _cell(r, "created_at")
@@ -3151,26 +2931,18 @@ def list_decision_logs(
         items.append(
             {
                 "taskId": _cell(r, "id"),
-                "traceId": _json_scalar(_cell(r, "trace_id"))
-                or _json_scalar(_cell(r, "dl_trace"))
-                or _json_scalar(_cell(r, "el_trace")),
+                "traceId": _json_scalar(_cell(r, "dl_trace")),
                 "userId": _cell(r, "user_id"),
                 "scene": _cell(r, "scene"),
                 "status": _cell(r, "status"),
                 "route": route_v,
-                "intent": _json_scalar(_cell(r, "dl_intent"))
-                or _json_scalar(_cell(r, "el_intent")),
+                "intent": _json_scalar(_cell(r, "dl_intent")),
                 "prompt": _cell(r, "prompt"),
                 "decisionLog": None,
                 "executionLog": None,
                 "control": control_v,
-                "flowId": meta_flow or exec_flow,
-                "flowVersion": _parse_flow_version(
-                    route=route_v,
-                    control=control_v,
-                    exec_log={"flow_id": exec_flow} if exec_flow else {},
-                    meta={"flow_id": meta_flow} if meta_flow else {},
-                ),
+                "flowId": meta_flow,
+                "flowVersion": _parse_flow_version(_cell(r, "flow_version")),
                 "opsCount": _json_int(_cell(r, "ops_count")),
                 "totalTokens": _json_int(_cell(r, "total_tokens")),
                 "durationMs": _json_int(_cell(r, "total_duration_ms")),
@@ -3276,24 +3048,19 @@ def get_decision_log(task_id: str) -> dict[str, Any] | None:
         ]
     return {
         "taskId": r.id,
-        "traceId": meta.get("trace_id") or decision.get("trace_id") or exec_log.get("trace_id"),
+        "traceId": decision.get("trace_id"),
         "userId": r.user_id,
         "scene": r.scene,
         "status": r.status,
         "route": decision.get("route"),
-        "intent": decision.get("intent") or exec_log.get("intent"),
+        "intent": decision.get("intent"),
         "prompt": r.prompt,
         "decisionLog": decision,
         "executionLog": exec_log or None,
         "langfuse": langfuse or None,
         "control": meta.get("control"),
-        "flowId": meta.get("flow_id") or exec_log.get("flow_id"),
-        "flowVersion": _parse_flow_version(
-            route=decision.get("route"),
-            control=meta.get("control"),
-            exec_log=exec_log,
-            meta=meta,
-        ),
+        "flowId": meta.get("flow_id"),
+        "flowVersion": _parse_flow_version(meta.get("flow_version")),
         "opsCount": exec_log.get("ops_count"),
         "totalTokens": exec_log.get("total_tokens"),
         "durationMs": duration_ms,
@@ -3303,7 +3070,7 @@ def get_decision_log(task_id: str) -> dict[str, Any] | None:
         "taskTier": exec_log.get("task_tier"),
         "visionUsed": exec_log.get("vision_used"),
         "model": exec_log.get("model"),
-        "skills": _skills_from_meta(decision, exec_log),
+        "skills": _skills_from_meta(exec_log),
         "error": r.error_message,
         "createdAt": int(float(r.created_at) * 1000) if r.created_at else None,
         "updatedAt": int(float(r.updated_at) * 1000) if r.updated_at else None,

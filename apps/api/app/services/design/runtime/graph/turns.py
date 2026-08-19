@@ -461,7 +461,7 @@ def _thought_prompt_variables(rt: Any) -> dict[str, str]:
             if not isinstance(t, dict):
                 continue
             role = "User" if str(t.get("role") or "") == "user" else "Assistant"
-            text = _as_text(t.get("text") or t.get("content")).strip()
+            text = _as_text(t.get("text")).strip()
             if not text:
                 continue
             dial_lines.append(f"{role}: {text[:dialogue_limit]}")

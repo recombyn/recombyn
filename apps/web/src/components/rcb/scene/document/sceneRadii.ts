@@ -102,7 +102,7 @@ export function cornerVertexCount(node: SceneNodeInput): number {
   if (t === 'star') return clampShapeSides(sidesFromAttrs(node.attrs), DEFAULT_SHAPE_SIDES) * 2;
   if (t === 'polygon') return sidesFromAttrs(node.attrs);
   if (t === 'path' || t === 'pen' || key === 'path') {
-    const rings = parseClosedPathRings(String(node.attrs?.path || node.attrs?.d || ''));
+    const rings = parseClosedPathRings(String(node.attrs?.path || ''));
     if (!rings.length) return 4;
     let n = 0;
     for (const ring of rings) {
@@ -355,7 +355,7 @@ export function sharpCornerSitesForNode(node: SceneNodeInput): SharpCornerSite[]
   const t = String(node.attrs?.shapeType || (key === 'path' ? 'path' : key) || 'rect');
 
   if (t === 'path' || key === 'path') {
-    const rings = parseClosedPathRings(String(node.attrs?.path || node.attrs?.d || ''));
+    const rings = parseClosedPathRings(String(node.attrs?.path || ''));
     if (!rings.length) return null;
     const primaryIdx = primaryClosedPathRingIndex(rings);
     const order = [

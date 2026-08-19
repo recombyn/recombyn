@@ -477,9 +477,9 @@ function SkillsLibraryPanel(): ReactNode {
           <div className="space-y-3.5">
             <div className="flex items-start gap-3">
               <SkillLogo src={preview.logo} />
-              {preview.whenToUse || preview.description ? (
+              {preview.whenToUse ? (
                 <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-[var(--muted)]">
-                  {preview.whenToUse || preview.description}
+                  {preview.whenToUse}
                 </p>
               ) : null}
             </div>

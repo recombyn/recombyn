@@ -199,12 +199,13 @@ def list_llm_models(
                 "description": m.get("description"),
                 "provider": provider,
                 "kind": "text",
-                "api_model": m.get("api_model") or m.get("apiModel") or m["id"],
+                "apiModel": m.get("apiModel") or m["id"],
                 "iconKey": m.get("iconKey"),
                 "iconUrl": m.get("iconUrl"),
                 "price": m.get("price"),
-                "max_attachments": int(m.get("max_attachments") or m.get("maxAttachments") or 8),
+                "maxAttachments": int(m.get("maxAttachments") or 8),
                 "thinking": bool(m.get("thinking")),
+                "referenceTypes": m.get("referenceTypes") or ["text"],
             }
         )
 
@@ -216,8 +217,9 @@ def list_llm_models(
                 "label": "Doubao Seed (custom ep)",
                 "provider": "doubao",
                 "kind": "text",
-                "api_model": seed,
-                "max_attachments": 8,
+                "apiModel": seed,
+                "maxAttachments": 8,
+                "referenceTypes": ["text"],
             }
         )
 
@@ -229,8 +231,9 @@ def list_llm_models(
                 "label": "Doubao Pro (custom ep)",
                 "provider": "doubao",
                 "kind": "text",
-                "api_model": pro,
-                "max_attachments": 8,
+                "apiModel": pro,
+                "maxAttachments": 8,
+                "referenceTypes": ["text"],
             }
         )
 
@@ -259,9 +262,6 @@ def list_image_models(
         if not _provider_unlocked(provider, unlocked, strict=strict):
             continue
         mid = m["id"]
-        api_model = m.get("api_model") or m.get("apiModel") or mid
-        limits = m.get("imageLimits") or m.get("image_limits")
-        price_meta = m.get("priceMeta") or m.get("price_meta")
         models.append(
             {
                 "id": mid,
@@ -269,17 +269,14 @@ def list_image_models(
                 "description": m.get("description"),
                 "provider": provider,
                 "kind": "image",
-                "api_model": api_model,
+                "apiModel": m.get("apiModel") or mid,
                 "iconKey": m.get("iconKey"),
                 "iconUrl": m.get("iconUrl"),
                 "price": m.get("price"),
-                "priceMeta": price_meta,
-                "price_meta": price_meta,
-                "max_attachments": int(
-                    m.get("max_attachments") or m.get("maxAttachments") or 14
-                ),
-                "imageLimits": limits,
-                "image_limits": limits,
+                "priceMeta": m.get("priceMeta"),
+                "maxAttachments": int(m.get("maxAttachments") or 14),
+                "imageLimits": m.get("imageLimits"),
+                "referenceTypes": m.get("referenceTypes") or ["image"],
             }
         )
     return models
@@ -305,7 +302,6 @@ def list_video_models(
         if not _provider_unlocked(provider, unlocked, strict=strict):
             continue
         mid = m["id"]
-        api_model = m.get("api_model") or m.get("apiModel") or mid
         models.append(
             {
                 "id": mid,
@@ -313,13 +309,11 @@ def list_video_models(
                 "description": m.get("description"),
                 "provider": provider,
                 "kind": "video",
-                "api_model": api_model,
+                "apiModel": m.get("apiModel") or mid,
                 "iconKey": m.get("iconKey"),
                 "iconUrl": m.get("iconUrl"),
                 "price": m.get("price"),
-                "max_attachments": int(
-                    m.get("max_attachments") or m.get("maxAttachments") or 4
-                ),
+                "maxAttachments": int(m.get("maxAttachments") or 4),
             }
         )
     return models
@@ -345,7 +339,6 @@ def list_audio_models(
         if not _provider_unlocked(provider, unlocked, strict=strict):
             continue
         mid = m["id"]
-        api_model = m.get("api_model") or m.get("apiModel") or mid
         models.append(
             {
                 "id": mid,
@@ -353,13 +346,11 @@ def list_audio_models(
                 "description": m.get("description"),
                 "provider": provider,
                 "kind": "audio",
-                "api_model": api_model,
+                "apiModel": m.get("apiModel") or mid,
                 "iconKey": m.get("iconKey"),
                 "iconUrl": m.get("iconUrl"),
                 "price": m.get("price"),
-                "max_attachments": int(
-                    m.get("max_attachments") or m.get("maxAttachments") or 0
-                ),
+                "maxAttachments": int(m.get("maxAttachments") or 0),
             }
         )
     return models
@@ -395,10 +386,10 @@ def resolve_provider(model_string: str | None) -> tuple[str, str]:
     meta = catalog.get(model)
     if meta:
         provider = str(meta.get("provider") or settings.llm_provider or "doubao")
-        return provider, str(meta.get("api_model") or meta["id"])
+        return provider, str(meta.get("apiModel") or meta["id"])
 
     for m in list_all_models():
-        if str(m.get("api_model") or "") == model:
+        if str(m.get("apiModel") or "") == model:
             return str(m.get("provider") or "doubao"), model
 
     # provider/model form, e.g. doubao/ep-xxxx or openrouter/anthropic/claude-sonnet-4

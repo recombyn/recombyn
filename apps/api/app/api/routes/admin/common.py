@@ -126,7 +126,7 @@ class GenerateCardKeysIn(BaseModel):
     """credit = unified 积分 top-up; plan = membership + monthly 积分."""
     kind: str = Field(default="credit", max_length=16)
     # Face value in 积分.
-    tokens: int = Field(default=0, ge=0, le=50_000_000)
+    credits: int = Field(default=0, ge=0, le=50_000_000)
     planId: str | None = Field(default=None, max_length=16)
     expiresDays: int = Field(default=365, ge=0, le=3650)
     # Dedicated generate password (CARD_KEY_OPS_PASSWORD), not the login password.
