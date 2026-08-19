@@ -872,7 +872,6 @@ async def classify_user_intent(
     scene_nodes: list[dict[str, Any]] | None = None,
     interaction_mode: str | None = None,
     pending_proposal: dict[str, Any] | None = None,
-    memory_blocks: str | None = None,
     recent_dialogue: str | None = None,
 ) -> IntentClassifyDecision:
     """Cheap structured intent gate. Falls back to ``heuristic_user_intent`` on error.
@@ -906,8 +905,7 @@ async def classify_user_intent(
         if has_pending and isinstance(pending_proposal, dict)
         else ""
     )
-    mem = str(memory_blocks or "").strip()[:1800]
-    dialogue = str(recent_dialogue or "").strip()[:1600]
+    dialogue = str(recent_dialogue or "").strip()[:1200]
     targets = scene_target_catalog(scene_nodes)
     user_blob = "".join(
         (
@@ -919,7 +917,6 @@ async def classify_user_intent(
             f"SCENE_TARGETS:\n{targets}\n\n" if targets else "",
             f"{tools_catalog}\n\n",
             pending_block,
-            f"MEMORY:\n{mem}\n\n" if mem else "",
             f"RECENT_DIALOGUE:\n{dialogue}\n\n" if dialogue else "",
             f"user_prompt:\n{(prompt or '').strip()[:4000]}",
         )

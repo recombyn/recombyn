@@ -305,6 +305,7 @@ def _llm_io_fields(
     user_t = _clip_llm_raw(user, limit=user_limit)
     if user_t:
         out["llm_user"] = user_t
+        out["llm_user_chars"] = len((user or "").strip())
     urls = _clip_urls(images)
     if urls:
         out["llm_image_urls"] = urls
