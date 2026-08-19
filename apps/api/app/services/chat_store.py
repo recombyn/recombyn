@@ -41,16 +41,14 @@ def _pack_message_meta(m: dict[str, Any]) -> str | None:
     if isinstance(content_marked, str) and content_marked:
         meta["contentMarked"] = content_marked
     # Copy Ask / resume fields from the write payload.
-    aliases = {
+    ask_fields = {
         "designTaskId": m.get("designTaskId"),
         "canResume": True if m.get("canResume") is True else None,
         "proposedOps": m.get("proposedOps"),
-        "choices": m.get("choices"),
-        "applyChoice": m.get("applyChoice"),
         "choiceUi": m.get("choiceUi"),
         "proposalId": m.get("proposalId"),
     }
-    _copy_ask_fields({k: v for k, v in aliases.items() if v is not None}, meta)
+    _copy_ask_fields({k: v for k, v in ask_fields.items() if v is not None}, meta)
     if not meta:
         return None
     try:
@@ -79,12 +77,6 @@ def _copy_ask_fields(src: dict[str, Any], dest: dict[str, Any]) -> None:
         dest["canResume"] = True
     if isinstance(src.get("proposedOps"), list) and src["proposedOps"]:
         dest["proposedOps"] = src["proposedOps"][:48]
-    if isinstance(src.get("choices"), list) and src["choices"]:
-        dest["choices"] = [
-            str(c).strip() for c in src["choices"] if str(c).strip()
-        ][:8]
-    if isinstance(src.get("applyChoice"), str) and src["applyChoice"].strip():
-        dest["applyChoice"] = src["applyChoice"].strip()[:64]
     if isinstance(src.get("choiceUi"), dict) and src["choiceUi"]:
         dest["choiceUi"] = src["choiceUi"]
     if isinstance(src.get("proposalId"), str) and src["proposalId"].strip():

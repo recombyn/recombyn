@@ -103,8 +103,7 @@ def test_unselected_not_applied_as_ops_only_primary_strategy():
     research = run_design_research_pipeline(prompt=rt.prompt, scene_key="website")
     strategy = run_design_strategy_pipeline(prompt=rt.prompt, research=research)
     rt.design_strategy = strategy
-    rt.flags["design_strategy"] = strategy
-    rt.flags["design_brief"] = {"visual_thesis": "", "avoid": []}
+    rt.design_brief = {"visual_thesis": "", "avoid": []}
     bundle = run_multi_candidate_pipeline(strategy=strategy, research=research)
     apply_candidates_to_runtime(rt, bundle)
     assert rt.design_candidates is not None

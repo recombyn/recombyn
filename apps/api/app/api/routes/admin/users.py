@@ -87,7 +87,7 @@ def admin_adjust_tokens(
     except ValueError as err:
         msg = str(err)
         if msg == "insufficient_tokens":
-            raise HTTPException(status_code=400, detail="Insufficient tokens") from err
+            raise HTTPException(status_code=400, detail="Insufficient credits") from err
         raise HTTPException(status_code=400, detail=msg) from err
     return result
 

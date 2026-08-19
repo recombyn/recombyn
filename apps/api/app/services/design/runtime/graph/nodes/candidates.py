@@ -185,17 +185,14 @@ def run_multi_candidate_pipeline(
 def should_run_multi_candidate(rt: AgentRuntime) -> bool:
     """Need a Strategy (or Research). Skip chat."""
     intent = str(
-        getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+        getattr(rt, "classified_intent", "") or ""
     ).strip().lower()
     if intent in ("chat", "ask"):
         return False
     if getattr(rt, "design_strategy", None):
         return True
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
-    if isinstance(flags.get("design_strategy"), dict):
-        return True
     if intent in ("create", "edit", "design"):
-        return bool(getattr(rt, "design_research", None) or flags.get("design_research"))
+        return bool(getattr(rt, "design_research", None))
     return False
 
 
@@ -217,8 +214,6 @@ def apply_candidates_to_runtime(rt: AgentRuntime, bundle: dict[str, Any]) -> Non
     """Stash candidates. Sync primary Strategy → Brief; never emit tool_ops."""
     clean = parse_design_candidate_set(bundle)
     rt.design_candidates = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_candidates"] = clean
     primary = primary_candidate(clean)
     if not primary:
         return
@@ -226,15 +221,13 @@ def apply_candidates_to_runtime(rt: AgentRuntime, bundle: dict[str, Any]) -> Non
     if not strat:
         return
     rt.design_strategy = parse_design_strategy(strat)
-    if isinstance(rt.flags, dict):
-        rt.flags["design_strategy"] = rt.design_strategy
-        brief = rt.flags.get("design_brief")
-        if isinstance(brief, dict):
-            brief["design_strategy"] = rt.design_strategy
-            thesis = str(rt.design_strategy.get("visual_thesis") or "").strip()
-            if thesis and not str(brief.get("visual_thesis") or "").strip():
-                brief["visual_thesis"] = thesis
-            rt.flags["design_brief"] = brief
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
+    if isinstance(brief, dict):
+        brief["design_strategy"] = rt.design_strategy
+        thesis = str(rt.design_strategy.get("visual_thesis") or "").strip()
+        if thesis and not str(brief.get("visual_thesis") or "").strip():
+            brief["visual_thesis"] = thesis
+        rt.design_brief = brief
 
 
 def format_candidates_for_decide(bundle: dict[str, Any] | None) -> str:
@@ -272,13 +265,7 @@ async def run_multi_candidate(rt: AgentRuntime) -> dict[str, Any] | None:
     )
     try:
         strategy = getattr(rt, "design_strategy", None)
-        if not isinstance(strategy, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            strategy = flags.get("design_strategy")
         research = getattr(rt, "design_research", None)
-        if not isinstance(research, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            research = flags.get("design_research")
         bundle = run_multi_candidate_pipeline(
             strategy=strategy if isinstance(strategy, dict) else None,
             research=research if isinstance(research, dict) else None,

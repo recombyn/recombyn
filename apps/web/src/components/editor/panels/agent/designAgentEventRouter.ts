@@ -131,10 +131,8 @@ function patchChatDoneAssistant(
   opts: {
     t: TFn;
     finish: FinishAssistant;
-    choices?: string[];
     proposedOps?: ChatUiMessage['proposedOps'];
     proposalId?: string;
-    applyChoice?: string;
     choiceUi?: ChatUiMessage['choiceUi'];
   }
 ): ChatUiMessage {
@@ -144,10 +142,8 @@ function patchChatDoneAssistant(
     pipeline: undefined,
     drawing: undefined,
     intent: undefined,
-    choices: opts.choices?.length ? opts.choices : undefined,
     proposedOps: opts.proposedOps?.length ? opts.proposedOps : undefined,
     proposalId: opts.proposalId || undefined,
-    applyChoice: opts.applyChoice || undefined,
     choiceUi: opts.choiceUi,
     steps: buildChatProcessSteps(opts.t, m),
   });
@@ -193,10 +189,8 @@ function patchDesignDoneAssistant(
     painted: boolean;
     designStarted: boolean;
     summary?: string;
-    choices?: string[];
     proposedOps?: ChatUiMessage['proposedOps'];
     proposalId?: string;
-    applyChoice?: string;
     choiceUi?: ChatUiMessage['choiceUi'];
   }
 ): ChatUiMessage {
@@ -215,10 +209,8 @@ function patchDesignDoneAssistant(
     pipeline: undefined,
     drawing: undefined,
     intent: undefined,
-    choices: opts.choices?.length ? opts.choices : undefined,
     proposedOps: opts.proposedOps?.length ? opts.proposedOps : undefined,
     proposalId: opts.proposalId || undefined,
-    applyChoice: opts.applyChoice || undefined,
     choiceUi: opts.choiceUi,
     steps: (m.steps || []).map((s) => ({
       ...s,
@@ -604,10 +596,8 @@ export function createDesignAgentEventRouter(opts: {
               ...patchChatDoneAssistant(m, {
                 t: opts.t,
                 finish: opts.finishAssistantPatch,
-                choices: ev.choices,
                 proposedOps: ev.proposedOps,
                 proposalId: ev.proposalId,
-                applyChoice: ev.applyChoice,
                 choiceUi: ev.choiceUi,
               }),
               ...(ev.taskId ? { designTaskId: ev.taskId } : {}),
@@ -622,10 +612,8 @@ export function createDesignAgentEventRouter(opts: {
               painted,
               designStarted: opts.mutable.designStarted,
               summary: ev.summary,
-              choices: ev.choices,
               proposedOps: ev.proposedOps,
               proposalId: ev.proposalId,
-              applyChoice: ev.applyChoice,
               choiceUi: ev.choiceUi,
             }),
             ...(ev.taskId ? { designTaskId: ev.taskId } : {}),

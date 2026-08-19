@@ -37,7 +37,7 @@ skills/
     └── …
 ```
 
-Legacy surfaces (`banner_ad`, `mobile_app_ui`, …) live under `skills/domains`; Decide still picks one surface.
+Other domain packs (`banner_ad`, `mobile_app_ui`, …) live under `skills/domains`; Decide still picks one surface.
 
 ## Canonical layout
 

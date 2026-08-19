@@ -23,7 +23,6 @@ from app.services.design.runtime.graph.scene_log import (
     _persist_task_meta,
 )
 from app.services.design.runtime.graph.turns import (
-    _is_canvas_work_intent,
     _resolve_paint_want,
 )
 from app.services.design.runtime.models_route import CANVAS_WORK_INTENTS, normalize_user_intent
@@ -121,7 +120,7 @@ def _design_memory_patch_from_rt(rt: AgentRuntime, *, painted: bool) -> dict[str
     )
 
     flags = rt.flags if isinstance(rt.flags, dict) else {}
-    brief = flags.get("design_brief") if isinstance(flags.get("design_brief"), dict) else None
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     review = flags.get("review") if isinstance(flags.get("review"), dict) else None
     medium = rt.mem_medium if isinstance(rt.mem_medium, dict) else {}
     design = medium.get("design") if isinstance(medium.get("design"), dict) else {}
@@ -133,7 +132,7 @@ def _design_memory_patch_from_rt(rt: AgentRuntime, *, painted: bool) -> dict[str
         rt.flags["preference_commits"] = commits
     if isinstance(brief, dict):
         brief = apply_committed_preferences_to_brief(brief, user)
-        rt.flags["design_brief"] = brief
+        rt.design_brief = brief
     return build_design_memory_patch(
         medium=medium,
         brief=brief,
@@ -216,9 +215,7 @@ async def _node_settle(state: GraphState) -> Command:
     if not isinstance(gov, dict):
         gov = {}
     flags = rt.flags if isinstance(rt.flags, dict) else {}
-    governance_failed = bool(flags.get("governance_fail")) or str(
-        gov.get("status") or ""
-    ) == "fail"
+    governance_failed = str(gov.get("status") or "") == "fail"
     # Outcome-aware Taste KG write (Private via Client; BasicLocal no-op).
     await _sync_intelligence_knowledge(rt)
     if governance_failed:
@@ -309,11 +306,7 @@ async def _node_settle(state: GraphState) -> Command:
     flags = rt.flags if isinstance(rt.flags, dict) else {}
     scene_unconfirmed = bool(flags.get("scene_unconfirmed"))
     tool_ops_confirmed = bool(st.painted) and not scene_unconfirmed
-    settle_intent = (
-        normalize_user_intent(rt.classified_intent)
-        if rt.classified_intent
-        else (st.intent if st.intent in ("edit", "create", "chat") else "chat")
-    )
+    settle_intent = normalize_user_intent(rt.classified_intent)
     settle_lane = (
         _resolve_paint_want(rt)
         if settle_intent in CANVAS_WORK_INTENTS
@@ -381,7 +374,7 @@ async def _node_settle(state: GraphState) -> Command:
     snap = rt.visual_snapshot if isinstance(rt.visual_snapshot, dict) else {}
     diff = rt.visual_diff if isinstance(rt.visual_diff, dict) else {}
     deltas = diff.get("deltas") if isinstance(diff.get("deltas"), dict) else {}
-    brief = flags.get("design_brief") if isinstance(flags.get("design_brief"), dict) else {}
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else {}
     judge = rt.judge_verdict if isinstance(rt.judge_verdict, dict) else {}
     thesis = str(brief.get("visual_thesis") or "").strip()
     why_bits = [
@@ -487,10 +480,8 @@ async def _node_settle(state: GraphState) -> Command:
             **({"error_code": "scene_unconfirmed"} if scene_unconfirmed else {}),
             "intent": rt.decision.intent,
             "edit_in_place": rt.decision.edit_in_place,
-            **({"choices": st.choices} if st.choices else {}),
             **({"proposed_ops": st.proposed_ops} if st.proposed_ops else {}),
             **({"proposal_id": st.proposal_id} if st.proposal_id else {}),
-            **({"apply_choice": st.apply_choice} if st.apply_choice else {}),
             **({"choice_ui": st.choice_ui} if st.choice_ui else {}),
             **({"errors": list(st.errors)[-5:]} if failed_attempt else {}),
             "balance": balance,
@@ -539,8 +530,8 @@ async def _node_settle(state: GraphState) -> Command:
         await asyncio.to_thread(
             record_design_chain,
             user_id=rt.user_id,
-            brief=flags.get("design_brief")
-            if isinstance(flags.get("design_brief"), dict)
+            brief=rt.design_brief
+            if isinstance(rt.design_brief, dict)
             else None,
             observe_facts=rt.observe_facts
             if isinstance(rt.observe_facts, dict)
@@ -566,11 +557,7 @@ async def _node_settle(state: GraphState) -> Command:
             project_id=rt.project_id,
             medium=rt.mem_medium,
             task_id=st.task_id,
-            intent=(
-                normalize_user_intent(rt.classified_intent)
-                if rt.classified_intent
-                else (st.intent if _is_canvas_work_intent(st.intent) else "chat")
-            ),
+            intent=normalize_user_intent(rt.classified_intent),
             edit_in_place=bool(rt.scene_nodes)
             and _resolve_paint_want(rt) == "edit",
             blank_artboard=False,

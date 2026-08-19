@@ -89,14 +89,10 @@ export type ChatUiMessage = {
   startedAt?: number;
   /** Wall time for completed turn (ms). */
   durationMs?: number;
-  /** Quick-reply chips from ask_user (e.g. create canvas). */
-  choices?: string[];
   /** Ask mode: proposed tool_ops waiting for an option with action=apply. */
   proposedOps?: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
   /** Server-bound Ask proposal id (design_task.meta.ask_proposal). */
   proposalId?: string;
-  /** Ask mode: label of the apply option. */
-  applyChoice?: string;
   /** Ask interaction UI — mode + options; text = freeform reply. */
   choiceUi?: {
     mode: 'confirm' | 'single' | 'multi' | 'buttons' | 'text';
@@ -1690,8 +1686,6 @@ function AssistantTurn({
           assistant.choiceUi.options?.some(
             (o) => o.action === 'apply' || o.action === 'dismiss'
           )) ||
-        assistant.choices?.length ||
-        assistant.applyChoice ||
         assistant.proposedOps?.length
     );
   const doneMilestone =
@@ -1990,24 +1984,14 @@ function resolveAskChoiceUi(assistant: ChatUiMessage): ChatUiMessage['choiceUi']
     return { mode: 'buttons', options: opts };
   }
   if (assistant.choiceUi?.options?.length) return assistant.choiceUi;
-  const labels = (assistant.choices || []).map((c) => String(c).trim()).filter(Boolean);
-  const apply = String(assistant.applyChoice || '').trim();
-  if (!labels.length && !apply && !assistant.proposedOps?.length) return null;
-  const options: NonNullable<ChatUiMessage['choiceUi']>['options'] = [];
-  if (apply) options.push({ label: apply, action: 'apply' });
-  for (const label of labels) {
-    if (label === apply) continue;
-    options.push({ label, action: 'reply' });
-  }
-  if (assistant.proposedOps?.length && !options.some((o) => o.action === 'apply')) {
-    options.unshift({ label: '', action: 'apply' });
-  }
-  if (!options.length) return null;
-  const mode =
-    options.every((o) => o.action === 'apply' || o.action === 'dismiss')
-      ? 'confirm'
-      : 'buttons';
-  return { mode, options };
+  if (!assistant.proposedOps?.length) return null;
+  return {
+    mode: 'confirm',
+    options: [
+      { label: '', action: 'apply' },
+      { label: '', action: 'dismiss' },
+    ],
+  };
 }
 
 function AskChoicePanel({

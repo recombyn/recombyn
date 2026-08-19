@@ -191,8 +191,7 @@ def test_03_review_below_70_rebuilds_not_repair():
         _retry_paint_from_review(rt, rt.run, round_i=1, verdict=parsed)
     )
     assert cmd.goto == "paint_ops"
-    assert rt.flags["rebuild"] is True
-    assert rt.flags["repair"] is False
+    assert rt.flags["review_action"] == "rebuild"
     assert resolve_transaction_phase(rt) == "paint"
     assert rt.step_ops == []
 
@@ -224,8 +223,7 @@ def test_04_review_70_to_89_auto_repair():
     assert cmd.goto == "action"
     assert rt.step_ops[0]["name"] == "update_node"
     assert not any(str(o.get("name") or "").startswith("create_") for o in rt.step_ops)
-    assert rt.flags["repair"] is True
-    assert rt.flags["rebuild"] is False
+    assert rt.flags["review_action"] == "repair"
     assert resolve_transaction_phase(rt) == "correction"
 
 

@@ -36,13 +36,19 @@ def test_assemble_chat_and_ask():
         tool_calls=[
             {
                 "name": "ask_user",
-                "arguments": '{"question":"品牌名？","choices":["A","B"]}',
+                "arguments": '{"question":"品牌名？","options":["A","B"]}',
             }
         ],
     )
     assert ask["intent"] == "ask"
     assert ask["reply"] == "品牌名？"
-    assert ask["choices"] == ["A", "B"]
+    assert ask["choice_ui"] == {
+        "mode": "single",
+        "options": [
+            {"label": "A", "action": "reply"},
+            {"label": "B", "action": "reply"},
+        ],
+    }
 
 
 def test_design_thought_tools_include_meta():

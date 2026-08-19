@@ -95,12 +95,11 @@ function paintFramePlate(
   const y = Number(frame.y) || 0;
   const w = Math.max(1, Number(frame.width) || 1);
   const h = Math.max(1, Number(frame.height) || 1);
-  const bg =
-    generating
-      ? '#e4ecf4'
-      : frame.backgroundColor && frame.backgroundColor !== 'transparent'
-        ? frame.backgroundColor
-        : '#FFFFFF';
+  let bg = '#FFFFFF';
+  if (generating) bg = '#e4ecf4';
+  else if (frame.backgroundColor && frame.backgroundColor !== 'transparent') {
+    bg = frame.backgroundColor;
+  }
   const backgroundOpacity = generating
     ? 1
     : Math.max(0, Math.min(100, Number(frame.backgroundOpacity ?? 100))) / 100;

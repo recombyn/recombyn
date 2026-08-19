@@ -82,6 +82,18 @@ import {
 } from '@/components/rcb/core/math';
 import { readDevicePixelRatio } from '@/components/rcb/core/dpr';
 
+function svgTextAnchor(textAlign: string | undefined): 'start' | 'middle' | 'end' {
+  if (textAlign === 'center') return 'middle';
+  if (textAlign === 'right') return 'end';
+  return 'start';
+}
+
+function textLocalX(align: 'start' | 'middle' | 'end', width: number): number {
+  if (align === 'middle') return width / 2;
+  if (align === 'end') return width;
+  return 0;
+}
+
 const TRANSPARENT_PIXEL_SRC =
   'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -921,7 +933,11 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
           node.attrs?.pencilOutlineColor || brush.outlineStrokeColor || ink
         );
         const customSilhouette = Boolean(customOutline);
-        setFill(inkPath, fillOn ? (customSilhouette ? String(node.attrs?.['fill-color'] || ink) : ink) : 'none');
+        let pencilFill = 'none';
+        if (fillOn) {
+          pencilFill = customSilhouette ? String(node.attrs?.['fill-color'] || ink) : ink;
+        }
+        setFill(inkPath, pencilFill);
         if (outlineW > 0) {
           setStroke(inkPath, { color: outlineC, width: outlineW, linejoin: 'round' });
         } else {
@@ -1051,8 +1067,7 @@ export async function nodeToSvgElement(
     const meta = objectMeta(node);
     const boxW = Math.max(num(node.width, 0), 0);
     const boxH = Math.max(num(node.height, style.fontSize * (style.lineHeight || 1.4)), 1);
-    const align =
-      style.textAlign === 'center' ? 'middle' : style.textAlign === 'right' ? 'end' : 'start';
+    const align = svgTextAnchor(style.textAlign);
 
     const autoSize = String(node.attrs?.autoSize ?? 'true') !== 'false';
     const visualLines = textVisualLines(text || ' ', style, {
@@ -1091,7 +1106,7 @@ export async function nodeToSvgElement(
     const finalW = boxW > 1 ? boxW : Math.max(1, bbox.width);
     const finalH = boxH > 1 ? boxH : Math.max(1, bbox.height);
     if (boxW <= 1) {
-      localX = align === 'middle' ? finalW / 2 : align === 'end' ? finalW : 0;
+      localX = textLocalX(align, finalW);
       setAttrs(el, { x: localX });
       el.querySelectorAll('tspan').forEach((t, i) => {
         t.setAttribute('x', String(localX));
@@ -2247,8 +2262,7 @@ function previewResizeText(
       'font-size': baseFs,
       'font-weight': String(style.fontWeight || 'normal'),
       'font-style': style.fontStyle || 'normal',
-      'text-anchor':
-        style.textAlign === 'center' ? 'middle' : style.textAlign === 'right' ? 'end' : 'start',
+      'text-anchor': svgTextAnchor(style.textAlign),
       fill: hexWithOpacity(style.fill || '#333333', style.fillOpacity ?? 100),
       x: localX,
       y: originY,

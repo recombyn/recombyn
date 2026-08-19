@@ -25,7 +25,7 @@ def parse_plugin_manifest(meta: dict[str, Any]) -> tuple[dict[str, Any] | None, 
     if fmt != FORMAT_NAME:
         errs.append("format_invalid")
     try:
-        ver = int(meta.get("formatVersion") or meta.get("format_version") or 1)
+        ver = int(meta.get("formatVersion") or 1)
     except (TypeError, ValueError):
         ver = 0
     if ver < 1:
@@ -33,7 +33,7 @@ def parse_plugin_manifest(meta: dict[str, Any]) -> tuple[dict[str, Any] | None, 
     kind = str(meta.get("kind") or "skill").strip().lower()
     if kind not in KINDS:
         errs.append("kind_invalid")
-    pid = slug_plugin_id(str(meta.get("id") or meta.get("skill_key") or meta.get("name") or ""))
+    pid = slug_plugin_id(str(meta.get("id") or ""))
     if not pid or pid == "plugin" and not str(meta.get("id") or "").strip():
         # allow folder fallback later
         pass

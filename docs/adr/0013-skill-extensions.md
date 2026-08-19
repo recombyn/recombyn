@@ -25,9 +25,8 @@ We want third-party / private-deploy **extensions** without a full plugin platfo
    ├── assets/           # optional — logo / icon / previews
    └── examples/         # optional — reference art (docs only)
    ```
-5. **Meta aliases** (optional, normalized at load):
-   - `id` → `skill_key`
-   - `trigger_keywords` → `triggers[].prompt_includes_any` (when `triggers` absent)
+5. **`_meta.json` contract** (normalized at load):
+   - `skill_key` required (folder name if omitted)
    - `enabled: false` → skip pack
    - `author` / `permissions` → recorded / documented; live ACL remains `preferred_tools` + `allowed_resources`
 6. **Later phases** (not this ADR): canvas toolbar plugins (TS), optional skill ops runners (`handler.py`), zip/signature installers.

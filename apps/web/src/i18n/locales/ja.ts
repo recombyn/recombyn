@@ -379,15 +379,9 @@ const ja = {
     help: 'ヘルプ',
   },
   wallet: {
-    tokens: 'クレジット',
-    tokensTip:
-      'プランは毎月クレジットを付与。チャット / Agent / 画像で同一残高を使います。',
-    tokensLeft: '残り {{count}} クレジット',
-    tokenCostTip: '予定消費 {{count}} クレジット',
+    creditsLeft: '残り {{count}} クレジット',
     creditCostTip: '予定消費 {{count}} クレジット',
-    unitTokens: 'クレジット',
     unitCredits: 'クレジット',
-    spendAsTokens: 'チャット課金',
     spendAsChat: 'チャット課金',
     spendAsCredits: '画像課金',
     imageSpendLabel: '画像生成',

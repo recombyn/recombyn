@@ -124,8 +124,7 @@ def test_apply_promotes_winner_without_ops():
     research, _strategy, bundle = _bundle()
     rt = _rt()
     rt.design_candidates = bundle
-    rt.flags["design_candidates"] = bundle
-    rt.flags["design_brief"] = {"visual_thesis": "", "avoid": []}
+    rt.design_brief = {"visual_thesis": "", "avoid": []}
     result = run_design_tournament_pipeline(
         candidates_bundle=bundle, research=research
     )

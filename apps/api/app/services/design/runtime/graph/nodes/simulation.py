@@ -219,23 +219,20 @@ def run_design_simulation_pipeline(
 
 def should_run_design_simulation(rt: AgentRuntime) -> bool:
     intent = str(
-        getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+        getattr(rt, "classified_intent", "") or ""
     ).strip().lower()
     if intent in ("chat", "ask"):
         return False
     if getattr(rt, "design_strategy", None) or getattr(rt, "design_swarm", None):
         return True
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
-    return bool(flags.get("design_strategy") or flags.get("design_swarm"))
+    return False
 
 
 def apply_simulation_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> None:
     """Stash simulation; push adjustments into Brief — never tool_ops."""
     clean = parse_design_simulation(result)
     rt.design_simulation = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_simulation"] = clean
-    brief = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     if not isinstance(brief, dict):
         return
     adjustments = list(clean.get("adjustments") or [])
@@ -257,8 +254,7 @@ def apply_simulation_to_runtime(rt: AgentRuntime, result: dict[str, Any]) -> Non
         if tip not in avoid:
             avoid.append(tip)
         brief["avoid"] = avoid[:12]
-    if isinstance(rt.flags, dict):
-        rt.flags["design_brief"] = brief
+    rt.design_brief = brief
 
 
 def format_simulation_for_decide(result: dict[str, Any] | None) -> str:
@@ -311,13 +307,7 @@ async def run_design_simulation(rt: AgentRuntime) -> dict[str, Any] | None:
     )
     try:
         strategy = getattr(rt, "design_strategy", None)
-        if not isinstance(strategy, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            strategy = flags.get("design_strategy")
         swarm = getattr(rt, "design_swarm", None)
-        if not isinstance(swarm, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            swarm = flags.get("design_swarm")
         observe = getattr(rt, "observe_facts", None)
         if not isinstance(observe, dict):
             observe = None

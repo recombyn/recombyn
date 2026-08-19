@@ -196,13 +196,11 @@ export type DesignJobEvent =
       total_tokens?: number;
       actual_models?: unknown[];
       summary?: string;
-      choices?: string[];
       proposed_ops?: Array<{
         name?: string;
         args?: Record<string, unknown>;
         op_id?: string;
       }>;
-      apply_choice?: string;
       /** Ask interaction format: confirm | single | multi | buttons | text. */
       choice_ui?: {
         mode?: string;

@@ -62,7 +62,7 @@ def resolve_transaction_phase(rt: Any) -> DesignTransactionPhase:
     """Map runtime flags → transaction phase (paint / correction / polish)."""
     flags = getattr(rt, "flags", None)
     flags = flags if isinstance(flags, dict) else {}
-    if flags.get("polish") or flags.get("subtraction"):
+    if flags.get("polish"):
         return "polish"
     action = str(flags.get("review_action") or "").strip().lower()
     if action == "rebuild":

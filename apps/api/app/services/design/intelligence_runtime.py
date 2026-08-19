@@ -127,8 +127,6 @@ def apply_intelligence_result(
 
     # review / optimize / memory / principle — optional Remote enrichment slots
     if name == "review":
-        if isinstance(getattr(rt, "flags", None), dict):
-            rt.flags["intelligence_review"] = data
         if data.get("score") is not None or data.get("status"):
             prior = getattr(rt, "judge_verdict", None)
             if not isinstance(prior, dict):
@@ -144,14 +142,10 @@ def apply_intelligence_result(
                 }
             )
             rt.judge_verdict = merged
-            if isinstance(rt.flags, dict):
-                rt.flags["judge_verdict"] = merged
         return data
 
     if name == "optimize":
-        if isinstance(getattr(rt, "flags", None), dict):
-            rt.flags["intelligence_optimize"] = data
-            rt.flags["optimization"] = data
+        rt.optimization = data
         return data
 
     if name == "retrieve_memory":

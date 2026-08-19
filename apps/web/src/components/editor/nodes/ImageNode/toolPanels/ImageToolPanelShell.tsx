@@ -31,10 +31,6 @@ export const IMAGE_TOOL_TOKEN_COST = {
   adjust: 0,
 } as const;
 
-
-/** Alias — same map as IMAGE_TOOL_TOKEN_COST. */
-export const IMAGE_TOOL_CREDIT_COST = IMAGE_TOOL_TOKEN_COST;
-
 /** Shared chrome for image tool panels docked beside the source image. */
 function ImageToolPanelShell({
   title,
@@ -129,11 +125,8 @@ function PanelIconBtn({
 /** Cost chip for primary CTAs: amount + bolt after the label; inherits text color. */
 function PanelConfirmCost({
   amount,
-  unit = 'credits',
 }: {
   amount: number;
-  /** credits = 积分 (image tools). */
-  unit?: 'credits' | 'tokens';
 }) {
   const { t } = useTranslation();
   const billingEnabled = useBillingEnabled();
@@ -141,10 +134,7 @@ function PanelConfirmCost({
   // Free / no-LLM tools — no chip. Paid tools always show list price (even if billing is off locally).
   if (n <= 0) return null;
   const display = String(n);
-  const tip =
-    unit === 'tokens'
-      ? t('wallet.tokenCostTip', { count: display })
-      : t('wallet.creditCostTip', { count: display });
+  const tip = t('wallet.creditCostTip', { count: display });
   // Native title — do not wrap Tooltip (div) inside confirm <button>s.
   return (
     <span

@@ -49,7 +49,7 @@ Never claim work was already applied.
 
 ## Clarify (no canvas change yet)
 - intent=ask, non-empty reply, tool_ops=[] in decide
-- Emit choice_ui for frontend chips (preferred over bare string lists):
+- Emit choice_ui for frontend chips:
   {
     "mode": "confirm"|"single"|"multi"|"buttons"|"text",
     "options": [{"label": "...", "action": "apply"|"reply"|"dismiss"}],

@@ -25,8 +25,6 @@ export type ChatSessionMessage = {
   canResume?: boolean;
   proposedOps?: ChatUiMessage['proposedOps'];
   proposalId?: string;
-  choices?: string[];
-  applyChoice?: string;
   choiceUi?: ChatUiMessage['choiceUi'];
 };
 
@@ -117,8 +115,6 @@ function pickAskPersistFields(m: {
   canResume?: boolean | null;
   proposedOps?: ChatUiMessage['proposedOps'] | null;
   proposalId?: string | null;
-  choices?: string[] | null;
-  applyChoice?: string | null;
   choiceUi?: ChatUiMessage['choiceUi'] | null;
 }): Partial<ChatSessionMessage> {
   const out: Partial<ChatSessionMessage> = {};
@@ -126,8 +122,6 @@ function pickAskPersistFields(m: {
   if (m.canResume) out.canResume = true;
   if (m.proposedOps?.length) out.proposedOps = m.proposedOps;
   if (m.proposalId) out.proposalId = m.proposalId;
-  if (m.choices?.length) out.choices = m.choices;
-  if (m.applyChoice) out.applyChoice = m.applyChoice;
   if (m.choiceUi) out.choiceUi = m.choiceUi;
   return out;
 }

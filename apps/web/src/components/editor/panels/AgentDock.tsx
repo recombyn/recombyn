@@ -343,8 +343,6 @@ type ChatSessionMessage = {
   canResume?: boolean;
   proposedOps?: ChatUiMessage['proposedOps'];
   proposalId?: string;
-  choices?: string[];
-  applyChoice?: string;
   choiceUi?: ChatUiMessage['choiceUi'];
 };
 

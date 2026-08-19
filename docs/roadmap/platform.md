@@ -165,7 +165,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 - [x] Export DLQ admin replay (`GET/POST/DELETE /admin/ops/export-dlq`) + depth gauge / Insights tab
 - [x] Chat image gen jobs (`POST/GET /chat/image/jobs`) — editor polls; sync `POST /chat/image` kept for scripts
 - [x] Hydrate job progress on Design Agent SSE (`activity` + `task_id`)
-- [x] Skill extensions Phase A — `plugins/skills` mount, meta aliases, sample `festival_poster` ([ADR 0013](../adr/0013-skill-extensions.md))
+- [x] Skill extensions Phase A — `plugins/skills` mount, `_meta.json` / `skill_key`, sample `festival_poster` ([ADR 0013](../adr/0013-skill-extensions.md))
 
 ### Phase 7 — Extensibility (plugins)
 

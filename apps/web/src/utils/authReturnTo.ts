@@ -42,14 +42,18 @@ export function buildLoginUrl(from?: string | null): string {
   return `/home?login=1&from=${encodeURIComponent(dest)}`;
 }
 
+function asSearchParams(
+  search: string | URLSearchParams | null | undefined
+): URLSearchParams | null {
+  if (typeof search === 'string') {
+    return new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  }
+  if (search instanceof URLSearchParams) return search;
+  return null;
+}
+
 export function isLoginOpen(search: string | URLSearchParams | null | undefined): boolean {
-  const params =
-    typeof search === 'string'
-      ? new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-      : search instanceof URLSearchParams
-        ? search
-        : null;
-  return params?.get('login') === '1';
+  return asSearchParams(search)?.get('login') === '1';
 }
 
 /**
@@ -66,11 +70,6 @@ export function withReturnTo(path: string, from?: string | null): string {
 export function readReturnToParam(
   search: string | URLSearchParams | null | undefined
 ): string {
-  const params =
-    typeof search === 'string'
-      ? new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-      : search instanceof URLSearchParams
-        ? search
-        : null;
+  const params = asSearchParams(search);
   return sanitizeReturnTo(params?.get('from'));
 }

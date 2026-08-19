@@ -11,6 +11,6 @@
     r="6"
     fill="url(#editor-fill-radial)"
     stroke="currentColor"
-    stroke-width="1"
+    stroke-width="1.5"
   />
 </svg>

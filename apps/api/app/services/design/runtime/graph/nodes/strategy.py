@@ -242,7 +242,7 @@ def run_design_strategy_pipeline(
 def should_run_design_strategy(rt: AgentRuntime) -> bool:
     """Run after Research (or when Brief needs a strategy). Skip chat."""
     intent = str(
-        getattr(rt, "classified_intent", "") or getattr(rt.run, "intent", "") or ""
+        getattr(rt, "classified_intent", "") or ""
     ).strip().lower()
     if intent in ("chat", "ask"):
         return False
@@ -250,21 +250,16 @@ def should_run_design_strategy(rt: AgentRuntime) -> bool:
         return True
     if getattr(rt, "design_research", None):
         return True
-    flags = rt.flags if isinstance(rt.flags, dict) else {}
-    return bool(flags.get("design_research"))
+    return False
 
 
 def apply_strategy_to_runtime(rt: AgentRuntime, strategy: dict[str, Any]) -> None:
     """Stash Strategy on Runtime + merge into Brief (thesis / design_strategy)."""
     clean = parse_design_strategy(strategy)
     rt.design_strategy = clean
-    if isinstance(rt.flags, dict):
-        rt.flags["design_strategy"] = clean
-    brief = rt.flags.get("design_brief") if isinstance(rt.flags, dict) else None
+    brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
     if not isinstance(brief, dict):
         brief = {}
-        if isinstance(rt.flags, dict):
-            rt.flags["design_brief"] = brief
     brief["design_strategy"] = clean
     thesis = str(clean.get("visual_thesis") or "").strip()
     if thesis and not str(brief.get("visual_thesis") or "").strip():
@@ -278,11 +273,7 @@ def apply_strategy_to_runtime(rt: AgentRuntime, strategy: dict[str, Any]) -> Non
         if text and text not in avoid and not text.lower().startswith("adopt"):
             avoid.append(text)
     brief["avoid"] = avoid[:12]
-    if isinstance(rt.flags, dict):
-        rt.flags["design_brief"] = brief
-    # Refresh paint-facing brief string when we already had one.
-    if thesis and not str(getattr(rt, "design_brief", "") or "").strip():
-        rt.design_brief = thesis
+    rt.design_brief = brief
 
 
 def format_strategy_for_decide(strategy: dict[str, Any] | None) -> str:
@@ -328,11 +319,8 @@ async def run_design_strategy(rt: AgentRuntime) -> dict[str, Any] | None:
     try:
         research = getattr(rt, "design_research", None)
         if not isinstance(research, dict):
-            flags = rt.flags if isinstance(rt.flags, dict) else {}
-            research = flags.get("design_research") if isinstance(flags.get("design_research"), dict) else {}
-        brief = None
-        if isinstance(rt.flags, dict) and isinstance(rt.flags.get("design_brief"), dict):
-            brief = rt.flags.get("design_brief")
+            research = {}
+        brief = rt.design_brief if isinstance(rt.design_brief, dict) else None
         strategy = run_design_strategy_pipeline(
             prompt=str(getattr(rt, "prompt", "") or ""),
             research=research if isinstance(research, dict) else None,

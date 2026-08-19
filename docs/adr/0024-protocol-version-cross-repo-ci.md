@@ -17,9 +17,9 @@ CI that fails when either side breaks the contract.
 1. **Single contract package:** `packages/protocol` (`recombyn-protocol`),
    Apache-2.0. Floor for Private: `>=0.1.1`.
 2. **Canonical helpers in protocol:** `INTELLIGENCE_METHODS`,
-   `INTELLIGENCE_METHOD_ALIASES`, `INTELLIGENCE_REQUEST_FIELDS`,
-   `normalize_intelligence_method`, `intelligence_wire_methods`,
-   `remote_result_usable`. Runtime re-exports usability for existing imports.
+   `INTELLIGENCE_REQUEST_FIELDS`, `intelligence_wire_methods`,
+   `remote_result_usable`. Import usability from protocol; runtime does not
+   re-export it.
 3. **Private depends on the package** (sibling path / git subdirectory / PyPI),
    never hand-maintains a second method list.
 4. **CI:**
