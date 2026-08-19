@@ -115,7 +115,7 @@ def test_spatial_flags_stacked_creates():
 def test_skip_review_for_canvas_op_lean():
     rt = _rt(classified_intent="canvas_op", prompt="加个红圆", images=None)
     assert observe_mod._should_route_to_review(rt) is False
-    # Clean design first paint → auto mode skips Review (no signals / retry / taste).
+    # Clean design first paint → auto mode skips Review (no retry / high-stakes).
     rt2 = _rt(classified_intent="design", prompt="画一张万圣节海报" * 5, images=None)
     assert observe_mod._should_route_to_review(rt2) is False
 
@@ -133,12 +133,13 @@ def test_review_auto_gates(monkeypatch):
     assert observe_mod._should_route_to_review(clean) is False
 
     with_signals = _rt(classified_intent="design", prompt=long_prompt, images=None)
-    assert (
-        observe_mod._should_route_to_review(
-            with_signals, signals=["creates stacked (1)"]
-        )
-        is True
-    )
+    assert observe_mod._should_route_to_review(with_signals) is False
+
+    used = _rt(classified_intent="design", prompt=long_prompt, images=None)
+    used.flags["review_repair_used"] = True
+    used.flags["critique_failed"] = True
+    used.images = ["https://example.com/a.png"]
+    assert observe_mod._should_route_to_review(used) is False
 
     # Taste phrases must NOT force Review — intent LLM / signals only.
     taste = _rt(classified_intent="design", prompt="这个太丑了重新设计", images=None)
@@ -238,3 +239,50 @@ def test_retry_paint_from_critique_sets_reflect_note(monkeypatch):
     assert "Visual craft" not in (rt.run.reflect_note or "")
     assert rt.flags.get("critique_failed") is True
     assert rt.run.reflect_left == 1
+
+
+def test_route_after_repair_settles_even_with_structure(monkeypatch):
+    monkeypatch.setattr(observe_mod, "_emit", lambda ev: None)
+    monkeypatch.setattr(observe_mod, "_emit_ux_tip", lambda *_a, **_k: None)
+    rt = _rt(classified_intent="design", images=["https://example.com/a.png"])
+    rt.flags["review_repair_used"] = True
+    rt.run.reflect_left = 2
+    rt.run.painted = True
+
+    async def _run():
+        return await observe_mod._route_after_observe_facts(
+            rt,
+            rt.run,
+            round_i=2,
+            critique_issues=["overlap: a ∩ b (100px²)"],
+            preview_image=None,
+            observe_signals=["overlap = true"],
+        )
+
+    cmd = asyncio.run(_run())
+    assert getattr(cmd, "goto", None) == "__settle__"
+
+
+def test_route_high_stakes_without_structure_goes_review(monkeypatch):
+    monkeypatch.setattr(observe_mod, "_emit", lambda ev: None)
+    monkeypatch.setattr(observe_mod, "_review_stage_enabled", lambda: True)
+    monkeypatch.setattr(observe_mod, "_review_mode", lambda *_a, **_k: "auto")
+    rt = _rt(
+        classified_intent="design",
+        images=["https://example.com/a.png"],
+        prompt="参考图做海报",
+    )
+    rt.run.painted = True
+
+    async def _run():
+        return await observe_mod._route_after_observe_facts(
+            rt,
+            rt.run,
+            round_i=1,
+            critique_issues=[],
+            preview_image=None,
+            observe_signals=[],
+        )
+
+    cmd = asyncio.run(_run())
+    assert getattr(cmd, "goto", None) == "review"

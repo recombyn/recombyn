@@ -206,6 +206,50 @@ def test_lane_user_msg_does_not_ask_all_dimensions():
     assert "content/originality" not in msg
 
 
+def test_review_user_does_not_dump_pending_skill_essays():
+    from app.services.design.runtime.decision_log import DesignRunDecision
+    from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime
+
+    run = AgentRunState(trace_id="t", task_id="task", goal="poster")
+    rt = AgentRuntime(
+        user_id="u",
+        mode="agent",
+        prompt="festival poster",
+        rules={},
+        user_selected_model="auto",
+        canvas_id=None,
+        canvas_size="1080x1920",
+        scene_key="poster",
+        scene_nodes=[],
+        scene_frames=[],
+        focus_id="",
+        images=[],
+        memory_in={},
+        session_id="s",
+        project_id="p",
+        hold=0,
+        free_daily=False,
+        t0=0.0,
+        settle_hold_fn=None,
+        refund_hold_fn=None,
+        apply_ops=[],
+        w=1080,
+        h=1920,
+        run=run,
+        decision=DesignRunDecision(),
+        flags={"design_brief": _BRIEF},
+    )
+    rt.design_brief = _BRIEF
+    rt.pending_skill_details = "FULL_SKILL_ESSAY " + ("craft " * 80)
+    msg = _build_review_user_msg(
+        rt, signals=["overflow at n1"], has_preview=False
+    )
+    assert "FULL_SKILL_ESSAY" not in msg
+    assert "DESIGN_BRIEF" in msg
+    assert "OBSERVE_FACTS" in msg
+    assert "overflow at n1" in msg
+
+
 def test_sidecar_excerpt_is_per_lane():
     docs = (
         "### review/hierarchy-review.md\nFail when title and hero share equal weight.\n\n"

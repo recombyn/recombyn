@@ -9,7 +9,9 @@ Stable surface matches ``DesignIntelligenceClient`` canonical methods.
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
 from typing import Any
 
 from recombyn_intelligence_client import DesignIntelligenceClient, RemoteIntelligenceProvider
@@ -20,10 +22,151 @@ _log = logging.getLogger("app.design.intelligence")
 
 _client: DesignIntelligenceClient | None = None
 
+_INTEL_HOP_TTL_SEC = 3600
+_INTEL_HOP_META_MAX = 32
+
 
 def _wire_method(name: str) -> str:
     """Canonical HTTP path segment."""
     return str(name or "").strip()
+
+
+def _intel_hop_redis() -> Any | None:
+    try:
+        url = str(getattr(settings, "redis_url", "") or "").strip()
+        if not url:
+            return None
+        import redis
+
+        return redis.Redis.from_url(
+            url, decode_responses=True, socket_connect_timeout=0.4, socket_timeout=0.4
+        )
+    except Exception:
+        return None
+
+
+def _intel_hop_redis_key(run_id: str, method: str, input_hash: str) -> str:
+    return f"design:intel-hop:{run_id}:{method}:{input_hash}"
+
+
+def _intel_hop_meta_key(method: str, input_hash: str) -> str:
+    return f"{method}:{input_hash}"
+
+
+def _intel_hop_entry_at(entry: Any) -> float:
+    if not isinstance(entry, dict):
+        return 0.0
+    try:
+        return float(entry.get("at") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _intel_hop_from_redis(run_id: str, method: str, input_hash: str) -> dict[str, Any] | None:
+    r = _intel_hop_redis()
+    if r is None:
+        return None
+    try:
+        raw = r.get(_intel_hop_redis_key(run_id, method, input_hash))
+    except Exception:
+        _log.debug("intelligence hop redis get failed", exc_info=True)
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _intel_hop_to_redis(
+    run_id: str, method: str, input_hash: str, payload: dict[str, Any]
+) -> None:
+    r = _intel_hop_redis()
+    if r is None:
+        return
+    try:
+        r.setex(
+            _intel_hop_redis_key(run_id, method, input_hash),
+            _INTEL_HOP_TTL_SEC,
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        )
+    except Exception:
+        _log.debug("intelligence hop redis put failed", exc_info=True)
+
+
+def _intel_hop_from_task_meta(
+    run_id: str, method: str, input_hash: str
+) -> dict[str, Any] | None:
+    from app.services.design.admin.task_store import get_design_task, parse_task_meta
+
+    row = get_design_task(run_id)
+    if not row:
+        return None
+    cache = parse_task_meta(row.get("meta_json")).get("intelligence_cache")
+    if not isinstance(cache, dict):
+        return None
+    entry = cache.get(_intel_hop_meta_key(method, input_hash))
+    if not isinstance(entry, dict):
+        return None
+    at = _intel_hop_entry_at(entry)
+    if at <= 0 or time.time() - at > _INTEL_HOP_TTL_SEC:
+        return None
+    payload = entry.get("payload")
+    return payload if isinstance(payload, dict) else None
+
+
+def _intel_hop_to_task_meta(
+    run_id: str, method: str, input_hash: str, payload: dict[str, Any]
+) -> None:
+    from app.services.design.admin.task_store import (
+        get_design_task,
+        merge_task_meta,
+        parse_task_meta,
+    )
+
+    row = get_design_task(run_id)
+    if not row:
+        return
+    now = time.time()
+    prior = parse_task_meta(row.get("meta_json")).get("intelligence_cache")
+    cache: dict[str, Any] = {}
+    if isinstance(prior, dict):
+        for key, entry in prior.items():
+            if not isinstance(entry, dict):
+                continue
+            at = _intel_hop_entry_at(entry)
+            if at <= 0 or now - at > _INTEL_HOP_TTL_SEC:
+                continue
+            cache[str(key)] = entry
+    cache[_intel_hop_meta_key(method, input_hash)] = {"payload": payload, "at": now}
+    if len(cache) > _INTEL_HOP_META_MAX:
+        keep = sorted(
+            cache.items(),
+            key=lambda item: _intel_hop_entry_at(item[1]),
+            reverse=True,
+        )[:_INTEL_HOP_META_MAX]
+        cache = dict(keep)
+    merge_task_meta(run_id, {"intelligence_cache": cache})
+
+
+def get_intelligence_hop(key: tuple[str, str, str]) -> dict[str, Any] | None:
+    run_id, method, input_hash = key
+    if not run_id or not method or not input_hash:
+        return None
+    hit = _intel_hop_from_redis(run_id, method, input_hash)
+    if hit is not None:
+        return hit
+    return _intel_hop_from_task_meta(run_id, method, input_hash)
+
+
+def put_intelligence_hop(key: tuple[str, str, str], payload: dict[str, Any]) -> None:
+    run_id, method, input_hash = key
+    if not run_id or not method or not input_hash or not isinstance(payload, dict):
+        return
+    _intel_hop_to_redis(run_id, method, input_hash, payload)
+    _intel_hop_to_task_meta(run_id, method, input_hash, payload)
 
 
 def apply_intelligence_result(
@@ -294,13 +437,19 @@ def build_design_intelligence_client() -> DesignIntelligenceClient:
             timeout = float(
                 getattr(settings, "intelligence_remote_timeout_sec", 30.0) or 30.0
             )
+            circuit_sec = float(
+                getattr(settings, "intelligence_circuit_sec", 30.0) or 30.0
+            )
             return DesignIntelligenceClient(
                 RemoteIntelligenceProvider(
                     base_url=base,
                     api_key=key,
                     timeout_sec=timeout,
+                    circuit_sec=circuit_sec,
                     fallback=local,
                     apply_result=apply_intelligence_result,
+                    hop_get=get_intelligence_hop,
+                    hop_put=put_intelligence_hop,
                 )
             )
         _log.info("RECOMBYN_INTELLIGENCE_MODE=cloud but URL empty; using BasicLocal")

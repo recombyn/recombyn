@@ -165,6 +165,8 @@ def _fetch_deferred_skills(
         version_pins=version_pins,
         input_args=input_args,
         user_id=user_id,
+        role="paint",
+        stage="plan",
     )
     return {"keys": list(keys), "details": details or "", "errors": errs}
 
@@ -414,7 +416,10 @@ async def load_deferred_resources(
     # Auto skills are for design/create turns. Explicit pins and need_skills
     # still work for every intent; ordinary edits must stay deterministic.
     auto_skill_intents = {"create", "design"}
-    if intent_l in auto_skill_intents:
+    classified = str(getattr(rt, "classified_intent", None) or intent_l).strip().lower()
+    brief = getattr(rt, "design_brief", None)
+    has_brief = isinstance(brief, dict) and bool(brief)
+    if intent_l in auto_skill_intents and classified != "canvas_op":
         for k in resolve_triggered_skill_keys(
             scene=rt.scene_key or "",
             empty_canvas=_canvas_is_empty(rt),
@@ -423,6 +428,9 @@ async def load_deferred_resources(
             prompt_chars=len(str(rt.prompt or "").strip()),
             prompt=str(rt.prompt or ""),
             already_loaded=list(st.skills_loaded or []) + list(need_skills),
+            stage="plan",
+            classified_intent=classified,
+            has_design_brief=has_brief,
         ):
             if k not in need_skills:
                 need_skills.append(k)

@@ -49,6 +49,7 @@
     }
   ],
   "mutex_group": "surface",
+  "scope": ["plan", "paint"],
   "prompt_negative": "Never default to Hero + 3 cards + 3 cards + Logo + CTA. Classify family first. Do not invent logos, pricing tiers, or testimonials. Do not paint a festive poster unless the user asked.",
   "locales": {
     "zh-CN": {

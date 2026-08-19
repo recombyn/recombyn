@@ -400,7 +400,8 @@ def _paint_ops_system(rt: Any) -> str:
 
 def _paint_ops_user(rt: Any) -> str:
     from app.services.design.runtime.graph.turns import _thought_prompt_variables
-    vars_ = _thought_prompt_variables(rt)
+
+    vars_ = _thought_prompt_variables(rt, stage="paint")
     spatial = (
         getattr(rt, "spatial_summary", None)
         if isinstance(getattr(rt, "spatial_summary", None), dict)
@@ -409,49 +410,35 @@ def _paint_ops_user(rt: Any) -> str:
     focus_frame = _focus_frame_from_rt(rt)
     spatial_hint = _format_spatial_placement(spatial, focus_frame=focus_frame)
     lean = _is_lean_paint_turn(rt)
-    raw_plan = getattr(rt, "design_plan", None)
-    plan = raw_plan if isinstance(raw_plan, dict) else {}
-    plan_block = ""
-    if plan:
-        target_ids = [str(value)[:64] for value in plan.get("target_node_ids", []) if str(value).strip()][:8]
-        constraints = [str(value)[:160] for value in plan.get("constraints", []) if str(value).strip()][:6]
-        acceptance = [str(value)[:160] for value in plan.get("acceptance_criteria", []) if str(value).strip()][:6]
-        plan_block = "\n".join(
-            [
-                "EXECUTION_PLAN (authoritative):",
-                f"goal={str(plan.get('goal') or '')[:1200]}",
-                f"intent={str(plan.get('intent') or '')} lane={str(plan.get('paint_lane') or '')}",
-                f"target_frame_id={str(plan.get('target_frame_id') or '')[:64]}",
-                f"target_node_ids={', '.join(target_ids) or '(none)'}",
-                f"constraints={'; '.join(constraints) or '(none)'}",
-                f"acceptance={'; '.join(acceptance) or '(none)'}",
-            ]
-        )
-    # Lean: tools + scene digest only — drop full SCENE_NODES JSON dump.
-    if lean:
-        pending = str(getattr(rt, "pending_tool_details", "") or "").strip()
-        if len(pending) > 4_000:
-            pending = pending[:4_000] + "\n…(tools truncated)"
-    else:
-        pending = vars_["pending_blocks"]
     parts = [
         f"USER_PROMPT:\n{vars_['prompt']}",
         f"CANVAS_SIZE: {vars_['canvas_size']}",
         f"SCENE: {vars_['scene']}",
         vars_["scene_digest"],
         spatial_hint,
-        plan_block,
-        pending,
+        vars_["plan_block"],
+        vars_["pending_blocks"],
     ]
     brief = format_design_brief_for_paint(getattr(rt, "design_brief", None))
     if brief and not lean:
         parts.append(
             "DESIGN_BRIEF (authoritative — execute this; genPrompt must match):\n"
-            + brief[:3000]
+            + brief[:2000]
         )
     if not lean:
-        parts.append(vars_["plan_block"])
-        # Cap edit dump — digest already lists nodes; avoid 16k double SCENE.
+        skill_keys = list(getattr(getattr(rt, "run", None), "skills_loaded", None) or [])
+        if skill_keys:
+            from app.services.design.prompts.skill_store import format_skills_details
+
+            paint_skills = format_skills_details(
+                keys=skill_keys,
+                scene=str(getattr(rt, "scene_key", "") or ""),
+                role="paint",
+                stage="paint",
+                has_design_brief=bool(brief),
+            )
+            if paint_skills:
+                parts.append(paint_skills[:4000])
         edit_ctx = str(vars_.get("edit_context") or "").strip()
         if edit_ctx:
             parts.append(edit_ctx[:2500])
@@ -466,7 +453,9 @@ def _paint_ops_user(rt: Any) -> str:
         )
     parts.append(vars_["error_block"])
     parts.append("Emit PaintOpsSchema now: non-empty tool_ops first.")
-    return "\n\n".join(p for p in parts if str(p or "").strip())
+    user = "\n\n".join(p for p in parts if str(p or "").strip())
+    _log.debug("paint user_chars=%s lean=%s", len(user), lean)
+    return user
 
 def _op_errors_for_log(errors: list[Any] | None, *, limit: int = 20) -> list[str] | None:
     out: list[str] = []

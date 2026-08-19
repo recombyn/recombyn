@@ -2,18 +2,30 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 from typing import Any
+
+import asyncio
 
 import pytest
 
+from app.services.design.runtime.graph.nodes.decide import IntelligenceTaskProfile
 from app.services.design.runtime.graph.state import PaintOpsSchema
+from app.services.design.runtime.graph.turns import _turn_from_structured
 from app.services.design.readpath.catalog import ensure_design_catalog
 from app.services.design.runtime.models_route import IntentClassifyDecision
 from tests.design_harness import collect_design_events, events_by_type
 
 TEST_USER = "user_eval_golden"
+
+_P0_BRIEF = {
+    "purpose": "poster",
+    "audience": "general",
+    "emotion": ["clear"],
+    "visual_thesis": "clear title hierarchy",
+    "visual_hero": "headline",
+    "composition": {"archetype": "center_hero", "rules": {}},
+    "avoid": ["clutter"],
+}
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -56,12 +68,53 @@ def _wallet(monkeypatch):
         "app.services.design.runtime.orchestrator._refund_hold",
         lambda *_a, **_k: None,
     )
+    monkeypatch.setattr(
+        "app.core.config.settings.intelligence_provider",
+        "local",
+    )
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.nodes.decide.intelligence_task_profile",
+        lambda _rt: IntelligenceTaskProfile("direct", (), (), False, False),
+    )
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.state._SCENE_WAIT_SEC",
+        0.05,
+    )
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.nodes.apply._SCENE_WAIT_SEC",
+        0.05,
+    )
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.nodes.observe._SCENE_WAIT_SEC",
+        0.05,
+    )
 
 
 def _run(**kwargs):
     return asyncio.run(
         collect_design_events(user_id=TEST_USER, run_mode="agent", **kwargs)
     )
+
+
+def _patch_decide_turn(monkeypatch: Any, **fields: Any) -> None:
+    async def _fake(*_a: Any, **_k: Any) -> dict[str, Any]:
+        turn = _turn_from_structured(fields)
+        turn["tool_ops_raw"] = None
+        return turn
+
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.nodes.decide._decide_turn_from_llm",
+        _fake,
+    )
+
+
+def _paint_structured(paint: Any):
+    async def _structured(**_kwargs: Any) -> dict[str, Any]:
+        if callable(paint):
+            return await paint(**_kwargs)
+        return {"structured": paint}
+
+    return _structured
 
 
 @pytest.mark.integration
@@ -130,55 +183,36 @@ def test_react_edit_emits_tool_ops(monkeypatch):
             rationale="edit title",
         )
 
-    async def _stream(
-        *,
-        model_family: str,
-        system: str,
-        user: str,
-        rules: dict[str, str],
-        images: list[str] | None = None,
-        max_tokens: int = 1024,
-        enable_thinking: bool = False,
-        live_emit: bool = False,
-    ) -> tuple[str, str, int, list[dict[str, Any]], str]:
-        del system, user, rules, images, max_tokens, enable_thinking, live_emit
-        content = (
-            '{"thought":"???","intent":"edit","reply":"?",'
-            '"need_tools":[],"need_skills":[],"tool_ops":[]}'
-        )
-        return model_family, content, 12, [], ""
-
-    async def _structured(**_kwargs: Any) -> dict[str, Any]:
-        return {
-            "structured": PaintOpsSchema(
-                intent="edit",
-                reply="?????",
-                tool_ops=[
-                    {
-                        "name": "create_text",
-                        "args": {
-                            "text": "??",
-                            "x": 40,
-                            "y": 40,
-                            "w": 400,
-                            "h": 80,
-                        },
-                    }
-                ],
-            )
-        }
-
+    paint = PaintOpsSchema(
+        intent="edit",
+        reply="加标题",
+        tool_ops=[
+            {
+                "name": "create_text",
+                "args": {
+                    "text": "Hi",
+                    "x": 40,
+                    "y": 40,
+                    "w": 400,
+                    "h": 80,
+                },
+            }
+        ],
+    )
     monkeypatch.setattr(
         "app.services.design.runtime.graph.nodes.intent.classify_user_intent",
         _classify,
     )
-    monkeypatch.setattr(
-        "app.services.design.runtime.graph.nodes.decide._stream_llm_text",
-        _stream,
+    _patch_decide_turn(
+        monkeypatch,
+        thought="改标题",
+        intent="edit",
+        reply="准备改",
+        design_brief=_P0_BRIEF,
     )
     monkeypatch.setattr(
         "app.services.llm.agent.ainvoke_structured",
-        _structured,
+        _paint_structured(paint),
     )
 
     events = _run(
@@ -189,7 +223,7 @@ def test_react_edit_emits_tool_ops(monkeypatch):
         focus_frame_id="f1",
     )
     assert events_by_type(events, "skill_start")
-    ops = events_by_type(events, "tool_ops")
+    ops = events_by_type(events, "transaction.chunk")
     assert ops, events
     assert ops[0].get("ops")
     assert events_by_type(events, "result")
@@ -208,38 +242,23 @@ def test_paint_retries_exhausted_emits_execution_errors(monkeypatch):
             rationale="edit",
         )
 
-    async def _stream(
-        *,
-        model_family: str,
-        system: str,
-        user: str,
-        rules: dict[str, str],
-        images: list[str] | None = None,
-        max_tokens: int = 1024,
-        enable_thinking: bool = False,
-        live_emit: bool = False,
-    ) -> tuple[str, str, int, list[dict[str, Any]], str]:
-        del system, user, rules, images, max_tokens, enable_thinking, live_emit
-        content = (
-            '{"thought":"x","intent":"edit","reply":"",'
-            '"need_tools":[],"need_skills":[],"tool_ops":[]}'
-        )
-        return model_family, content, 8, [], ""
-
-    async def _structured(**_kwargs: Any) -> dict[str, Any]:
+    async def _paint_timeout(**_kwargs: Any) -> dict[str, Any]:
         raise TimeoutError("paint_ops:t:a0 timed out after 1s")
 
     monkeypatch.setattr(
         "app.services.design.runtime.graph.nodes.intent.classify_user_intent",
         _classify,
     )
-    monkeypatch.setattr(
-        "app.services.design.runtime.graph.nodes.decide._stream_llm_text",
-        _stream,
+    _patch_decide_turn(
+        monkeypatch,
+        thought="x",
+        intent="edit",
+        reply="",
+        design_brief=_P0_BRIEF,
     )
     monkeypatch.setattr(
         "app.services.llm.agent.ainvoke_structured",
-        _structured,
+        _paint_structured(_paint_timeout),
     )
     # Keep paint attempt budget tiny so the suite stays fast.
     monkeypatch.setattr(
@@ -256,7 +275,7 @@ def test_paint_retries_exhausted_emits_execution_errors(monkeypatch):
         focus_frame_id="f1",
     )
     assert events_by_type(events, "result")
-    assert not events_by_type(events, "tool_ops")
+    assert not events_by_type(events, "transaction.chunk")
     sig = resilience_signals(last_execution_log(events))
     assert sig["retries_exhausted"] or sig["paint_timeout"], (
         last_execution_log(events),
@@ -284,47 +303,24 @@ def test_ask_clarify_emits_choice_ui(monkeypatch):
             rationale="need size",
         )
 
-    async def _stream(
-        *,
-        model_family: str,
-        system: str,
-        user: str,
-        rules: dict[str, str],
-        images: list[str] | None = None,
-        max_tokens: int = 1024,
-        enable_thinking: bool = False,
-        live_emit: bool = False,
-    ) -> tuple[str, str, int, list[dict[str, Any]], str]:
-        del system, user, rules, images, max_tokens, enable_thinking, live_emit
-        content = json.dumps(
-            {
-                "thought": "缺尺寸",
-                "intent": "ask",
-                "reply": "要哪种画布尺寸？",
-                "need_tools": [],
-                "need_skills": [],
-                "tool_ops": [],
-                "choice_ui": {
-                    "mode": "buttons",
-                    "options": [
-                        {"label": "1920x1080", "action": "reply"},
-                        {"label": "1080x1920", "action": "reply"},
-                        {"label": "自定义", "action": "reply"},
-                    ],
-                },
-                "done": True,
-            },
-            ensure_ascii=False,
-        )
-        return model_family, content, 10, [], ""
-
     monkeypatch.setattr(
         "app.services.design.runtime.graph.nodes.intent.classify_user_intent",
         _classify,
     )
-    monkeypatch.setattr(
-        "app.services.design.runtime.graph.nodes.decide._stream_llm_text",
-        _stream,
+    _patch_decide_turn(
+        monkeypatch,
+        thought="缺尺寸",
+        intent="ask",
+        reply="要哪种画布尺寸？",
+        choice_ui={
+            "mode": "buttons",
+            "options": [
+                {"label": "1920x1080", "action": "reply"},
+                {"label": "1080x1920", "action": "reply"},
+                {"label": "自定义", "action": "reply"},
+            ],
+        },
+        done=True,
     )
 
     events = _ask_run(prompt="帮我做一张海报")
@@ -350,55 +346,36 @@ def test_ask_propose_holds_ops_until_confirm(monkeypatch):
             rationale="edit title",
         )
 
-    async def _stream(
-        *,
-        model_family: str,
-        system: str,
-        user: str,
-        rules: dict[str, str],
-        images: list[str] | None = None,
-        max_tokens: int = 1024,
-        enable_thinking: bool = False,
-        live_emit: bool = False,
-    ) -> tuple[str, str, int, list[dict[str, Any]], str]:
-        del system, user, rules, images, max_tokens, enable_thinking, live_emit
-        content = (
-            '{"thought":"改标题","intent":"edit","reply":"准备改标题",'
-            '"need_tools":[],"need_skills":[],"tool_ops":[]}'
-        )
-        return model_family, content, 12, [], ""
-
-    async def _structured(**_kwargs: Any) -> dict[str, Any]:
-        return {
-            "structured": PaintOpsSchema(
-                intent="edit",
-                reply="将添加标题文字",
-                tool_ops=[
-                    {
-                        "name": "create_text",
-                        "args": {
-                            "text": "Hello",
-                            "x": 40,
-                            "y": 40,
-                            "w": 400,
-                            "h": 80,
-                        },
-                    }
-                ],
-            )
-        }
-
+    paint = PaintOpsSchema(
+        intent="edit",
+        reply="将添加标题文字",
+        tool_ops=[
+            {
+                "name": "create_text",
+                "args": {
+                    "text": "Hello",
+                    "x": 40,
+                    "y": 40,
+                    "w": 400,
+                    "h": 80,
+                },
+            }
+        ],
+    )
     monkeypatch.setattr(
         "app.services.design.runtime.graph.nodes.intent.classify_user_intent",
         _classify,
     )
-    monkeypatch.setattr(
-        "app.services.design.runtime.graph.nodes.decide._stream_llm_text",
-        _stream,
+    _patch_decide_turn(
+        monkeypatch,
+        thought="改标题",
+        intent="edit",
+        reply="准备改标题",
+        design_brief=_P0_BRIEF,
     )
     monkeypatch.setattr(
         "app.services.llm.agent.ainvoke_structured",
-        _structured,
+        _paint_structured(paint),
     )
 
     events = _ask_run(
@@ -408,8 +385,8 @@ def test_ask_propose_holds_ops_until_confirm(monkeypatch):
         scene_nodes=[],
         focus_frame_id="f1",
     )
-    # Propose path: ops held — no live tool_ops apply SSE (or empty).
-    tool = events_by_type(events, "tool_ops")
+    # Propose path: ops held — no live transaction.chunk apply SSE (or empty).
+    tool = events_by_type(events, "transaction.chunk")
     results = events_by_type(events, "result")
     assert results, events
     res = results[-1]
