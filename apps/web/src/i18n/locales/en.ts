@@ -514,7 +514,6 @@ const en = {
     credits: 'Credits',
     creditsTip:
       'Chat, Agent, and images share one credit balance. Chat converts usage to credits; images bill per image. Free: 1 Auto run / day.',
-    creditsLeft: '{{left}} / {{total}} left',
     creditsIncluded: '{{count}} credits / month',
     balanceHint: 'Chat / Agent / images all deduct from the same credit balance',
     balanceTip: 'Chat / Agent / images all deduct from the same credit balance',

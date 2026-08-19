@@ -495,7 +495,6 @@ const ja = {
     credits: 'クレジット',
     creditsTip:
       'チャット / Agent / 画像は同一クレジット残高。チャットは使用量から換算、画像は枚数/回で消費。無料は1日1回 Auto。',
-    creditsLeft: '残り {{left}} / {{total}}',
     creditsIncluded: '毎月 {{count}} クレジット',
     balanceHint: 'チャット / Agent / 画像は同一クレジット残高から差し引き',
     balanceTip: 'チャット / Agent / 画像は同一クレジット残高から差し引き',
