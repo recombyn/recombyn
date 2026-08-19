@@ -12,6 +12,8 @@
   "preferred_tools": ["update_node", "delete_nodes"],
   "allowed_resources": ["tools"],
   "triggers": [],
+  "scope": ["review"],
+  "quality_signals": ["originality"],
   "mutex_group": "",
   "prompt_negative": "Never default to purple-blue gradient + glass cards + three equal feature cards.",
   "locales": {

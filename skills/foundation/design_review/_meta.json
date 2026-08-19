@@ -12,6 +12,8 @@
   "preferred_tools": [],
   "allowed_resources": ["tools"],
   "triggers": [],
+  "scope": ["review"],
+  "quality_signals": ["consistency"],
   "mutex_group": "",
   "prompt_negative": "Do not invent total. Do not treat Observe geometry as aesthetic praise.",
   "locales": {
