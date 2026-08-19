@@ -116,7 +116,7 @@ def _api_model_id(catalog_id: str) -> str:
     """Catalog id may differ from the Ark model / endpoint id."""
     for m in list_image_models():
         if m["id"] == catalog_id:
-            return str(m.get("api_model") or m["id"])
+            return str(m.get("apiModel") or m["id"])
     return catalog_id or (_admin_image_default() or settings.image_default_model or _DEFAULT_IMAGE_MODEL).strip()
 
 
@@ -205,9 +205,7 @@ def _catalog_image_limits(catalog_id: str) -> dict[str, Any]:
         from app.services.llm.catalog_store import get_model, resolve_image_limits
 
         row = get_model(catalog_id) or {}
-        limits = resolve_image_limits(
-            row.get("imageLimits") or row.get("image_limits"),
-        )
+        limits = resolve_image_limits(row.get("imageLimits"))
         if limits:
             return limits
         provider = str(row.get("provider") or "").strip().lower()
@@ -219,7 +217,7 @@ def _catalog_image_limits(catalog_id: str) -> dict[str, Any]:
         pass
     for m in list_image_models():
         if m.get("id") == catalog_id:
-            lim = m.get("imageLimits") or m.get("image_limits")
+            lim = m.get("imageLimits")
             if isinstance(lim, dict) and lim:
                 return lim
             if str(m.get("provider") or "").lower() == "openrouter":
@@ -399,7 +397,7 @@ def _image_provider(catalog_id: str) -> str:
 def _max_refs_for(catalog_id: str, default: int = 14) -> int:
     for m in list_image_models():
         if m.get("id") == catalog_id:
-            raw = m.get("max_attachments")
+            raw = m.get("maxAttachments")
             if isinstance(raw, int) and raw > 0:
                 return raw
             break

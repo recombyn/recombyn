@@ -90,7 +90,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         if not isinstance(t, dict):
             continue
         role = "User" if str(t.get("role") or "") == "user" else "Assistant"
-        text = str(t.get("text") or t.get("content") or "").strip()
+        text = str(t.get("text") or "").strip()
         if text:
             dial_lines.append(f"{role}: {text[:400]}")
     t_intent = time.perf_counter()

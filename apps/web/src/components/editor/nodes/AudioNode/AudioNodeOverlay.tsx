@@ -625,8 +625,8 @@ function AudioPlateHost({
       zoom={zoom}
       svgMount={mount}
       src={src}
-      uploadKey={String(node.attrs?.uploadKey || node.attrs?.key || '').trim() || null}
-      plateFill={resolveThemeSurfaceFill(node.attrs?.['fill-color'] || node.attrs?.fill)}
+      uploadKey={String(node.attrs?.uploadKey || '').trim() || null}
+      plateFill={resolveThemeSurfaceFill(node.attrs?.['fill-color'])}
       hidden={Boolean(hidden) || isNodeHidden(node)}
       trimStart={readOptionalNumber(node.attrs?.trimStart)}
       trimEnd={readOptionalNumber(node.attrs?.trimEnd)}

@@ -240,7 +240,7 @@ def _resolve_and_log_model(
     changed = bool(prev) and prev != family
     state.push_log(
         phase="model_route",
-        skill_key=str(skill.get("skill_key") or skill.get("name") or "") or None,
+        skill_key=str(skill.get("skill_key") or "") or None,
         from_model=prev or None,
         model=family,
         model_reason=reason,
@@ -251,7 +251,7 @@ def _resolve_and_log_model(
         attempt=int(attempt) if attempt is not None else None,
         user_selected_model=(user_selected_model or "auto"),
         llm_user=_clip_llm_raw(
-            f"resolve_model skill={skill.get('skill_key') or skill.get('name')}\n"
+            f"resolve_model skill={skill.get('skill_key')}\n"
             f"run_mode={run_mode}\nattempt={attempt}\n"
             f"has_images={has_images}\n"
             f"user_selected={user_selected_model or 'auto'}\n"
@@ -323,7 +323,7 @@ def _int_rule(rules: dict[str, str], key: str, default: int) -> int:
         return default
 
 
-# Stable tip codes → FE i18n (`agent.uxTip*`). English fallback for logs / old clients.
+# Stable tip codes → FE i18n (`agent.uxTip*`). English text for logs when i18n is absent.
 _UX_TIP_FALLBACK: dict[str, str] = {
     "decide_failed": "Decision failed. Please try again.",
     "paint_failed": "Could not produce valid canvas ops. Please describe a more specific edit.",

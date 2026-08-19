@@ -14,9 +14,8 @@ function thickPencilNode(pointCount: number) {
     attrs: {
       shapeType: 'pencil',
       path: polylinePathD(pts),
-      stroke: '#111',
-      strokeWidth: 28,
-      borderWidth: 28,
+      'border-color': '#111',
+      'border-width': 28,
       brushStyle: 'vector-ink',
     },
   };

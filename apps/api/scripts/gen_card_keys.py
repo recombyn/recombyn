@@ -7,7 +7,7 @@ Generate prepaid card keys locally.
 4. Delete that file after upload
 
 Usage (from apps/api):
-  python -m scripts.gen_card_keys --count 20 --tokens 10000 --expires-days 365 --out ./_card_keys_export.txt
+  python -m scripts.gen_card_keys --count 20 --credits 50 --expires-days 365 --out ./_card_keys_export.txt
 
 Env:
   CARD_KEY_SALT must be a strong random string (len>=24), same as the API.
@@ -51,7 +51,7 @@ def main() -> int:
         help="Required for --kind plan: plus | pro | ultra",
     )
     parser.add_argument(
-        "--tokens",
+        "--credits",
         type=int,
         default=0,
         help="Credits per key (required for credit; optional for plan — uses catalog default)",
@@ -73,8 +73,8 @@ def main() -> int:
     if args.count <= 0 or args.count > 10_000:
         print("error: --count must be 1..10000", file=sys.stderr)
         return 1
-    if args.kind == "credit" and args.tokens <= 0:
-        print("error: --tokens must be > 0 for credit keys", file=sys.stderr)
+    if args.kind == "credit" and args.credits <= 0:
+        print("error: --credits must be > 0 for credit keys", file=sys.stderr)
         return 1
     if args.kind == "plan" and args.plan_id.strip().lower() not in ("plus", "pro", "ultra"):
         print("error: --plan-id must be plus|pro|ultra for plan keys", file=sys.stderr)
@@ -107,7 +107,7 @@ def main() -> int:
 
     inserted = insert_card_keys(
         plaintexts=plaintexts,
-        tokens=args.tokens,
+        credits=args.credits,
         expires_at=expires_at,
         kind=args.kind,
         plan_id=args.plan_id or None,
@@ -118,7 +118,7 @@ def main() -> int:
 
     header = (
         f"# recombyn card keys — kind={args.kind} plan={args.plan_id or '-'} "
-        f"credits={args.tokens} each — count={inserted}\n"
+        f"credits={args.credits} each — count={inserted}\n"
         f"# Upload to your card platform, then DELETE this file.\n"
         f"# Generated at unix={int(time.time())}\n"
     )

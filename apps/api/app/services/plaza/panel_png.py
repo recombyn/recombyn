@@ -28,10 +28,9 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 def _image_src(node: dict[str, Any]) -> str:
     attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
-    for key in ("src", "url", "href", "xlink:href"):
-        raw = str(attrs.get(key) or node.get(key) or "").strip()
-        if raw.startswith(("http://", "https://", "data:image/")):
-            return raw
+    raw = str(attrs.get("src") or "").strip()
+    if raw.startswith(("http://", "https://", "data:image/")):
+        return raw
     return ""
 
 

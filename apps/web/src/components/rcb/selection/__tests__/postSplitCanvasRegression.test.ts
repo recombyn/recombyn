@@ -690,12 +690,12 @@ describe('editorHistory post-split', () => {
         ...doc.deltaSetLike,
         [id]: {
           ...doc.deltaSetLike[id],
-          attrs: { ...doc.deltaSetLike[id].attrs, fill: '#f00' },
+          attrs: { ...doc.deltaSetLike[id].attrs, 'fill-color': '#f00' },
         },
       },
     };
     const restored = restoreNodesIntoDocument(patched, (last as any).before);
-    expect(restored.deltaSetLike[id].attrs.fill).not.toBe('#f00');
+    expect(restored.deltaSetLike[id].attrs['fill-color']).not.toBe('#f00');
 
     scrubNodeIdsFromHistory(host, [id]);
     for (const raw of host.historyPast) {

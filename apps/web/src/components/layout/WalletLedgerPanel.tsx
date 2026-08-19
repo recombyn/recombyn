@@ -30,7 +30,7 @@ type Filter = WalletLedgerKindFilter;
 const PAGE_SIZE = 15;
 
 type LedgerHeader = {
-  tokens: number;
+  credits: number;
   planId: PlanId;
   planLocked: boolean;
   planExpiresAt: number | null;
@@ -39,10 +39,10 @@ type LedgerHeader = {
 /** Prefer fields on the ledger page response; else fall back to wallet.me snapshot. */
 function ledgerHeaderFromPage(
   page: PaginatedWalletLedger | undefined,
-  fallback: Pick<WalletSnapshot, 'tokens' | 'planId' | 'planLocked' | 'planExpiresAt'>
+  fallback: Pick<WalletSnapshot, 'credits' | 'planId' | 'planLocked' | 'planExpiresAt'>
 ): LedgerHeader {
-  let tokens = fallback.tokens;
-  if (typeof page?.tokens === 'number') tokens = page.tokens;
+  let credits = fallback.credits;
+  if (typeof page?.credits === 'number') credits = page.credits;
 
   let planId = fallback.planId;
   if (page?.planId) planId = normalizePlanId(page.planId);
@@ -56,7 +56,7 @@ function ledgerHeaderFromPage(
     else planExpiresAt = Number(page.planExpiresAt);
   }
 
-  return { tokens, planId, planLocked, planExpiresAt };
+  return { credits, planId, planLocked, planExpiresAt };
 }
 
 function formatPlanExpiry(ts: number, locale?: string) {
@@ -160,7 +160,7 @@ function WalletLedgerPanel({
   const { t, i18n } = useTranslation();
   const desktopLocal = isDesktopLocal();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { tokens: walletTokens, planId: walletPlanId, planLocked: walletPlanLocked, planExpiresAt: walletExpires } =
+  const { credits: walletCredits, planId: walletPlanId, planLocked: walletPlanLocked, planExpiresAt: walletExpires } =
     useWalletSnapshot();
   const catalog = usePlanCatalog();
   const [filter, setFilter] = useState<Filter>('all');
@@ -181,8 +181,8 @@ function WalletLedgerPanel({
   const total = Number(ledgerRes?.total) || 0;
   const loading = ledgerQuery.isFetching && !ledgerQuery.data;
 
-  const { tokens, planId, planLocked, planExpiresAt } = ledgerHeaderFromPage(ledgerRes, {
-    tokens: walletTokens,
+  const { credits, planId, planLocked, planExpiresAt } = ledgerHeaderFromPage(ledgerRes, {
+    credits: walletCredits,
     planId: walletPlanId,
     planLocked: walletPlanLocked,
     planExpiresAt: walletExpires,
@@ -227,7 +227,7 @@ function WalletLedgerPanel({
     return formatPlanExpiry(planExpiresAt, i18n.language);
   }, [planId, planExpiresAt, i18n.language]);
   const creditCap = Math.max(1, plan.creditsIncluded);
-  const balance = Math.max(0, Number(tokens) || 0);
+  const balance = Math.max(0, Number(credits) || 0);
   /** Against monthly allotment only (extra card-key credits sit above the bar). */
   const planRemaining = Math.min(balance, creditCap);
   const planUsed = Math.max(0, creditCap - planRemaining);

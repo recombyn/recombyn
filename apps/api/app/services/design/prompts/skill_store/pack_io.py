@@ -357,13 +357,8 @@ def _skill_item_from_parts(
         or meta.get("displayName")
         or key
     ).strip() or key
-    description = str(
-        loc.get("description")
-        or meta.get("description")
-        or meta.get("when_to_use")
-        or ""
-    ).strip()
-    when = str(meta.get("when_to_use") or description).strip()
+    description = str(loc.get("description") or meta.get("description") or "").strip()
+    when = str(meta.get("when_to_use") or "").strip()
     pos = body.strip()
     if not pos:
         return None
@@ -586,7 +581,7 @@ def _eval_task_issues(row: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for item in raw:
         if isinstance(item, dict):
-            text = str(item.get("issue") or item.get("text") or "").strip()
+            text = str(item.get("issue") or "").strip()
         else:
             text = str(item or "").strip()
         if text:
@@ -853,8 +848,8 @@ def build_skill_ab_experiment(
     a_in = variant_a if isinstance(variant_a, dict) else {}
     b_in = variant_b if isinstance(variant_b, dict) else {}
     # Spec default: poster_craft V12-A Hero 60–80% vs V12-B Hero 55–75%.
-    a_band = str(a_in.get("hero_band") or a_in.get("band") or "60–80%").strip()
-    b_band = str(b_in.get("hero_band") or b_in.get("band") or "55–75%").strip()
+    a_band = str(a_in.get("hero_band") or "60–80%").strip()
+    b_band = str(b_in.get("hero_band") or "55–75%").strip()
     a_id = str(a_in.get("id") or f"V{base_v}-A").strip()
     b_id = str(b_in.get("id") or f"V{base_v}-B").strip()
     a_md = str(a_in.get("md") or "").strip() or _replace_or_insert_hero_band(

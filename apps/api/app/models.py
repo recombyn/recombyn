@@ -48,7 +48,6 @@ class AuthSessionOut(SQLModel):
 
 class AuthMeOut(SQLModel):
     user: UserPublic
-    tokens: int | float | None = None
 
 
 class OkOut(SQLModel):

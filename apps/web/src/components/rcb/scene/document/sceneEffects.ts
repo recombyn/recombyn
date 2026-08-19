@@ -51,11 +51,10 @@ export function resolveStroke(node: SceneNodeInput, fallback = '#333333') {
   if (!boolEffectAttr(attrs['stroke-enabled'], true) || !boolEffectAttr(attrs['stroke-visible'], true)) {
     return { stroke: 'transparent', strokeWidth: 0 };
   }
-  const stroke = normalizeColor(attrs['border-color'] || attrs.stroke || fallback);
+  const stroke = normalizeColor(attrs['border-color'] || fallback);
   const opacity = Number(attrs['stroke-opacity'] ?? 100);
   const color = hexWithOpacity(stroke, opacity);
-  // Document writes `border-width`; some live patches use camelCase.
-  const rawW = attrs['border-width'] ?? attrs.borderWidth ?? attrs.strokeWidth;
+  const rawW = attrs['border-width'];
   const parsed = rawW == null || rawW === '' ? 1 : parseFloat(String(rawW));
   const strokeWidth = Math.max(0, Number.isFinite(parsed) ? parsed : 0);
   return { stroke: color, strokeWidth };
@@ -66,7 +65,7 @@ export type StrokeLinecap = 'butt' | 'round' | 'square';
 export type StrokeLinejoin = 'miter' | 'round' | 'bevel';
 
 export function resolveStrokeAlign(attrs: Record<string, unknown> | null | undefined): StrokeAlign {
-  const v = String(attrs?.strokeAlign || attrs?.['stroke-align'] || 'center');
+  const v = String(attrs?.strokeAlign || 'center');
   if (v === 'inside' || v === 'outside' || v === 'center') return v;
   return 'center';
 }
@@ -390,20 +389,20 @@ export function deflateSelectionBox<
 }
 
 export function resolveStrokeLinecap(attrs: Record<string, unknown> | null | undefined): StrokeLinecap {
-  const v = String(attrs?.strokeLinecap || attrs?.['stroke-linecap'] || 'butt');
+  const v = String(attrs?.strokeLinecap || 'butt');
   if (v === 'butt' || v === 'round' || v === 'square') return v;
   return 'butt';
 }
 
 export function resolveStrokeLinejoin(attrs: Record<string, unknown> | null | undefined): StrokeLinejoin {
-  const v = String(attrs?.strokeLinejoin || attrs?.['stroke-linejoin'] || 'miter');
+  const v = String(attrs?.strokeLinejoin || 'miter');
   if (v === 'miter' || v === 'round' || v === 'bevel') return v;
   return 'miter';
 }
 
 /** Match outline / design tools — keep acute pen tips (SVG default 4 clips them flat). */
 export function resolveStrokeMiterlimit(attrs: Record<string, unknown> | null | undefined): number {
-  const raw = attrs?.strokeMiterlimit ?? attrs?.['stroke-miterlimit'] ?? attrs?.miterLimit;
+  const raw = attrs?.strokeMiterlimit;
   const n = Number(raw);
   if (Number.isFinite(n) && n > 0) return Math.min(1000, Math.max(1, n));
   return 100;

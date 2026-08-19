@@ -40,7 +40,7 @@ def _pack_message_meta(m: dict[str, Any]) -> str | None:
     content_marked = m.get("contentMarked")
     if isinstance(content_marked, str) and content_marked:
         meta["contentMarked"] = content_marked
-    # Normalize snake_case aliases once, then copy Ask/resume fields.
+    # Copy Ask / resume fields from the write payload.
     aliases = {
         "designTaskId": m.get("designTaskId"),
         "canResume": True if m.get("canResume") is True else None,
@@ -92,7 +92,7 @@ def _copy_ask_fields(src: dict[str, Any], dest: dict[str, Any]) -> None:
 
 
 def _message_public(m: dict[str, Any], *, sort_fallback: int = 0) -> dict[str, Any]:
-    meta = _unpack_message_meta(m.get("meta_json") or m.get("metaJson") or m.get("meta"))
+    meta = _unpack_message_meta(m.get("meta_json"))
     # Flat fields on write payload also win when listing from in-memory upsert return.
     if m.get("durationMs") is not None and "durationMs" not in meta:
         try:

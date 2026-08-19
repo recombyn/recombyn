@@ -112,7 +112,7 @@ def test_pass_clean_brief():
             "accessibility": {"fg": "#111111", "bg": "#f5f5f5"},
         },
         prompt="editorial poster",
-        apply_ops=[{"op": "create_node"}],
+        apply_ops=[{"name": "create_shape", "args": {"shapeType": "rect"}}],
     )
     assert result["status"] == "pass"
     assert result["repair_plan"] is None
@@ -153,7 +153,7 @@ def test_fail_explain_repair_draft_not_ops():
         },
         prompt="use shutterstock hero",
         flags={"unauthorized_colors": ["#ff00aa"], "reference_similarity": 0.97},
-        apply_ops=[{"op": "delete_database"}],
+        apply_ops=[{"name": "delete_database"}],
     )
     assert result["status"] == "fail"
     assert result["explain"]

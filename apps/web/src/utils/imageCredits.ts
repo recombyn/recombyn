@@ -61,11 +61,7 @@ function normalizeResolution(raw?: string | null): string {
 }
 
 function metaOf(model?: LlmModel | null): ImagePriceMeta | null {
-  const m =
-    (model as LlmModel & { priceMeta?: ImagePriceMeta; price_meta?: ImagePriceMeta })
-      ?.priceMeta ||
-    (model as LlmModel & { price_meta?: ImagePriceMeta })?.price_meta ||
-    null;
+  const m = model?.priceMeta || null;
   return m && typeof m === 'object' ? m : null;
 }
 

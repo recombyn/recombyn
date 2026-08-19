@@ -392,7 +392,7 @@ export const zFontRegisterIn = z.object({
 export const zGenerateCardKeysIn = z.object({
     count: z.number().int().gte(1).lte(100).optional().default(10),
     kind: z.string().max(16).optional().default('credit'),
-    tokens: z.number().int().gte(0).lte(50000000).optional().default(0),
+    credits: z.number().int().gte(0).lte(50000000).optional().default(0),
     planId: z.string().max(16).nullish(),
     expiresDays: z.number().int().gte(0).lte(3650).optional().default(365),
     password: z.string().min(1).max(128)
@@ -883,11 +883,7 @@ export const zUserPublic = z.object({
  * AuthMeOut
  */
 export const zAuthMeOut = z.object({
-    user: zUserPublic,
-    tokens: z.union([
-        z.number().int(),
-        z.number()
-    ]).nullish()
+    user: zUserPublic
 });
 
 /**

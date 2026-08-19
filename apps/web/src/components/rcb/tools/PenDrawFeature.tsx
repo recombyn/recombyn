@@ -131,9 +131,9 @@ export function findOpenPenEndpointResume(
     const closed =
       node.attrs?.closed === true ||
       node.attrs?.closed === 'true' ||
-      /\sZ\s*$/i.test(String(node.attrs?.path || node.attrs?.d || ''));
+      /\sZ\s*$/i.test(String(node.attrs?.path || ''));
     if (closed) continue;
-    const raw = String(node.attrs?.path || node.attrs?.d || '');
+    const raw = String(node.attrs?.path || '');
     if (!raw.trim()) continue;
     const { left, top } = nodeLeftTop(document, node);
     const subs = penSubpathsFromD(raw);

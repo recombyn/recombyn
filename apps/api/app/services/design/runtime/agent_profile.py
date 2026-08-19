@@ -235,7 +235,7 @@ def _parse_stage_spec(raw: Any, *, default_mode_overlay: bool) -> StagePromptSpe
         return StagePromptSpec(protocol=protocol, mode_overlay=default_mode_overlay)
     if not isinstance(raw, dict):
         return None
-    protocol = _as_text(raw.get("protocol") or raw.get("pack") or "")
+    protocol = _as_text(raw.get("protocol") or "")
     if not protocol:
         return None
     mode = raw.get("mode_overlay")
@@ -514,7 +514,7 @@ def _parse_roles(
                 f"{source}: roles {rid!r} isolation {isolation!r} not live "
                 f"(supported: {', '.join(sorted(_LIVE_ROLE_ISOLATIONS))})"
             )
-        subagent_id = _as_text(body.get("subagent") or body.get("subagent_id")) or None
+        subagent_id = _as_text(body.get("subagent")) or None
         if isolation == "forked_context" and not subagent_id:
             subagent_id = rid
         roles.append(
@@ -598,20 +598,8 @@ def _parse_subagents(raw: dict[str, Any], *, source: str) -> tuple[SubAgentDef, 
                 f"(supported: {', '.join(sorted(_LIVE_SUBAGENT_ISOLATIONS))})"
             )
         stage = _as_text(body.get("stage"), sid).lower() or sid
-        system_key = _as_text(
-            body.get("system") or body.get("system_key") or body.get("protocol"),
-            "",
-        )
-        contract = _as_text(
-            body.get("contract")
-            or (body.get("schema") if isinstance(body.get("schema"), str) else "")
-            or "",
-        )
-        if isinstance(body.get("contract"), dict):
-            contract = _as_text(
-                body["contract"].get("schema") or body["contract"].get("id"),
-                contract,
-            )
+        system_key = _as_text(body.get("system"), "")
+        contract = _as_text(body.get("contract"), "")
         model_ref = _as_text(body.get("model"), "")
         tools: list[str] = []
         tools_raw = body.get("tools")
@@ -625,8 +613,6 @@ def _parse_subagents(raw: dict[str, Any], *, source: str) -> tuple[SubAgentDef, 
         except (TypeError, ValueError):
             max_turns = 1
         parallel_b = _boolish(body.get("parallel"))
-        if parallel_b is None:
-            parallel_b = _boolish(body.get("parallel_ok"))
         parallel_ok = True if parallel_b is None else parallel_b
         out.append(
             SubAgentDef(
@@ -655,7 +641,7 @@ def _parse_contracts(raw: dict[str, Any]) -> dict[str, str]:
         if isinstance(body, str):
             sid = body.strip()
         elif isinstance(body, dict):
-            sid = _as_text(body.get("schema") or body.get("id") or "")
+            sid = _as_text(body.get("schema") or "")
         else:
             sid = ""
         if sid:
@@ -756,9 +742,7 @@ def _profile_from_dict(raw: dict[str, Any], *, source: str) -> AgentProfile:
     if isinstance(intent_raw, str):
         intent_prompt = intent_raw.strip()
     elif isinstance(intent_raw, dict):
-        intent_prompt = _as_text(
-            intent_raw.get("protocol") or intent_raw.get("pack") or ""
-        )
+        intent_prompt = _as_text(intent_raw.get("protocol") or "")
 
     routing_patches = _policy_from_routing(_as_map(raw.get("routing")))
     runtime_patches, runtime_flags = _policy_from_runtime(_as_map(raw.get("runtime")))

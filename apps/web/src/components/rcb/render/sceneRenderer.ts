@@ -442,10 +442,16 @@ function mixLineStroke(cssColor: string, alpha: number): string {
 
 export function resolveNodeProxyFill(node: SceneNodeInput): string {
   const a = node?.attrs || {};
-  for (const k of ['fill-color', 'fill', 'color', 'border-color', 'stroke'] as const) {
-    const v = a[k];
-    if (typeof v === 'string' && v && v !== 'none' && v !== 'transparent') return v;
+  const solid = String(a['fill-color'] || '').trim();
+  if (solid && solid !== 'none' && solid !== 'transparent') return solid;
+  const fillType = parseFillType(a['fill-type']);
+  if (fillType !== 'solid' && fillType !== 'image' && a['fill-gradient'] != null) {
+    const g = parseFillGradient(a['fill-gradient'], fillType, solid || '#FFFFFF');
+    const stop = String(g.colorStops?.[0]?.color || '').trim();
+    if (stop && stop !== 'none' && stop !== 'transparent') return stop;
   }
+  const stroke = String(a['border-color'] || '').trim();
+  if (stroke && stroke !== 'none' && stroke !== 'transparent') return stroke;
   return '#94a3b8';
 }
 
@@ -564,7 +570,7 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
   if (t === 'line' || t === 'arrow') return true;
 
   if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path') {
-    const d = String(attrs.path || attrs.d || '').trim();
+    const d = String(attrs.path || '').trim();
     if (!d) return false;
     if (d.length >= HEAVY_PATH_D_CHARS) return false;
     return true;
@@ -1233,7 +1239,7 @@ export function paintCanvasPathInk(
   const w = Math.max(1, opts.width);
   const h = Math.max(1, opts.height);
   const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
-  const d = String(node.attrs?.path || node.attrs?.d || '');
+  const d = String(node.attrs?.path || '');
   const t = String(node.attrs?.shapeType || node.key || '').toLowerCase();
   const isPencil = t === 'pencil';
   const strokeOnly = lodProxyIsStrokeOnly(node);
@@ -1375,14 +1381,14 @@ export function lodProxyIsStrokeOnly(node: SceneNodeInput): boolean {
   const t = String(a.shapeType || '');
   if (t === 'pencil' || t === 'pen' || t === 'line' || t === 'arrow') return true;
   if (t === 'path' || String(node?.key || '') === 'path') {
-    return isTransparentPaint(a['fill-color'] ?? a.fill);
+    return isTransparentPaint(a['fill-color']);
   }
   return false;
 }
 
 export function lodProxyStrokeWidth(node: SceneNodeInput, zoom: number): number {
   const a = node?.attrs || {};
-  const raw = Number(a['stroke-width'] ?? a.strokeWidth ?? a.borderWidth ?? 2);
+  const raw = Number(a['border-width'] ?? 2);
   const w = Number.isFinite(raw) && raw > 0 ? raw : 2;
   return Math.max(0.75, Math.min(6, w * Math.max(0.35, zoom || 1)));
 }
@@ -1536,7 +1542,7 @@ export function paintLodNodeProxy(
   const fill = resolveNodeProxyFill(node);
   const opacity = Math.min(1, Math.max(0.15, Number(node.attrs?.opacity) || 1));
   const strokeOnly = lodProxyIsStrokeOnly(node);
-  const pathD = String(node.attrs?.path || node.attrs?.d || '');
+  const pathD = String(node.attrs?.path || '');
   const key = String(node.key || '');
   const isMedia = key === 'image' || key === 'video' || key === 'lottie';
 

@@ -150,7 +150,7 @@ describe('geometryPatchForStrokeVisibilityToggle', () => {
   it('inside stroke: no geom change (outset 0)', () => {
     const node = {
       ...rectCenter1,
-      attrs: { ...rectCenter1.attrs, strokeAlign: 'inside', 'stroke-align': 'inside' },
+      attrs: { ...rectCenter1.attrs, strokeAlign: 'inside' },
     };
     expect(geometryPatchForStrokeVisibilityToggle(node, false)).toBeNull();
   });

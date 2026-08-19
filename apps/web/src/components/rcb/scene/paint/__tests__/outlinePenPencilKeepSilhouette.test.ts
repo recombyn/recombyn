@@ -70,9 +70,8 @@ describe('pen/pencil outline — keep paint silhouette (like text)', () => {
         attrs: {
           shapeType: 'pencil',
           path: polylinePathD(pts),
-          stroke: '#111',
-          strokeWidth: sw,
-          borderWidth: sw,
+          'border-color': '#111',
+          'border-width': sw,
           brushStyle: 'vector-ink',
         },
       },
@@ -101,9 +100,8 @@ describe('pen/pencil outline — keep paint silhouette (like text)', () => {
         attrs: {
           shapeType: 'pencil',
           path: polylinePathD(pts),
-          stroke: '#111',
-          strokeWidth: sw,
-          borderWidth: sw,
+          'border-color': '#111',
+          'border-width': sw,
           brushStyle: 'vector-ink',
         },
       },
@@ -127,11 +125,10 @@ describe('pen/pencil outline — keep paint silhouette (like text)', () => {
         attrs: {
           shapeType: 'pen',
           path: polylinePathD(pts),
-          stroke: '#111',
-          strokeWidth: sw,
-          borderWidth: sw,
+          'border-color': '#111',
+          'border-width': sw,
           closed: 'false',
-          'stroke-linecap': 'round',
+          strokeLinecap: 'round',
         },
       },
       { zoom: 1 }

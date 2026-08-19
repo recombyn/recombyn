@@ -357,7 +357,7 @@ function hitTestPathLike(opts: {
   const { id, node, shapeType, box, x, y, zoom, screen, svgEl, allowSvgDomHit } = opts;
   const sw = Math.max(
     1,
-    Number(node.attrs?.borderWidth ?? node.attrs?.['border-width'] ?? 2) || 2
+    Number(node.attrs?.['border-width'] ?? 2) || 2
   );
   const pathPad = sw / 2 + sceneHitSlop(zoom, 10);
   const fillHit = shapeType !== 'pen' && supportsFill(node);
@@ -368,7 +368,7 @@ function hitTestPathLike(opts: {
     y <= box.top + box.height + pathPad;
   if (!inLooseBox) return false;
 
-  const d = String(node.attrs?.path || node.attrs?.d || '');
+  const d = String(node.attrs?.path || '');
   const heavyPath = d.length >= HEAVY_PATH_D_CHARS;
   const angle = Number(node.attrs?.angle) || 0;
   const { lx, ly } = toNodeLocal(x, y, box.left, box.top, box.width, box.height, angle);

@@ -39,19 +39,14 @@ def _rates_list(raw: Any) -> list[dict[str, Any]]:
 def row_to_dict(row: PricingVersion) -> dict[str, Any]:
     return {
         "pricingVersionId": row.pricing_version_id,
-        "pricing_version_id": row.pricing_version_id,
         "pricingId": row.pricing_id,
-        "pricing_id": row.pricing_id,
         "provider": row.provider,
         "modelId": row.model_id,
-        "model_id": row.model_id,
         "currency": row.currency,
         "rates": _rates_list(row.rates_json),
         "status": row.status,
         "effectiveFrom": row.effective_from,
-        "effective_from": row.effective_from,
         "effectiveTo": row.effective_to,
-        "effective_to": row.effective_to,
         "source": row.source,
         "notes": row.notes or "",
         "createdAt": row.created_at,
@@ -168,11 +163,7 @@ def get_pricing_version(pricing_version_id: str) -> dict[str, Any] | None:
 def upsert_pricing_version(payload: dict[str, Any]) -> dict[str, Any]:
     """Create or update a draft/pending version. Active publish goes through approve()."""
     now = time.time()
-    vid = str(
-        payload.get("pricingVersionId")
-        or payload.get("pricing_version_id")
-        or ""
-    ).strip() or _id()
+    vid = str(payload.get("pricingVersionId") or "").strip() or _id()
     rates = payload.get("rates")
     if rates is None:
         rates = []
@@ -184,13 +175,9 @@ def upsert_pricing_version(payload: dict[str, Any]) -> dict[str, Any]:
                 pricing_version_id=vid,
                 created_at=now,
             )
-        row.pricing_id = str(
-            payload.get("pricingId") or payload.get("pricing_id") or row.pricing_id or ""
-        ).strip()
+        row.pricing_id = str(payload.get("pricingId") or row.pricing_id or "").strip()
         row.provider = str(payload.get("provider") or row.provider or "").strip()
-        row.model_id = str(
-            payload.get("modelId") or payload.get("model_id") or row.model_id or ""
-        ).strip()
+        row.model_id = str(payload.get("modelId") or row.model_id or "").strip()
         row.currency = str(payload.get("currency") or row.currency or "USD").strip() or "USD"
         row.rates_json = rates_json
         status = str(payload.get("status") or row.status or "draft").strip().lower()
@@ -204,8 +191,8 @@ def upsert_pricing_version(payload: dict[str, Any]) -> dict[str, Any]:
             status = "draft"
         # Direct active only when explicitly requested via approve path preferred
         row.status = status
-        ef = payload.get("effectiveFrom", payload.get("effective_from", row.effective_from))
-        et = payload.get("effectiveTo", payload.get("effective_to", row.effective_to))
+        ef = payload.get("effectiveFrom", row.effective_from)
+        et = payload.get("effectiveTo", row.effective_to)
         row.effective_from = float(ef) if ef is not None else row.effective_from
         row.effective_to = float(et) if et is not None else row.effective_to
         row.source = str(payload.get("source") or row.source or "").strip()

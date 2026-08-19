@@ -14,7 +14,7 @@ export type WalletLedgerDto = {
 };
 
 export type WalletDto = {
-  tokens: number;
+  credits: number;
   planId?: PlanId | string;
   /** Unix seconds; null when free / unset. */
   planExpiresAt?: number | null;
@@ -26,9 +26,9 @@ export type WalletDto = {
 };
 
 export type RedeemResultDto = {
-  kind?: 'token' | 'plan' | string;
-  tokensAdded: number;
-  tokens: number;
+  kind?: 'credit' | 'plan' | string;
+  creditsAdded: number;
+  credits: number;
   planId?: PlanId | string;
   planExpiresAt?: number | null;
   planLocked?: boolean;
@@ -38,7 +38,7 @@ export type RedeemResultDto = {
 export type WalletLedgerKindFilter = 'all' | 'redeem' | 'spend';
 
 export type PaginatedWalletLedger = {
-  tokens: number;
+  credits: number;
   planId?: PlanId | string;
   planExpiresAt?: number | null;
   planLocked?: boolean;

@@ -282,7 +282,7 @@ def test_heuristic_user_intent_gate():
     from app.services.design.runtime.models_route import normalize_session_action
 
     assert normalize_session_action("clear_context") == "clear_context"
-    assert normalize_session_action("new_chat") == "clear_context"
+    assert normalize_session_action("new_chat") == ""
     assert normalize_session_action("stop") == "stop"
     assert normalize_session_action("canvas") == ""
     bare = heuristic_user_intent("清空上下文", has_images=False)

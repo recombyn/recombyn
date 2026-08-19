@@ -10,7 +10,7 @@ import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
 export type WalletSnapshot = {
-  tokens: number;
+  credits: number;
   planId: PlanId;
   planExpiresAt: number | null;
   planLocked: boolean;
@@ -20,7 +20,7 @@ export type WalletSnapshot = {
 
 function emptyWalletSnapshot(billingEnabled = false): WalletSnapshot {
   return {
-    tokens: 0,
+    credits: 0,
     planId: 'free',
     planExpiresAt: null,
     planLocked: false,
@@ -105,7 +105,7 @@ export function walletDtoToSnapshot(
     billingEnabled = Boolean(dto.billingEnabled);
   }
   return {
-    tokens: Math.max(0, Math.round(Number(dto.tokens) || 0)),
+    credits: Math.max(0, Math.round(Number(dto.credits) || 0)),
     planId,
     planExpiresAt,
     planLocked: Boolean(dto.planLocked) && planId !== 'free',
@@ -130,7 +130,7 @@ export function clearWalletCache() {
   queryClient.removeQueries({ queryKey: ['wallet', 'plans'] });
 }
 
-/** Authed wallet row — tokens, plan, billingEnabled from `/wallet`. */
+/** Authed wallet row — credits, plan, billingEnabled from `/wallet`. */
 export function useWalletMeQuery(enabled?: boolean) {
   const authed = Boolean(getToken());
   return useQuery({

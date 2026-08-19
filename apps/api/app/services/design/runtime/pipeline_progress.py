@@ -72,7 +72,7 @@ class PipelineSseState:
                 "phase": stage,
                 "elapsed_ms": max(0, int((time.time() - self.t0) * 1000)),
                 "can_cancel": not terminal,
-                "can_resume": bool(payload.get("resumable")),
+                "resumable": bool(payload.get("resumable")),
             },
         }
 

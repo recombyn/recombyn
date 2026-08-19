@@ -295,7 +295,7 @@ async def _load_deferred_subagents(
     results = list(harvested)
 
     for job in jobs:
-        aid = str(job.get("id") or job.get("agent_id") or "").strip()
+        aid = str(job.get("id") or "").strip()
         # Poll-only: job_id without spawn id — already harvested above.
         if not aid:
             continue
@@ -305,7 +305,6 @@ async def _load_deferred_subagents(
             images = list(getattr(rt, "images", None) or [])[:4] or None
         payload = {
             "id": aid,
-            "agent_id": aid,
             "task": task_text,
             "images": images,
             "timeout": job.get("timeout") or 90.0,

@@ -340,6 +340,51 @@ _COVER_EDGE = 360
 _MIN_COVER_EDGE = 40
 
 
+def _cov_json_list(raw: Any) -> list[Any]:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def _cov_plain_text(attrs: dict[str, Any]) -> str:
+    origin_lines: list[str] = []
+    for block in _cov_json_list(attrs.get("ORIGIN_DATA")):
+        if not isinstance(block, dict):
+            continue
+        children = block.get("children")
+        if not isinstance(children, list):
+            continue
+        origin_lines.append(
+            "".join(str(c.get("text") or "") for c in children if isinstance(c, dict))
+        )
+    origin = "\n".join(part for part in origin_lines if part)
+    if origin:
+        return origin
+    data_lines: list[str] = []
+    for run in _cov_json_list(attrs.get("DATA")):
+        if not isinstance(run, dict):
+            continue
+        chars = run.get("chars")
+        if not isinstance(chars, list):
+            continue
+        data_lines.append(
+            "".join(str(item.get("char") or "") for item in chars if isinstance(item, dict))
+        )
+    data = "\n".join(data_lines)
+    if data:
+        return data
+    md = attrs.get("markdown")
+    if isinstance(md, str) and md.strip():
+        return md.strip()
+    return ""
+
+
 def _cov_num(value: Any, fallback: float = 0.0) -> float:
     try:
         n = float(value)
@@ -513,22 +558,16 @@ def _cov_raster_shape(node: dict[str, Any]) -> bytes | None:
     canvas_w = out_w + pad * 2
     canvas_h = out_h + pad * 2
 
-    fill = _cov_parse_rgba(attrs.get("fill") or attrs.get("fill-color"))
-    stroke = _cov_parse_rgba(
-        attrs.get("stroke") or attrs.get("border-color") or attrs.get("borderColor")
-    )
-    sw_raw = attrs.get("borderWidth")
-    if sw_raw is None:
-        sw_raw = attrs.get("border-width")
-    if sw_raw is None:
-        sw_raw = attrs.get("strokeWidth")
+    fill = _cov_parse_rgba(attrs.get("fill-color"))
+    stroke = _cov_parse_rgba(attrs.get("border-color"))
+    sw_raw = attrs.get("border-width")
     stroke_w = max(0.0, _cov_num(sw_raw, 0)) * scale
     if stroke is None and stroke_w <= 0:
         stroke = (51, 51, 51, 255)
         stroke_w = max(1.5, 2.0 * scale)
 
     key = str(node.get("key") or "")
-    shape_type = str(attrs.get("shapeType") or attrs.get("type") or "").lower()
+    shape_type = str(attrs.get("shapeType") or "").lower()
     if not shape_type and key == "rect":
         shape_type = "rect"
     if not shape_type:
@@ -572,9 +611,7 @@ def _cov_raster_text(node: dict[str, Any]) -> bytes | None:
     except Exception:
         return None
     attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
-    text = str(
-        attrs.get("text") or attrs.get("content") or node.get("text") or ""
-    ).strip()
+    text = _cov_plain_text(attrs).strip()
     if not text:
         return None
     w = max(64.0, _cov_num(node.get("width"), 160))
@@ -582,7 +619,7 @@ def _cov_raster_text(node: dict[str, Any]) -> bytes | None:
     scale = min(1.0, float(_COVER_EDGE) / max(w, h))
     out_w = max(48, int(round(w * scale)))
     out_h = max(32, int(round(h * scale)))
-    fill = _cov_parse_rgba(attrs.get("fill") or attrs.get("color")) or (30, 30, 30, 255)
+    fill = _cov_parse_rgba(attrs.get("fill-color")) or (30, 30, 30, 255)
     img = Image.new("RGB", (out_w, out_h), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     try:

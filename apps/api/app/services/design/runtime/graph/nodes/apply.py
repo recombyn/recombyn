@@ -66,7 +66,7 @@ def _emit_hydrate_job_progress(rt: AgentRuntime, progress: int, status: str) -> 
 
 
 def _op_id_of(op: dict[str, Any]) -> str:
-    raw = op.get("op_id") or (op.get("args") or {}).get("op_id") or ""
+    raw = op.get("op_id") or ""
     oid = str(raw).strip()
     if oid:
         return oid

@@ -444,7 +444,7 @@ export function promoteAudioGeneratorToAudio(
   attrs.src = src;
   attrs.assetKind = 'audio';
   if (attrs.audioSpeed == null) attrs.audioSpeed = 1;
-  attrs['fill-color'] = resolveThemeSurfaceFill(attrs['fill-color'] || attrs.fill);
+  attrs['fill-color'] = resolveThemeSurfaceFill(attrs['fill-color']);
   if (name) attrs.name = name;
   const key = String(uploadKey || '').trim();
   if (key) attrs.uploadKey = key;
@@ -505,7 +505,7 @@ export function promoteLottieGeneratorToLottie(
   attrs.animationData = json;
   attrs.assetKind = 'lottie';
   // Default readable plate under ink (never leave transparent).
-  if (!String(attrs['fill-color'] || attrs.fill || '').trim() || attrs['fill-color'] === 'transparent') {
+  if (!String(attrs['fill-color'] || '').trim() || attrs['fill-color'] === 'transparent') {
     attrs['fill-color'] = 'var(--surface)';
   }
   if (attrs.radiusTL == null) attrs.radiusTL = 8;

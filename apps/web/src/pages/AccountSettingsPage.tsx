@@ -63,19 +63,19 @@ function AccountSettingsPage(): ReactNode {
   const [tab, setTabState] = useQueryState('tab', accountTabParser);
   const [searchParams] = useSearchParams();
   const user = useSelector((s: any) => s.auth.user as AuthUser | null);
-  const { tokens, creditsIncluded } = useWalletSnapshot();
+  const { credits, creditsIncluded } = useWalletSnapshot();
   const billingEnabled = useBillingEnabled();
   const hideBillingUi = isDesktopLocal() || !billingEnabled;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const setTab = (next: AccountTab) => {
     if (hideBillingUi && next === 'usage') return;
-    void setTabState(next);
+    setTabState(next);
   };
 
   useEffect(() => {
     if (!hideBillingUi || tab !== 'usage') return;
-    void setTabState('profile');
+    setTabState('profile');
   }, [hideBillingUi, tab, setTabState]);
 
   const authed = Boolean(getToken());
@@ -118,7 +118,7 @@ function AccountSettingsPage(): ReactNode {
   }, [dispatch, meQuery.data]);
 
   const creditCap = Math.max(1, Number(creditsIncluded) || 150);
-  const balance = Math.max(0, Number(tokens) || 0);
+  const balance = Math.max(0, Number(credits) || 0);
   const planRemaining = Math.min(balance, creditCap);
   const planUsed = Math.max(0, creditCap - planRemaining);
   const usedPct = Math.min(100, Math.round((planUsed / creditCap) * 100));
@@ -199,7 +199,7 @@ function AccountSettingsPage(): ReactNode {
           {tab === 'profile' ? (
             <AccountProfileTab
               user={user}
-              tokens={tokens}
+              credits={credits}
               creditCap={creditCap}
               planUsed={planUsed}
               planRemaining={planRemaining}

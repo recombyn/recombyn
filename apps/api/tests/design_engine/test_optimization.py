@@ -155,8 +155,8 @@ def test_restore_ops_update_and_delete_not_create():
     hero = next(
         o for o in ops if o["name"] == "update_node" and o["args"].get("nodeId") == "hero"
     )
-    assert hero["args"]["w"] == 720
-    assert hero["args"]["h"] == 1100
+    assert hero["args"]["width"] == 720
+    assert hero["args"]["height"] == 1100
 
 
 def test_controller_eats_score_issues_diff_iteration_cost():

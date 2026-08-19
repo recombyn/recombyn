@@ -12,7 +12,6 @@ from app.models import User, UserBalance
 from app.services.db import init_schema
 from app.services.wallet.db import (
     credit_tokens,
-    get_user_tokens,
     get_wallet,
     list_ledger_page,
     normalize_plan,
@@ -97,7 +96,7 @@ def adjust_tokens(user_id: str, amount: int, detail: str = "") -> dict[str, Any]
     else:
         balance = spend_tokens(uid, abs(amt), detail=note, force=True)
 
-    return {"userId": uid, "tokens": balance, "amount": amt}
+    return {"userId": uid, "credits": balance, "amount": amt}
 
 
 def user_ledger(
@@ -110,7 +109,7 @@ def user_ledger(
     snap = get_wallet(user_id)
     expires = snap.get("planExpiresAt")
     return {
-        "tokens": int(snap.get("tokens") or get_user_tokens(user_id) or 0),
+        "credits": int(snap.get("credits") or 0),
         "planId": snap.get("planId") or "free",
         "planStored": snap.get("planStored") or "free",
         "planExpiresAt": int(float(expires) * 1000) if expires is not None else None,
@@ -149,7 +148,7 @@ def _user_to_out(user: User, bal: UserBalance | None) -> dict[str, Any]:
         "provider": user.provider or "email",
         "role": user.role or "user",
         "status": user.status or "active",
-        "tokens": int(bal.tokens or 0) if bal else 0,
+        "credits": int(bal.tokens or 0) if bal else 0,
         "planId": plan_id,
         "planStored": stored,
         "planExpiresAt": int(expires_at * 1000) if expires_at is not None else None,

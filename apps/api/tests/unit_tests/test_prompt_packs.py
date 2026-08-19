@@ -1,14 +1,4 @@
-from app.services.design.prompts.prompt_pack_store import (
-    seed_prompt_overlay_nodes,
-)
 from app.services.design.prompts.skill_store import format_skills_details
-
-
-def test_seed_prompt_overlay_nodes_empty():
-    """need_* overlay nodes are not seeded (skills carry playbooks)."""
-    nodes = seed_prompt_overlay_nodes()
-    assert nodes == []
-
 
 
 def test_playbooks_live_in_design_skills_packs():

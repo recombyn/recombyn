@@ -2438,8 +2438,7 @@ def list_decision_log_page(
         where.append(f"status = {_bind(status.strip())}")
     if q and q.strip():
         like = f"%{q.strip()}%"
-        b1, b2, b3, b4, b5 = (
-            _bind(like),
+        b1, b2, b3, b4 = (
             _bind(like),
             _bind(like),
             _bind(like),
@@ -2447,8 +2446,7 @@ def list_decision_log_page(
         )
         where.append(
             f"(id LIKE {b1} OR user_id LIKE {b2} OR prompt LIKE {b3} OR "
-            f"coalesce(json_extract(meta_json, '$.trace_id'), '') LIKE {b4} OR "
-            f"coalesce(json_extract(meta_json, '$.decision_log.trace_id'), '') LIKE {b5})"
+            f"coalesce(json_extract(meta_json, '$.decision_log.trace_id'), '') LIKE {b4})"
         )
     route_filter = (route or "").strip().lower()
     if route_filter:
@@ -2477,15 +2475,12 @@ def list_decision_log_page(
         f"""
         SELECT
           id, user_id, scene, status, prompt, error_message, created_at, updated_at,
-          json_extract(meta_json, '$.trace_id') AS trace_id,
           json_extract(meta_json, '$.control') AS control,
           json_extract(meta_json, '$.flow_id') AS flow_id,
+          json_extract(meta_json, '$.flow_version') AS flow_version,
           json_extract(meta_json, '$.decision_log.trace_id') AS dl_trace,
           json_extract(meta_json, '$.decision_log.route') AS dl_route,
           json_extract(meta_json, '$.decision_log.intent') AS dl_intent,
-          json_extract(meta_json, '$.execution_log.trace_id') AS el_trace,
-          json_extract(meta_json, '$.execution_log.intent') AS el_intent,
-          json_extract(meta_json, '$.execution_log.flow_id') AS el_flow,
           json_extract(meta_json, '$.execution_log.ops_count') AS ops_count,
           json_extract(meta_json, '$.execution_log.total_tokens') AS total_tokens,
           json_extract(meta_json, '$.execution_log.total_duration_ms') AS total_duration_ms,
@@ -2493,8 +2488,7 @@ def list_decision_log_page(
           json_extract(meta_json, '$.execution_log.task_tier') AS task_tier,
           json_extract(meta_json, '$.execution_log.vision_used') AS vision_used,
           json_extract(meta_json, '$.execution_log.model') AS model,
-          json_extract(meta_json, '$.execution_log.skills_loaded') AS el_skills,
-          json_extract(meta_json, '$.decision_log.skills_loaded') AS dl_skills
+          json_extract(meta_json, '$.execution_log.skills_loaded') AS el_skills
         FROM design_task
         WHERE {sql_where}
         ORDER BY created_at DESC

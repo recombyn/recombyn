@@ -82,7 +82,7 @@ def assistant_facing_text(text: str, *, max_chars: int = 800) -> str:
 
 def normalize_turn_for_dialogue(turn: dict[str, Any], *, per_turn_chars: int) -> dict[str, Any] | None:
     role = str(turn.get("role") or "").strip().lower()
-    raw = str(turn.get("text") or turn.get("content") or "").strip()
+    raw = str(turn.get("text") or "").strip()
     if not raw or role not in ("user", "assistant"):
         return None
     text = assistant_facing_text(raw, max_chars=per_turn_chars) if role == "assistant" else raw[:per_turn_chars]
@@ -278,7 +278,7 @@ def trim_turns_by_chars(
         lc_msgs: list[BaseMessage] = []
         for t in turns:
             role = str(t.get("role") or "")
-            text = str(t.get("text") or t.get("content") or "")
+            text = str(t.get("text") or "")
             if role == "user":
                 lc_msgs.append(HumanMessage(content=text))
             elif role == "assistant":
@@ -378,7 +378,7 @@ def update_dialogue_after_run(
             names: list[str] = []
             for op in tool_ops_applied[:6]:
                 if isinstance(op, dict):
-                    n = str(op.get("name") or op.get("op") or "").strip()
+                    n = str(op.get("name") or "").strip()
                     if n:
                         names.append(n)
                 elif isinstance(op, str) and op.strip():

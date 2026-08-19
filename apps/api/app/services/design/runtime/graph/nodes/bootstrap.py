@@ -79,7 +79,7 @@ async def _node_bootstrap(state: GraphState) -> Command:
                         proposal_task_id=(rt.flags.get("pending_proposal") or {}).get("task_id"),
                         interaction_mode=rt.flags.get("mode"),
                         skill_refs=rt.flags.get("skill_refs"),
-                        locale=rt.flags.get("locale"),
+                        locale=rt.flags.get("output_locale"),
                         design_intensity=rt.flags.get("design_intensity"),
                     ),
                     "run_lifecycle": {

@@ -181,7 +181,7 @@ export function nodeSceneAabb(
   }
   const stroke = Math.max(
     0,
-    Number(node.attrs?.borderWidth ?? node.attrs?.['border-width'] ?? node.attrs?.strokeWidth ?? 0) ||
+    Number(node.attrs?.['border-width'] ?? 0) ||
       0
   );
   const expand = pad + stroke;

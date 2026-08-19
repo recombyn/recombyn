@@ -5,13 +5,12 @@ from typing import Any
 
 from app.services.design.ops.tool_ops_contract import format_op_error
 
-def _box_num(d: dict[str, Any], *keys: str, default: float = 0.0) -> float:
-    for k in keys:
-        if k in d and d[k] is not None:
-            try:
-                return float(d[k])
-            except (TypeError, ValueError):
-                pass
+def _box_num(d: dict[str, Any], key: str, *, default: float = 0.0) -> float:
+    if key in d and d[key] is not None:
+        try:
+            return float(d[key])
+        except (TypeError, ValueError):
+            pass
     return default
 
 
@@ -50,8 +49,8 @@ def _world_occupied_in_viewport(
     for n in spatial.get("focused") or []:
         if not isinstance(n, dict):
             continue
-        w = _box_num(n, "w", "width")
-        h = _box_num(n, "h", "height")
+        w = _box_num(n, "w")
+        h = _box_num(n, "h")
         if w <= 1 or h <= 1:
             continue
         box = {
@@ -65,19 +64,19 @@ def _world_occupied_in_viewport(
     for f in spatial.get("peripheral") or []:
         if not isinstance(f, dict):
             continue
-        w = _box_num(f, "w", "width")
-        h = _box_num(f, "h", "height")
+        w = _box_num(f, "w")
+        h = _box_num(f, "h")
         if w <= 1 or h <= 1:
             continue
         box = {"x": _box_num(f, "x"), "y": _box_num(f, "y"), "w": w, "h": h}
         if _boxes_overlap(box, vp, gap=0):
             out.append(box)
-    if in_frame and _box_num(focus_frame, "w", "width") > 8:
+    if in_frame and _box_num(focus_frame, "w") > 8:
         fb = {
             "x": fox,
             "y": foy,
-            "w": _box_num(focus_frame, "w", "width"),
-            "h": _box_num(focus_frame, "h", "height"),
+            "w": _box_num(focus_frame, "w"),
+            "h": _box_num(focus_frame, "h"),
         }
         if _boxes_overlap(fb, vp, gap=0):
             # Treat the artboard shell as occupied so free-canvas creates sit beside it.
@@ -151,8 +150,8 @@ def _derive_suggested_place_world(
     spatial = spatial if isinstance(spatial, dict) else {}
     vp_raw = spatial.get("viewport")
     if isinstance(vp_raw, dict):
-        vw = _box_num(vp_raw, "w", "width")
-        vh = _box_num(vp_raw, "h", "height")
+        vw = _box_num(vp_raw, "w")
+        vh = _box_num(vp_raw, "h")
         if vw > 8 and vh > 8:
             vp = {
                 "x": _box_num(vp_raw, "x"),
@@ -169,20 +168,20 @@ def _derive_suggested_place_world(
     if isinstance(sp, dict) and isinstance(focus_frame, dict):
         fox = _box_num(focus_frame, "x")
         foy = _box_num(focus_frame, "y")
-        fw = _box_num(focus_frame, "w", "width")
-        fh = _box_num(focus_frame, "h", "height")
+        fw = _box_num(focus_frame, "w")
+        fh = _box_num(focus_frame, "h")
         if fw > 8 and fh > 8:
             return {
                 "x": round(fox + _box_num(sp, "x")),
                 "y": round(foy + _box_num(sp, "y")),
-                "w": round(_box_num(sp, "w", "width", default=320)),
-                "h": round(_box_num(sp, "h", "height", default=200)),
+                "w": round(_box_num(sp, "w", default=320)),
+                "h": round(_box_num(sp, "h", default=200)),
             }
     if isinstance(focus_frame, dict):
         fox = _box_num(focus_frame, "x")
         foy = _box_num(focus_frame, "y")
-        fw = _box_num(focus_frame, "w", "width")
-        fh = _box_num(focus_frame, "h", "height")
+        fw = _box_num(focus_frame, "w")
+        fh = _box_num(focus_frame, "h")
         if fw > 8 and fh > 8:
             cw = min(320.0, max(80.0, fw * 0.25))
             ch = min(200.0, max(80.0, fh * 0.25))
@@ -227,8 +226,8 @@ def _point_outside_world_box(
 ) -> bool:
     bx = _box_num(box, "x")
     by = _box_num(box, "y")
-    bw = _box_num(box, "w", "width")
-    bh = _box_num(box, "h", "height")
+    bw = _box_num(box, "w")
+    bh = _box_num(box, "h")
     if bw <= 0 or bh <= 0:
         return False
     return (
@@ -243,7 +242,7 @@ def _create_op_placement_fields(op: dict[str, Any]) -> tuple[Any, Any, str]:
     """Return (x, y, frameId) from normalized {args} or flat model shape."""
     args = op.get("args") if isinstance(op.get("args"), dict) else None
     src = args if args is not None else op
-    return src.get("x"), src.get("y"), str(src.get("frameId") or src.get("frame_id") or "").strip()
+    return src.get("x"), src.get("y"), str(src.get("frameId") or "").strip()
 
 
 def _batch_opens_new_frame(ops: list[dict[str, Any]]) -> bool:
@@ -278,17 +277,17 @@ def _placement_errors_for_free_creates(rt: Any, ops: list[dict[str, Any]]) -> li
     focus_frame = _focus_frame_from_rt(rt)
     vp = spatial.get("viewport") if isinstance(spatial, dict) else None
     # Prefer artboard bounds when present — FE camera viewport is noisier (Yjs/pan lag).
-    if isinstance(focus_frame, dict) and _box_num(focus_frame, "w", "width") > 0:
+    if isinstance(focus_frame, dict) and _box_num(focus_frame, "w") > 0:
         view_box = focus_frame
         pad = max(
             48.0,
-            0.2 * min(_box_num(view_box, "w", "width"), _box_num(view_box, "h", "height")),
+            0.2 * min(_box_num(view_box, "w"), _box_num(view_box, "h")),
         )
-    elif isinstance(vp, dict) and _box_num(vp, "w", "width") > 0:
+    elif isinstance(vp, dict) and _box_num(vp, "w") > 0:
         view_box = vp
         pad = max(
             96.0,
-            0.4 * min(_box_num(view_box, "w", "width"), _box_num(view_box, "h", "height")),
+            0.4 * min(_box_num(view_box, "w"), _box_num(view_box, "h")),
         )
     else:
         return []

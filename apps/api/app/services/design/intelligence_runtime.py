@@ -51,9 +51,7 @@ def apply_intelligence_result(
         else:
             apply_reference_intelligence(
                 rt,
-                compile_reference_intelligence(
-                    data, data.get("visual_dna") or data.get("dna")
-                ),
+                compile_reference_intelligence(data, data.get("visual_dna")),
             )
         return data
 

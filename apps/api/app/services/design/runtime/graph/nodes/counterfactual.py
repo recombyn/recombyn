@@ -401,11 +401,7 @@ async def run_design_counterfactual(rt: AgentRuntime) -> dict[str, Any] | None:
         snap = getattr(rt, "visual_snapshot", None)
         if not isinstance(snap, dict):
             snap = None
-        selected = str(
-            flags.get("counterfactual_select")
-            or flags.get("counterfactual_selected_id")
-            or ""
-        ).strip()
+        selected = str(flags.get("selected_id") or "").strip()
         result = run_design_counterfactual_pipeline(
             observe_facts=observe if isinstance(observe, dict) else None,
             visual_snapshot=snap,

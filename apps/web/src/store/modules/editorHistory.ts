@@ -57,20 +57,12 @@ export function estimateNodeBytes(
   const attrs = node.attrs;
   if (!attrs) return 128;
   const path = attrs.path != null ? String(attrs.path) : '';
-  const d = attrs.d != null ? String(attrs.d) : '';
   let n = 192;
   if (path) {
     if (!seenPaths) n += path.length;
     else if (!seenPaths.has(path)) {
       seenPaths.add(path);
       n += path.length;
-    }
-  }
-  if (d && d !== path) {
-    if (!seenPaths) n += d.length;
-    else if (!seenPaths.has(d)) {
-      seenPaths.add(d);
-      n += d.length;
     }
   }
   return n;

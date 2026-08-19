@@ -64,7 +64,7 @@ def _sanitize_platform(raw: Any) -> dict[str, Any] | None:
         return None
     pid = str(raw.get("id") or "").strip().lower()
     name = str(raw.get("name") or "").strip()
-    base_url = str(raw.get("baseUrl") or raw.get("base_url") or "").strip().rstrip("/")
+    base_url = str(raw.get("baseUrl") or "").strip().rstrip("/")
     if not pid or not name or not base_url:
         return None
     kinds_raw = raw.get("kinds") or ["text"]
@@ -83,7 +83,7 @@ def _sanitize_platform(raw: Any) -> dict[str, Any] | None:
         "kinds": kinds,
         "rowId": platform_byok_row_id(pid),
     }
-    icon = str(raw.get("iconKey") or raw.get("icon_key") or "").strip()
+    icon = str(raw.get("iconKey") or "").strip()
     if icon:
         out["iconKey"] = icon
     hint = str(raw.get("hint") or "").strip()

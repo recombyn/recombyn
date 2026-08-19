@@ -795,8 +795,8 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
   const height = Math.max(node.height || 100, 1);
   const meta = objectMeta(node);
   const strokeFull = strokeOptsFromNode(node, stroke, strokeWidth);
-  const hasCapAttr = node.attrs?.strokeLinecap != null || node.attrs?.['stroke-linecap'] != null;
-  const hasJoinAttr = node.attrs?.strokeLinejoin != null || node.attrs?.['stroke-linejoin'] != null;
+  const hasCapAttr = node.attrs?.strokeLinecap != null;
+  const hasJoinAttr = node.attrs?.strokeLinejoin != null;
   let linecap = strokeFull.linecap;
   let linejoin = strokeFull.linejoin;
   if (!hasCapAttr && shapeType === 'pencil') linecap = 'round';
@@ -1117,12 +1117,12 @@ export async function nodeToSvgElement(
   if (node.key === 'rect') return createRectLike(ctx, document, node, nodeId, 'rect');
 
   if (node.key === 'svg') {
-    const markup = String(node.attrs?.svg || node.attrs?.content || '').trim();
+    const markup = String(node.attrs?.svg || '').trim();
     const { left, top } = nodeLeftTop(document, node);
     const boxW = Math.max(1, Number(node.width) || 24);
     const boxH = Math.max(1, Number(node.height) || 24);
     const meta = objectMeta(node);
-    const fillOverride = String(node.attrs?.['fill-color'] || node.attrs?.fill || '').trim();
+    const fillOverride = String(node.attrs?.['fill-color'] || '').trim();
     const g = appendChild(parent, svgEl('g'));
     // Box hit target — SVG content may be sparse.
     const hit = appendChild(
@@ -1418,7 +1418,7 @@ export async function nodeToSvgElement(
     const clipD = roundedRectPath(boxW, boxH, cornerR);
     const g = appendChild(parent, svgEl('g'));
     const svgOwnsPixels = videoSvgOwnsPixels(root);
-    const rawLottieFill = String(node.attrs?.['fill-color'] || node.attrs?.fill || '').trim();
+    const rawLottieFill = String(node.attrs?.['fill-color'] || '').trim();
     // Default surface plate — map empty/transparent to theme surface (not black).
     const plateFill = resolveThemeSurfaceFill(
       !rawLottieFill || rawLottieFill === 'transparent' ? '' : rawLottieFill
@@ -1694,9 +1694,7 @@ export async function nodeToSvgElement(
     const clipD = roundedRectPath(boxW, boxH, cornerR);
     const g = appendChild(parent, svgEl('g'));
     const svgOwnsPixels = videoSvgOwnsPixels(root);
-    const plateFill = resolveThemeSurfaceFill(
-      node.attrs?.['fill-color'] || node.attrs?.fill
-    );
+    const plateFill = resolveThemeSurfaceFill(node.attrs?.['fill-color']);
 
     if (processing) {
       const plate = appendChild(g, svgEl('path', { d: clipD }));
