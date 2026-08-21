@@ -98,6 +98,12 @@ def _invalidate_bootstrap_flags() -> None:
             skill_mod._SKILLS_READY = False
     except Exception:
         pass
+    try:
+        import app.services.design.prompts.prompt_pack_store as packs_mod
+
+        packs_mod._PACKS_READY = False
+    except Exception:
+        pass
 
 
 def reset_engine() -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 import uuid
 
 import pytest
@@ -11,6 +10,7 @@ from app.core.db import reset_engine
 from app.services import project_versions as version_store
 from app.services import projects as project_store
 from app.services.projects import ProjectConflictError
+from tests.conftest import restore_default_sqlite_engine
 
 
 @pytest.fixture()
@@ -18,13 +18,15 @@ def user_id(tmp_path, monkeypatch):
     db = tmp_path / f"versions_{uuid.uuid4().hex[:8]}.db"
     monkeypatch.setenv("SQLITE_DB_PATH", str(db))
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    # Settings may already be loaded — force sqlite path via settings if needed.
     from app.core import config
 
     monkeypatch.setattr(config.settings, "database_url", "")
     monkeypatch.setattr(config.settings, "sqlite_db_path", str(db))
     reset_engine()
-    return f"u_{uuid.uuid4().hex[:10]}"
+    try:
+        yield f"u_{uuid.uuid4().hex[:10]}"
+    finally:
+        restore_default_sqlite_engine()
 
 
 def _doc(label: str) -> dict:

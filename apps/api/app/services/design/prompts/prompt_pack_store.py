@@ -10,7 +10,7 @@ from typing import Any
 
 from app.core.config import resolve_seed_dir, resolve_seed_file
 from app import crud
-from app.core.db import engine
+from app.core import db as core_db
 from app.services.design.readpath.catalog import ensure_design_catalog
 from sqlmodel import Session
 
@@ -138,7 +138,7 @@ def db_prompt_body(key: str) -> str:
     kind = str(key or "").strip()
     if not kind:
         return ""
-    with Session(engine) as session:
+    with Session(core_db.engine) as session:
         body = crud.get_design_prompt_pack_body(session=session, kind=kind)
         if body:
             return body
@@ -483,7 +483,7 @@ def ensure_design_prompt_packs() -> None:
         init_schema()
         ensure_design_tables_boot()
 
-        with Session(engine) as session:
+        with Session(core_db.engine) as session:
             _prune_prompt_packs_to_seed(session, now=now)
             _sync_system_prompts_into_packs(session, now=now)
             existing_kinds = crud.list_design_prompt_pack_kinds(session=session)
@@ -528,7 +528,7 @@ def list_prompt_pack_bodies_for_system(*, ensure: bool = True) -> dict[str, str]
         ensure_design_prompt_packs()
     from app.services.design.prompts.system_prompt_store import is_system_prompt_key
 
-    with Session(engine) as session:
+    with Session(core_db.engine) as session:
         rows = crud.list_enabled_design_prompt_pack_bodies(session=session)
     out: dict[str, str] = {}
     for kind, body in rows:
