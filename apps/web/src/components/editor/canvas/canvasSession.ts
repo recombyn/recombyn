@@ -322,6 +322,8 @@ function promoteNodesToWorldTop(doc: SceneDocument, nodeIds: Iterable<string>): 
 
 export type CanvasSessionDeps = {
   getDocument: () => SceneDocument | null;
+  /** Prefer Redux head during transform — local ref can lag finishImageProcess. */
+  getCommittedDocument?: () => SceneDocument | null;
   setDocumentLocal: (doc: SceneDocument) => void;
   getBoard: () => SvgBoardHandle | null;
   getZoom: () => number;
@@ -627,7 +629,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
   ) => {
     // Drop coalesced media previews — frame paint is committed below.
     deps.getDragWriteCoalescer().cancel();
-    const doc = deps.getDocument();
+    // Base geometry on the committed Redux doc. During a transform, documentRef
+    // is intentionally not synced from Redux — writing it back would revive
+    // attrs cleared mid-drag (e.g. processStatus after upload finishes).
+    const committed = deps.getCommittedDocument?.() ?? null;
+    const doc = committed || deps.getDocument();
     const board = deps.getBoard();
     if (!doc || deps.isReadOnly() || !patches.length) return;
     const { nodePatches, frames } = applyFrameGeometryPatches(patches);

@@ -279,6 +279,17 @@ const CHECKER =
 
 const MAX_GRADIENT_STOPS = 8;
 
+/**
+ * Canvas Delete/Backspace is registered earlier (capture). Gradient stop editing
+ * registers a consumer here so hotkeys can remove a stop instead of the node.
+ */
+let gradientStopDeleteConsumer: (() => boolean) | null = null;
+
+/** @returns true when Delete was handled as gradient-stop edit (including no-op at 2 stops). */
+export function tryConsumeGradientStopDelete(): boolean {
+  return gradientStopDeleteConsumer?.() ?? false;
+}
+
 function interpolateStopColor(stops: FillStop[], offset: number): string {
   const sorted = [...stops].sort((a, b) => a.offset - b.offset);
   if (sorted.length === 0) return '#CCCCCC';
@@ -333,28 +344,25 @@ function GradientStopsBar({
 
   const deleteActiveStop = useCallback(() => {
     const stops = stopsRef.current;
-    if (stops.length <= 2) return;
+    if (stops.length <= 2) return false;
     const idx = Math.max(0, Math.min(activeStopRef.current, stops.length - 1));
     const next = stops.filter((_, i) => i !== idx);
     const nextActive = Math.min(idx, next.length - 1);
     onStopsChangeRef.current(next, nextActive);
     onActiveStopChange(nextActive);
+    return true;
   }, [onActiveStopChange]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (dragIndexRef.current != null) return;
-      if (stopsRef.current.length <= 2) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      deleteActiveStop();
+    gradientStopDeleteConsumer = () => {
+      if (dragIndexRef.current != null) return true;
+      // While the stops bar is mounted, Delete never falls through to node delete.
+      if (stopsRef.current.length <= 2) return true;
+      return deleteActiveStop();
     };
-    // Capture before canvas Delete handler removes the whole node.
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    return () => {
+      gradientStopDeleteConsumer = null;
+    };
   }, [deleteActiveStop]);
 
   const handleStopPointerDown = (index: number) => (e: ReactPointerEvent) => {

@@ -1,7 +1,7 @@
 ﻿export { default as ImageToolbarMoreDownload } from './ImageToolbarMoreDownload';
 export { default as ImageToolbarEditTools } from './ImageToolbarEditTools';
 export { default as IconAnnotateToolbar } from './IconAnnotateToolbar';
-export { default as ImageProcessOverlay } from './ImageProcessOverlay';
+export { default as ImageProcessOverlay, NodeProcessGlow } from './ImageProcessOverlay';
 export { default as ImageVariantsOverlay } from './ImageVariantsOverlay';
 export { default as ImageProcessWatcher } from './ImageProcessWatcher';
 export { default as ImageToolPanelHost } from './toolPanels/ImageToolPanelHost';

@@ -2,7 +2,7 @@ import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/
 /**
  * Canvas stress micro-benchmarks (Node/jsdom) — post-optimization suite.
  *
- * Measures COW history / patch undo / spatial cull / LOD host budget on
+ * Measures COW history / patch undo / spatial cull / Canvas idle host budget on
  * homogeneous + mixed “design-like” scenes (rect / text / path / heavy outline).
  *
  * Run: `npm run test:stress --workspace=apps/web`
@@ -27,7 +27,7 @@ import {
   distPointToPathD,
   pathDContainsPoint,
 } from '@/components/rcb/scene/document/sceneShapes';
-import { pickFullAndProxyIds } from '@/components/rcb/shapes/RcbShapesLayer';
+import { pickFullAndCanvasIds } from '@/components/rcb/shapes/RcbShapesLayer';
 
 type Kind = 'rect' | 'path' | 'heavyPath' | 'mixed';
 
@@ -53,9 +53,9 @@ type Row = {
   /** 50× single-node patch undos (current patchDocumentNode path). */
   history50PatchMb: number;
   hostFullAt1x: number;
-  hostProxyAt1x: number;
-  hostFullAtFar: number;
-  hostProxyAtFar: number;
+  hostCanvasAt1x: number;
+  hostFullAtMotion: number;
+  hostCanvasAtFar: number;
 };
 
 const RESULTS: Row[] = [];
@@ -282,14 +282,14 @@ function measureHitNearby(doc: SceneDocument, _idx: RcbSpatialIndex, points: Arr
 }
 
 function hostBudgetFor(doc: SceneDocument, visibleIds: string[], zoom: number, moving: boolean) {
-  const { fullIds, proxyIds } = pickFullAndProxyIds({
+  const { fullIds, canvasIds } = pickFullAndCanvasIds({
     document: doc,
     visibleIds,
     keepSet: new Set(visibleIds.slice(0, 2)),
     zoom,
     moving,
   });
-  return { full: fullIds.length, proxy: proxyIds.length };
+  return { full: fullIds.length, canvas: canvasIds.length };
 }
 
 function runSuite(n: number, kind: Kind): Row {
@@ -423,9 +423,9 @@ function runSuite(n: number, kind: Kind): Row {
     history50CowDedupMb: Math.round(history50CowDedupMb * 100) / 100,
     history50PatchMb: Math.round(history50PatchMb * 100) / 100,
     hostFullAt1x: host1.full,
-    hostProxyAt1x: host1.proxy,
-    hostFullAtFar: hostFar.full,
-    hostProxyAtFar: hostFar.proxy,
+    hostCanvasAt1x: host1.canvas,
+    hostFullAtMotion: hostFar.full,
+    hostCanvasAtFar: hostFar.canvas,
   };
 }
 
@@ -449,10 +449,10 @@ describe('canvas stress bench (post-opt)', () => {
         expect(row.cowCloneMs).toBeLessThan(c.n >= 10000 ? 4000 : 2000);
         expect(row.indexCullMs).toBeLessThan(c.n >= 10000 ? 50 : 20);
         expect(row.indexBuildMs).toBeLessThan(c.n >= 10000 ? 500 : 200);
-        // Far LOD must not mount every visible node as a full host.
+        // Dense motion must not mount every visible node as a full SVG host.
         if (row.indexCullVisible > 96) {
-          expect(row.hostFullAtFar).toBeLessThanOrEqual(96);
-          expect(row.hostProxyAtFar).toBeGreaterThan(0);
+          expect(row.hostFullAtMotion).toBeLessThanOrEqual(96);
+          expect(row.hostCanvasAtFar).toBeGreaterThan(0);
         }
       }
 

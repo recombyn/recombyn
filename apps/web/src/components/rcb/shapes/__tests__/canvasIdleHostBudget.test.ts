@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canIdlePaintOnCanvas, lodProxyIsStrokeOnly, pickFullAndProxyIds } from '../RcbShapesLayer';
+import { canIdlePaintOnCanvas, canvasIdleIsStrokeOnly, pickFullAndCanvasIds } from '../RcbShapesLayer';
 import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
@@ -82,13 +82,13 @@ function heavy(id: string) {
   };
 }
 
-describe('pickFullAndProxyIds', () => {
+describe('pickFullAndCanvasIds', () => {
   it('keeps SVG hosts under budget (idle Canvas does not drop interactive hosts)', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 20; i += 1) nodes[`n${i}`] = rect(`n${i}`);
     const doc = makeDoc(nodes);
     const ids = Object.keys(nodes);
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ids,
       keepSet: new Set(),
@@ -96,7 +96,7 @@ describe('pickFullAndProxyIds', () => {
       moving: false,
     });
     expect(fullIds).toHaveLength(20);
-    expect(proxyIds).toHaveLength(0);
+    expect(canvasIds).toHaveLength(0);
   });
 
   it('keeps text, media, and light pen as SVG hosts under budget', () => {
@@ -105,7 +105,7 @@ describe('pickFullAndProxyIds', () => {
       p0: lightPen('p0'),
       i0: imageNode('i0'),
     });
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ['t0', 'p0', 'i0'],
       keepSet: new Set(),
@@ -113,7 +113,7 @@ describe('pickFullAndProxyIds', () => {
       moving: false,
     });
     expect(fullIds.sort()).toEqual(['i0', 'p0', 't0']);
-    expect(proxyIds).toEqual([]);
+    expect(canvasIds).toEqual([]);
   });
 
   it('keeps media and idle rect as SVG hosts when few', () => {
@@ -122,7 +122,7 @@ describe('pickFullAndProxyIds', () => {
       n0: rect('n0'),
     };
     const doc = makeDoc(nodes);
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ['i0', 'n0'],
       keepSet: new Set(),
@@ -130,14 +130,14 @@ describe('pickFullAndProxyIds', () => {
       moving: false,
     });
     expect(fullIds.sort()).toEqual(['i0', 'n0']);
-    expect(proxyIds).toEqual([]);
+    expect(canvasIds).toEqual([]);
   });
 
-  it('forceFullSet keeps selected idle rect as SVG under far LOD', () => {
+  it('forceFullSet keeps selected idle rect as SVG under dense motion overflow', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 40; i += 1) nodes[`n${i}`] = rect(`n${i}`);
     const doc = makeDoc(nodes);
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: Object.keys(nodes),
       keepSet: new Set(['n0']),
@@ -146,65 +146,81 @@ describe('pickFullAndProxyIds', () => {
       moving: true,
     });
     expect(fullIds).toContain('n0');
-    expect(proxyIds).not.toContain('n0');
+    expect(canvasIds).not.toContain('n0');
   });
 
-  it('caps full hosts and proxies the rest when far', () => {
+  it('far zoom alone keeps in-viewport hosts (cull is the off-screen path)', () => {
+    const nodes: Record<string, any> = {};
+    for (let i = 0; i < 40; i += 1) nodes[`n${i}`] = rect(`n${i}`);
+    const doc = makeDoc(nodes);
+    const ids = Object.keys(nodes);
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ids,
+      keepSet: new Set(),
+      zoom: 0.15,
+      moving: false,
+    });
+    expect(fullIds).toHaveLength(40);
+    expect(canvasIds).toHaveLength(0);
+  });
+
+  it('caps full hosts and proxies idle overflow when over budget', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 120; i += 1) nodes[`n${i}`] = rect(`n${i}`);
     const doc = makeDoc(nodes);
     const ids = Object.keys(nodes);
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ids,
       keepSet: new Set(['n0']),
-      zoom: 0.15,
-      moving: true,
+      zoom: 1,
+      moving: false,
     });
-    // Idle rects skip SVG; selection keepSet must not force full SVG.
+    // Idle rects skip SVG when over host budget; keepSet does not force full SVG.
     expect(fullIds.length).toBe(0);
-    expect(proxyIds.length).toBeGreaterThan(0);
-    expect(fullIds.length + proxyIds.length).toBe(120);
+    expect(canvasIds.length).toBeGreaterThan(0);
+    expect(fullIds.length + canvasIds.length).toBe(120);
   });
 
-  it('caps proxy paint so dense zoom-out stays bounded', () => {
+  it('caps proxy paint so dense overflow stays bounded', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 5000; i += 1) nodes[`n${i}`] = rect(`n${i}`);
     const doc = makeDoc(nodes);
     const ids = Object.keys(nodes);
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ids,
       keepSet: new Set(['n0']),
-      zoom: 0.15,
-      moving: true,
-      maxProxies: 128,
+      zoom: 1,
+      moving: false,
+      maxCanvasIdle: 128,
     });
     expect(fullIds.length).toBe(0);
-    expect(proxyIds.length).toBeLessThanOrEqual(128);
-    expect(fullIds.length + proxyIds.length).toBeLessThan(5000);
+    expect(canvasIds.length).toBeLessThanOrEqual(128);
+    expect(fullIds.length + canvasIds.length).toBeLessThan(5000);
   });
 
-  it('forceFullSet keeps editors as full SVG under LOD', () => {
+  it('forceFullSet keeps editors as full SVG under overflow', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 120; i += 1) nodes[`n${i}`] = rect(`n${i}`);
     const doc = makeDoc(nodes);
     const ids = Object.keys(nodes);
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ids,
       keepSet: new Set(),
       forceFullSet: new Set(['n0']),
-      zoom: 0.15,
-      moving: true,
+      zoom: 1,
+      moving: false,
     });
     expect(fullIds).toContain('n0');
-    expect(proxyIds).not.toContain('n0');
+    expect(canvasIds).not.toContain('n0');
   });
 
   it('forceFullSet keeps idle rect as SVG even under budget', () => {
     const doc = makeDoc({ n0: rect('n0') });
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ['n0'],
       keepSet: new Set(),
@@ -213,62 +229,73 @@ describe('pickFullAndProxyIds', () => {
       moving: false,
     });
     expect(fullIds).toEqual(['n0']);
-    expect(proxyIds).toHaveLength(0);
+    expect(canvasIds).toHaveLength(0);
   });
 
-  it('prefer SVG budget for media over idle rects when far', () => {
+  it('prefer SVG budget for non-idle over canvas-idle media when over budget', () => {
     const nodes: Record<string, any> = {};
-    for (let i = 0; i < 40; i += 1) nodes[`n${i}`] = rect(`n${i}`);
+    for (let i = 0; i < 100; i += 1) nodes[`n${i}`] = rect(`n${i}`);
     nodes.i0 = imageNode('i0');
-    nodes.big = rect('big', 400, 400);
+    nodes.poly = {
+      id: 'poly',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 80,
+      attrs: { shapeType: 'polygon', sides: 5, 'fill-color': '#abc' },
+    };
     const doc = makeDoc(nodes);
     const ids = Object.keys(nodes);
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ids,
       keepSet: new Set(),
-      zoom: 0.15,
+      zoom: 1,
       moving: false,
     });
-    expect(fullIds).toContain('i0');
-    expect(fullIds).not.toContain('big');
-    expect(proxyIds).toContain('big');
+    // Polygon is not canvas-idle → keeps SVG; image/rects demote to Canvas ink.
+    expect(fullIds).toContain('poly');
+    expect(canvasIds).toContain('i0');
+    expect(canvasIds).toContain('n0');
   });
 
-  it('demotes heavy paths when far', () => {
+  it('demotes heavy paths during dense camera motion', () => {
     const nodes: Record<string, any> = {
       heavy: heavy('heavy'),
       big: rect('big', 400, 400),
     };
-    for (let i = 0; i < 30; i += 1) nodes[`img${i}`] = imageNode(`img${i}`);
+    for (let i = 0; i < 100; i += 1) nodes[`img${i}`] = imageNode(`img${i}`);
     const doc = makeDoc(nodes);
     const ids = Object.keys(nodes);
-    const { proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ids,
       keepSet: new Set(),
-      zoom: 0.15,
+      zoom: 1,
       moving: true,
     });
-    expect(proxyIds).toContain('heavy');
+    // Images are canvas-idle → proxy; heavy path stays SVG (not idle-paintable).
+    expect(canvasIds).toContain('img0');
+    expect(fullIds).toContain('heavy');
   });
 });
 
-describe('lodProxyIsStrokeOnly', () => {
+describe('canvasIdleIsStrokeOnly', () => {
   it('treats pencil/pen/line as stroke-only (no AABB fill)', () => {
-    expect(lodProxyIsStrokeOnly({ attrs: { shapeType: 'pencil' } } as any)).toBe(true);
-    expect(lodProxyIsStrokeOnly({ attrs: { shapeType: 'pen' } } as any)).toBe(true);
-    expect(lodProxyIsStrokeOnly({ attrs: { shapeType: 'line' } } as any)).toBe(true);
+    expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'pencil' } } as any)).toBe(true);
+    expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'pen' } } as any)).toBe(true);
+    expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'line' } } as any)).toBe(true);
   });
 
   it('treats unfilled path as stroke-only; filled rect as fill proxy', () => {
     expect(
-      lodProxyIsStrokeOnly({
+      canvasIdleIsStrokeOnly({
         attrs: { shapeType: 'path', path: 'M0 0 L10 10', 'fill-color': 'none' },
       } as any)
     ).toBe(true);
     expect(
-      lodProxyIsStrokeOnly({
+      canvasIdleIsStrokeOnly({
         attrs: { shapeType: 'rect', 'fill-color': '#abc' },
       } as any)
     ).toBe(false);
@@ -276,22 +303,11 @@ describe('lodProxyIsStrokeOnly', () => {
 });
 
 describe('canIdlePaintOnCanvas', () => {
-  it('allows solid center-stroke rect/ellipse/line/light path; rejects shadow, complex fills, heavy path, poly', () => {
+  it('allows solid/gradient/image fills, media, drop shadow; rejects blur, non-center stroke, heavy path, poly', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
         attrs: { shapeType: 'rect', 'fill-color': '#fff', 'stroke-enabled': false },
-      } as any)
-    ).toBe(true);
-    expect(
-      canIdlePaintOnCanvas({
-        key: 'shape',
-        attrs: {
-          shapeType: 'rect',
-          'fill-color': '#fff',
-          'border-width': 2,
-          'border-color': '#333',
-        },
       } as any)
     ).toBe(true);
     expect(
@@ -304,7 +320,7 @@ describe('canIdlePaintOnCanvas', () => {
           'stroke-enabled': false,
         },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -315,7 +331,30 @@ describe('canIdlePaintOnCanvas', () => {
           'stroke-enabled': false,
         },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'rect',
+          'fill-type': 'image',
+          'fill-image-src': 'https://example.com/a.png',
+          'stroke-enabled': false,
+        },
+      } as any)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'image',
+        attrs: { src: 'https://example.com/a.png' },
+      } as any)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'video',
+        attrs: { poster: 'https://example.com/p.png' },
+      } as any)
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -332,7 +371,7 @@ describe('canIdlePaintOnCanvas', () => {
           'shadow-enabled': true,
         },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -396,7 +435,7 @@ describe('canIdlePaintOnCanvas', () => {
         attrs: { shapeType: 'triangle', 'stroke-enabled': false },
       } as any)
     ).toBe(false);
-    expect(canIdlePaintOnCanvas({ key: 'image', attrs: {} } as any)).toBe(false);
+    expect(canIdlePaintOnCanvas({ key: 'image', attrs: {} } as any)).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -407,7 +446,7 @@ describe('canIdlePaintOnCanvas', () => {
           'stroke-enabled': false,
         },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -418,7 +457,7 @@ describe('canIdlePaintOnCanvas', () => {
           'stroke-enabled': false,
         },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',

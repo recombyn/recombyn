@@ -1,5 +1,5 @@
 /**
- * 5k-node canvas interactive budget — document scale + LOD host cap.
+ * 5k-node canvas interactive budget — document scale + SVG host / Canvas idle cap.
  *
  * Full DOM mount of 5k SVG hosts is intentionally not the product path;
  * this suite proves spatial cull + host budget stay within the ~96 full-host
@@ -13,7 +13,7 @@ import {
   normalizeDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
 import { RcbSpatialIndex, nodeSceneAabb } from '@/components/rcb/core/spatialIndex';
-import { pickFullAndProxyIds } from '@/components/rcb/shapes/RcbShapesLayer';
+import { pickFullAndCanvasIds } from '@/components/rcb/shapes/RcbShapesLayer';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 
 const N = 5000;
@@ -51,7 +51,7 @@ function buildDoc(n: number): SceneDocument {
 }
 
 describe('canvas 5k interactive budget', () => {
-  it('builds 5k-node document and keeps LOD host budget', () => {
+  it('builds 5k-node document and keeps SVG host / Canvas idle budget', () => {
     const doc = buildDoc(N);
     const ids = (doc.deltaSetLike?.ROOT?.children || []).filter(Boolean);
     expect(ids.length).toBe(N);
@@ -67,7 +67,7 @@ describe('canvas 5k interactive budget', () => {
     expect(visible.length).toBeGreaterThan(50);
     expect(visible.length).toBeLessThan(N);
 
-    const { fullIds, proxyIds } = pickFullAndProxyIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: visible,
       keepSet: new Set(visible.slice(0, 2)),
@@ -75,7 +75,7 @@ describe('canvas 5k interactive budget', () => {
       moving: false,
     });
     expect(fullIds.length).toBeLessThanOrEqual(96);
-    expect(fullIds.length + proxyIds.length).toBe(visible.length);
-    expect(proxyIds.length).toBeGreaterThan(0);
+    expect(fullIds.length + canvasIds.length).toBe(visible.length);
+    expect(canvasIds.length).toBeGreaterThan(0);
   });
 });
