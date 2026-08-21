@@ -1219,7 +1219,7 @@ const ja = {
     canvasMissing: 'キャンバスが見つかりません',
     noSelectionExport: '書き出す要素を選択してください',
     initializing: 'キャンバスを初期化中...',
-    bootTip1: 'C キーで Agent を開き、作りたいデザインを説明できます',
+    bootTip1: 'Agent を開いて、作りたいデザインを説明できます',
     chat: 'チャット',
     bootTip2: 'Space でパン、スクロールでズーム。F でフレームを描画',
     bootTip3: 'オブジェクトを選ぶと、上部のフローティングバーでスタイル調整できます',

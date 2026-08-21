@@ -21,11 +21,12 @@ def _rename_column(table: str, old: str, new: str) -> None:
     insp = sa.inspect(bind)
     if table not in insp.get_table_names():
         return
-    cols = {c["name"] for c in insp.get_columns(table)}
+    cols = {c["name"]: c for c in insp.get_columns(table)}
     if old not in cols or new in cols:
         return
+    existing_type = cols[old]["type"]
     with op.batch_alter_table(table) as batch:
-        batch.alter_column(old, new_column_name=new)
+        batch.alter_column(old, new_column_name=new, existing_type=existing_type)
 
 
 def upgrade() -> None:

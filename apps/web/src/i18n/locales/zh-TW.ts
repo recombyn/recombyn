@@ -1213,7 +1213,7 @@ const zhTW = {
     canvasMissing: '找不到畫布',
     noSelectionExport: '請先選取要匯出的元素',
     initializing: '正在初始化畫布...',
-    bootTip1: '按 C 開啟 Agent，用對話描述你想做的設計',
+    bootTip1: '開啟 Agent，用對話描述你想做的設計',
     chat: '對話',
     bootTip2: '按住空白鍵拖曳畫布，滾輪縮放；按 F 繪製智慧畫板',
     bootTip3: '選取物件後，上方會出現浮動工具列調整樣式',

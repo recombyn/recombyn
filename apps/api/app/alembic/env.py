@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlmodel import SQLModel
@@ -12,8 +13,9 @@ from app import models as _models  # noqa: F401 — register table models
 
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+_ini = str(config.config_file_name or "").strip()
+if _ini and Path(_ini).is_file():
+    fileConfig(_ini)
 
 target_metadata = SQLModel.metadata
 

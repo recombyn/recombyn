@@ -514,18 +514,41 @@ function EditorToolStrip({
   };
 
   useEffect(() => {
+    const shouldIgnoreShortcutTarget = (target: HTMLElement | null) => {
+      const el = target;
+      if (!el) return false;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement ||
+        el.isContentEditable
+      ) {
+        return true;
+      }
+      return Boolean(
+        el.closest?.(
+          [
+            '[contenteditable="true"]',
+            '[data-agent-composer]',
+            '[data-image-generator]',
+            '[data-video-generator]',
+            '[data-lottie-generator]',
+            '[data-audio-generator]',
+            '[data-rcb-overlay="1"]',
+            '[role="dialog"]',
+            '[role="menu"]',
+            '[role="listbox"]',
+            '[role="combobox"]',
+            '[data-panel]',
+          ].join(',')
+        )
+      );
+    };
+
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable ||
-        target?.closest?.(
-          '[contenteditable="true"],[data-agent-composer],[data-image-generator],[data-video-generator],[data-lottie-generator],[data-audio-generator]'
-        )
-      ) {
-        return;
-      }
+      if (shouldIgnoreShortcutTarget(target)) return;
+      if (e.repeat) return;
       const key = e.key.toLowerCase();
       if (key === 'v' && !e.shiftKey) {
         window.dispatchEvent(new Event('resume:exit-path-edit'));

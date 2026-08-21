@@ -1329,7 +1329,7 @@ const zhCN = {
     canvasMissing: '未找到画布',
     noSelectionExport: '请先选中要导出的元素',
     initializing: '正在初始化画布...',
-    bootTip1: '按 C 打开 Agent，描述你想创作的内容',
+    bootTip1: '打开 Agent，用对话描述你想创作的内容',
     chat: '对话',
     bootTip2: '按住空格拖动画布，滚轮缩放；按 F 绘制智能画板',
     bootTip3: '选中对象后，上方会出现浮动工具栏调整样式',

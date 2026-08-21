@@ -119,7 +119,7 @@ describe('humanizeDesignError', () => {
   it('maps known codes to i18n keys', () => {
     expect(humanizeDesignError(t, 'free_daily_exhausted')).toBe('agent.freeDailyExhausted');
     expect(humanizeDesignError(t, 'insufficient_credits')).toBe('agent.insufficientCredits');
-    expect(humanizeDesignError(t, 'paint_ops_failed')).toBe('agent.designExecFailed');
+    expect(humanizeDesignError(t, 'paint_ops_failed')).toBe('agent.uxTipPaintFailed');
     expect(humanizeDesignError(t, 'cancelled')).toBe('agent.stopped');
     expect(humanizeDesignError(t, 'timeout')).toBe('agent.requestFailed');
     expect(humanizeDesignError(t, 'scene_unconfirmed')).toBe('agent.uxTipObserveSceneTimeout');

@@ -226,7 +226,7 @@ const DESIGN_ERROR_I18N: Record<string, string> = {
   prompt_required: 'agent.requestFailed',
   invalid_run_mode: 'agent.requestFailed',
   invalid_canvas_size: 'agent.requestFailed',
-  paint_ops_failed: 'agent.designExecFailed',
+  paint_ops_failed: 'agent.uxTipPaintFailed',
   validate_failed: 'agent.designExecFailed',
   vision_unavailable: 'agent.designExecFailed',
   blocked: 'agent.requestFailed',
@@ -262,11 +262,13 @@ const DESIGN_UX_TIP_I18N: Record<string, string> = {
 
 export function humanizeDesignError(
   t: (key: string, opts?: Record<string, unknown>) => string,
-  code?: string | null
+  code?: string | null,
+  _fallbackText?: string | null
 ): string {
   const codeKey = String(code || '').trim().toLowerCase();
   const i18nKey = codeKey ? DESIGN_ERROR_I18N[codeKey] : undefined;
-  return t(i18nKey || 'agent.requestFailed');
+  if (i18nKey) return t(i18nKey);
+  return t('agent.requestFailed');
 }
 
 export function humanizeDesignUxTip(
@@ -537,7 +539,7 @@ export function createDesignAgentEventRouter(opts: {
   };
 
   const handleUiError = (ev: Extract<AgentStepEvent, { type: 'error' }>) => {
-    const friendly = humanizeDesignError(opts.t, ev.code);
+    const friendly = humanizeDesignError(opts.t, ev.code, ev.message);
     message.error(friendly);
     opts.setMessages((prev) =>
       prev.map((m) =>

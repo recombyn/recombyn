@@ -1337,7 +1337,7 @@ const en = {
     canvasMissing: 'Canvas not found',
     noSelectionExport: 'Select an element to export',
     initializing: 'Initializing canvas...',
-    bootTip1: 'Press C to open Agent and describe what you want to create',
+    bootTip1: 'Open Agent and describe what you want to create',
     chat: 'Chat',
     bootTip2: 'Hold Space to pan, scroll to zoom; press F to draw a frame',
     bootTip3: 'Select objects to edit styles in the floating toolbar above',
