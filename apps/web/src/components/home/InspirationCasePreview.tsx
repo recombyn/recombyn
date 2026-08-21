@@ -381,7 +381,9 @@ function InspirationCasePreview({
           entered ? 'bg-[var(--preview-overlay)]' : 'bg-transparent'
         )}
         role="presentation"
-        onClick={onClose}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
         <button
           type="button"
@@ -404,7 +406,6 @@ function InspirationCasePreview({
             'transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform',
             entered ? 'translate-y-0' : '-translate-y-10'
           )}
-          onClick={(e) => e.stopPropagation()}
         >
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--canvas)]">
             <div className="mb-3 flex shrink-0 items-center gap-3">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, memo } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineXMark } from 'react-icons/hi2';
@@ -140,6 +140,20 @@ export function VideoFullscreenPreview({
     if (!open) setScale(1);
   }, [open]);
 
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const el = rootRef.current;
+    if (!el) return undefined;
+    function onPointerDown(e: PointerEvent) {
+      e.stopPropagation();
+      e.stopImmediatePropagation?.();
+    }
+    el.addEventListener('pointerdown', onPointerDown, true);
+    return () => el.removeEventListener('pointerdown', onPointerDown, true);
+  }, [open]);
+
   if (!open || !url || typeof document === 'undefined') return null;
 
   const fit = Math.min(PREVIEW_MAX_PX / aw, PREVIEW_MAX_PX / ah);
@@ -153,15 +167,13 @@ export function VideoFullscreenPreview({
   };
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[2500]"
-      onClick={close}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        e.nativeEvent.stopImmediatePropagation?.();
-      }}
-    >
-      <div className="fixed inset-0 bg-black/50" />
+    <div ref={rootRef} className="fixed inset-0 z-[2500]">
+      <button
+        type="button"
+        aria-label="Close preview"
+        className="fixed inset-0 bg-black/50"
+        onClick={close}
+      />
       <button
         type="button"
         aria-label="Close"
@@ -174,7 +186,6 @@ export function VideoFullscreenPreview({
         <div
           className="pointer-events-auto relative overflow-hidden rounded-lg bg-black shadow-2xl"
           style={frameStyle}
-          onClick={(e) => e.stopPropagation()}
         >
           <div className="absolute inset-0 overflow-hidden">
             {playSrc ? (

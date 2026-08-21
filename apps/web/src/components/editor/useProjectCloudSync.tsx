@@ -3,8 +3,9 @@
  * Covers are generated on the API from the saved document (≤4 element tiles).
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
 import {
   upsertProjectApi,
   patchProjectApi,
@@ -15,12 +16,13 @@ import {
 import store from '@/store';
 import {
   clearEditorDirty,
+  importDocument,
   persistCurrent,
   setTemplateThumbnail,
 } from '@/store/modules/editor';
-import { isOwnedTemplate } from '@/utils/templatesStorage';
+import { isOwnedTemplate, isSessionTemplate } from '@/utils/templatesStorage';
 import { getToken } from '@/utils/token';
-import { getHttpStatus, getHttpErrorBody } from '@/service/client';
+import { getHttpErrorBody, getHttpErrorDetail, getHttpStatus } from '@/service/client';
 import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
 import {
   buildProjectDocumentPatch,
@@ -31,7 +33,12 @@ import {
   markProjectDraftSynced,
   putProjectDraft,
 } from '@/components/editor/projectDraftStore';
-import { isCollabCloudPersistOwned } from '@/components/editor/collab/collabRuntime';
+import { createProjectVersionApi } from '@/service/projectVersions';
+import {
+  isCollabActive,
+  isCollabCloudPersistOwned,
+} from '@/components/editor/collab/collabRuntime';
+import { Dialog, message } from '@/components/base';
 
 const DEBOUNCE_MS = 800;
 /** Coalesce rapid Ctrl/⌘+S into one flush. */
@@ -207,12 +214,59 @@ async function applyCloudAck(opts: {
     opts.ack?.revision ?? null
   );
   clearDirtyIfSameDoc(opts.dispatch, opts.pushedDoc);
+  maybeRecordAutoVersion(opts.projectId, opts.pushedDoc, opts.ack?.revision ?? null);
 }
 
 export function asCloudRevision(value: unknown): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 1) return null;
   return Math.floor(n);
+}
+
+/** Throttle auto cloud milestones — at most one per project every ~5 revisions or 10 min. */
+const AUTO_VERSION_MIN_REV_GAP = 5;
+const AUTO_VERSION_MIN_MS = 10 * 60_000;
+const _autoVersionAt = new Map<string, { rev: number; at: number }>();
+
+function shouldRecordAutoVersion(
+  projectId: string,
+  document: unknown,
+  revision: number | null
+): { pid: string; rev: number } | null {
+  const pid = String(projectId || '').trim();
+  if (!pid || !document || !getToken()) return null;
+  const rev = asCloudRevision(revision);
+  if (rev == null) return null;
+  const prev = _autoVersionAt.get(pid);
+  if (prev) {
+    const revOk = rev - prev.rev >= AUTO_VERSION_MIN_REV_GAP;
+    const timeOk = Date.now() - prev.at >= AUTO_VERSION_MIN_MS;
+    if (!revOk && !timeOk) return null;
+  }
+  return { pid, rev };
+}
+
+async function recordAutoVersion(pid: string, document: unknown, rev: number): Promise<void> {
+  _autoVersionAt.set(pid, { rev, at: Date.now() });
+  try {
+    await createProjectVersionApi(pid, {
+      kind: 'auto',
+      name: 'Auto save',
+      document,
+    });
+  } catch {
+    /* best-effort — never block save */
+  }
+}
+
+function maybeRecordAutoVersion(
+  projectId: string,
+  document: unknown,
+  revision: number | null
+): void {
+  const ready = shouldRecordAutoVersion(projectId, document, revision);
+  if (!ready) return;
+  recordAutoVersion(ready.pid, document, ready.rev);
 }
 
 function isDraftAlreadyAcked(
@@ -250,9 +304,288 @@ function ackFromProject(project: {
   };
 }
 
-/** Placeholder until a real conflict dialog lands — keeps EditorPage mount valid. */
-export function ProjectRevisionConflictDialog() {
+export type ProjectRevisionConflictKind = 'sync' | 'restore';
+
+export type ProjectRevisionConflictChoice = 'adopt' | 'overwrite' | 'dismiss';
+
+export type ProjectRevisionConflictPayload = {
+  projectId: string;
+  name: string;
+  localDocument: unknown;
+  serverRevision: number;
+  updatedAt?: number;
+  kind: ProjectRevisionConflictKind;
+  onResolved?: (choice: ProjectRevisionConflictChoice) => void | Promise<void>;
+};
+
+type ConflictListener = () => void;
+
+let revisionConflictPayload: ProjectRevisionConflictPayload | null = null;
+const revisionConflictListeners = new Set<ConflictListener>();
+
+function emitRevisionConflictChange() {
+  for (const listener of revisionConflictListeners) {
+    listener();
+  }
+}
+
+function getRevisionConflictPayload() {
+  return revisionConflictPayload;
+}
+
+function subscribeRevisionConflict(listener: ConflictListener) {
+  revisionConflictListeners.add(listener);
+  return () => {
+    revisionConflictListeners.delete(listener);
+  };
+}
+
+function clearRevisionConflictPayload() {
+  revisionConflictPayload = null;
+  emitRevisionConflictChange();
+}
+
+/** Open the shared revision-conflict dialog (sync flush or version restore). */
+export function presentProjectRevisionConflict(payload: ProjectRevisionConflictPayload) {
+  revisionConflictPayload = payload;
+  emitRevisionConflictChange();
+}
+
+export function revisionFromHttpConflict(err: unknown): number | null {
+  const detail = getHttpErrorDetail(err);
+  if (detail && typeof detail === 'object' && detail !== null && 'revision' in detail) {
+    return asCloudRevision((detail as { revision?: unknown }).revision);
+  }
+  const body = getHttpErrorBody(err);
+  if (body && typeof body === 'object' && body !== null && 'detail' in body) {
+    const nested = (body as { detail?: unknown }).detail;
+    if (nested && typeof nested === 'object' && nested !== null && 'revision' in nested) {
+      return asCloudRevision((nested as { revision?: unknown }).revision);
+    }
+  }
   return null;
+}
+
+async function adoptCloudDocument(opts: {
+  dispatch: ReturnType<typeof useDispatch>;
+  payload: ProjectRevisionConflictPayload;
+}): Promise<boolean> {
+  const { dispatch, payload } = opts;
+  try {
+    const res = await fetchProject(payload.projectId);
+    const proj = res.project;
+    if (!proj?.document) {
+      message.error('Cloud project has no document');
+      return false;
+    }
+    const name = String(proj.name || payload.name || 'Untitled');
+    const revision = asCloudRevision(proj.revision) ?? payload.serverRevision;
+    dispatch(
+      importDocument({
+        id: payload.projectId,
+        name,
+        document: proj.document,
+        source: 'user',
+        dirty: false,
+      })
+    );
+    await putProjectDraft({
+      projectId: payload.projectId,
+      name,
+      document: proj.document,
+      updatedAt: Date.now(),
+      syncedAt: Date.now(),
+      cloudRevision: revision,
+      baseDocument: proj.document,
+    });
+    dispatch(clearEditorDirty());
+    return true;
+  } catch (err) {
+    message.error(String((err as Error)?.message || 'Failed to load cloud version'));
+    return false;
+  }
+}
+
+async function overwriteCloudWithLocal(opts: {
+  payload: ProjectRevisionConflictPayload;
+}): Promise<boolean> {
+  const { payload } = opts;
+  if (!payload.localDocument) return false;
+  const written = await pushProjectToCloud({
+    id: payload.projectId,
+    name: payload.name,
+    document: payload.localDocument,
+    baseRevision: payload.serverRevision,
+  });
+  if (written.status !== 'ok') {
+    message.error('Could not overwrite cloud with local edits');
+    return false;
+  }
+  await putProjectDraft({
+    projectId: payload.projectId,
+    name: payload.name,
+    document: payload.localDocument,
+    updatedAt: Date.now(),
+    syncedAt: Date.now(),
+    cloudRevision: asCloudRevision(written.ack.revision) ?? payload.serverRevision,
+    baseDocument: payload.localDocument,
+  });
+  store.dispatch(clearEditorDirty());
+  return true;
+}
+
+async function refreshMatchOnly(opts: {
+  payload: ProjectRevisionConflictPayload;
+}): Promise<void> {
+  const { payload } = opts;
+  if (!payload.localDocument) return;
+  await putProjectDraft({
+    projectId: payload.projectId,
+    name: payload.name,
+    document: payload.localDocument,
+    updatedAt: Date.now(),
+    syncedAt: null,
+    cloudRevision: payload.serverRevision,
+    keepBaseDocument: true,
+  });
+}
+
+async function resolveRevisionConflict(opts: {
+  dispatch: ReturnType<typeof useDispatch>;
+  payload: ProjectRevisionConflictPayload;
+  choice: ProjectRevisionConflictChoice;
+}): Promise<void> {
+  const { dispatch, payload, choice } = opts;
+  if (choice === 'adopt') {
+    const ok = await adoptCloudDocument({ dispatch, payload });
+    if (!ok) return;
+  } else if (choice === 'overwrite') {
+    const ok = await overwriteCloudWithLocal({ payload });
+    if (!ok) return;
+  } else {
+    await refreshMatchOnly({ payload });
+  }
+  clearRevisionConflictPayload();
+  const onResolved = payload.onResolved;
+  if (onResolved) {
+    await onResolved(choice);
+  }
+}
+
+function conflictBodyText(opts: {
+  kind: ProjectRevisionConflictKind;
+  collab: boolean;
+  t: (key: string, fallback?: string) => string;
+}): string {
+  if (opts.kind === 'restore') {
+    return opts.t(
+      'editor.history.conflictBody',
+      'Cloud changed while restoring. Load the cloud document first, or overwrite cloud with your local canvas, then restore again.'
+    );
+  }
+  if (opts.collab) {
+    return opts.t(
+      'editor.revisionConflictCollabBody',
+      'Cloud revision changed while collaborating. Load the cloud snapshot, or push your room’s document over it.'
+    );
+  }
+  return opts.t(
+    'editor.revisionConflictBody',
+    'This project was saved elsewhere with a newer revision. Load the cloud version, or overwrite cloud with your local edits.'
+  );
+}
+
+/** Shared UI for sync / version-restore optimistic-lock conflicts. */
+export function ProjectRevisionConflictDialog() {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
+  const payload = useSyncExternalStore(
+    subscribeRevisionConflict,
+    getRevisionConflictPayload,
+    getRevisionConflictPayload
+  );
+  const [busy, setBusy] = useState(false);
+  const collab = isCollabActive();
+
+  async function runChoice(choice: ProjectRevisionConflictChoice) {
+    if (!payload || busy) return;
+    setBusy(true);
+    try {
+      await resolveRevisionConflict({ dispatch, payload, choice });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onAdopt() {
+    runChoice('adopt');
+  }
+
+  function onOverwrite() {
+    runChoice('overwrite');
+  }
+
+  function onDismiss() {
+    runChoice('dismiss');
+  }
+
+  function handleDialogClose() {
+    if (busy) return;
+    onDismiss();
+  }
+
+  if (!payload) return null;
+
+  const body = conflictBodyText({
+    kind: payload.kind,
+    collab,
+    t: (key, fallback) => t(key, { defaultValue: fallback || key }),
+  });
+
+  return (
+    <Dialog
+      show
+      onClose={handleDialogClose}
+      closable={!busy}
+      width={440}
+      title={t('editor.revisionConflictTitle', { defaultValue: 'Newer version on cloud' })}
+      footer={
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onDismiss}
+            className="inline-flex h-9 items-center rounded-lg px-3 text-[13px] font-medium text-[var(--muted)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+          >
+            {t('common.cancel', { defaultValue: 'Cancel' })}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onOverwrite}
+            className="inline-flex h-9 items-center rounded-lg px-3 text-[13px] font-medium text-[var(--ink)] ring-1 ring-[var(--line)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+          >
+            {t('editor.revisionConflictOverwrite', { defaultValue: 'Keep mine' })}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onAdopt}
+            className="inline-flex h-9 items-center rounded-lg bg-[var(--ink)] px-3 text-[13px] font-medium text-[var(--surface)] disabled:opacity-50"
+          >
+            {busy
+              ? t('editor.revisionConflictWorking', { defaultValue: 'Working…' })
+              : t('editor.revisionConflictAdopt', { defaultValue: 'Load cloud' })}
+          </button>
+        </>
+      }
+    >
+      <p className="text-[14px] leading-relaxed text-[var(--ink)]">{body}</p>
+      {payload.serverRevision > 0 ? (
+        <p className="mt-2 text-[12px] text-[var(--muted)]">r{payload.serverRevision}</p>
+      ) : null}
+    </Dialog>
+  );
 }
 
 /** Push one owned project to the API (no-op when logged out). */
@@ -354,7 +687,14 @@ export function requestProjectFlush() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(FLUSH_NOW_EVENT));
   }
-  void flushCurrentProjectNow();
+  async function flushNow() {
+    try {
+      await flushCurrentProjectNow();
+    } catch {
+      /* best-effort */
+    }
+  }
+  flushNow();
 }
 
 /** Rename an owned project on the API (home grid / offline-safe local first). */
@@ -465,16 +805,13 @@ async function handleFlushConflict(opts: {
 }): Promise<void> {
   const serverRev = asCloudRevision(opts.conflict.revision);
   if (serverRev == null) return;
-  // Keep the local canvas. Only refresh If-Match — GET+importDocument realigns
-  // frameless boolean results to (0,0) and looks like the page jumped.
-  await putProjectDraft({
+  presentProjectRevisionConflict({
     projectId: opts.projectId,
     name: opts.name,
-    document: opts.pushedDoc,
-    updatedAt: Date.now(),
-    syncedAt: null,
-    cloudRevision: serverRev,
-    keepBaseDocument: true,
+    localDocument: opts.pushedDoc,
+    serverRevision: serverRev,
+    updatedAt: opts.conflict.updatedAt,
+    kind: 'sync',
   });
 }
 
@@ -502,7 +839,14 @@ export function useProjectCloudSync() {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      void flushCurrentProjectNow();
+      async function flushNow() {
+        try {
+          await flushCurrentProjectNow();
+        } catch {
+          /* best-effort */
+        }
+      }
+      flushNow();
     }, delayMs);
   }, []);
 
@@ -518,7 +862,12 @@ export function useProjectCloudSync() {
     const id = ed.currentId;
     const tpl = ed.templates.find((t) => t.id === id);
     if ((!ed.dirty && !force) || !ed.document || !id || !tpl) return;
-    if (id.startsWith('share_') || !isOwnedTemplate(tpl)) return;
+    if (id.startsWith('share_')) return;
+    // Empty/new canvases are `scratch` until claimed — force flush claims then syncs.
+    if (!isOwnedTemplate(tpl)) {
+      if (!force || !isSessionTemplate(tpl)) return;
+      dispatch(persistCurrent({ keepDirty: true }));
+    }
     if (flushingRef.current) {
       pendingFlushRef.current = true;
       return;
@@ -667,7 +1016,14 @@ export function useProjectCloudSync() {
         manualSaveTimerRef.current = null;
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = null;
-        void flushCurrentProjectNow({ force: true });
+        async function manualFlush() {
+          try {
+            await flushCurrentProjectNow({ force: true });
+          } catch {
+            /* best-effort */
+          }
+        }
+        manualFlush();
       }, MANUAL_SAVE_DEBOUNCE_MS);
     };
     window.addEventListener('keydown', onKey);
@@ -680,9 +1036,16 @@ export function useProjectCloudSync() {
 
   // Leave / hide: force doc + cover once (not every debounce). Unmount same.
   useEffect(() => {
+    async function forceFlushQuiet() {
+      try {
+        await flushCurrentProjectNow({ force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
     const onHide = () => {
       if (!dirtyRef.current) return;
-      void flushCurrentProjectNow({ force: true });
+      forceFlushQuiet();
     };
     const onVisibility = () => {
       if (window.document.visibilityState === 'hidden') onHide();
@@ -692,20 +1055,8 @@ export function useProjectCloudSync() {
     return () => {
       window.removeEventListener('pagehide', onHide);
       window.document.removeEventListener('visibilitychange', onVisibility);
-      void flushCurrentProjectNow({ force: true });
+      forceFlushQuiet();
     };
   }, []);
-}
-
-/** Placeholder until a real conflict dialog lands — keeps EditorPage mount valid. */
-export async function applyProjectRevisionConflictChoice(_opts: {
-  dispatch: (action: unknown) => unknown;
-  projectId: string;
-  name: string;
-  localDocument?: unknown;
-  mode?: 'solo' | 'collab';
-  thumb?: ThumbUpload;
-}): Promise<'adopted' | 'failed'> {
-  return 'failed';
 }
 

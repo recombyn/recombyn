@@ -347,6 +347,7 @@ function ProjectCard({
             <div
               ref={titleEditRef}
               role="textbox"
+              tabIndex={0}
               aria-label={t('home.rename')}
               contentEditable
               suppressContentEditableWarning
@@ -396,11 +397,7 @@ function ProjectCard({
           ) : null}
         </div>
         {!selectMode ? (
-          <div
-            className="shrink-0 pt-0.5"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+          <div className="shrink-0 pt-0.5">
             <Dropdown
               trigger="click"
               placement="bottom-end"
@@ -414,6 +411,8 @@ function ProjectCard({
                 type="button"
                 disabled={disabled}
                 title={t('common.more')}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 className={cn(
                   'flex items-center justify-center p-0.5 text-[var(--ink)]/55 transition',
                   'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',

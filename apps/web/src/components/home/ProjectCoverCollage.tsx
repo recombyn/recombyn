@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
 import TemplateThumbnail from '@/components/templates/TemplateThumbnail';
 import LazyTemplateThumb from '@/components/home/LazyTemplateThumb';
 import {
@@ -104,16 +104,29 @@ function ProjectCoverCollage({
 
 /** Grid cell: min-h-0 so tall imgs cannot blow past the 170px frame; overflow clips. */
 function ImgTile({ src, className }: { src: string; className?: string }) {
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    setErrored(false);
+    const img = imgRef.current;
+    if (!img) return undefined;
+    function onError() {
+      setErrored(true);
+    }
+    img.addEventListener('error', onError);
+    return () => img.removeEventListener('error', onError);
+  }, [src]);
+
   if (errored) return null;
   return (
     <div className={cn('relative min-h-0 min-w-0 overflow-hidden', className)}>
       <img
+        ref={imgRef}
         src={src}
         alt=""
         className="absolute inset-0 h-full w-full bg-[var(--canvas)] object-contain"
         loading="lazy"
-        onError={() => setErrored(true)}
       />
     </div>
   );

@@ -2,10 +2,15 @@ import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineCube, HiOutlineLanguage, HiOutlineSquare2Stack } from 'react-icons/hi2';
 import { LuCrosshair, LuEraser } from 'react-icons/lu';
-import { Icon } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
-import { ImageToolSep, imageToolBtn } from './imageToolbarShared';
+import {
+  ImageToolSep,
+  ImageUpscaleIcon,
+  TOOL_ICON,
+  TOOL_STROKE,
+  imageToolBtn,
+} from './imageToolbarShared';
 
 export type { RemoveBgMode };
 
@@ -59,29 +64,29 @@ function ImageToolbarEditTools({
   return (
     <>
       <Tool label={t('editor.imageToolbar.upscale')} onClick={onUpscale}>
-        <Icon name="editor-upscale" width={16} height={16} className="text-current" />
+        <ImageUpscaleIcon />
       </Tool>
       <ImageRemoveBgMenu onPick={onRemoveBg} />
       <Tool label={t('editor.imageToolbar.eraser')} onClick={onEraser}>
-        <LuEraser className="h-4 w-4" />
+        <LuEraser className={TOOL_ICON} strokeWidth={TOOL_STROKE} />
       </Tool>
       {onMark ? (
         <Tool label={t('editor.imageToolbar.mark')} onClick={onMark}>
-          <LuCrosshair className="h-4 w-4" strokeWidth={2} />
+          <LuCrosshair className={TOOL_ICON} strokeWidth={TOOL_STROKE} />
         </Tool>
       ) : null}
       {onReplaceText ? (
         <Tool label={t('editor.imageToolbar.replaceText')} onClick={onReplaceText}>
-          <HiOutlineLanguage className="h-4 w-4" />
+          <HiOutlineLanguage className={TOOL_ICON} strokeWidth={TOOL_STROKE} />
         </Tool>
       ) : null}
       {onEditElements ? (
         <Tool label={t('editor.imageToolbar.editElements')} onClick={onEditElements}>
-          <HiOutlineSquare2Stack className="h-4 w-4" />
+          <HiOutlineSquare2Stack className={TOOL_ICON} strokeWidth={TOOL_STROKE} />
         </Tool>
       ) : null}
       <Tool label={t('editor.imageToolbar.multiAngle')} onClick={onMultiAngle}>
-        <HiOutlineCube className="h-4 w-4" />
+        <HiOutlineCube className={TOOL_ICON} strokeWidth={TOOL_STROKE} />
       </Tool>
       {hasTrailing ? (
         <>

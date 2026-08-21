@@ -784,8 +784,13 @@ function VideoTrimSessionHost({ document }: { document: SceneDocument }): ReactN
             {/* Edge grips — outer corners rounded, inner (rail join) square. */}
             <div
               data-trim-handle="start"
-              role="separator"
+              role="slider"
+              tabIndex={0}
+              aria-orientation="horizontal"
               aria-label="Trim start"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(dSafe || 0)}
+              aria-valuenow={Math.round(range.start)}
               className="absolute inset-y-0 z-[3] flex w-5 cursor-ew-resize touch-none items-center justify-start"
               style={{ left: `${Math.max(0, Math.min(100, startPct))}%` }}
               onPointerDown={(e) => {
@@ -804,8 +809,13 @@ function VideoTrimSessionHost({ document }: { document: SceneDocument }): ReactN
             </div>
             <div
               data-trim-handle="end"
-              role="separator"
+              role="slider"
+              tabIndex={0}
+              aria-orientation="horizontal"
               aria-label="Trim end"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(dSafe || 0)}
+              aria-valuenow={Math.round(range.end)}
               className="absolute inset-y-0 z-[3] flex w-5 -translate-x-full cursor-ew-resize touch-none items-center justify-end"
               style={{ left: `${Math.max(0, Math.min(100, endPct))}%` }}
               onPointerDown={(e) => {

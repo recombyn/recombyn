@@ -17,6 +17,14 @@ You can run the same Pytest / Playwright / k6 / Prometheus checks locally that C
 
 Two gates, one metrics truth. Local full matrix: **`npm run test:gate:full`** (or `test:gate` / `test:gate:a` / `test:gate:b`).
 
+### Web lint / jsx-a11y
+
+`packages/eslint-config/web.js` sets **jsx-a11y rules to `error`** (not warn). `npm run lint` / `npm run check` fail on any hit. Interactive non-native roles need `tabIndex`; do not put pointer handlers on static `div`/`span`/`img` without an interactive role; prefer `ref` + `addEventListener` for `img` load/error. Base UI folders listed in that config keep a narrow exception set — do not widen it for product panels.
+
+```bash
+cd apps/web && npx eslint src --quiet
+```
+
 ## Gate A — Correctness
 
 | Tool | Role | Command |
@@ -60,7 +68,7 @@ Canvas Image/Video/Audio/Lottie generator plates + text tool (browser): `npm run
 
 Full canvas stress matrix (store + RCB + foundations/generators/ops/deep/tools E2E): `npm run test:canvas:stress`. Deep: `npm run test:canvas:deep`. Tools: `npm run test:canvas:tools` (image AI panels, align/boolean, density, video trim).
 
-Project optimistic lock (`baseRevision` → 412 `project_revision_conflict`): functional API suite + `e2e/tests/collab.sync.spec.ts`. Dual-client Yjs concurrent merge: `npm run test:collab:merge` / Gate B. Real provider paid gen, OCR worker, and OAuth/OTP remain later Gate A journeys.
+Project optimistic lock (`baseRevision` → 412 `project_revision_conflict`): functional API suite + `e2e/tests/collab.sync.spec.ts`. Dual-client Yjs concurrent merge: `npm run test:collab:merge` / Gate B. Project **version history** (named/auto freeze + restore): API unit `apps/api/tests/unit_tests/test_project_versions.py` (migrate `0019_project_versions`). Real provider paid gen, OCR worker, and OAuth/OTP remain later Gate A journeys.
 
 CI mints `E2E_TOKEN` via `scripts/ci-mint-token.mjs` (`SUPER_ADMIN_TEST_CODE`, **max 8 chars**).
 Collab dual-WS: set `E2E_COLLAB_WS` (CI sets this). Category eval: `E2E_EVAL=1`.

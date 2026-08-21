@@ -1,7 +1,6 @@
 ﻿{
   "extends": "./tsconfig.json",
   "exclude": [
-    "src/components/editor/useProjectCloudSync.ts",
     "node_modules",
     "dist"
   ]

@@ -259,9 +259,13 @@ function AssetPanel({
     >
       {!mobile ? (
         <div
-          role="separator"
+          role="slider"
+          tabIndex={0}
           aria-orientation="vertical"
           aria-label={t('editor.assets.resizeDock', { defaultValue: '调整资产栏宽度' })}
+          aria-valuemin={ASSET_DOCK_MIN_W}
+          aria-valuemax={ASSET_DOCK_MAX_W}
+          aria-valuenow={dockWidth}
           className="absolute inset-y-0 right-0 z-20 w-1.5 cursor-col-resize touch-none hover:bg-[var(--accent)]/25 active:bg-[var(--accent)]/40"
           onPointerDown={onDockResizePointerDown}
           onPointerMove={onDockResizePointerMove}

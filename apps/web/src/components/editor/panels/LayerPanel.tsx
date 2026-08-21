@@ -712,7 +712,8 @@ function LayerPanel({
     >
       {!mobile ? (
         <div
-          role="separator"
+          role="slider"
+          tabIndex={0}
           aria-orientation="vertical"
           aria-label={t('editor.resizeLayersDock')}
           aria-valuemin={LAYER_DOCK_MIN_W}
@@ -749,7 +750,7 @@ function LayerPanel({
           onClick={() => setHistoryOpen((v) => !v)}
           className="flex w-full items-center justify-between rounded-md px-1 py-1.5 text-left text-[12px] font-medium text-[var(--ink)] hover:bg-[var(--accent-soft)]"
         >
-          <span>{t('editor.history')}</span>
+          <span>{t('editor.layerHistory')}</span>
           {historyOpen ? (
             <HiOutlineChevronUp className="h-3.5 w-3.5 text-[var(--muted)]" />
           ) : (

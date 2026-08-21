@@ -726,7 +726,11 @@ function CropExpandOverlay({
               <div
                 key={id}
                 role="slider"
+                tabIndex={0}
                 aria-label={id}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={50}
                 className="absolute"
                 style={{ ...(isCorner ? corner(id) : edgeBar(id)), cursor }}
                 onPointerDown={startResize(id)}

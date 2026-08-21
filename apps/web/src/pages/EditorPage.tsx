@@ -25,6 +25,7 @@ import AgentDock from '@/components/editor/panels/AgentDock';
 import type { ComposerInteractionMode } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import DevPropertiesPanel from '@/components/editor/panels/DevPropertiesPanel';
 import ShareDialog from '@/components/editor/panels/ShareDialog';
+import ProjectHistoryDialog from '@/components/editor/panels/ProjectHistoryDialog';
 import { apiClient } from '@/service/client';
 import type { ShareDto } from '@/models/shares';
 import EditorBootOverlay from '@/components/editor/chrome/EditorBootOverlay';
@@ -538,6 +539,7 @@ function EditorPage() {
   const [agentOpenSignal, setAgentOpenSignal] = useState(1);
   const [inspectOpen, setInspectOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
   const [agentAutoSubmit, setAgentAutoSubmit] = useState(false);
   const [agentDraftAttachments, setAgentDraftAttachments] = useState<ComposerContext[]>([]);
@@ -1014,6 +1016,18 @@ function EditorPage() {
     setShareOpen(true);
   }, []);
 
+  const closeShareDialog = useCallback(() => {
+    setShareOpen(false);
+  }, []);
+
+  const openHistoryDialog = useCallback(() => {
+    setHistoryOpen(true);
+  }, []);
+
+  const closeHistoryDialog = useCallback(() => {
+    setHistoryOpen(false);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -1430,6 +1444,7 @@ function EditorPage() {
               onGoHome={goHomeFromEditor}
               onRename={renameProjectFromChrome}
               onShare={openShareDialog}
+              onHistory={openHistoryDialog}
               onOpenAgent={openAgentPanel}
             />
 
@@ -1668,7 +1683,10 @@ function EditorPage() {
 
         {bootOpen ? <EditorBootOverlay progress={bootProgress} exiting={bootExiting} /> : null}
         {shareOpen ? (
-          <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} />
+          <ShareDialog open={shareOpen} onClose={closeShareDialog} />
+        ) : null}
+        {historyOpen ? (
+          <ProjectHistoryDialog open={historyOpen} onClose={closeHistoryDialog} />
         ) : null}
         {/* Mobile chrome differs (floating agent / no tool strip targets) — tour breaks layout. */}
         {!isMobileViewport && (
