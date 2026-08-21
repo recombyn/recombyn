@@ -1,33 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  clearSceneLodPaint,
+  clearSceneCanvasIdlePaint,
   createCanvasSceneRenderer,
   createSceneRenderer,
   createSvgSceneRenderer,
   dirtyTouchesNode,
   drawSceneGrid,
-  getSceneLodPaint,
+  getSceneCanvasIdlePaint,
   hitTestWithSpatialIndex,
   isFullDirty,
-  listSceneLodPaintIds,
-  lodProxyIsStrokeOnly,
+  listSceneCanvasIdlePaintIds,
+  canvasIdleIsStrokeOnly,
   canIdlePaintOnCanvas,
   createCanvasAngularGradient,
   clearFillImageCache,
   setFillImageCacheEntry,
-  bumpSceneLodPaint,
-  subscribeSceneLodPaint,
+  bumpSceneCanvasIdlePaint,
+  subscribeSceneCanvasIdlePaint,
   paintBasicShapeFill,
   paintCanvasShapeInk,
   paintCanvasPathInk,
   paintCanvasTextInk,
-  paintLodNodeProxy,
-  paintStrokeLodProxy,
+  paintCanvasIdleNode,
+  paintCanvasMediaInk,
+  clipCanvasIdleToOwningFrame,
+  paintStrokeCanvasIdle,
   paintTextProxyLines,
   resolveCanvasFillStyle,
   sceneGridLineWidth,
-  setSceneLodPaint,
-  strokeLodCenterline,
+  setSceneCanvasIdlePaint,
+  strokeCanvasIdleCenterline,
   type DirtyRegion,
 } from '../sceneRenderer';
 import { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
@@ -94,6 +96,10 @@ function mockCtx(ops: string[]) {
     beginPath: () => ops.push('beginPath'),
     moveTo: () => ops.push('moveTo'),
     lineTo: () => ops.push('lineTo'),
+    rect: (...args: number[]) => {
+      ops.push(`rect:${args.map((n) => Math.round(n)).join(',')}`);
+    },
+    clip: () => ops.push('clip'),
     arcTo: () => ops.push('arcTo'),
     closePath: () => ops.push('closePath'),
     ellipse: () => ops.push('ellipse'),
@@ -300,22 +306,22 @@ describe('scene grid (Canvas underlay)', () => {
   });
 });
 
-describe('LOD path / text / shape paint', () => {
-  it('strokeLodCenterline strokes subsampled path', () => {
+describe('Canvas idle path / text / shape paint', () => {
+  it('strokeCanvasIdleCenterline strokes subsampled path', () => {
     const ops: string[] = [];
     const ctx = mockCtx(ops);
-    expect(strokeLodCenterline(ctx as unknown as CanvasRenderingContext2D, 'M0 0 L10 0 L20 10')).toBe(
+    expect(strokeCanvasIdleCenterline(ctx as unknown as CanvasRenderingContext2D, 'M0 0 L10 0 L20 10')).toBe(
       true
     );
     expect(ops).toContain('beginPath');
     expect(ops).toContain('stroke');
-    expect(strokeLodCenterline(ctx as unknown as CanvasRenderingContext2D, '')).toBe(false);
+    expect(strokeCanvasIdleCenterline(ctx as unknown as CanvasRenderingContext2D, '')).toBe(false);
   });
 
-  it('paintStrokeLodProxy falls back to midline when path empty', () => {
+  it('paintStrokeCanvasIdle falls back to midline when path empty', () => {
     const ops: string[] = [];
     const ctx = mockCtx(ops);
-    paintStrokeLodProxy(ctx as unknown as CanvasRenderingContext2D, {
+    paintStrokeCanvasIdle(ctx as unknown as CanvasRenderingContext2D, {
       pathD: '',
       width: 40,
       height: 20,
@@ -338,10 +344,10 @@ describe('LOD path / text / shape paint', () => {
     expect(ops.filter((o) => o === 'fillRect').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('paintLodNodeProxy routes stroke-only pencil without fillRect slab', () => {
+  it('paintCanvasIdleNode routes stroke-only pencil without fillRect slab', () => {
     const ops: string[] = [];
     const ctx = mockCtx(ops);
-    paintLodNodeProxy(ctx as unknown as CanvasRenderingContext2D, {
+    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
       left: 10,
       top: 20,
       width: 80,
@@ -356,15 +362,68 @@ describe('LOD path / text / shape paint', () => {
     expect(ops).not.toContain('fillRect');
   });
 
-  it('lodProxyIsStrokeOnly matches pencil / unfilled path', () => {
-    expect(lodProxyIsStrokeOnly({ attrs: { shapeType: 'pencil' } } as SceneNodeInput)).toBe(true);
+  it('paintCanvasMediaInk draws cached image with crop', () => {
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    const src = 'https://example.com/media.png';
+    setFillImageCacheEntry(src, {
+      width: 200,
+      height: 100,
+      naturalWidth: 200,
+      naturalHeight: 100,
+    } as CanvasImageSource);
+    paintCanvasMediaInk(ctx as unknown as CanvasRenderingContext2D, {
+      width: 100,
+      height: 50,
+      opacity: 1,
+      node: {
+        key: 'image',
+        attrs: { src, cropX: 0.25, cropY: 0.25, cropW: 0.5, cropH: 0.5 },
+      } as SceneNodeInput,
+    });
+    expect(ops).toContain('clip');
+    expect(ops).toContain('drawImage');
+  });
+
+  it('paintCanvasIdleNode clips media to owning clipContent frame', () => {
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    const doc = {
+      ...emptyDoc(),
+      frames: [
+        {
+          id: 'frame',
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 300,
+          clipContent: true,
+        },
+      ],
+    } as SceneDocument;
+    const node = {
+      key: 'image',
+      x: -20,
+      y: 40,
+      width: 120,
+      height: 80,
+      attrs: { src: 'https://example.com/a.png', frameId: 'frame' },
+    } as SceneNodeInput;
+    expect(clipCanvasIdleToOwningFrame(ctx as unknown as CanvasRenderingContext2D, doc, node, 1)).toBe(
+      true
+    );
+    expect(ops).toContain('clip');
+  });
+
+  it('canvasIdleIsStrokeOnly matches pencil / unfilled path', () => {
+    expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'pencil' } } as SceneNodeInput)).toBe(true);
     expect(
-      lodProxyIsStrokeOnly({
+      canvasIdleIsStrokeOnly({
         attrs: { shapeType: 'path', path: 'M0 0 L1 1', 'fill-color': 'none' },
       } as SceneNodeInput)
     ).toBe(true);
     expect(
-      lodProxyIsStrokeOnly({ attrs: { shapeType: 'rect', 'fill-color': '#abc' } } as SceneNodeInput)
+      canvasIdleIsStrokeOnly({ attrs: { shapeType: 'rect', 'fill-color': '#abc' } } as SceneNodeInput)
     ).toBe(false);
   });
 
@@ -535,7 +594,7 @@ describe('LOD path / text / shape paint', () => {
     ).toBeNull();
   });
 
-  it('canIdlePaintOnCanvas allows solid center-stroke rect/ellipse/line/light path; rejects complex fills and non-center stroke', () => {
+  it('canIdlePaintOnCanvas allows gradient/image/media; rejects donut, poly, non-center stroke, blur', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -589,7 +648,7 @@ describe('LOD path / text / shape paint', () => {
           'stroke-enabled': false,
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -600,7 +659,7 @@ describe('LOD path / text / shape paint', () => {
           'stroke-enabled': false,
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -635,7 +694,7 @@ describe('LOD path / text / shape paint', () => {
           'stroke-enabled': false,
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -646,7 +705,19 @@ describe('LOD path / text / shape paint', () => {
           'stroke-enabled': false,
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'image',
+        attrs: { src: 'https://example.com/a.png' },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'video',
+        attrs: { poster: 'https://example.com/p.png' },
+      } as SceneNodeInput)
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -751,17 +822,17 @@ describe('LOD path / text / shape paint', () => {
     expect(ops).toContain('fill');
   });
 
-  it('bumpSceneLodPaint notifies subscribers', () => {
+  it('bumpSceneCanvasIdlePaint notifies subscribers', () => {
     let n = 0;
-    const unsub = subscribeSceneLodPaint(() => {
+    const unsub = subscribeSceneCanvasIdlePaint(() => {
       n += 1;
     });
-    bumpSceneLodPaint();
+    bumpSceneCanvasIdlePaint();
     unsub();
     expect(n).toBe(1);
   });
 
-  it('createCanvasSceneRenderer drawLodProxies paints stroke centerline', () => {
+  it('createCanvasSceneRenderer drawCanvasIdle paints stroke centerline', () => {
     const canvas = document.createElement('canvas');
     const ops: string[] = [];
     vi.spyOn(canvas, 'getContext').mockReturnValue(mockCtx(ops) as unknown as CanvasRenderingContext2D);
@@ -797,7 +868,7 @@ describe('LOD path / text / shape paint', () => {
       getZoom: () => 1,
       listNodeIds: () => ['p1'],
       getNodeBox: () => ({ left: 0, top: 0, width: 50, height: 20 }),
-      drawLodProxies: true,
+      drawCanvasIdle: true,
       paintGrid: false,
     });
     renderer.render({
@@ -812,26 +883,26 @@ describe('LOD path / text / shape paint', () => {
   });
 });
 
-describe('SceneLodPaint registry', () => {
+describe('SceneCanvasIdlePaint registry', () => {
   it('set / list / clear / subscribe', () => {
-    clearSceneLodPaint();
+    clearSceneCanvasIdlePaint();
     let ticks = 0;
-    const unsub = subscribeSceneLodPaint(() => {
+    const unsub = subscribeSceneCanvasIdlePaint(() => {
       ticks += 1;
     });
     const doc = rectDoc();
-    setSceneLodPaint({
+    setSceneCanvasIdlePaint({
       document: doc,
-      proxyIds: ['n1', 'hidden'],
+      canvasIds: ['n1', 'hidden'],
       hiddenNodeId: 'hidden',
       getNodeBox: () => ({ left: 0, top: 0, width: 10, height: 10 }),
     });
-    expect(getSceneLodPaint()?.proxyIds).toEqual(['n1', 'hidden']);
-    expect(listSceneLodPaintIds()).toEqual(['n1']);
+    expect(getSceneCanvasIdlePaint()?.canvasIds).toEqual(['n1', 'hidden']);
+    expect(listSceneCanvasIdlePaintIds()).toEqual(['n1']);
     expect(ticks).toBe(1);
-    clearSceneLodPaint();
-    expect(getSceneLodPaint()).toBeNull();
-    expect(listSceneLodPaintIds()).toEqual([]);
+    clearSceneCanvasIdlePaint();
+    expect(getSceneCanvasIdlePaint()).toBeNull();
+    expect(listSceneCanvasIdlePaintIds()).toEqual([]);
     expect(ticks).toBe(2);
     unsub();
   });

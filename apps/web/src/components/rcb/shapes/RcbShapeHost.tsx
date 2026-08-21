@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, memo } from 'react';
+import { NodeProcessGlow } from '@/components/editor/nodes/ImageNode/ImageProcessOverlay';
 import { useRcbCamera } from '@/components/rcb/camera/context';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 import {
@@ -72,6 +73,26 @@ function setHostPaintOpacity(el: Element | null | undefined, hidden: boolean) {
   if (typeof anyEl.opacity === 'function') anyEl.opacity(hidden ? 0 : 1);
 }
 
+function resolveHostPaintEl(
+  nodeId: string,
+  layer?: SVGGElement | null
+): SVGElement | null {
+  return (
+    getSharedNodeEls()?.get(nodeId) ||
+    (layer?.querySelector?.(
+      `[data-scene-node-id="${CSS.escape(nodeId)}"]`
+    ) as SVGElement | null) ||
+    null
+  );
+}
+
+/** Blend on the paint node only — never on the stack layer (under-plate bug). */
+function applyHostBlend(el: SVGElement | null | undefined, blendCss: string) {
+  if (!el) return;
+  if (blendCss) el.style.mixBlendMode = blendCss;
+  else el.style.removeProperty('mix-blend-mode');
+}
+
 /**
  * One paint host per scene node under the camera world layer.
  * Paints only in the shared scene SVG. A missing mount means this render waits
@@ -108,7 +129,8 @@ function RcbShapeHost({
   const clipGeometryToken = [node?.x, node?.y, node?.width, node?.height].join('|');
   const blendMode = parseBlendMode(node?.attrs?.blendMode, { allowPassThrough: false });
   const layerOpacity = parseLayerOpacity(node?.attrs?.opacity, 1);
-  const blendCss = blendModeToCss(blendMode);
+  // Selected: drop mix-blend so paint can sit above artboard plates.
+  const activeBlendCss = revealOverflow ? '' : blendModeToCss(blendMode);
   const paintZIndex = revealOverflow ? 2_000_000_000 + zIndex : zIndex;
   // Remount when stroke/fill paint attrs change — not on every geometry nudge.
   const paintToken = [
@@ -173,13 +195,14 @@ function RcbShapeHost({
     node?.attrs?.audioGenerator
       ? rcbCameraCssZoom(camera).toFixed(3)
       : '',
-    // Process placeholders (gradient upload/generate wash) are imperative SVG
-    // paint. Include their position so an async status update cannot leave the
-    // placeholder at the node's pre-move coordinates.
-    String(node?.attrs?.processStatus || '') === 'running'
-      ? `${Number(node?.x || 0)},${Number(node?.y || 0)}`
-      : '',
+    // Process SoftGlow lives on this host — remount when status/label flips so
+    // finishImageProcess drops the glow with the plate (no orphan overlay).
+    String(node?.attrs?.processStatus || ''),
+    String(node?.attrs?.processLabel || ''),
   ].join('|');
+
+  const processing = String(node?.attrs?.processStatus || '') === 'running';
+  const [paintEl, setPaintEl] = useState<SVGElement | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -201,11 +224,11 @@ function RcbShapeHost({
     layer.setAttribute('data-rcb-shape-id', nodeId);
     layer.setAttribute('data-z', String(paintZIndex));
     layer.style.opacity = forceHiddenRef.current ? '0' : String(layerOpacity);
-    if (blendCss) layer.style.mixBlendMode = blendCss;
-    else layer.style.removeProperty('mix-blend-mode');
+    layer.style.removeProperty('mix-blend-mode');
 
     const nodeEls = getSharedNodeEls() || new Map();
     registerShapeHost({ nodeId, root, layer, el: null, kind: 'svg' });
+    setPaintEl(null);
 
     async function mountShape() {
       try {
@@ -219,19 +242,17 @@ function RcbShapeHost({
           return;
         }
         if (el) {
-          el.style.removeProperty('mix-blend-mode');
+          applyHostBlend(el, activeBlendCss);
           el.style.opacity = '1';
           el.setAttribute('opacity', '1');
           if (forceHiddenRef.current) setHostPaintOpacity(el, true);
-          if (revealOverflow) {
-            clearFrameContentClip(el);
-          } else {
-            applyFrameContentClip(root, el, document, n, { zoom: camera.zoom });
-          }
+          if (revealOverflow) clearFrameContentClip(el);
+          else applyFrameContentClip(root, el, document, n, { zoom: camera.zoom });
           const sharedMap = getSharedNodeEls();
           if (sharedMap) sharedMap.set(nodeId, el);
           else nodeEls.set(nodeId, el);
           updateShapeHostElement(nodeId, el);
+          setPaintEl(el);
         }
       } catch (err) {
         console.error('RcbShapeHost mount failed', nodeId, err);
@@ -241,6 +262,7 @@ function RcbShapeHost({
 
     return () => {
       cancelled = true;
+      setPaintEl(null);
       unregisterShapeHost(nodeId);
       try {
         layer.remove();
@@ -253,23 +275,15 @@ function RcbShapeHost({
   }, [nodeId, reloadToken, paintToken, worldEpoch]);
 
   useEffect(() => {
-    const el =
-      getSharedNodeEls()?.get(nodeId) ||
-      (hostRef.current?.querySelector?.('[data-scene-node-id]') as SVGElement | null);
+    const el = resolveHostPaintEl(nodeId, layerRef.current);
     const root = getSceneWorldRoot();
     if (!el || !root) return;
-    if (revealOverflow) {
-      clearFrameContentClip(el);
-    } else {
-      applyFrameContentClip(root, el, document, node, { zoom: camera.zoom });
-    }
+    if (revealOverflow) clearFrameContentClip(el);
+    else applyFrameContentClip(root, el, document, node, { zoom: camera.zoom });
   }, [camera.zoom, clipGeometryToken, document, frameClipToken, node, nodeId, revealOverflow, worldEpoch]);
 
-  // Toggle hide without remounting (enter / leave inline text edit).
   useEffect(() => {
-    const el =
-      getSharedNodeEls()?.get(nodeId) ||
-      (hostRef.current?.querySelector?.('[data-scene-node-id]') as Element | null);
+    const el = resolveHostPaintEl(nodeId, layerRef.current);
     setHostPaintOpacity(el, forceHidden);
     const layer = layerRef.current;
     if (layer) layer.style.opacity = forceHidden ? '0' : String(layerOpacity);
@@ -277,12 +291,10 @@ function RcbShapeHost({
 
   useEffect(() => {
     const layer = layerRef.current;
-    if (!layer) return;
-    if (blendCss) layer.style.mixBlendMode = blendCss;
-    else layer.style.removeProperty('mix-blend-mode');
-  }, [blendCss, paintToken]);
+    if (layer) layer.style.removeProperty('mix-blend-mode');
+    applyHostBlend(resolveHostPaintEl(nodeId, layer), activeBlendCss);
+  }, [activeBlendCss, paintToken, nodeId]);
 
-  // Keep SVG paint order ≈ document z (shapes + artboard plates interleaved).
   useEffect(() => {
     const layer = layerRef.current;
     const mount = getSceneShapesMount();
@@ -309,6 +321,9 @@ function RcbShapeHost({
         data-rcb-shape-host={nodeId}
         style={{ width: 0, height: 0, overflow: 'visible' }}
       />
+      {processing && paintEl && node ? (
+        <NodeProcessGlow nodeId={nodeId} node={node} paintHost={paintEl} />
+      ) : null}
     </div>
   );
 }

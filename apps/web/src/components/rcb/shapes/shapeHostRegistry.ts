@@ -134,6 +134,7 @@ export function clearShapeHosts() {
 /** One screen-surface SVG — all shape layers share the canonical camera matrix. */
 let sceneWorldRoot: SVGSVGElement | null = null;
 let sceneShapesMount: SVGGElement | null = null;
+let sceneProcessMount: SVGGElement | null = null;
 let sceneDrawPreviewMount: SVGGElement | null = null;
 let sceneSmartGuidesMount: SVGGElement | null = null;
 let sceneSelectionChromeMount: SVGGElement | null = null;
@@ -144,10 +145,12 @@ export function setSceneWorldRoot(
   shapesMount: SVGGElement | null,
   drawPreviewMount: SVGGElement | null = null,
   smartGuidesMount: SVGGElement | null = null,
-  selectionChromeMount: SVGGElement | null = null
+  selectionChromeMount: SVGGElement | null = null,
+  processMount: SVGGElement | null = null
 ) {
   sceneWorldRoot = root;
   sceneShapesMount = shapesMount;
+  sceneProcessMount = processMount;
   sceneDrawPreviewMount = drawPreviewMount;
   sceneSmartGuidesMount = smartGuidesMount;
   sceneSelectionChromeMount = selectionChromeMount;
@@ -161,6 +164,11 @@ export function getSceneWorldRoot() {
 
 export function getSceneShapesMount() {
   return sceneShapesMount;
+}
+
+/** Upload / process SoftGlow — above shapes, below selection chrome. */
+export function getSceneProcessMount() {
+  return sceneProcessMount;
 }
 
 /** SVG paint order must follow data-z (stackOrder). New layers append at mount end. */
@@ -286,7 +294,6 @@ export async function replaceShapePaint(
     );
     const el = (nodeEls.get(nodeId) as SVGElement | undefined) ?? null;
     if (el) {
-      el.style.removeProperty('mix-blend-mode');
       el.style.opacity = '1';
       el.setAttribute('opacity', '1');
     }

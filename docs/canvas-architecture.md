@@ -1,6 +1,6 @@
 # Canvas architecture (RCB)
 
-RCB is Recombyn’s infinite vector canvas. This note is for people changing paint, hit-testing, or LOD — source of truth is `apps/web/src/components/rcb` + `apps/web/src/components/editor/canvas`. Keep this doc in sync when those constants change.
+RCB is Recombyn’s infinite vector canvas. This note is for people changing paint, hit-testing, or viewport cull / Canvas idle — source of truth is `apps/web/src/components/rcb` + `apps/web/src/components/editor/canvas`. Keep this doc in sync when those constants change.
 
 ## Stack
 
@@ -8,10 +8,10 @@ RCB is Recombyn’s infinite vector canvas. This note is for people changing pai
 |-------|------|----------------|
 | Stage shell | Camera, frames, product canvas | `editor/page/EditorStageWorld.tsx` |
 | Camera / pan-zoom | Infinite world (`zoom` ~0.05–100); **CameraTransform** is the sole world↔screen API | `rcb/canvas/RcbCanvas.tsx`, `rcb/core/math.ts`, `rcb/camera/transform.ts` |
-| SceneRenderer | Paint/hit backend (`svg` hosts + `canvas2d` underlay for grid + LOD proxies) | `rcb/render/sceneRenderer.ts` |
+| SceneRenderer | Paint/hit backend (`svg` hosts + `canvas2d` grid underlay + idle ink overlay) | `rcb/render/sceneRenderer.ts` |
 | Product canvas | Tools, media overlays, Redux writes; hit via SceneRenderer | `editor/canvas/SvgCanvas.tsx` |
-| Shape paint | Per-node SVG hosts; LOD via `setSceneLodPaint` → stage Canvas (**transitional**) | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx` |
-| Pixel grid + LOD | Stage Canvas2D underlay (`[data-rcb-scene-canvas]`), camera baked | `RcbCanvas` + `createCanvasSceneRenderer` |
+| Shape paint | Per-node SVG hosts; host overflow → `setSceneCanvasIdlePaint` → Canvas idle ink | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx` |
+| Pixel grid + Canvas idle | Grid underlay `[data-rcb-scene-canvas]`; idle ink `[data-rcb-idle-ink-canvas]` | `RcbCanvas` + `createCanvasSceneRenderer` |
 | Selection chrome | Shared scene SVG camera group for AABB, path silhouette, shape knobs, guides, and drawing previews; HTML overlay only for screen UI/hit seats | `rcb/selection/SelectionChrome.tsx`, `HostPathChrome.tsx`, chrome overlays |
 | Transform gestures | `pointermove` → RAF-coalesced live preview into `TransformPreview` + transitional SVG DOM; `pointerup` commits SceneDocument and clears preview | `core/transformPreview.ts`, `SelectionFeature` coalescer, `canvasSession.onGeometryPreview/Commit` |
 | Pointer hit | Overlay seats → chrome **geometry** → shared `SceneSpatialRuntime` → Path2D/AABB (SVG DOM off by default) | `pickSelectionInkAtClient`, `hitTestWithSpatialIndex`, `setSharedSceneSpatialRuntime` |
@@ -41,7 +41,7 @@ There is **no hard max node count** on the document. Capacity is governed by pai
 
 At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes stay on `gℤ` — same as `snapCoordToGrid` / pen tips; do **not** device-shift axes off the snap lattice). SVG no longer carries the grid `<path>`.
 
-LOD overflow and **idle Canvas-capable nodes** (`canIdlePaintOnCanvas`: solid fill, **center** stroke, no shadow — rect·roundRect·circle·ellipse, line/arrow, light pen/path) are published by `RcbShapesLayer` through `setSceneLodPaint` and painted on the **same** stage underlay. Non-center `strokeAlign`, gradients, image/diffuse fills, heavy paths, text, polygons/stars, and **media plates** keep SVG hosts (or editor `forceFullSet`). There is no separate world-space `[data-rcb-lod-layer]` canvas.
+**Canvas idle overflow** and **idle-capable nodes** (`canIdlePaintOnCanvas`: solid / gradient / image / diffuse fills, center stroke, image·video media, etc.) are published by `RcbShapesLayer` through `setSceneCanvasIdlePaint` and painted on the **idle ink overlay** (above SVG plates, frame-clipped). Non-center `strokeAlign`, blend modes, blur, heavy paths, text, polygons/stars, and lottie keep SVG hosts (or editor `forceFullSet`). There is no far-zoom placeholder LOD and no `[data-rcb-lod-layer]`.
 
 ### Committed ink → SVG hosts
 
@@ -108,7 +108,7 @@ Toolbar: fill color, Size (Px = `penStrokeWidth` / node `borderWidth`), settings
 
 Committed attrs include centerline `path`, `pathPressure`, `brushStyle`, `pressureEnabled`, `pencilFill`, `pencilOutlineWidth`, `pencilOutlineColor`.
 
-## Viewport cull + LOD
+## Viewport cull + Canvas idle
 
 Implemented in `RcbShapesLayer.tsx` (current constants):
 
@@ -118,13 +118,13 @@ Implemented in `RcbShapesLayer.tsx` (current constants):
 | `INDEX_CULL_THRESHOLD` | 64 | Prefer spatial index over O(N) AABB walk |
 | `EFFICIENT_ZOOM_SHAPE_THRESHOLD` | 80 | While camera moving, tighten host budget |
 | `MAX_FULL_HOSTS` | **96** | Max simultaneous full SVG hosts |
-| Far / moving budgets | 24 / 56 | `zoom < LOD_ZOOM_FAR` (0.2) or moving+dense |
-| `MAX_PROXY_PAINT` | **4096** | Cap on Canvas2D AABB proxy rects |
+| Moving budget | 56 | `moving && visibleCount ≥ 80` |
+| `MAX_CANVAS_IDLE_PAINT` | **4096** | Cap on Canvas idle ids |
 | `HEAVY_PATH_D_CHARS` | 12_000 | Heavy path demotion / hit cost (`sceneShapes.ts`) |
 
 Spatial index: `SceneSpatialRuntime` / `RcbSpatialIndex` (cell size 256 in `SvgCanvas`). Large-scene hit helpers also use `SCENE_SPATIAL_LARGE_THRESHOLD` (48) in `spatialIndex.ts`.
 
-**Rule of thumb:** document can hold thousands of light shapes (stress benches exercise 1k–10k); **at most ~96 full SVG hosts** paint at once; overflow on-screen nodes become AABB proxies. Media/`foreignObject` nodes cost more than vector proxies.
+**Rule of thumb:** document can hold thousands of light shapes (stress benches exercise 1k–10k); **at most ~96 full SVG hosts** paint at once; overflow on-screen nodes become Canvas idle ink. Off-screen nodes are culled (not mounted). Far zoom alone does not demote in-viewport paint.
 
 ## History / agent (related caps)
 
@@ -136,8 +136,8 @@ Spatial index: `SceneSpatialRuntime` / `RcbSpatialIndex` (cell size 256 in `SvgC
 
 ## Practical capacity
 
-- **Light vectors:** hundreds → low thousands with cull/LOD
-- **Dense zoom-out:** proxies (rects), not full detail
+- **Light vectors:** hundreds → low thousands with cull + Canvas idle
+- **Dense host overflow:** Canvas idle ink (real paint), not placeholder LOD
 - **Many videos / Lotties / generators:** DOM + decode dominate before node-count alone
 - **Huge path `d`:** hit-test / history pressure (`HEAVY_PATH_D_CHARS`)
 
@@ -146,7 +146,7 @@ Spatial index: `SceneSpatialRuntime` / `RcbSpatialIndex` (cell size 256 in `SvgC
 ```
 apps/web/src/components/rcb/
   canvas/RcbCanvas.tsx
-  shapes/RcbShapesLayer.tsx      # cull + LOD + proxy canvas
+  shapes/RcbShapesLayer.tsx      # cull + SVG host budget + Canvas idle
   shapes/shapeHostRegistry.ts    # host registry + draw preview mount
   scene/document/sceneShapes.ts  # Path2D cache + ribbon outline helpers
   scene/document/sceneHitBridge.ts

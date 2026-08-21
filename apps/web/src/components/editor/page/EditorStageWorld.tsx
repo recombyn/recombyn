@@ -405,9 +405,6 @@ function EditorStageWorld({
   );
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
   const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
-  const [frameProcessGeometry, setFrameProcessGeometry] = useState<
-    Record<string, { left: number; top: number; width: number; height: number; angle?: number }>
-  >({});
   const [selectionTransforming, setSelectionTransforming] = useState(false);
   const frameDragRef = useRef<{
     frames: Array<{
@@ -523,22 +520,6 @@ function EditorStageWorld({
           nodeId,
           patch: { x: x + dx, y: y + dy },
         }));
-        const processGeometry: Record<
-          string,
-          { left: number; top: number; width: number; height: number; angle?: number }
-        > = {};
-        for (const origin of origins) {
-          const node = document.deltaSetLike?.[origin.nodeId];
-          if (!node) continue;
-          processGeometry[origin.nodeId] = {
-            left: origin.x + dx,
-            top: origin.y + dy,
-            width: origin.width,
-            height: origin.height,
-            angle: Number(node.attrs?.angle) || 0,
-          };
-        }
-        setFrameProcessGeometry(processGeometry);
         const previewFrames = frames.map((item) => {
           const moved = movedFrames.find((entry) => entry.id === item.id);
           if (!moved) return item;
@@ -624,7 +605,6 @@ function EditorStageWorld({
       if (movedFrames.length) {
         frameMoveDocumentRef.current = document;
         setFrameSmartGuides([]);
-        setFrameProcessGeometry({});
         const boundNodeIds = nodeIdsBoundToFrames(document, frameIds);
         const childOrigins = boundNodeIds
           .map((nodeId) => {
@@ -668,7 +648,6 @@ function EditorStageWorld({
     frameDragRef.current = null;
     frameMoveDocumentRef.current = document;
     setFrameSmartGuides([]);
-    setFrameProcessGeometry({});
     setMovingFrameId(null);
   }, [dispatch, document]);
 
@@ -769,7 +748,6 @@ function EditorStageWorld({
           onTransformingChange={setSelectionTransforming}
           embedded
           stageEl={stageEl}
-          frameGeometryOverrides={frameProcessGeometry}
           onOpenAgent={onOpenAgent}
           onAddToChat={onAddToChat}
         />

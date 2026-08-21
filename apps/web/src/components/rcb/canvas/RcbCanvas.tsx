@@ -31,9 +31,9 @@ import { RCB_DEFAULT_CAMERA, type RcbCamera } from '../core/types';
 import { cameraSvgTransform, createCameraTransform } from '../camera/transform';
 import {
   createCanvasSceneRenderer,
-  getSceneLodPaint,
-  listSceneLodPaintIds,
-  subscribeSceneLodPaint,
+  getSceneCanvasIdlePaint,
+  listSceneCanvasIdlePaintIds,
+  subscribeSceneCanvasIdlePaint,
   type SceneRenderer,
 } from '../render/sceneRenderer';
 import { subscribeTransformPreview } from '../core/transformPreview';
@@ -145,9 +145,10 @@ export type RcbCanvasProps = {
  *
  * Layers:
  *   1. Viewport — wheel / pan, overflow hidden
- *   2. Scene Canvas underlay — screen-space Canvas2D (grid + idle/LOD ink)
- *   3. Shared SVG camera group — scene ink, previews, guides, and chrome
- *   4. Overlay — unscaled HTML UI
+ *   2. Grid Canvas underlay — pixel/scene grid (under SVG plates)
+ *   3. Shared SVG camera group — hosts, plates, previews, guides, chrome
+ *   4. Idle Canvas overlay — Canvas2D demoted ink above plates (frame-clipped)
+ *   5. Overlay — unscaled HTML UI
  *
  * Pixel grid uses CameraTransform on the underlay (same pan/zoom as ink), not
  * an SVG path under world `scale`.
@@ -193,9 +194,11 @@ function RcbCanvas({
   const [devicePixelRatio, setDevicePixelRatio] = useState(() => readDevicePixelRatio());
   const devicePixelRatioRef = useRef(devicePixelRatio);
   const paintCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const inkCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintRendererRef = useRef<SceneRenderer | null>(null);
+  const inkRendererRef = useRef<SceneRenderer | null>(null);
   const gridSizeRef = useRef(gridSize);
-  const [lodPaintEpoch, setLodPaintEpoch] = useState(0);
+  const [canvasIdlePaintEpoch, setCanvasIdlePaintEpoch] = useState(0);
 
   cameraRef.current = camera;
   gridSizeRef.current = gridSize;
@@ -462,6 +465,9 @@ function RcbCanvas({
     const mount = cameraRoot
       ? (cameraRoot.querySelector(':scope > g[data-rcb-shapes-mount]') as SVGGElement | null)
       : null;
+    const processMount = cameraRoot
+      ? (cameraRoot.querySelector(':scope > g[data-rcb-process-mount]') as SVGGElement | null)
+      : null;
     const previewMount = cameraRoot
       ? (cameraRoot.querySelector(':scope > g[data-rcb-draw-preview-mount]') as SVGGElement | null)
       : null;
@@ -471,27 +477,32 @@ function RcbCanvas({
     const selectionChromeMount = cameraRoot
       ? (cameraRoot.querySelector(':scope > g[data-rcb-selection-chrome-mount]') as SVGGElement | null)
       : null;
-    setSceneWorldRoot(node, mount, previewMount, guidesMount, selectionChromeMount);
+    setSceneWorldRoot(
+      node,
+      mount,
+      previewMount,
+      guidesMount,
+      selectionChromeMount,
+      processMount
+    );
   }, []);
   useEffect(() => {
-    return () => setSceneWorldRoot(null, null, null, null, null);
+    return () => setSceneWorldRoot(null, null, null, null, null, null);
   }, []);
 
-  // Stage Canvas2D underlay — grid + LOD / idle proxies (ADR 0027).
+  // Stage Canvas2D: grid under SVG; idle ink above SVG plates (ADR 0027).
   // Prefer the product SceneSpatialRuntime when SvgCanvas has published it.
   useEffect(() => {
-    const canvas = paintCanvasRef.current;
-    if (!canvas) return;
+    const gridCanvas = paintCanvasRef.current;
+    const inkCanvas = inkCanvasRef.current;
+    if (!gridCanvas || !inkCanvas) return;
     const fallbackSpatial = new SceneSpatialRuntime(64);
-    const renderer = createCanvasSceneRenderer({
-      canvas,
-      getDocument: () => getSceneLodPaint()?.document ?? EMPTY_SCENE_DOC,
+    const sharedDeps = {
+      getDocument: () => getSceneCanvasIdlePaint()?.document ?? EMPTY_SCENE_DOC,
       getSpatial: () => getSharedSceneSpatialRuntime() ?? fallbackSpatial,
       getZoom: () => rcbCameraCssZoom(cameraRef.current),
-      listNodeIds: () => listSceneLodPaintIds(),
-      getNodeBox: (id) => getSceneLodPaint()?.getNodeBox(id) ?? null,
-      paintGrid: true,
-      drawLodProxies: true,
+      listNodeIds: () => listSceneCanvasIdlePaintIds(),
+      getNodeBox: (id: string) => getSceneCanvasIdlePaint()?.getNodeBox(id) ?? null,
       drawNodeProxies: false,
       drawBasicShapes: false,
       getGridSize: () => {
@@ -499,38 +510,54 @@ function RcbCanvas({
         return n > 0 ? n : DEFAULT_GRID_SIZE;
       },
       shouldShowGrid: shouldShowPixelGrid,
+    };
+    const gridRenderer = createCanvasSceneRenderer({
+      ...sharedDeps,
+      canvas: gridCanvas,
+      paintGrid: true,
+      drawCanvasIdle: false,
     });
-    paintRendererRef.current = renderer;
+    const inkRenderer = createCanvasSceneRenderer({
+      ...sharedDeps,
+      canvas: inkCanvas,
+      paintGrid: false,
+      drawCanvasIdle: true,
+    });
+    paintRendererRef.current = gridRenderer;
+    inkRendererRef.current = inkRenderer;
     return () => {
-      renderer.dispose();
+      gridRenderer.dispose();
+      inkRenderer.dispose();
       paintRendererRef.current = null;
+      inkRendererRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    return subscribeSceneLodPaint(() => {
-      setLodPaintEpoch((n) => n + 1);
+    return subscribeSceneCanvasIdlePaint(() => {
+      setCanvasIdlePaintEpoch((n) => n + 1);
     });
   }, []);
 
   useEffect(() => {
     return subscribeTransformPreview(() => {
-      setLodPaintEpoch((n) => n + 1);
+      setCanvasIdlePaintEpoch((n) => n + 1);
     });
   }, []);
 
   useLayoutEffect(() => {
-    const renderer = paintRendererRef.current;
-    if (!renderer || stageW <= 0 || stageH <= 0) return;
-    const lodDoc = getSceneLodPaint()?.document ?? EMPTY_SCENE_DOC;
-    renderer.render({
-      document: lodDoc,
+    if (stageW <= 0 || stageH <= 0) return;
+    const idleDoc = getSceneCanvasIdlePaint()?.document ?? EMPTY_SCENE_DOC;
+    const req = {
+      document: idleDoc,
       camera,
-      dirty: { kind: 'full' },
+      dirty: { kind: 'full' as const },
       stage: { width: stageW, height: stageH },
       dpr: devicePixelRatio,
-    });
-  }, [camera, devicePixelRatio, stageW, stageH, g, showPixelGrid, lodPaintEpoch]);
+    };
+    paintRendererRef.current?.render(req);
+    inkRendererRef.current?.render(req);
+  }, [camera, devicePixelRatio, stageW, stageH, g, showPixelGrid, canvasIdlePaintEpoch]);
 
   const sceneCameraTransform = cameraSvgTransform(
     createCameraTransform(camera, devicePixelRatio)
@@ -572,13 +599,12 @@ function RcbCanvas({
                 [data-rcb-canvas] [data-rcb-video-svg-underlay="1"] { opacity: 0; }
               `}</style>
               {defs}
-              {/* Screen-space Canvas underlay (grid + idle ink). Camera baked into ctx. */}
+              {/* Grid under SVG plates; idle ink above plates (frame-clipped). */}
               <canvas
                 ref={paintCanvasRef}
                 aria-hidden
                 data-rcb-scene-canvas="1"
                 data-rcb-pixel-grid={showPixelGrid ? '1' : undefined}
-                data-rcb-lod-count={String(listSceneLodPaintIds().length)}
                 data-rcb-grid-size={String(g)}
                 data-rcb-grid-left={String(Math.floor(sceneLeft / g) * g)}
                 data-rcb-grid-top={String(Math.floor(sceneTop / g) * g)}
@@ -607,16 +633,27 @@ function RcbCanvas({
                     overflow: 'visible',
                     shapeRendering: 'geometricPrecision',
                     pointerEvents: 'none',
+                    // Keep mix-blend-mode layers compositing in SVG paint order
+                    // (above artboard plates) instead of against the page backdrop.
+                    isolation: 'isolate',
                   }}
                 >
                   <g data-rcb-scene-camera="1" transform={sceneCameraTransform}>
                     <g data-rcb-shapes-mount="1" />
+                    <g data-rcb-process-mount="1" />
                     <g data-rcb-draw-preview-mount="1" />
                     <g data-rcb-smart-guides-mount="1" />
                     <g data-rcb-selection-chrome-mount="1" pointerEvents="none" />
                   </g>
                 </svg>
               ) : null}
+              <canvas
+                ref={inkCanvasRef}
+                aria-hidden
+                data-rcb-idle-ink-canvas="1"
+                data-rcb-canvas-idle-count={String(listSceneCanvasIdlePaintIds().length)}
+                className="pointer-events-none absolute inset-0 z-[2]"
+              />
               {children}
               <div
                 ref={setOverlayEl}

@@ -31,6 +31,7 @@ import {
 } from '@/components/rcb/scene/document/sceneShapes';
 import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hexWithOpacity, boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
+import { findClippingFrameForNode } from '@/components/rcb/frames/frameContentClip';
 import {
   resolveFill,
   resolveLinearCoords,
@@ -60,8 +61,8 @@ import {
 import { shouldShowPixelGrid } from '@/components/rcb/selection/alignGuides';
 import { parseSimplePathPoints } from '@/components/rcb/tools/pencilBrushes';
 
-/** Cap centerline samples when stroking a dense pencil/path as LOD ink. */
-export const LOD_STROKE_MAX_PTS = 64;
+/** Cap centerline samples when stroking a dense pencil/path as Canvas idle ink. */
+export const CANVAS_IDLE_STROKE_MAX_PTS = 64;
 
 export type SceneNodeId = string;
 
@@ -203,7 +204,7 @@ export function createSvgSceneRenderer(deps: SceneRendererHitDeps): SceneRendere
 
 export type CanvasSceneRendererDeps = SceneRendererHitDeps & {
   canvas: HTMLCanvasElement;
-  /** Debug AABB outlines (default false — LOD has its own proxy canvas). */
+  /** Debug AABB outlines (default false — idle Canvas has its own paint path). */
   drawNodeProxies?: boolean;
   /**
    * Paint filled rect / ellipse / circle for shape nodes in the viewport.
@@ -211,10 +212,10 @@ export type CanvasSceneRendererDeps = SceneRendererHitDeps & {
    */
   drawBasicShapes?: boolean;
   /**
-   * Full LOD / idle proxy paint (paths, text, shapes, media icons).
-   * Stage underlay enables this and reads ids from `getSceneLodPaint()`.
+   * Full Canvas idle paint (paths, text, shapes, media).
+   * Stage ink overlay enables this and reads ids from `getSceneCanvasIdlePaint()`.
    */
-  drawLodProxies?: boolean;
+  drawCanvasIdle?: boolean;
   /** Pixel / scene grid (default true). Gated by `shouldShowGrid`. */
   paintGrid?: boolean;
   gridSize?: number;
@@ -223,7 +224,7 @@ export type CanvasSceneRendererDeps = SceneRendererHitDeps & {
 };
 
 /**
- * Canvas2D backend — clear + camera transform + grid + idle/LOD proxies.
+ * Canvas2D backend — clear + camera transform + grid + idle Canvas ink.
  * Hit uses the same spatial index path as the svg adapter.
  */
 export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneRenderer {
@@ -231,7 +232,7 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
   const canvas = deps.canvas;
   const drawProxies = deps.drawNodeProxies === true;
   const drawBasic = deps.drawBasicShapes === true;
-  const drawLod = deps.drawLodProxies === true;
+  const drawIdle = deps.drawCanvasIdle === true;
   const paintGrid = deps.paintGrid !== false;
   const shouldShowGrid = deps.shouldShowGrid ?? shouldShowPixelGrid;
 
@@ -283,7 +284,7 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
         drawSceneGrid(ctx, view, gridSize, z);
       }
 
-      if (drawLod || drawBasic || drawProxies) {
+      if (drawIdle || drawBasic || drawProxies) {
         const doc = req.document;
         const ids = deps.listNodeIds();
         for (const id of ids) {
@@ -306,8 +307,8 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
           ) {
             continue;
           }
-          if (drawLod) {
-            paintLodNodeProxy(ctx, {
+          if (drawIdle) {
+            paintCanvasIdleNode(ctx, {
               left: paint.left,
               top: paint.top,
               width: paint.width,
@@ -315,6 +316,7 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
               angle: paint.angle,
               node,
               zoom: z,
+              document: doc,
             });
           } else if (drawBasic) {
             paintBasicShapeFill(ctx, {
@@ -467,7 +469,7 @@ export type BasicShapePaintOpts = {
 };
 
 /**
- * Filled rect / ellipse / circle proxy (LOD + CanvasSceneRenderer basic shapes).
+ * Filled rect / ellipse / circle (Canvas idle + CanvasSceneRenderer basic shapes).
  * Local origin when angle≠0: caller may already have translated; here we own transform.
  */
 export function paintBasicShapeFill(
@@ -518,36 +520,30 @@ function isTransparentCssColor(c: string): boolean {
 }
 
 /**
- * Idle nodes that can leave SVG hosts for Canvas underlay paint (ADR 0027 S3).
+ * Idle nodes that can leave SVG hosts for Canvas2D underlay/overlay paint (ADR 0027 S3).
  *
- * Allowed: solid fill (or none), center-aligned stroke, no shadow —
- * rect / roundRect / ellipse / circle (no donut·arc), line / arrow,
- * and light pen / pencil / path `d` (under {@link HEAVY_PATH_D_CHARS}).
+ * Allowed: solid / linear / radial / angular / image / diffuse fills,
+ * center-aligned stroke, drop shadow, rect/ellipse/line/light path,
+ * and image / video media (poster or decoded src).
  *
- * Gradients / image / diffuse fills, non-center strokeAlign, heavy paths,
- * text, polygons/stars, and media stay on SVG hosts (or forceFull).
+ * Still SVG: lottie/audio/group/text, non-center strokeAlign, inner/backdrop/blur,
+ * heavy paths, donut·arc ellipses, blend modes other than normal, polygons/stars.
  */
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   const key = String(node.key || '');
-  if (
-    key === 'image' ||
-    key === 'video' ||
-    key === 'lottie' ||
-    key === 'audio' ||
-    key === 'group' ||
-    key === 'text'
-  ) {
+  if (key === 'lottie' || key === 'audio' || key === 'group' || key === 'text') {
     return false;
   }
 
   const attrs = node.attrs || {};
-  const fillType = String(attrs['fill-type'] || 'solid').toLowerCase();
-  if (fillType !== 'solid' && fillType !== '') return false;
-
-  if (boolEffectAttr(attrs['shadow-enabled'], false) && boolEffectAttr(attrs['shadow-visible'], true)) {
+  const blend = String(attrs.blendMode || attrs['blend-mode'] || 'normal')
+    .trim()
+    .toLowerCase();
+  if (blend && blend !== 'normal' && blend !== 'pass-through' && blend !== 'passthrough') {
     return false;
   }
+
   if (
     boolEffectAttr(attrs['inner-shadow-enabled'], false) ||
     boolEffectAttr(attrs['backdrop-blur-enabled'], false) ||
@@ -558,6 +554,23 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
 
   // Canvas stroke is centered; outside/inside stay on SVG until strokeAlign paint lands.
   if (resolveStrokeAlign(attrs) !== 'center') return false;
+
+  if (key === 'image' || key === 'video') {
+    return true;
+  }
+
+  const fillType = String(attrs['fill-type'] || 'solid').toLowerCase();
+  if (
+    fillType !== 'solid' &&
+    fillType !== '' &&
+    fillType !== 'linear' &&
+    fillType !== 'radial' &&
+    fillType !== 'angular' &&
+    fillType !== 'image' &&
+    fillType !== 'diffuse'
+  ) {
+    return false;
+  }
 
   const t = String(attrs.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
   if (t === 'rect' || t === 'roundrect' || t === '') return true;
@@ -713,7 +726,7 @@ function imageSourceSize(img: CanvasImageSource): { iw: number; ih: number } {
   };
 }
 
-/** Sync image ready for fill paint. Starts decode when missing; on load bumps LOD underlay. */
+/** Sync image ready for fill paint. Starts decode when missing; on load bumps idle ink. */
 export function getFillImageReady(src: string): CanvasImageSource | null {
   const url = String(src || '').trim();
   if (!url) return null;
@@ -740,7 +753,7 @@ export function getFillImageReady(src: string): CanvasImageSource | null {
     img.addEventListener(
       'load',
       () => {
-        bumpSceneLodPaint();
+        bumpSceneCanvasIdlePaint();
       },
       { once: true }
     );
@@ -1242,13 +1255,13 @@ export function paintCanvasPathInk(
   const d = String(node.attrs?.path || '');
   const t = String(node.attrs?.shapeType || node.key || '').toLowerCase();
   const isPencil = t === 'pencil';
-  const strokeOnly = lodProxyIsStrokeOnly(node);
+  const strokeOnly = canvasIdleIsStrokeOnly(node);
   const paintColor = resolveNodeProxyFill(node);
   const { stroke, strokeWidth } = resolveStroke(node, paintColor || '#333333');
   const lineW =
     strokeWidth > 0
       ? strokeWidth
-      : lodProxyStrokeWidth(node, opts.zoom ?? 1);
+      : canvasIdleStrokeWidth(node, opts.zoom ?? 1);
 
   ctx.save();
   ctx.globalAlpha = opacity;
@@ -1284,12 +1297,12 @@ export function paintCanvasPathInk(
     }
   }
 
-  paintStrokeLodProxy(ctx, {
+  paintStrokeCanvasIdle(ctx, {
     pathD: d,
     width: w,
     height: h,
     stroke: paintColor,
-    lineWidth: Math.max(lineW, lodProxyStrokeWidth(node, opts.zoom ?? 1)),
+    lineWidth: Math.max(lineW, canvasIdleStrokeWidth(node, opts.zoom ?? 1)),
   });
   ctx.restore();
 }
@@ -1376,7 +1389,7 @@ function isTransparentPaint(v: unknown): boolean {
 }
 
 /** Pencil / open strokes must never become solid AABB 色块 at far zoom. */
-export function lodProxyIsStrokeOnly(node: SceneNodeInput): boolean {
+export function canvasIdleIsStrokeOnly(node: SceneNodeInput): boolean {
   const a = node?.attrs || {};
   const t = String(a.shapeType || '');
   if (t === 'pencil' || t === 'pen' || t === 'line' || t === 'arrow') return true;
@@ -1386,7 +1399,7 @@ export function lodProxyIsStrokeOnly(node: SceneNodeInput): boolean {
   return false;
 }
 
-export function lodProxyStrokeWidth(node: SceneNodeInput, zoom: number): number {
+export function canvasIdleStrokeWidth(node: SceneNodeInput, zoom: number): number {
   const a = node?.attrs || {};
   const raw = Number(a['border-width'] ?? 2);
   const w = Number.isFinite(raw) && raw > 0 ? raw : 2;
@@ -1397,10 +1410,10 @@ export function lodProxyStrokeWidth(node: SceneNodeInput, zoom: number): number 
  * Subsample path centerline into ctx stroke (local path coords).
  * Returns false if path unusable — caller may draw a fallback midline.
  */
-export function strokeLodCenterline(
+export function strokeCanvasIdleCenterline(
   ctx: CanvasRenderingContext2D,
   d: string,
-  maxPts = LOD_STROKE_MAX_PTS
+  maxPts = CANVAS_IDLE_STROKE_MAX_PTS
 ): boolean {
   const trimmed = String(d || '').trim();
   if (!trimmed) return false;
@@ -1426,7 +1439,7 @@ export function strokeLodCenterline(
 }
 
 /** Stroke path centerline or a horizontal midline fallback inside the node box. */
-export function paintStrokeLodProxy(
+export function paintStrokeCanvasIdle(
   ctx: CanvasRenderingContext2D,
   opts: {
     pathD: string;
@@ -1442,7 +1455,7 @@ export function paintStrokeLodProxy(
   ctx.lineWidth = opts.lineWidth;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  if (!strokeLodCenterline(ctx, opts.pathD)) {
+  if (!strokeCanvasIdleCenterline(ctx, opts.pathD)) {
     ctx.beginPath();
     ctx.moveTo(0, h / 2);
     ctx.lineTo(w, h / 2);
@@ -1515,7 +1528,81 @@ export function paintMediaProxyIcon(
   ctx.restore();
 }
 
-export type LodNodePaintOpts = {
+/** Normalized crop from image/video attrs (matches sceneToSvg). */
+function readMediaCropNorm(
+  node: SceneNodeInput
+): { x: number; y: number; w: number; h: number } | null {
+  const fx = Number(node?.attrs?.cropX);
+  const fy = Number(node?.attrs?.cropY);
+  const fw = Number(node?.attrs?.cropW);
+  const fh = Number(node?.attrs?.cropH);
+  if (
+    Number.isFinite(fx) &&
+    Number.isFinite(fy) &&
+    Number.isFinite(fw) &&
+    Number.isFinite(fh) &&
+    fw > 0 &&
+    fh > 0 &&
+    (fx !== 0 || fy !== 0 || fw !== 1 || fh !== 1)
+  ) {
+    return { x: fx, y: fy, w: fw, h: fh };
+  }
+  return null;
+}
+
+function mediaPaintSrc(node: SceneNodeInput): string {
+  const key = String(node.key || '');
+  const attrs = node.attrs || {};
+  if (key === 'video') {
+    const poster = String(attrs.poster || '').trim();
+    if (poster) return poster;
+  }
+  return String(attrs.src || '').trim();
+}
+
+/**
+ * Local-origin image / video poster ink (0,0 → w×h), with crop + corner clip.
+ * Starts decode via `getFillImageReady` when missing; falls back to icon.
+ */
+export function paintCanvasMediaInk(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    node: SceneNodeInput;
+    width: number;
+    height: number;
+    opacity?: number;
+  }
+): void {
+  const w = Math.max(1, opts.width);
+  const h = Math.max(1, opts.height);
+  const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
+  const src = mediaPaintSrc(opts.node);
+  const img = src ? getFillImageReady(src) : null;
+  if (!img) {
+    paintMediaProxyIcon(ctx, w, h, opacity);
+    return;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  const r = clampCornerRadii(radiiFromAttrs(opts.node.attrs), w, h);
+  traceRoundedRectLocal(ctx, w, h, r);
+  ctx.clip();
+
+  const crop = readMediaCropNorm(opts.node);
+  if (crop) {
+    const imgW = w / crop.w;
+    const imgH = h / crop.h;
+    const imgX = (-crop.x / crop.w) * w;
+    const imgY = (-crop.y / crop.h) * h;
+    ctx.drawImage(img, imgX, imgY, imgW, imgH);
+  } else {
+    drawFillImageInBox(ctx, img, w, h, 'fill', 0);
+  }
+  ctx.restore();
+}
+
+export type CanvasIdleNodePaintOpts = {
   left: number;
   top: number;
   width: number;
@@ -1523,15 +1610,42 @@ export type LodNodePaintOpts = {
   node: SceneNodeInput;
   zoom: number;
   angle?: number;
+  /** Scene document — clipContent artboard clip for overlay ink. */
+  document?: SceneDocument | null;
 };
 
 /**
- * One LOD proxy node (path stroke / text greeking / media icon / basic fill).
+ * Clip Canvas ink to the node's owning clipContent frame (scene space).
+ * Needed when idle ink paints above artboard plates.
+ */
+export function clipCanvasIdleToOwningFrame(
+  ctx: CanvasRenderingContext2D,
+  document: SceneDocument | null | undefined,
+  node: SceneNodeInput | null | undefined,
+  zoom = 1
+): boolean {
+  const frame = findClippingFrameForNode(document, node as Record<string, unknown> | null);
+  if (!frame) return false;
+  const ox = Number(document?.x) || 0;
+  const oy = Number(document?.y) || 0;
+  const fx = Number(frame.x) - ox;
+  const fy = Number(frame.y) - oy;
+  const fw = Math.max(1, Number(frame.width) || 1);
+  const fh = Math.max(1, Number(frame.height) || 1);
+  const inset = Math.min(2, 0.5 / Math.max(0.05, zoom || 1));
+  ctx.beginPath();
+  ctx.rect(fx + inset, fy + inset, Math.max(1, fw - inset * 2), Math.max(1, fh - inset * 2));
+  ctx.clip();
+  return true;
+}
+
+/**
+ * One Canvas2D idle node (path / text / media / shape fill).
  * Scene coords; applies node angle when needed.
  */
-export function paintLodNodeProxy(
+export function paintCanvasIdleNode(
   ctx: CanvasRenderingContext2D,
-  opts: LodNodePaintOpts
+  opts: CanvasIdleNodePaintOpts
 ): void {
   const node = opts.node;
   const w = Math.max(1, opts.width);
@@ -1541,7 +1655,7 @@ export function paintLodNodeProxy(
   const angle = opts.angle != null ? Number(opts.angle) : Number(node.attrs?.angle) || 0;
   const fill = resolveNodeProxyFill(node);
   const opacity = Math.min(1, Math.max(0.15, Number(node.attrs?.opacity) || 1));
-  const strokeOnly = lodProxyIsStrokeOnly(node);
+  const strokeOnly = canvasIdleIsStrokeOnly(node);
   const pathD = String(node.attrs?.path || '');
   const key = String(node.key || '');
   const isMedia = key === 'image' || key === 'video' || key === 'lottie';
@@ -1559,10 +1673,14 @@ export function paintLodNodeProxy(
       return;
     }
     if (isMedia) {
-      ctx.save();
-      ctx.globalAlpha = opacity;
-      paintMediaProxyIcon(ctx, w, h, opacity);
-      ctx.restore();
+      if (key === 'image' || key === 'video') {
+        paintCanvasMediaInk(ctx, { node, width: w, height: h, opacity });
+      } else {
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        paintMediaProxyIcon(ctx, w, h, opacity);
+        ctx.restore();
+      }
       return;
     }
     const shapeType = String(node.attrs?.shapeType || key || '').toLowerCase();
@@ -1586,12 +1704,12 @@ export function paintLodNodeProxy(
       } else {
         ctx.save();
         ctx.globalAlpha = opacity;
-        paintStrokeLodProxy(ctx, {
+        paintStrokeCanvasIdle(ctx, {
           pathD,
           width: w,
           height: h,
           stroke: fill,
-          lineWidth: lodProxyStrokeWidth(node, opts.zoom),
+          lineWidth: canvasIdleStrokeWidth(node, opts.zoom),
         });
         ctx.restore();
       }
@@ -1616,6 +1734,7 @@ export function paintLodNodeProxy(
   };
 
   ctx.save();
+  clipCanvasIdleToOwningFrame(ctx, opts.document, node, opts.zoom);
   if (Math.abs(angle) > 0.5) {
     const cx = left + w / 2;
     const cy = top + h / 2;
@@ -1630,56 +1749,56 @@ export function paintLodNodeProxy(
 }
 
 /**
- * Live LOD proxy list published by RcbShapesLayer for the stage Canvas underlay.
+ * Live Canvas-idle id list published by RcbShapesLayer for the stage ink overlay.
  * Screen-space paint uses CameraTransform (same lattice as the pixel grid).
  */
-export type SceneLodPaintSnapshot = {
+export type SceneCanvasIdlePaintSnapshot = {
   document: SceneDocument;
-  proxyIds: readonly string[];
+  canvasIds: readonly string[];
   hiddenNodeId: string | null;
   getNodeBox: (nodeId: string) => SceneHitBox | null;
 };
 
-let sceneLodPaint: SceneLodPaintSnapshot | null = null;
-const sceneLodPaintListeners = new Set<() => void>();
+let sceneCanvasIdlePaint: SceneCanvasIdlePaintSnapshot | null = null;
+const sceneCanvasIdlePaintListeners = new Set<() => void>();
 
-export function getSceneLodPaint(): SceneLodPaintSnapshot | null {
-  return sceneLodPaint;
+export function getSceneCanvasIdlePaint(): SceneCanvasIdlePaintSnapshot | null {
+  return sceneCanvasIdlePaint;
 }
 
-export function setSceneLodPaint(next: SceneLodPaintSnapshot | null): void {
-  sceneLodPaint = next;
-  for (const fn of sceneLodPaintListeners) {
+export function setSceneCanvasIdlePaint(next: SceneCanvasIdlePaintSnapshot | null): void {
+  sceneCanvasIdlePaint = next;
+  for (const fn of sceneCanvasIdlePaintListeners) {
     fn();
   }
 }
 
-/** Re-paint underlay without changing the LOD id set (e.g. fill-image decode finished). */
-export function bumpSceneLodPaint(): void {
-  for (const fn of sceneLodPaintListeners) {
+/** Re-paint idle ink without changing the id set (e.g. fill-image decode finished). */
+export function bumpSceneCanvasIdlePaint(): void {
+  for (const fn of sceneCanvasIdlePaintListeners) {
     fn();
   }
 }
 
-export function clearSceneLodPaint(): void {
-  if (sceneLodPaint == null) return;
-  setSceneLodPaint(null);
+export function clearSceneCanvasIdlePaint(): void {
+  if (sceneCanvasIdlePaint == null) return;
+  setSceneCanvasIdlePaint(null);
 }
 
-export function subscribeSceneLodPaint(listener: () => void): () => void {
-  sceneLodPaintListeners.add(listener);
+export function subscribeSceneCanvasIdlePaint(listener: () => void): () => void {
+  sceneCanvasIdlePaintListeners.add(listener);
   return () => {
-    sceneLodPaintListeners.delete(listener);
+    sceneCanvasIdlePaintListeners.delete(listener);
   };
 }
 
 /** Ids to paint on the underlay (excludes the inline-edit hidden node). */
-export function listSceneLodPaintIds(): readonly string[] {
-  const snap = sceneLodPaint;
-  if (!snap?.proxyIds.length) return [];
+export function listSceneCanvasIdlePaintIds(): readonly string[] {
+  const snap = sceneCanvasIdlePaint;
+  if (!snap?.canvasIds.length) return [];
   const hidden = snap.hiddenNodeId;
-  if (!hidden) return snap.proxyIds;
-  return snap.proxyIds.filter((id) => id !== hidden);
+  if (!hidden) return snap.canvasIds;
+  return snap.canvasIds.filter((id) => id !== hidden);
 }
 
 /**
