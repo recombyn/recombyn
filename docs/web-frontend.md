@@ -71,6 +71,6 @@ Editor **document**, selection, tools, camera-ish UI — local canvas SoT. Do no
 
 ## Related
 
-- [canvas-architecture.md](./canvas-architecture.md) — paint / Path2D / LOD
+- [canvas-architecture.md](./canvas-architecture.md) — paint / Path2D / viewport cull + Canvas idle
 - [scene-json-spec.md](./scene-json-spec.md) — persisted document JSON
 - [self-hosting.md](./self-hosting.md) — deploy + collab WSS

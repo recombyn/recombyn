@@ -18,6 +18,7 @@ import {
 import { collabRedo, collabUndo } from '@/components/editor/collab/collabRuntime';
 import type { CtxAction } from '@/components/rcb/selection/chrome/CanvasContextMenu';
 import { filterChatAttachNodeIds } from '../attachPick';
+import { tryConsumeGradientStopDelete } from '@/components/editor/panels/FillPanel';
 
 type UseCanvasHotkeysArgs = {
   readOnly: boolean;
@@ -238,10 +239,19 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           return;
         }
       }
-      if (e.key === 'Delete' && !readOnly) {
-        if (target?.closest?.('[data-fill-panel], [data-color-panel]')) return;
-        if (inComposer && composerPromptText(target)) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !readOnly) {
         if (typing && !inComposer) return;
+        if (inComposer && composerPromptText(target)) return;
+        const el = target as HTMLElement | null;
+        if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+          return;
+        }
+        if (tryConsumeGradientStopDelete()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
+        if (el?.closest?.('[data-fill-panel], [data-color-panel]')) return;
         const ids = selectedIdsRef.current;
         const frameIds = selectedFrameIdsRef.current;
         if (ids.length || frameIds.length || activeFrameIdRef.current) {

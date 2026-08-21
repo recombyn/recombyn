@@ -18,14 +18,14 @@ import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
-  clearSceneLodPaint,
+  clearSceneCanvasIdlePaint,
   canIdlePaintOnCanvas,
-  lodProxyIsStrokeOnly,
-  setSceneLodPaint,
+  canvasIdleIsStrokeOnly,
+  setSceneCanvasIdlePaint,
 } from '@/components/rcb/render/sceneRenderer';
 import RcbShapeHost from './RcbShapeHost';
 
-export { lodProxyIsStrokeOnly, canIdlePaintOnCanvas };
+export { canvasIdleIsStrokeOnly, canIdlePaintOnCanvas };
 
 type Props = {
   document: SceneDocument;
@@ -37,7 +37,7 @@ type Props = {
   hiddenNodeId?: string | null;
   /** Never cull these (selection / inline editors) even if off-screen. */
   keepVisibleIds?: readonly string[];
-  /** Must stay as full SVG hosts (inline editors only — selection stays LOD). */
+  /** Must stay as full SVG hosts (inline editors only — selection stays SVG). */
   forceFullIds?: readonly string[];
   /** Shared scene index from SvgCanvas — drives viewport visible set. */
   spatialIndex?: RcbSpatialIndex | null;
@@ -56,17 +56,14 @@ const EFFICIENT_ZOOM_SHAPE_THRESHOLD = 80;
 /** Prefer index.search over O(N) AABB walk once the scene is this large. */
 const INDEX_CULL_THRESHOLD = 64;
 
-/** Cap full SVG hosts; overflow paints as shared-SVG AABB proxies. */
+/** Cap full SVG hosts; overflow paints as Canvas idle ink. */
 const MAX_FULL_HOSTS = 96;
 
 /**
- * Hard cap on LOD proxy paint. Canvas2D batches handle denser zoom-out than
- * per-rect SVG DOM — keep a ceiling for fill cost on huge viewports.
+ * Hard cap on Canvas underlay paint when SVG hosts overflow budget.
+ * Off-viewport nodes are already culled — they never reach this list.
  */
-const MAX_PROXY_PAINT = 4096;
-
-/** Below this zoom, prefer proxies for most on-screen nodes. */
-const LOD_ZOOM_FAR = 0.2;
+const MAX_CANVAS_IDLE_PAINT = 4096;
 
 function isHeavyPathNode(node: SceneNodeInput): boolean {
   const d = String(node?.attrs?.path || '');
@@ -81,46 +78,44 @@ function screenAreaPx(node: SceneNodeInput, zoom: number): number {
 }
 
 function hostBudget(opts: {
-  zoom: number;
   moving: boolean;
   visibleCount: number;
 }): number {
-  const { zoom, moving, visibleCount } = opts;
-  const far = zoom < LOD_ZOOM_FAR;
-  // Far zoom: prefer Canvas2D stroke/fill proxies over many SVG hosts.
-  if (far) return Math.min(MAX_FULL_HOSTS, 24);
+  const { moving, visibleCount } = opts;
+  // Pan/zoom motion: slightly tighter SVG budget; idle keeps full host cap.
+  // Far zoom alone must NOT demote in-viewport ink (cull handles off-screen).
   if (moving && visibleCount >= EFFICIENT_ZOOM_SHAPE_THRESHOLD) {
     return Math.min(MAX_FULL_HOSTS, 56);
   }
   return MAX_FULL_HOSTS;
 }
 
-function trimProxyIds(opts: {
+function trimCanvasIds(opts: {
   document: SceneDocument;
-  proxyIds: string[];
+  canvasIds: string[];
   zoom: number;
-  maxProxies: number;
+  maxCanvasIdle: number;
 }): string[] {
-  const { document, proxyIds, zoom, maxProxies } = opts;
-  if (proxyIds.length <= maxProxies) return proxyIds;
-  const scored = proxyIds.map((id) => ({
+  const { document, canvasIds, zoom, maxCanvasIdle } = opts;
+  if (canvasIds.length <= maxCanvasIdle) return canvasIds;
+  const scored = canvasIds.map((id) => ({
     id,
     score: screenAreaPx(document?.deltaSetLike?.[id], zoom),
   }));
   scored.sort((a, b) => b.score - a.score);
-  const keep = new Set(scored.slice(0, maxProxies).map((s) => s.id));
+  const keep = new Set(scored.slice(0, maxCanvasIdle).map((s) => s.id));
   // Preserve document z-order among survivors.
-  return proxyIds.filter((id) => keep.has(id));
+  return canvasIds.filter((id) => keep.has(id));
 }
 
 /**
- * Split visible ids into full SVG hosts vs Canvas underlay proxies.
- * Under host budget (and not force-LOD): **all** visible ids stay full SVG hosts
- * so hit / selection / chrome keep a mounted lattice. Canvas proxies only when
- * over budget or far-zoom LOD — `canIdlePaintOnCanvas` prefers those for the
- * underlay, not as a host replacement at normal zoom.
+ * Split **in-viewport** ids into full SVG hosts vs Canvas2D underlay.
+ *
+ * Off-screen nodes are culled before this runs — that is the only skip path.
+ * Far zoom must not demote visible ink to placeholders. Canvas underlay is an
+ * overflow path when SVG hosts exceed budget (or during dense camera motion).
  */
-export function pickFullAndProxyIds(opts: {
+export function pickFullAndCanvasIds(opts: {
   document: SceneDocument;
   visibleIds: string[];
   keepSet: Set<string>;
@@ -128,22 +123,20 @@ export function pickFullAndProxyIds(opts: {
   forceFullSet?: Set<string>;
   zoom: number;
   moving: boolean;
-  maxProxies?: number;
-}): { fullIds: string[]; proxyIds: string[] } {
+  maxCanvasIdle?: number;
+}): { fullIds: string[]; canvasIds: string[] } {
   const { document, visibleIds, zoom, moving } = opts;
   const forceFullSet = opts.forceFullSet ?? EMPTY_FORCE_FULL_SET;
-  const maxProxies = opts.maxProxies ?? MAX_PROXY_PAINT;
-  const budget = hostBudget({ zoom, moving, visibleCount: visibleIds.length });
-  const far = zoom < LOD_ZOOM_FAR;
-  const forceLod =
-    far || (moving && visibleIds.length >= EFFICIENT_ZOOM_SHAPE_THRESHOLD);
+  const maxCanvasIdle = opts.maxCanvasIdle ?? MAX_CANVAS_IDLE_PAINT;
+  const budget = hostBudget({ moving, visibleCount: visibleIds.length });
+  const motionOverflow =
+    moving && visibleIds.length >= EFFICIENT_ZOOM_SHAPE_THRESHOLD;
 
-  if (visibleIds.length <= budget && !forceLod) {
+  if (visibleIds.length <= budget && !motionOverflow) {
     // Under host budget: keep SVG hosts for every visible node.
     // Canvas-idle must NOT drop hosts — selection / hit / chrome still need a
-    // mounted lattice (ADR 0027 phase 1). Idle Canvas paint is an overflow /
-    // far-zoom path below, not a replacement for interactive hosts.
-    return { fullIds: [...visibleIds], proxyIds: [] };
+    // mounted lattice (ADR 0027 phase 1).
+    return { fullIds: [...visibleIds], canvasIds: [] };
   }
 
   const scored: Array<{ id: string; score: number; force: boolean; canvasIdle: boolean }> = [];
@@ -152,19 +145,13 @@ export function pickFullAndProxyIds(opts: {
     const force = forceFullSet.has(id);
     const canvasIdle = !force && canIdlePaintOnCanvas(node);
     let score = screenAreaPx(node, zoom);
-    if (isHeavyPathNode(node) && forceLod) score *= 0.05;
-    // Far zoom: media still expensive as SVG; idle text/paths prefer Canvas.
-    if (far && !force) {
-      const key = String(node?.key || '');
-      if (key === 'image' || key === 'video' || key === 'lottie') {
-        score *= 0.08;
-      }
-    }
+    // Dense motion: demote heavy paths first when filling the SVG budget.
+    if (isHeavyPathNode(node) && motionOverflow) score *= 0.05;
     scored.push({ id, score, force, canvasIdle });
   }
   scored.sort((a, b) => {
     if (a.force !== b.force) return a.force ? -1 : 1;
-    // Prefer SVG budget for nodes Canvas cannot paint well; demote idle solids first.
+    // Prefer SVG budget for nodes Canvas cannot paint well; demote idle first.
     if (a.canvasIdle !== b.canvasIdle) return a.canvasIdle ? 1 : -1;
     return b.score - a.score;
   });
@@ -175,28 +162,28 @@ export function pickFullAndProxyIds(opts: {
       fullSet.add(s.id);
       continue;
     }
-    // Idle Canvas shapes skip SVG hosts even when budget remains.
+    // Overflow / dense-motion path: idle Canvas ink skips SVG hosts.
     if (s.canvasIdle) continue;
     if (fullSet.size < budget) fullSet.add(s.id);
   }
   // Preserve document z-order for both lists.
   const fullIds = visibleIds.filter((id) => fullSet.has(id));
-  const proxyRaw = visibleIds.filter((id) => !fullSet.has(id));
-  const proxyIds = trimProxyIds({
+  const canvasRaw = visibleIds.filter((id) => !fullSet.has(id));
+  const canvasIds = trimCanvasIds({
     document,
-    proxyIds: proxyRaw,
+    canvasIds: canvasRaw,
     zoom,
-    maxProxies,
+    maxCanvasIdle,
   });
-  return { fullIds, proxyIds };
+  return { fullIds, canvasIds };
 }
 
 /**
  * Renders each ROOT child as its own SVG shape host (sharp under CSS camera zoom).
  * Canvas Path2D is only used by selection indicators / draw-tool overlays.
  * Off-viewport nodes are not mounted (lazy paint); selection/editing stay culled-alive.
- * Far zoom / dense views: LOD proxies paint on the stage Canvas underlay
- * (`setSceneLodPaint` → `paintLodNodeProxy`).
+ * Host overflow / dense camera motion: Canvas2D underlay paints eligible nodes
+ * (`setSceneCanvasIdlePaint` → `paintCanvasIdleNode`). Off-viewport ids are not mounted.
  * Selected / editing ids are forceFull (SVG hosts) so transform preview can
  * update DOM; Canvas proxies also read `TransformPreview` via effectivePaintBox.
  * z-index comes from document.stackOrder so shapes can interleave with artboards.
@@ -311,9 +298,9 @@ function RcbShapesLayer({
     return out;
   }, [document, ids, stageSize, cullCam, spatialIndex, idRank, keepSet]);
 
-  const { fullIds, proxyIds } = useMemo(
+  const { fullIds, canvasIds } = useMemo(
     () =>
-      pickFullAndProxyIds({
+      pickFullAndCanvasIds({
         document,
         visibleIds,
         keepSet,
@@ -326,19 +313,19 @@ function RcbShapesLayer({
 
   const patched = useMemo(() => new Set(lastPatchedNodeIds.filter(Boolean)), [lastPatchedNodeIds]);
 
-  // Publish LOD proxies to the stage Canvas underlay (screen-space, camera baked).
+  // Publish Canvas idle ids to the stage overlay (screen-space, camera baked).
   // useLayoutEffect so RcbCanvas's paint layout effect sees the snapshot same frame.
   useLayoutEffect(() => {
-    if (!document || !proxyIds.length) {
-      clearSceneLodPaint();
+    if (!document || !canvasIds.length) {
+      clearSceneCanvasIdlePaint();
       return () => {
-        clearSceneLodPaint();
+        clearSceneCanvasIdlePaint();
       };
     }
     const sceneDoc = document;
-    setSceneLodPaint({
+    setSceneCanvasIdlePaint({
       document: sceneDoc,
-      proxyIds,
+      canvasIds,
       hiddenNodeId: hiddenNodeId ?? null,
       getNodeBox: (id) => {
         const node = sceneDoc.deltaSetLike?.[id];
@@ -353,9 +340,9 @@ function RcbShapesLayer({
       },
     });
     return () => {
-      clearSceneLodPaint();
+      clearSceneCanvasIdlePaint();
     };
-  }, [document, proxyIds, hiddenNodeId, documentPatchToken]);
+  }, [document, canvasIds, hiddenNodeId, documentPatchToken]);
 
   if (!document || !visibleIds.length) return null;
 
@@ -364,7 +351,7 @@ function RcbShapesLayer({
       data-rcb-shapes-layer="1"
       data-rcb-visible-count={visibleIds.length}
       data-rcb-full-host-count={fullIds.length}
-      data-rcb-proxy-count={proxyIds.length}
+      data-rcb-canvas-idle-count={canvasIds.length}
       className="pointer-events-none absolute left-0 top-0 overflow-visible"
     >
       {fullIds.map((id) => {
