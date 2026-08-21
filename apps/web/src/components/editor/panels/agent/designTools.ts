@@ -70,6 +70,11 @@ import {
   canOutlineNode,
   outlineNodePatch,
 } from '@/components/rcb/scene/paint/outlineToPath';
+import { isCustomPathShape } from '@/components/rcb/scene/document/pathScale';
+import {
+  polylinePathD,
+  simplifyPencilCenterline,
+} from '@/components/rcb/tools/pencilBrushes';
 
 const IMAGE_PLACEHOLDER =
   "data:image/svg+xml," +
@@ -794,19 +799,15 @@ function readScenePoints(raw: unknown): ScenePoint[] {
 }
 
 function pointsToPath(points: ScenePoint[], closed: boolean): string {
-  if (!points.length) return '';
-  const [first, ...rest] = points;
-  const chunks = [`M ${first.x} ${first.y}`];
-  for (const p of rest) chunks.push(`L ${p.x} ${p.y}`);
-  if (closed && points.length > 2) chunks.push('Z');
-  return chunks.join(' ');
+  const d = polylinePathD(points);
+  if (!d) return '';
+  if (closed && points.length > 2) return `${d} Z`;
+  return d;
 }
-
-const PATH_SHAPE_TYPES = new Set(['path', 'pen', 'pencil']);
 
 function isEditablePathNode(node: SceneNode | undefined | null): boolean {
   if (!node || node.key !== 'shape') return false;
-  return PATH_SHAPE_TYPES.has(String(node.attrs?.shapeType || '').toLowerCase());
+  return isCustomPathShape(String(node.attrs?.shapeType || '').toLowerCase());
 }
 
 function parsePathPoints(path: string): { points: ScenePoint[]; closed: boolean } {
@@ -856,40 +857,8 @@ function parsePathPoints(path: string): { points: ScenePoint[]; closed: boolean 
   return { points, closed };
 }
 
-function pointSegDist(p: ScenePoint, a: ScenePoint, b: ScenePoint): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
-  const t = Math.max(
-    0,
-    Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy))
-  );
-  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
-}
-
 function simplifyPolyline(points: ScenePoint[], tolerance: number): ScenePoint[] {
-  if (points.length <= 2) return points;
-  const keep = Array.from({ length: points.length }, () => false);
-  keep[0] = true;
-  keep[points.length - 1] = true;
-  const stack: Array<[number, number]> = [[0, points.length - 1]];
-  while (stack.length) {
-    const [start, end] = stack.pop()!;
-    let maxD = -1;
-    let maxI = -1;
-    for (let i = start + 1; i < end; i += 1) {
-      const d = pointSegDist(points[i], points[start], points[end]);
-      if (d > maxD) {
-        maxD = d;
-        maxI = i;
-      }
-    }
-    if (maxD > tolerance && maxI > start) {
-      keep[maxI] = true;
-      stack.push([start, maxI], [maxI, end]);
-    }
-  }
-  return points.filter((_, i) => keep[i]);
+  return simplifyPencilCenterline(points, tolerance);
 }
 
 function lerpPoint(a: ScenePoint, b: ScenePoint, t: number): ScenePoint {

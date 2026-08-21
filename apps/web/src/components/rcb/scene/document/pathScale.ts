@@ -106,6 +106,101 @@ export function scalePathData(d: string, sx: number, sy: number): string {
   return out.join(' ');
 }
 
+/**
+ * Translate path coordinates (absolute cmds get dx/dy; relative cmds keep deltas).
+ * Used when normalizing imported SVG paths into node-local space.
+ */
+export function translatePathData(d: string, dx: number, dy: number): string {
+  if (!dx && !dy) return d;
+  const tokens = tokenizePath(String(d || ''));
+  if (!tokens.length) return d;
+
+  const out: string[] = [];
+  let i = 0;
+
+  const readNum = () => {
+    if (i >= tokens.length) return null;
+    const t = tokens[i];
+    if (/^[a-zA-Z]$/.test(t)) return null;
+    i += 1;
+    return parseFloat(t);
+  };
+
+  while (i < tokens.length) {
+    const cmd = tokens[i++];
+    out.push(cmd);
+
+    if (cmd === 'Z' || cmd === 'z') continue;
+
+    const abs = cmd === cmd.toUpperCase();
+    const argCount = CMD_ARGS[cmd];
+    if (!argCount) continue;
+
+    if (cmd === 'H' || cmd === 'h') {
+      let x = readNum();
+      while (x != null) {
+        out.push(String(Number((abs ? x + dx : x).toFixed(3))));
+        x = readNum();
+      }
+      continue;
+    }
+
+    if (cmd === 'V' || cmd === 'v') {
+      let y = readNum();
+      while (y != null) {
+        out.push(String(Number((abs ? y + dy : y).toFixed(3))));
+        y = readNum();
+      }
+      continue;
+    }
+
+    if (cmd === 'A' || cmd === 'a') {
+      while (i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i])) {
+        const rx = readNum();
+        const ry = readNum();
+        const rot = readNum();
+        const laf = readNum();
+        const sf = readNum();
+        const x = readNum();
+        const y = readNum();
+        if (
+          rx == null ||
+          ry == null ||
+          rot == null ||
+          laf == null ||
+          sf == null ||
+          x == null ||
+          y == null
+        ) {
+          break;
+        }
+        out.push(
+          String(rx),
+          String(ry),
+          String(rot),
+          String(laf),
+          String(sf),
+          String(Number((abs ? x + dx : x).toFixed(3))),
+          String(Number((abs ? y + dy : y).toFixed(3)))
+        );
+      }
+      continue;
+    }
+
+    while (i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i])) {
+      const x = readNum();
+      const y = readNum();
+      if (x == null || y == null) break;
+      out.push(
+        String(Number((abs ? x + dx : x).toFixed(3))),
+        String(Number((abs ? y + dy : y).toFixed(3)))
+      );
+    }
+  }
+
+  return out.join(' ');
+}
+
 export function isCustomPathShape(shapeType: string) {
   return shapeType === 'path' || shapeType === 'pen' || shapeType === 'pencil';
 }
