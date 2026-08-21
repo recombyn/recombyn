@@ -25,7 +25,7 @@ import {
   groupNodesInDocument
 } from '@/components/rcb/scene/document/sceneGroups';
 import { removeNodesFromDocument } from '@/components/rcb/scene/document/sceneDocument';
-import { scalePathData } from '@/components/rcb/scene/document/pathScale';
+import { scalePathData, translatePathData } from '@/components/rcb/scene/document/pathScale';
 import { maxRadius, radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { renderExport } from '@/components/rcb/scene/paint/exportImage';
 import {
@@ -704,104 +704,6 @@ function opacityOf(el: Element): number {
   }
   const n = Number(el.getAttribute('opacity'));
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
-}
-
-function translatePathData(d: string, dx: number, dy: number): string {
-  if (!dx && !dy) return d;
-  const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || [];
-  if (!tokens.length) return d;
-  const CMD_ARGS: Record<string, number> = {
-    M: 2,
-    m: 2,
-    L: 2,
-    l: 2,
-    H: 1,
-    h: 1,
-    V: 1,
-    v: 1,
-    C: 6,
-    c: 6,
-    S: 4,
-    s: 4,
-    Q: 4,
-    q: 4,
-    T: 2,
-    t: 2,
-    A: 7,
-    a: 7,
-  };
-  const out: string[] = [];
-  let i = 0;
-  const readNum = () => {
-    if (i >= tokens.length || /^[a-zA-Z]$/.test(tokens[i])) return null;
-    return parseFloat(tokens[i++]);
-  };
-  while (i < tokens.length) {
-    const cmd = tokens[i++];
-    out.push(cmd);
-    if (cmd === 'Z' || cmd === 'z') continue;
-    const abs = cmd === cmd.toUpperCase();
-    if (cmd === 'H' || cmd === 'h') {
-      let x = readNum();
-      while (x != null) {
-        out.push(String(Number((abs ? x + dx : x).toFixed(3))));
-        x = readNum();
-      }
-      continue;
-    }
-    if (cmd === 'V' || cmd === 'v') {
-      let y = readNum();
-      while (y != null) {
-        out.push(String(Number((abs ? y + dy : y).toFixed(3))));
-        y = readNum();
-      }
-      continue;
-    }
-    if (cmd === 'A' || cmd === 'a') {
-      while (i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i])) {
-        const rx = readNum();
-        const ry = readNum();
-        const rot = readNum();
-        const laf = readNum();
-        const sf = readNum();
-        const x = readNum();
-        const y = readNum();
-        if (
-          rx == null ||
-          ry == null ||
-          rot == null ||
-          laf == null ||
-          sf == null ||
-          x == null ||
-          y == null
-        ) {
-          break;
-        }
-        out.push(
-          String(rx),
-          String(ry),
-          String(rot),
-          String(laf),
-          String(sf),
-          String(Number((abs ? x + dx : x).toFixed(3))),
-          String(Number((abs ? y + dy : y).toFixed(3)))
-        );
-      }
-      continue;
-    }
-    const argCount = CMD_ARGS[cmd];
-    if (!argCount) continue;
-    while (i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i])) {
-      const x = readNum();
-      const y = readNum();
-      if (x == null || y == null) break;
-      out.push(
-        String(Number((abs ? x + dx : x).toFixed(3))),
-        String(Number((abs ? y + dy : y).toFixed(3)))
-      );
-    }
-  }
-  return out.join(' ');
 }
 
 function matrixRelativeToRoot(el: SVGGraphicsElement, root: SVGSVGElement): DOMMatrix | null {
