@@ -77,8 +77,10 @@ class Settings(BaseSettings):
     ocr_lang: str = "ch"
     scene_target_width: int = 794
     palette_k: int = 5
-    enable_sam: bool = False
-    enable_lama: bool = False
+    # Prefer multi-instance SAM + LaMa when deps/checkpoint are present;
+    # paths no-op cleanly when unavailable (rembg / Telea fallback).
+    enable_sam: bool = True
+    enable_lama: bool = True
 
     s3_enabled: bool = False
     s3_endpoint_url: str | None = None
