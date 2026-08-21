@@ -68,15 +68,15 @@ Requires API + Redis + Celery worker running together.
 ## Stage 5: table cells + SAM/LaMa hooks
 
 1. **Tables**: layout tables are OCR’d again by default into background `rect` + editable text cells (`EXPAND_TABLE_CELLS=true`, `engines` includes `table-cells`)
-2. **SAM**: when `ENABLE_SAM=true` and `SAM_CHECKPOINT` is set, run MobileSAM / segment_anything; large regions become image layers
-3. **LaMa**: when `ENABLE_LAMA=true`, use `simple-lama-inpainting` or OpenCV Telea; default mask from SAM boxes (`LAMA_USE_SAM_MASK=true`)
+2. **SAM** (default on): when `ENABLE_SAM=true` and `SAM_CHECKPOINT` is set, run MobileSAM / segment_anything; soft masks become transparent PNG layers (rembg is single-subject fallback only)
+3. **LaMa** (default on): when `ENABLE_LAMA=true`, use `simple-lama-inpainting` with soft-mask union; OpenCV Telea if LaMa missing
 
 ```env
 EXPAND_TABLE_CELLS=true
-ENABLE_SAM=false
+ENABLE_SAM=true
 SAM_CHECKPOINT=/path/to/mobile_sam.pt
 SAM_MODEL_TYPE=vit_t
-ENABLE_LAMA=false
+ENABLE_LAMA=true
 LAMA_USE_SAM_MASK=true
 ```
 

@@ -6,9 +6,10 @@ editText
   - Does NOT split other visual subjects
 
 editElements
-  - Subjects (SAM / layout heuristics) as transparent PNG crops
+  - Subjects: SAM soft masks (primary) / rembg single-fg fallback → transparent PNG
+  - Edge refine + defringe on soft alpha before encode
   - OCR text layers
-  - Background = original with text + subjects inpainted
+  - Background = LaMa (default) or Telea inpaint of text ∪ subjects
   - Canvas places layers at source coords so the stack still reads as one picture
 """
 
@@ -88,6 +89,56 @@ def _bgr_to_data_url(bgr) -> str:
     return f"data:image/png;base64,{b64}"
 
 
+def _refine_layer_alpha(bgr_crop, alpha):
+    """Edge-aware soft alpha + defringe for transparent PNG layers."""
+    import cv2
+    import numpy as np
+
+    a = np.asarray(alpha, dtype=np.float32)
+    if a.ndim != 2 or a.shape[:2] != bgr_crop.shape[:2]:
+        return None
+    if float(a.max()) < 8:
+        return None
+
+    # Bilateral on alpha keeps soft hair while reducing mask noise.
+    a_u8 = np.clip(a, 0, 255).astype(np.uint8)
+    a_soft = cv2.bilateralFilter(a_u8, d=5, sigmaColor=48, sigmaSpace=48).astype(np.float32)
+
+    # Narrow-band: pull RGB from solid interior to kill color spill / white fringe.
+    rgb = bgr_crop.astype(np.float32)
+    solid = (a_soft >= 240).astype(np.uint8)
+    if solid.max() == 0:
+        solid = (a_soft >= 180).astype(np.uint8)
+    if solid.max() > 0:
+        seed = np.zeros_like(rgb)
+        known = solid.astype(bool)
+        seed[known] = rgb[known]
+        grown = (solid * 255).astype(np.uint8)
+        filled = seed.copy()
+        dil_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        for _ in range(4):
+            grown_next = cv2.dilate(grown, dil_k, iterations=1)
+            for c in range(3):
+                ch = filled[:, :, c]
+                ch_dil = cv2.dilate(ch, dil_k, iterations=1)
+                newly = (grown_next > 0) & (grown == 0)
+                ch[newly] = ch_dil[newly]
+                filled[:, :, c] = ch
+            grown = grown_next
+        edge = (a_soft > 2) & (a_soft < 240)
+        if edge.any():
+            t = np.clip((240.0 - a_soft) / 240.0, 0.0, 1.0)
+            t = np.where(edge, np.minimum(t * 1.25, 1.0), 0.0)[..., None]
+            rgb = rgb * (1.0 - t) + filled * t
+
+    a_out = np.where(a_soft < 4, 0, a_soft).astype(np.uint8)
+    rgb_u8 = np.clip(rgb, 0, 255).astype(np.uint8)
+    rgb_u8[a_out == 0] = 0
+    rgba = cv2.cvtColor(rgb_u8, cv2.COLOR_BGR2BGRA)
+    rgba[:, :, 3] = a_out
+    return rgba
+
+
 def _rgba_crop_data_url(bgr, region: dict[str, Any], pad: int = 2) -> str | None:
     """Crop with soft edge; keep RGB (canvas images). Prefer transparent when mask present."""
     import cv2
@@ -110,8 +161,10 @@ def _rgba_crop_data_url(bgr, region: dict[str, Any], pad: int = 2) -> str | None
             m = np.asarray(mask)
             if m.ndim == 2 and m.shape[0] == h and m.shape[1] == w:
                 m_crop = m[y:y2, x:x2]
-                rgba = cv2.cvtColor(crop, cv2.COLOR_BGR2BGRA)
-                rgba[:, :, 3] = m_crop
+                rgba = _refine_layer_alpha(crop, m_crop)
+                if rgba is None:
+                    rgba = cv2.cvtColor(crop, cv2.COLOR_BGR2BGRA)
+                    rgba[:, :, 3] = m_crop
                 ok, buf = cv2.imencode(".png", rgba)
                 if ok:
                     b64 = base64.b64encode(buf.tobytes()).decode("ascii")
@@ -221,8 +274,8 @@ def _estimate_font(block: dict[str, Any], fill: str) -> dict[str, Any]:
     }
 
 
-def _rembg_subject_regions(bgr, max_regions: int = 3) -> list[dict[str, Any]]:
-    """Photo / product main subject via rembg alpha (works without SAM)."""
+def _rembg_subject_regions(bgr, max_regions: int = 8) -> list[dict[str, Any]]:
+    """Single-foreground rembg cutout — fallback when SAM has no instances."""
     import cv2
     import numpy as np
 
@@ -238,7 +291,7 @@ def _rembg_subject_regions(bgr, max_regions: int = 3) -> list[dict[str, Any]]:
         return []
     raw = buf.tobytes()
     rgba = None
-    for mode in ("product", "hair"):
+    for mode in ("hair", "product"):
         try:
             rgba = cutout_rgba_from_bytes(raw, mode=mode)  # type: ignore[arg-type]
             break
@@ -346,44 +399,69 @@ def _opencv_subject_regions(bgr, texts: list[dict[str, Any]], max_regions: int =
     return kept
 
 
-def _inpaint_regions(bgr, regions: list[dict[str, Any]]):
-    """Remove listed regions via LaMa or OpenCV Telea."""
+def _union_erase_mask(h: int, w: int, regions: list[dict[str, Any]]):
+    """Soft-mask union (preferred) or padded bboxes for erase / Telea."""
     import cv2
     import numpy as np
 
-    if not regions:
-        return bgr.copy()
-    h, w = bgr.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
     pad = 3
     for region in regions:
+        soft = region.get("mask")
+        used_soft = False
+        if soft is not None:
+            try:
+                m = np.asarray(soft)
+                if m.ndim == 2 and m.shape[0] == h and m.shape[1] == w:
+                    mask = np.maximum(mask, (m > 8).astype(np.uint8) * 255)
+                    used_soft = True
+            except Exception:
+                used_soft = False
+        if used_soft:
+            continue
         x = int(max(0, _num(region.get("x")) - pad))
         y = int(max(0, _num(region.get("y")) - pad))
         bw = int(max(1, _num(region.get("width"), 1) + pad * 2))
         bh = int(max(1, _num(region.get("height"), 1) + pad * 2))
         mask[y : min(h, y + bh), x : min(w, x + bw)] = 255
-
     if mask.max() == 0:
-        return bgr.copy()
+        return mask
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    return cv2.dilate(mask, kernel, iterations=1)
 
-    # Try file-based lama path
-    try:
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_dir = Path(tmp)
-            src = tmp_dir / "src.png"
-            write_temp_png(bgr, src)
-            out = lama_mod.inpaint(src, regions=regions)
-            if out is not None and out.is_file():
-                painted = cv2.imread(str(out))
-                if painted is not None:
-                    return painted
-    except Exception:
-        pass
+
+def _inpaint_regions(bgr, regions: list[dict[str, Any]]) -> tuple[Any, str]:
+    """Remove listed regions via LaMa (default) then OpenCV Telea.
+
+    Returns ``(bgr, engine)`` where engine is ``lama`` | ``telea`` | ``none``.
+    """
+    import cv2
+
+    if not regions:
+        return bgr.copy(), "none"
+    h, w = bgr.shape[:2]
+    mask = _union_erase_mask(h, w, regions)
+    if mask.max() == 0:
+        return bgr.copy(), "none"
+
+    if settings.enable_lama and lama_mod.available():
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_dir = Path(tmp)
+                src = tmp_dir / "src.png"
+                write_temp_png(bgr, src)
+                out = lama_mod.inpaint(src, regions=regions)
+                if out is not None and out.is_file():
+                    painted = cv2.imread(str(out))
+                    if painted is not None:
+                        return painted, "lama"
+        except Exception:
+            pass
 
     try:
-        return cv2.inpaint(bgr, mask, 3, cv2.INPAINT_TELEA)
+        return cv2.inpaint(bgr, mask, 3, cv2.INPAINT_TELEA), "telea"
     except Exception:
-        return bgr.copy()
+        return bgr.copy(), "none"
 
 
 def _collect_text_blocks(path: Path) -> tuple[list[dict[str, Any]], str]:
@@ -430,22 +508,49 @@ def _enrich_texts(bgr, texts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _collect_subjects(bgr, path: Path, texts: list[dict[str, Any]], mixed_blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Subject proposals for editElements — ordered by reliability for photos:
+    Subject proposals for editElements — multi-instance first:
 
-    1. rembg cutout (dogs / products / people) — works without SAM
-    2. document layout figures (PPT / posters)
-    3. SAM automatic masks when ENABLE_SAM + checkpoint
+    1. SAM automatic soft masks when ENABLE_SAM + checkpoint (primary)
+    2. rembg cutout only when SAM empty (single-foreground fast path)
+    3. document layout figures (PPT / posters)
     4. OpenCV edges only if still empty
     """
     subjects: list[dict[str, Any]] = []
+    sam_hit = False
 
-    # 1) Photo main subject (rembg) — primary path for canvas photos.
-    try:
-        subjects.extend(_rembg_subject_regions(bgr))
-    except Exception:
-        pass
+    # 1) SAM multi-instance soft masks (needs checkpoint; no-op when missing)
+    if settings.enable_sam:
+        try:
+            for region in sam_mod.segment_regions(path) or []:
+                item = {
+                    "x": _num(region.get("x")),
+                    "y": _num(region.get("y")),
+                    "width": max(1.0, _num(region.get("width"), 1)),
+                    "height": max(1.0, _num(region.get("height"), 1)),
+                    "source": "sam",
+                    "layout_type": "subject",
+                    "name": "主体",
+                    "area": _num(region.get("area")),
+                    "score": _num(region.get("score")),
+                }
+                if region.get("mask") is not None:
+                    item["mask"] = region["mask"]
+                if _overlaps_text(item, texts, 0.55):
+                    continue
+                subjects.append(item)
+                sam_hit = True
+        except Exception:
+            pass
 
-    # 2) Layout figures (document / poster analysis)
+    # 2) rembg — only when SAM did not propose instances
+    if not sam_hit:
+        try:
+            max_r = int(getattr(settings, "sam_max_regions", 8) or 8)
+            subjects.extend(_rembg_subject_regions(bgr, max_regions=max_r))
+        except Exception:
+            pass
+
+    # 3) Layout figures (document / poster analysis)
     for b in mixed_blocks:
         if str(b.get("type") or "") == "text":
             continue
@@ -464,36 +569,19 @@ def _collect_subjects(bgr, path: Path, texts: list[dict[str, Any]], mixed_blocks
         if not _overlaps_text(region, texts, 0.6):
             subjects.append(region)
 
-    # 3) SAM (optional, needs checkpoint)
-    if settings.enable_sam:
-        try:
-            for region in sam_mod.segment_regions(path) or []:
-                item = {
-                    "x": _num(region.get("x")),
-                    "y": _num(region.get("y")),
-                    "width": max(1.0, _num(region.get("width"), 1)),
-                    "height": max(1.0, _num(region.get("height"), 1)),
-                    "source": "sam",
-                    "layout_type": "subject",
-                    "name": "主体",
-                    "area": _num(region.get("area")),
-                }
-                if _overlaps_text(item, texts, 0.55):
-                    continue
-                subjects.append(item)
-        except Exception:
-            pass
-
     # 4) OpenCV edges — last resort only
     if not subjects:
         subjects.extend(_opencv_subject_regions(bgr, texts))
 
-    # Prefer rembg/SAM over layout/opencv when boxes overlap.
-    def _rank(r: dict[str, Any]) -> tuple[float, float]:
+    # Prefer SAM (+ soft mask) over rembg / layout / opencv when boxes overlap.
+    def _rank(r: dict[str, Any]) -> tuple[float, float, float]:
         src = str(r.get("source") or "")
-        pri = {"rembg": 3.0, "sam": 2.5, "layout": 1.5, "opencv": 1.0}.get(src, 1.0)
+        pri = {"sam": 4.0, "rembg": 2.5, "layout": 1.5, "opencv": 1.0}.get(src, 1.0)
+        if r.get("mask") is not None:
+            pri += 0.5
         area = _num(r.get("area")) or (_num(r.get("width")) * _num(r.get("height")))
-        return (pri, area)
+        score = _num(r.get("score"))
+        return (pri, score, area)
 
     subjects.sort(key=_rank, reverse=True)
     kept: list[dict[str, Any]] = []
@@ -575,16 +663,16 @@ async def decompose_image(
                     engines.append("subjects:" + "+".join(sources))
             else:
                 warnings.append(
-                    "未识别到可拆分主体（需 rembg 或开启 SAM），仅拆出文字与背景"
+                    "未识别到可拆分主体（需 SAM_CHECKPOINT 或 rembg），仅拆出文字与背景"
                 )
 
         # Background: inpaint text always; also subjects for editElements
         erase = list(texts_raw)
         if kind == "editElements":
             erase = erase + subject_regions
-        bg_bgr = _inpaint_regions(bgr, erase)
-        if erase:
-            engines.append("inpaint")
+        bg_bgr, inpaint_engine = _inpaint_regions(bgr, erase)
+        if erase and inpaint_engine != "none":
+            engines.append(f"inpaint:{inpaint_engine}")
         bg_src = _bgr_to_data_url(bg_bgr)
 
     layers: list[dict[str, Any]] = [
