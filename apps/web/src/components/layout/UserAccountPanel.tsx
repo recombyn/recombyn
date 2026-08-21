@@ -3,7 +3,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
   memo,
 } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -99,9 +101,20 @@ function UserAvatar({
   className?: string;
 }) {
   const url = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : null;
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
   useEffect(() => {
     setImgFailed(false);
+  }, [url]);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img || !url) return undefined;
+    function onError() {
+      setImgFailed(true);
+    }
+    img.addEventListener('error', onError);
+    return () => img.removeEventListener('error', onError);
   }, [url]);
 
   const dim = `${size}px`;
@@ -128,6 +141,7 @@ function UserAvatar({
   if (url && !isPlaceholderAvatarUrl(url) && !imgFailed) {
     return (
       <img
+        ref={imgRef}
         src={url}
         alt=""
         width={size}
@@ -137,7 +151,6 @@ function UserAvatar({
           className
         )}
         style={{ width: dim, height: dim }}
-        onError={() => setImgFailed(true)}
       />
     );
   }
@@ -201,6 +214,44 @@ function MenuRow({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {trailing}
     </button>
+  );
+}
+
+/** Desktop side-flyout hover zone — listeners via ref so a11y JSX rules stay clean. */
+function FlyoutHoverZone({
+  kind,
+  narrow,
+  setFlyout,
+  children,
+}: {
+  kind: Exclude<FlyoutKind, null>;
+  narrow: boolean;
+  setFlyout: Dispatch<SetStateAction<FlyoutKind>>;
+  children: ReactNode;
+}) {
+  const zoneRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = zoneRef.current;
+    if (!el || narrow) return undefined;
+    function onEnter() {
+      setFlyout(kind);
+    }
+    function onLeave() {
+      setFlyout((v) => (v === kind ? null : v));
+    }
+    el.addEventListener('mouseenter', onEnter);
+    el.addEventListener('mouseleave', onLeave);
+    return () => {
+      el.removeEventListener('mouseenter', onEnter);
+      el.removeEventListener('mouseleave', onLeave);
+    };
+  }, [kind, narrow, setFlyout]);
+
+  return (
+    <div ref={zoneRef} className="relative">
+      {children}
+    </div>
   );
 }
 
@@ -552,15 +603,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
                   </>
                 ) : (
                   <>
-                    <div
-                      className="relative"
-                      onMouseEnter={() => {
-                        if (!narrow) setFlyout('lang');
-                      }}
-                      onMouseLeave={() => {
-                        if (!narrow) setFlyout((v) => (v === 'lang' ? null : v));
-                      }}
-                    >
+                    <FlyoutHoverZone kind="lang" narrow={narrow} setFlyout={setFlyout}>
                       <MenuRow
                         icon={
                           <HiOutlineGlobeAlt
@@ -593,17 +636,9 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
                           ))}
                         </SideFlyout>
                       ) : null}
-                    </div>
+                    </FlyoutHoverZone>
 
-                    <div
-                      className="relative"
-                      onMouseEnter={() => {
-                        if (!narrow) setFlyout('theme');
-                      }}
-                      onMouseLeave={() => {
-                        if (!narrow) setFlyout((v) => (v === 'theme' ? null : v));
-                      }}
-                    >
+                    <FlyoutHoverZone kind="theme" narrow={narrow} setFlyout={setFlyout}>
                       <MenuRow
                         icon={
                           <TbShirt className={MENU_ICON} strokeWidth={MENU_STROKE} aria-hidden />
@@ -632,7 +667,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
                           ))}
                         </SideFlyout>
                       ) : null}
-                    </div>
+                    </FlyoutHoverZone>
 
                     <MenuRow
                       icon={

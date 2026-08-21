@@ -138,7 +138,9 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 
 - [x] Baseline runbook for collab/canvas/load/agent stress — [stress-baselines.md](../stress-baselines.md)
 - [x] Mock paid-gen finish E2E (`canvas.generators` route mock) + project `baseRevision` 412 conflict (functional API + `collab.sync`)
+- [x] Project cloud version history (named/auto snapshots + restore; Alembic `0019_project_versions`) — [api.md](../api.md#project-version-history)
 - [x] Dual-client collab merge under concurrent writes (`apps/collab/dual_client_merge.test.mjs` + Gate B CI)
+- [x] Web jsx-a11y hard gate (`packages/eslint-config/web.js` error-level) — [quality-gates.md](../quality-gates.md#web-lint--jsx-a11y)
 
 ### Phase 6 — Operator & scale follow-through
 

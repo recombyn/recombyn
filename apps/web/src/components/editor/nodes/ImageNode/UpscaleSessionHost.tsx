@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
-import { DropdownPanel, DropdownPanelItem, Icon, Tooltip } from '@/components/base';
+import { DropdownPanel, DropdownPanelItem, Tooltip } from '@/components/base';
 import {
   PanelConfirmCost,
   IMAGE_TOOL_CREDIT_COST,
@@ -21,7 +21,7 @@ import {
 } from '@/store/modules/editor';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { cn } from '@/utils/classnames';
-import { imageToolBtn, ImageToolSep } from './imageToolbarShared';
+import { imageToolBtn, ImageToolSep, ImageUpscaleIcon } from './imageToolbarShared';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 export type UpscaleResolution = '2K' | '4K';
@@ -153,7 +153,7 @@ function UpscaleSessionHost({ document }: { document: SceneDocument }): ReactNod
       >
         <FloatingToolbar className="relative">
           <span className="inline-flex h-8 items-center gap-1.5 px-1.5 text-[12px] font-medium text-[var(--ink)]">
-            <Icon name="editor-upscale" width={16} height={16} className="text-current" />
+            <ImageUpscaleIcon />
             <span>{t('editor.imageToolbar.upscale')}</span>
           </span>
 

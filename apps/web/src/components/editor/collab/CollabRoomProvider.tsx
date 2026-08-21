@@ -23,7 +23,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
 import { mintCollabRoomTokenApi } from '@/service/collab';
-import { apiClient } from '@/service/client';
+import { apiClient, getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import { rcbSceneToScreen, rcbScreenToScene } from '@/components/rcb/core/math';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import {
@@ -34,6 +34,7 @@ import {
 } from '@/components/editor/projectDraftStore';
 import {
   asCloudRevision,
+  flushCurrentProjectNow,
   pushProjectToCloud,
   syncOwnedDocumentToCloud,
 } from '@/components/editor/useProjectCloudSync';
@@ -222,6 +223,33 @@ function shouldEnableCollab(searchParams: URLSearchParams): boolean {
   if (env === '1' || env === 'true' || env === 'yes') return true;
   // Local Vite: on by default so two tabs on the same project sync without a query flag.
   return Boolean(import.meta.env.DEV);
+}
+
+function isCollabProjectMissingError(err: unknown): boolean {
+  if (getHttpStatus(err) !== 404) return false;
+  const msg = getHttpErrorMessage(err, '').toLowerCase();
+  return msg.includes('project not found') || msg.includes('not found');
+}
+
+/** Local-only drafts have no cloud row yet — room-token mint 404s until first upsert. */
+async function readProjectCloudRevision(projectId: string): Promise<number | null> {
+  const draft = await getProjectDraft(projectId);
+  return asCloudRevision(draft?.cloudRevision);
+}
+
+/**
+ * Ensure owned projects exist on the API before minting a collab room token.
+ * Returns false when the project is still local-only (caller should stay idle + retry).
+ */
+async function ensureOwnedProjectOnCloud(projectId: string): Promise<boolean> {
+  if (projectId.startsWith('share_')) return true;
+  if ((await readProjectCloudRevision(projectId)) != null) return true;
+  try {
+    await flushCurrentProjectNow({ force: true });
+  } catch {
+    /* flush best-effort — draft may still lack a revision */
+  }
+  return (await readProjectCloudRevision(projectId)) != null;
 }
 
 function parsePeerCamera(raw: unknown): CollabPeer['camera'] {
@@ -572,6 +600,8 @@ export function CollabRoomProvider({
   const [peers, setPeers] = useState<CollabPeer[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [followingUserId, setFollowingUserId] = useState<string | null>(null);
+  /** Bumps when a local-only project finishes its first cloud upsert so boot retries. */
+  const [cloudReadyEpoch, setCloudReadyEpoch] = useState(0);
 
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
@@ -787,6 +817,33 @@ export function CollabRoomProvider({
 
     const boot = async () => {
       try {
+        if (!currentId.startsWith('share_')) {
+          const onCloud = await ensureOwnedProjectOnCloud(currentId);
+          if (cancelled) return;
+          if (!onCloud) {
+            // Brand-new empty canvas: stay idle until cloud sync lands, then retry.
+            setStatus('idle');
+            setCollabActive(false);
+            setCollabCloudPersistOwned(false);
+            setError(null);
+            const waitId = currentId;
+            async function waitForCloudRow() {
+              for (let i = 0; i < 40; i += 1) {
+                if (cancelled) return;
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, 500);
+                });
+                if ((await readProjectCloudRevision(waitId)) != null) {
+                  if (!cancelled) setCloudReadyEpoch((n) => n + 1);
+                  return;
+                }
+              }
+            }
+            waitForCloudRow();
+            return;
+          }
+        }
+
         const body = currentId.startsWith('share_')
           ? { shareId: currentId }
           : { projectId: currentId };
@@ -851,6 +908,13 @@ export function CollabRoomProvider({
         });
       } catch (err) {
         if (cancelled) return;
+        if (isCollabProjectMissingError(err) && !currentId.startsWith('share_')) {
+          setStatus('idle');
+          setCollabActive(false);
+          setCollabCloudPersistOwned(false);
+          setError(null);
+          return;
+        }
         console.warn('[collab] connect failed', err);
         setStatus('error');
         setError(err instanceof Error ? err.message : 'collab_connect_failed');
@@ -859,7 +923,7 @@ export function CollabRoomProvider({
       }
     };
 
-    void boot();
+    boot();
 
     return () => {
       cancelled = true;
@@ -882,7 +946,7 @@ export function CollabRoomProvider({
       }
       providerRef.current = null;
       try {
-        void idbRef.current?.destroy();
+        idbRef.current?.destroy();
       } catch {
         /* ignore */
       }
@@ -902,7 +966,7 @@ export function CollabRoomProvider({
       setFollowingUserId(null);
       setCollabViewOnly(false);
     };
-  }, [enabled, currentId, user?.id, user?.name, user?.email, dispatch]);
+  }, [enabled, currentId, user?.id, user?.name, user?.email, dispatch, cloudReadyEpoch]);
 
   const followingUserIdRef = useRef<string | null>(null);
   followingUserIdRef.current = followingUserId;

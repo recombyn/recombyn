@@ -11,11 +11,10 @@ import {
   useInteractions,
   FloatingPortal,
 } from '@floating-ui/react';
-import { Icon, DropdownPanel, DropdownPanelItem } from '@/components/base';
+import { DropdownPanel, DropdownPanelItem } from '@/components/base';
 import { cn } from '@/utils/classnames';
-import { imageToolBtn } from './imageToolbarShared';
+import { ImageRemoveBgIcon, imageToolBtn } from './imageToolbarShared';
 
-const TOOL_ICON_SIZE = 16;
 
 export type RemoveBgMode = 'hair' | 'product';
 
@@ -60,12 +59,7 @@ function ImageRemoveBgMenu({
         className={cn(imageToolBtn, open && 'bg-[var(--accent-soft)]')}
         {...getReferenceProps()}
       >
-        <Icon
-          name="editor-remove_bg"
-          width={TOOL_ICON_SIZE}
-          height={TOOL_ICON_SIZE}
-          className="text-current"
-        />
+        <ImageRemoveBgIcon />
         <span>{t('editor.imageToolbar.removeBg')}</span>
       </button>
       <FloatingPortal>

@@ -186,6 +186,24 @@ class Project(SQLModel, table=True):
     created_at: float = Field(default=0.0)
 
 
+class ProjectVersion(SQLModel, table=True):
+    """Named / auto snapshots of a project document (isolated from live row)."""
+
+    __tablename__ = "project_versions"
+
+    id: str = Field(primary_key=True, max_length=64)
+    project_id: str = Field(index=True, max_length=64)
+    user_id: str = Field(index=True, max_length=64)
+    name: str = Field(default="", max_length=255)
+    note: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    kind: str = Field(default="named", max_length=16, index=True)
+    source_revision: int = Field(default=0)
+    document_key: Optional[str] = Field(default=None, max_length=512)
+    document_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    thumbnail_key: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: float = Field(default=0.0, index=True)
+
+
 class UserBalance(SQLModel, table=True):
     """Maps ``user_balances`` — unified 积分 wallet."""
 

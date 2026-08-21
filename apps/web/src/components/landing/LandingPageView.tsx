@@ -60,11 +60,11 @@ function LandingLangSwitcher(): ReactNode {
         />
       </button>
       {open ? (
-        <ul className="rcb-landing-lang-menu" role="listbox" aria-label={t('lang.label')}>
+        <div className="rcb-landing-lang-menu" role="listbox" aria-label={t('lang.label')}>
           {SUPPORTED_LANGS.map((item) => {
             const active = item.code === current;
             return (
-              <li key={item.code} role="option" aria-selected={active}>
+              <div key={item.code} role="option" aria-selected={active}>
                 <button
                   type="button"
                   className={cn('rcb-landing-lang-item', active && 'rcb-is-active')}
@@ -78,10 +78,10 @@ function LandingLangSwitcher(): ReactNode {
                 >
                   {t(item.labelKey)}
                 </button>
-              </li>
+              </div>
             );
           })}
-        </ul>
+        </div>
       ) : null}
     </div>
   );

@@ -276,3 +276,175 @@ def remove(
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
+
+
+# ----- Version history -----
+
+
+class CreateProjectVersionIn(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+    kind: str = Field(default="named", max_length=16)
+    """Omit to freeze the live project document."""
+    document: dict[str, Any] | None = None
+
+
+class PatchProjectVersionIn(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class RestoreProjectVersionIn(BaseModel):
+    baseRevision: int | None = None
+    createBackup: bool = True
+
+
+def _version_http(exc: Exception) -> HTTPException:
+    from app.services.project_versions import (
+        ProjectVersionError,
+        ProjectVersionNotFoundError,
+    )
+
+    if isinstance(exc, ProjectVersionNotFoundError):
+        return HTTPException(status_code=404, detail={"code": exc.code, "message": exc.message})
+    if isinstance(exc, ProjectVersionError):
+        status = 400
+        if exc.code == "named_limit":
+            status = 409
+        return HTTPException(
+            status_code=status,
+            detail={"code": exc.code, "message": exc.message},
+        )
+    if isinstance(exc, ProjectNotFoundError):
+        return HTTPException(status_code=404, detail="Not found")
+    if isinstance(exc, ProjectForbiddenError):
+        return HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "id": exc.project_id},
+        )
+    if isinstance(exc, ProjectConflictError):
+        return _conflict_http(exc)
+    raise exc
+
+
+@router.get("/{project_id}/versions")
+def list_project_versions(
+    current_user: CurrentUser,
+    project_id: str,
+    kind: str | None = None,
+    page: int = 1,
+    pageSize: int = 40,
+) -> dict[str, Any]:
+    from app.services import project_versions as version_store
+
+    try:
+        return version_store.list_versions(
+            current_user.id,
+            project_id,
+            kind=kind,
+            page=page,
+            page_size=pageSize,
+        )
+    except Exception as exc:
+        raise _version_http(exc) from exc
+
+
+@router.post("/{project_id}/versions")
+def create_project_version(
+    current_user: CurrentUser,
+    project_id: str,
+    body: CreateProjectVersionIn,
+) -> dict[str, Any]:
+    from app.services import project_versions as version_store
+
+    kind = (body.kind or "named").strip().lower()
+    if kind not in ("named", "auto"):
+        raise HTTPException(status_code=400, detail={"code": "invalid_kind"})
+    try:
+        row = version_store.create_version(
+            current_user.id,
+            project_id,
+            name=body.name,
+            note=body.note,
+            kind=kind,  # type: ignore[arg-type]
+            document=body.document,
+        )
+    except Exception as exc:
+        raise _version_http(exc) from exc
+    return {"version": row}
+
+
+@router.get("/{project_id}/versions/{version_id}")
+def get_project_version(
+    current_user: CurrentUser,
+    project_id: str,
+    version_id: str,
+) -> dict[str, Any]:
+    from app.services import project_versions as version_store
+
+    try:
+        row = version_store.get_version(
+            current_user.id, project_id, version_id, include_document=True
+        )
+    except Exception as exc:
+        raise _version_http(exc) from exc
+    return {"version": row}
+
+
+@router.patch("/{project_id}/versions/{version_id}")
+def patch_project_version(
+    current_user: CurrentUser,
+    project_id: str,
+    version_id: str,
+    body: PatchProjectVersionIn,
+) -> dict[str, Any]:
+    from app.services import project_versions as version_store
+
+    try:
+        row = version_store.update_version(
+            current_user.id,
+            project_id,
+            version_id,
+            name=body.name,
+            note=body.note,
+        )
+    except Exception as exc:
+        raise _version_http(exc) from exc
+    return {"version": row}
+
+
+@router.delete("/{project_id}/versions/{version_id}", response_model=OkOut)
+def delete_project_version(
+    current_user: CurrentUser,
+    project_id: str,
+    version_id: str,
+) -> dict[str, Any]:
+    from app.services import project_versions as version_store
+
+    try:
+        version_store.delete_version(current_user.id, project_id, version_id)
+    except Exception as exc:
+        raise _version_http(exc) from exc
+    return {"ok": True}
+
+
+@router.post("/{project_id}/versions/{version_id}/restore")
+def restore_project_version(
+    current_user: CurrentUser,
+    project_id: str,
+    version_id: str,
+    body: RestoreProjectVersionIn,
+) -> dict[str, Any]:
+    from app.services import project_versions as version_store
+
+    try:
+        return version_store.restore_version(
+            current_user.id,
+            project_id,
+            version_id,
+            base_revision=body.baseRevision,
+            create_backup=bool(body.createBackup),
+        )
+    except Exception as exc:
+        raise _version_http(exc) from exc
+

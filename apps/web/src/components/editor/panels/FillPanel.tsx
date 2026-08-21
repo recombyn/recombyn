@@ -386,19 +386,27 @@ function GradientStopsBar({
     window.addEventListener('pointerup', onUp);
   };
 
-  const handleTrackPointerDown = (e: ReactPointerEvent) => {
-    if ((e.target as HTMLElement).closest('[data-stop-handle]')) return;
-    if (gradient.colorStops.length >= MAX_GRADIENT_STOPS) return;
-    const offset = offsetFromClientX(e.clientX);
-    const color = interpolateStopColor(gradient.colorStops, offset);
-    const stops = [...gradient.colorStops, { offset, color, opacity: 100 }].sort(
-      (a, b) => a.offset - b.offset
-    );
-    const newIndex = stops.findIndex(
-      (s) => Math.abs(s.offset - offset) < 0.0001 && s.color === color
-    );
-    onStopsChange(stops, newIndex >= 0 ? newIndex : stops.length - 1);
-  };
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return undefined;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-stop-handle]')) return;
+      if (stopsRef.current.length >= MAX_GRADIENT_STOPS) return;
+      const offset = offsetFromClientX(e.clientX);
+      const color = interpolateStopColor(stopsRef.current, offset);
+      const stops = [...stopsRef.current, { offset, color, opacity: 100 }].sort(
+        (a, b) => a.offset - b.offset
+      );
+      const newIndex = stops.findIndex(
+        (s) => Math.abs(s.offset - offset) < 0.0001 && s.color === color
+      );
+      onStopsChangeRef.current(stops, newIndex >= 0 ? newIndex : stops.length - 1);
+    }
+    el.addEventListener('pointerdown', onPointerDown);
+    return () => el.removeEventListener('pointerdown', onPointerDown);
+  }, [offsetFromClientX]);
 
   return (
     <Tooltip
@@ -408,14 +416,13 @@ function GradientStopsBar({
     >
       <div
         ref={trackRef}
-        role="presentation"
-        tabIndex={0}
-        className="relative h-7 min-w-0 w-full cursor-crosshair rounded outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#3388ff]"
+        role="group"
+        aria-label="Gradient stops"
+        className="relative h-7 min-w-0 w-full cursor-crosshair rounded outline-none focus-within:outline focus-within:outline-2 focus-within:outline-[#3388ff]"
         style={{
           background: cssPreviewForGradient(gradient, 100),
           boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.08)',
         }}
-        onPointerDown={handleTrackPointerDown}
       >
         {gradient.colorStops.map((s, i) => (
           <button

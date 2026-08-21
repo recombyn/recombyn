@@ -27,7 +27,8 @@ def test_ensure_prompt_packs_resyncs_body_from_seed(tmp_path, monkeypatch):
     from sqlmodel import Session
 
     from app import crud
-    from app.core.db import engine, reset_engine
+    from app.core import db as core_db
+    from app.core.db import reset_engine
     from app.services.design.prompts import prompt_pack_store as pps
     from tests.conftest import restore_default_sqlite_engine
 
@@ -41,8 +42,9 @@ def test_ensure_prompt_packs_resyncs_body_from_seed(tmp_path, monkeypatch):
     reset_engine()
     pps._PACKS_READY = False
     try:
+        assert pps._SEED, "prompt pack seed must load from seeds/design_prompt_packs"
         pps.ensure_design_prompt_packs()
-        with Session(engine) as session:
+        with Session(core_db.engine) as session:
             rows = crud.list_all_design_prompt_packs(session=session)
             assert rows
             target = rows[0]
@@ -57,7 +59,7 @@ def test_ensure_prompt_packs_resyncs_body_from_seed(tmp_path, monkeypatch):
 
         pps._PACKS_READY = False
         pps.ensure_design_prompt_packs()
-        with Session(engine) as session:
+        with Session(core_db.engine) as session:
             again = crud.list_design_prompt_packs_by_kind(session=session, kind=kind)
             assert again
             assert again[0].body.replace("\r\n", "\n").strip() == seed_body.replace(

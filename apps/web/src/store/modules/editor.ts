@@ -414,6 +414,42 @@ function pushNodePatchHistory(state: typeof initialState, nodeIds: string[]) {
   bumpSceneRevisionIfUnlocked(state);
 }
 
+/** One undo step. Returns false when the stack is empty. */
+function applyUndoOnce(state: typeof initialState): boolean {
+  if (!state.historyPast.length || !state.document) return false;
+  const entry = asHistoryEntry(state.historyPast.pop());
+  if (entry.kind === 'nodes') {
+    const after: Record<string, SceneNode> = {};
+    for (const id of Object.keys(entry.before)) {
+      const cur = state.document.deltaSetLike?.[id];
+      if (cur) after[id] = cloneNodeForHistory(cur);
+    }
+    state.historyFuture.unshift({ kind: 'nodes', before: after });
+    state.document = restoreNodesIntoDocument(state.document, entry.before);
+    state.documentPatchToken += 1;
+    state.lastPatchedNodeIds = Object.keys(entry.before);
+  } else {
+    const currentSnap = cloneDocument(state.document);
+    if (currentSnap) {
+      state.historyFuture.unshift({
+        kind: 'snap',
+        doc: currentSnap,
+      });
+    }
+    state.document = entry.doc;
+    state.sceneReloadToken += 1;
+    state.lastPatchedNodeIds = [];
+  }
+  state.dirty = true;
+  const ds = state.document?.deltaSetLike || {};
+  const ids = (state.selectedNodeIds || []).filter((id: string) => Boolean(ds[id]));
+  state.selectedNodeIds = ids;
+  state.selectedNodeId = ids[0] || null;
+  clearPendingProcessIfNodeGone(state);
+  syncLibraryOnEdit(state);
+  return true;
+}
+
 const editorSlice = createSlice({
   name: 'editor',
   initialState,
@@ -1400,38 +1436,19 @@ const editorSlice = createSlice({
       saveTemplates();
     },
     undo(state) {
-      if (!state.historyPast.length || !state.document) return;
-      const entry = asHistoryEntry(state.historyPast.pop());
-      if (entry.kind === 'nodes') {
-        const after: Record<string, SceneNode> = {};
-        for (const id of Object.keys(entry.before)) {
-          const cur = state.document.deltaSetLike?.[id];
-          if (cur) after[id] = cloneNodeForHistory(cur);
-        }
-        state.historyFuture.unshift({ kind: 'nodes', before: after });
-        state.document = restoreNodesIntoDocument(state.document, entry.before);
-        state.documentPatchToken += 1;
-        state.lastPatchedNodeIds = Object.keys(entry.before);
-      } else {
-        const currentSnap = cloneDocument(state.document);
-        if (currentSnap) {
-          state.historyFuture.unshift({
-            kind: 'snap',
-            doc: currentSnap,
-          });
-        }
-        state.document = entry.doc;
-        state.sceneReloadToken += 1;
-        state.lastPatchedNodeIds = [];
+      applyUndoOnce(state);
+    },
+    /** Undo N steps (session history timeline jump). */
+    jumpHistoryBack(state, action: PayloadAction<number>) {
+      const steps = Math.max(0, Math.floor(Number(action.payload) || 0));
+      for (let i = 0; i < steps; i += 1) {
+        if (!applyUndoOnce(state)) break;
       }
-      state.dirty = true;
-      // Drop selection that pointed at nodes removed by this undo (e.g. detach).
-      const ds = state.document?.deltaSetLike || {};
-      const ids = (state.selectedNodeIds || []).filter((id: string) => Boolean(ds[id]));
-      state.selectedNodeIds = ids;
-      state.selectedNodeId = ids[0] || null;
-      clearPendingProcessIfNodeGone(state);
-      syncLibraryOnEdit(state);
+    },
+    /** Drop session stacks (e.g. before applying a cloud version restore). */
+    clearHistoryStacks(state) {
+      state.historyPast = [];
+      state.historyFuture = [];
     },
     redo(state) {
       if (!state.historyFuture.length || !state.document) return;
@@ -2256,6 +2273,8 @@ export const {
   setTemplateThumbnail,
   clearProjectsLibrary,
   undo,
+  jumpHistoryBack,
+  clearHistoryStacks,
   redo,
   setActiveTool,
   setGridMode,

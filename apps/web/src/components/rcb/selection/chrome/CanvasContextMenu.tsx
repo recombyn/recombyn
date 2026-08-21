@@ -324,6 +324,28 @@ function GeneratorSubmenu({
     []
   );
 
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return undefined;
+    function onEnter() {
+      clearCloseTimer();
+      setOpen(true);
+    }
+    function onLeave() {
+      clearCloseTimer();
+      closeTimerRef.current = window.setTimeout(() => {
+        closeTimerRef.current = null;
+        setOpen(false);
+      }, 120);
+    }
+    el.addEventListener('mouseenter', onEnter);
+    el.addEventListener('mouseleave', onLeave);
+    return () => {
+      el.removeEventListener('mouseenter', onEnter);
+      el.removeEventListener('mouseleave', onLeave);
+    };
+  }, []);
+
   const pick = (action: GeneratorPickAction) => {
     clearCloseTimer();
     setOpen(false);
@@ -333,12 +355,7 @@ function GeneratorSubmenu({
   const showFlyout = open && flyoutPos;
 
   return (
-    <div
-      ref={rowRef}
-      className="relative"
-      onMouseEnter={openMenu}
-      onMouseLeave={scheduleClose}
-    >
+    <div ref={rowRef} className="relative">
       <button
         type="button"
         className={itemClass}
@@ -364,6 +381,7 @@ function GeneratorSubmenu({
         ? createPortal(
             <div
               role="menu"
+              tabIndex={-1}
               data-ctx-menu-flyout
               className="fixed z-[80] min-w-[11rem] overflow-hidden rounded-xl bg-[var(--surface)] py-1 shadow-lg ring-1 ring-[var(--line)]"
               style={{ left: flyoutPos.left, top: flyoutPos.top }}
@@ -442,6 +460,29 @@ function ExportSubmenu({
     []
   );
 
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return undefined;
+    function onEnter() {
+      if (disabled) return;
+      clearCloseTimer();
+      setOpen(true);
+    }
+    function onLeave() {
+      clearCloseTimer();
+      closeTimerRef.current = window.setTimeout(() => {
+        closeTimerRef.current = null;
+        setOpen(false);
+      }, 120);
+    }
+    el.addEventListener('mouseenter', onEnter);
+    el.addEventListener('mouseleave', onLeave);
+    return () => {
+      el.removeEventListener('mouseenter', onEnter);
+      el.removeEventListener('mouseleave', onLeave);
+    };
+  }, [disabled]);
+
   const pick = (action: ExportPickAction) => {
     clearCloseTimer();
     setOpen(false);
@@ -451,12 +492,7 @@ function ExportSubmenu({
   const showFlyout = open && !disabled && flyoutPos;
 
   return (
-    <div
-      ref={rowRef}
-      className="relative"
-      onMouseEnter={openMenu}
-      onMouseLeave={scheduleClose}
-    >
+    <div ref={rowRef} className="relative">
       <button
         type="button"
         className={itemClass}
@@ -484,6 +520,7 @@ function ExportSubmenu({
         ? createPortal(
             <div
               role="menu"
+              tabIndex={-1}
               data-ctx-menu-flyout
               className="fixed z-[80] min-w-[8rem] overflow-hidden rounded-xl bg-[var(--surface)] py-1 shadow-lg ring-1 ring-[var(--line)]"
               style={{ left: flyoutPos.left, top: flyoutPos.top }}

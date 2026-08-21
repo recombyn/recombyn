@@ -163,7 +163,7 @@ function PlansPanel({ active = true, compact = false }: PlansPanelProps) {
             }
 
             return (
-              <article
+              <div
                 key={id}
                 role="button"
                 tabIndex={0}
@@ -263,7 +263,7 @@ function PlansPanel({ active = true, compact = false }: PlansPanelProps) {
                   {title}
                   {isPicked ? ` — ${t('wallet.currentPlan')}` : ''}
                 </p>
-              </article>
+              </div>
             );
           }
         )}

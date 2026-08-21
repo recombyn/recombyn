@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineHome, HiOutlineShare } from 'react-icons/hi2';
+import { HiOutlineClock, HiOutlineHome, HiOutlineShare } from 'react-icons/hi2';
 import { TbMessage2Filled } from 'react-icons/tb';
 import { Tooltip } from '@/components/base';
 import { CollabPresenceBar } from '@/components/editor/collab/CollabRoomProvider';
@@ -22,6 +22,7 @@ type Props = {
   onGoHome: () => void;
   onRename: (name: string) => void;
   onShare: () => void;
+  onHistory: () => void;
   onOpenAgent: () => void;
 };
 
@@ -113,6 +114,7 @@ function EditorTopChrome({
   onGoHome,
   onRename,
   onShare,
+  onHistory,
   onOpenAgent,
 }: Props) {
   const { t } = useTranslation();
@@ -168,6 +170,17 @@ function EditorTopChrome({
       >
         <div className="pointer-events-auto flex items-center gap-2">
           <EditorTopExportButton />
+          <Tooltip tip={t('editor.history.title', { defaultValue: 'History' })} placement="bottom">
+            <button
+              type="button"
+              aria-label={t('editor.history.title', { defaultValue: 'History' })}
+              onClick={onHistory}
+              className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-[var(--surface)] px-3 text-[13px] font-medium text-[var(--ink)] shadow-sm ring-1 ring-[var(--line)] transition hover:bg-[var(--accent-soft)]"
+            >
+              <HiOutlineClock className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+              {t('editor.history.short', { defaultValue: 'History' })}
+            </button>
+          </Tooltip>
           <Tooltip tip={t('editor.share')} placement="bottom">
             <button
               type="button"

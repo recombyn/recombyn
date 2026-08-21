@@ -554,7 +554,8 @@ function DevPropertiesPanel({
       )}
     >
       <div
-        role="separator"
+        role="slider"
+        tabIndex={0}
         aria-orientation="vertical"
         aria-label={t('editor.devInspect')}
         aria-valuemin={INSPECT_DOCK_MIN_W}

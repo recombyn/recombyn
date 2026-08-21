@@ -636,14 +636,15 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
       <div
         className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-8 py-10 sm:p-6 md:p-8"
         role="presentation"
-        onClick={onClose}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
         <div
           className="relative w-full max-w-[min(100%,420px)] overflow-hidden rounded-2xl bg-white shadow-[0_24px_64px_rgba(0,0,0,0.22)] md:max-w-[660px]"
           role="dialog"
           aria-modal
           aria-labelledby="login-dialog-title"
-          onClick={(e) => e.stopPropagation()}
         >
           <div className="flex min-h-[min(480px,85vh)] w-full justify-center md:min-h-[480px]">
             <LoginArtPanel />
@@ -717,7 +718,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                   </button>
                 </div>
 
-                <label className="flex items-start gap-2.5 text-[12px] leading-relaxed text-[#999]">
+                <div className="flex items-start gap-2.5 text-[12px] leading-relaxed text-[#999]">
                   <Checkbox
                     shape="circle"
                     size="small"
@@ -752,7 +753,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                       }}
                     />
                   </span>
-                </label>
+                </div>
 
                 <Button
                   type="primary"

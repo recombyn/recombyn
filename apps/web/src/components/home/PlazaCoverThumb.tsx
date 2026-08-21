@@ -43,6 +43,7 @@ function PlazaCoverThumb({
   once = true,
 }: Props): ReactNode {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const [active, setActive] = useState(false);
   const [naturalAspect, setNaturalAspect] = useState<string | null>(null);
   const thumb =
@@ -69,6 +70,19 @@ function PlazaCoverThumb({
     return () => io.disconnect();
   }, [once]);
 
+  useEffect(() => {
+    if (!flow || !src) return undefined;
+    const img = imgRef.current;
+    if (!img) return undefined;
+    function applyNaturalAspect() {
+      if (!img || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+      setNaturalAspect(`${img.naturalWidth} / ${img.naturalHeight}`);
+    }
+    if (img.complete) applyNaturalAspect();
+    img.addEventListener('load', applyNaturalAspect);
+    return () => img.removeEventListener('load', applyNaturalAspect);
+  }, [flow, src]);
+
   const flowStyle: CSSProperties | undefined = flow
     ? naturalAspect
       ? { aspectRatio: naturalAspect }
@@ -89,19 +103,7 @@ function PlazaCoverThumb({
     >
       <div className={cn('absolute inset-0', projectThumbZoomLayerClass)}>
         {src ? (
-          <img
-            key={src}
-            src={src}
-            alt=""
-            className={mediaClass}
-            onLoad={(e) => {
-              if (!flow) return;
-              const img = e.currentTarget;
-              if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-                setNaturalAspect(`${img.naturalWidth} / ${img.naturalHeight}`);
-              }
-            }}
-          />
+          <img ref={imgRef} key={src} src={src} alt="" className={mediaClass} />
         ) : active && coverDocument ? (
           <TemplateThumbnail document={coverDocument} fit={flow ? 'cover' : 'contain'} />
         ) : (

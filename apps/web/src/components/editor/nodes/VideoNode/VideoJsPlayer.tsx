@@ -345,7 +345,10 @@ function VideoJsPlayer({
         muted={muted}
         loop={loop}
         controls={false}
-      />
+      >
+        {/* Design-canvas preview has no dialogue track; empty captions satisfy a11y lint. */}
+        <track kind="captions" srcLang="en" label="Captions" />
+      </video>
       {controlsMode === 'hover' && videoPointerNone ? (
         <div className="absolute inset-0 z-[1]" aria-hidden />
       ) : null}
