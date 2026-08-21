@@ -567,15 +567,15 @@ function PenStrokeToolbar({
         </label>
 
         <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden />
-        <Tooltip tip={t('editor.pathEditDone')} placement={docked ? 'bottom' : 'top'}>
+        <Tooltip tip={`${t('editor.pathEditExit')} (Esc)`} placement={docked ? 'bottom' : 'top'}>
           <button
             type="button"
-            aria-label={t('editor.exitPenEdit')}
+            aria-label={t('editor.pathEditExit')}
             onClick={exitPenEdit}
             onPointerDown={(e) => e.stopPropagation()}
             className="inline-flex h-6 items-center justify-center rounded-md px-2 text-[12px] text-[var(--ink)] transition-colors hover:bg-[var(--accent-soft)]"
           >
-            {t('editor.exitPenEdit')}
+            {t('editor.pathEditExit')}
           </button>
         </Tooltip>
       </FloatingToolbar>
