@@ -22,7 +22,7 @@ on:
 jobs:
   k6-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       SUPER_ADMIN_TEST_CODE: ciperf01
       SUPER_ADMIN_EMAIL: admin@recombyn.com
@@ -106,13 +106,10 @@ jobs:
           done
           echo "collab failed"; tail -n 80 /tmp/collab.log; exit 1
 
+      # Avoid apt/gpg keyserver hangs that previously burned the full 30m job budget.
       - name: Install k6
-        run: |
-          sudo gpg -k
-          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-          sudo apt-get update
-          sudo apt-get install -y k6
+        uses: grafana/setup-k6-action@v1
+        timeout-minutes: 5
 
       - name: Mint PERF_TOKEN
         run: |

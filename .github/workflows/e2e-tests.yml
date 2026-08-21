@@ -16,7 +16,7 @@ on:
 jobs:
   playwright:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -35,9 +35,29 @@ jobs:
         working-directory: e2e
         run: npm install
 
-      - name: Install Chromium
+      - name: Resolve Playwright version
+        id: pw-version
         working-directory: e2e
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw-version.outputs.version }}-chromium
+
+      - name: Install Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        working-directory: e2e
+        timeout-minutes: 8
         run: npx playwright install --with-deps chromium
+
+      - name: Install Chromium OS deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        working-directory: e2e
+        timeout-minutes: 5
+        run: npx playwright install-deps chromium
 
       - name: Run Playwright
         working-directory: e2e
