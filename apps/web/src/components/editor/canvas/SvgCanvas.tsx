@@ -161,9 +161,6 @@ import {
   getDocumentGridSize,
   snapCoordToGrid,
 } from '@/components/rcb';
-import ImageProcessOverlay, {
-  type ProcessGeomOverride,
-} from '@/components/editor/nodes/ImageNode/ImageProcessOverlay';
 import ImageGeneratorOverlay from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorOverlay';
 import VideoGeneratorOverlay from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorOverlay';
 import LottieGeneratorOverlay from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorOverlay';
@@ -223,17 +220,7 @@ type SvgCanvasProps = {
    * to cover the camera frustum — do not slide the origin with pan/zoom.
    */
   viewRect?: { x: number; y: number; width: number; height: number } | null;
-  /** Live geometry for process overlays while an artboard drag is repainting. */
-  frameGeometryOverrides?: Record<string, ProcessGeomOverride> | null;
 };
-
-function mergeProcessGeometryOverrides(
-  frameOverrides: Record<string, ProcessGeomOverride> | null,
-  liveOverrides: Record<string, ProcessGeomOverride> | null
-) {
-  if (!frameOverrides && !liveOverrides) return null;
-  return { ...frameOverrides, ...liveOverrides };
-}
 
 function ctxMenuCanReplace(opts: {
   readOnly: boolean;
@@ -288,7 +275,6 @@ function SvgCanvas({
   embedded = false,
   stageEl = null,
   viewRect = null,
-  frameGeometryOverrides = null,
 }: SvgCanvasProps) {
   const dispatch = useDispatch();
   const { t } = useTranslation();
@@ -579,6 +565,8 @@ function SvgCanvas({
     () =>
       createCanvasSession({
         getDocument: () => documentRef.current,
+        getCommittedDocument: () =>
+          (store.getState() as RootState).editor?.document ?? null,
         setDocumentLocal: (doc) => {
           documentRef.current = doc;
         },
@@ -1957,19 +1945,11 @@ function SvgCanvas({
             geometryOverrides={videoLiveGeom as Record<string, AudioGeomOverride> | null}
           />
         ) : null}
-        {/* Upload / process status is content chrome, not selection chrome. Render its
-            portal before selection so the selected outline and its controls stay on top. */}
-        <ImageProcessOverlay
-          document={document}
-          geometryOverrides={mergeProcessGeometryOverrides(
-            frameGeometryOverrides,
-            videoLiveGeom
-          )}
-        />
+        {/* Process SoftGlow is owned by RcbShapeHost (node attrs.processStatus). */}
         {/* Scene-space HTML overlays (selection / draw previews). Origin matches SVG. */}
         {/* Above frame/node stackOrder so preview select/hover strokes aren't covered. */}
         {/* Above HostPathChrome (z=1e6) so poly/star/radius knobs receive hits
-            over resize hotzones; wrapper is 0脳0 + overflow visible, empty areas
+            over resize hotzones; wrapper is 0×0 + overflow visible, empty areas
             still pass through to chrome / shapes. */}
         <div className="absolute left-0 top-0 z-[1000001] h-0 w-0 overflow-visible">
           <SelectionFeature
