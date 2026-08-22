@@ -73,6 +73,7 @@ import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
 import { useImageToolCapabilities } from '@/service/imageTools';
+import { probeMockupUiInstalled } from '@/components/editor/nodes/ImageNode/mockup/mockupUiLoader';
 import ImageToolbarMoreDownload, {
   ToolbarMoreMenu,
   type ImageMoreAction,
@@ -346,7 +347,23 @@ function SelectionContextToolbar(props: Props): ReactNode {
   );
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
-  const mockupEnabled = imageToolCaps?.mockup?.enabled === true;
+  const mockupIntelEnabled = imageToolCaps?.mockup?.enabled === true;
+  const [mockupUiInstalled, setMockupUiInstalled] = useState<boolean | null>(null);
+  const mockupEnabled = mockupIntelEnabled && mockupUiInstalled === true;
+
+  useEffect(() => {
+    if (!mockupIntelEnabled) {
+      setMockupUiInstalled(false);
+      return;
+    }
+    let cancelled = false;
+    void probeMockupUiInstalled().then((ok) => {
+      if (!cancelled) setMockupUiInstalled(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mockupIntelEnabled]);
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
   const flipRotateOpen = isPanelKindOnNode(

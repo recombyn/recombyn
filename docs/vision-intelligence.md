@@ -56,9 +56,21 @@ RECOMBYN_INTELLIGENCE_API_KEY=dev-key
 | 图片分层 | `editElements` | `POST /api/v1/pipeline/jobs` (+ poll) |
 | 标记 | `detectRegions` | `POST /api/v1/pipeline/detect-regions` |
 
-## Product mockup (closed-source, P0)
+## Product mockup (closed-source)
 
-Mockup rendering lives in **recombyn-intelligence** only. The OSS web app proxies it when `RECOMBYN_INTELLIGENCE_URL` is set; otherwise **贴样机** is hidden and `POST /api/v1/mockup/render` returns 503.
+**Rendering** runs on **recombyn-intelligence**. **Editor UI** (2D / future 3D) lives in `apps/web/src/private/mockup/` — gitignored, not on GitHub.
+
+| Piece | Location | On GitHub? |
+|-------|----------|------------|
+| Render API | Intelligence | Private repo |
+| BFF proxy | `apps/api/.../mockup/` | Yes (HTTP only) |
+| Editor UI | `apps/web/src/private/mockup/` | **No** |
+| Loader | `mockup/MockupSessionHost.tsx` | Yes (lazy import) |
+| Scaffold | `src/private.example/mockup/` | Yes (stubs) |
+
+Internal: copy closed-source `private/mockup` into `apps/web/src/private/mockup/`. OSS clones without it never show **贴样机** (even if Intelligence is connected).
+
+Mockup BFF when `RECOMBYN_INTELLIGENCE_URL` is set; otherwise `POST /api/v1/mockup/render` returns 503.
 
 | Action | BFF | Intelligence |
 |--------|-----|--------------|

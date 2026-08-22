@@ -60,6 +60,10 @@ secrets/
 apps/web/agent-skills/
 !apps/web/agent-skills.example/
 
+# Closed-source web modules (mockup 2D/3D UI — internal copy only)
+apps/web/src/private/
+!apps/web/src/private.example/
+
 # typescript incremental cache (looks like garbled JSON — not source)
 *.tsbuildinfo
 
