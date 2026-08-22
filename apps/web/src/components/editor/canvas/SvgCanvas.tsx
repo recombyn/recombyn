@@ -82,6 +82,7 @@ import {
   cssPreviewForGradient,
   parseFillGradient,
   parseFillType,
+  serializeFillImageAttrs,
 } from '@/components/rcb/scene/document/sceneFill';
 import { cssSolidWithOpacity } from '@/components/base/colorPanel';
 import {
@@ -1128,10 +1129,7 @@ function SvgCanvas({
         attrs['fill-gradient'] = undefined;
       }
       if (fillType === 'image') {
-        attrs['fill-image-src'] = fill.fillImageSrc || '';
-        attrs['fill-image-fit'] = fill.fillImageFit ?? 'fill';
-        attrs['fill-image-rotate'] = fill.fillImageRotate ?? 0;
-        if (fill.fillImageAdjust) attrs['fill-image-adjust'] = fill.fillImageAdjust;
+        Object.assign(attrs, serializeFillImageAttrs(fill));
       }
       dispatch(
         patchDocumentNode({

@@ -5,9 +5,14 @@ from __future__ import annotations
 import base64
 from typing import Any
 
+import logging
+
 import httpx
 
+from app.core.config import settings
 from app.services.llm.image import generate_image
+
+logger = logging.getLogger(__name__)
 
 # Kinds that return a new raster image for the canvas clone.
 IMAGE_PROCESS_KINDS = frozenset(
@@ -37,6 +42,30 @@ def uses_llm_for_kind(kind: str | None) -> bool:
     """True when ``process_image_tool`` will call Seedream / image LLM."""
     k = (kind or "").strip()
     return bool(k) and k in IMAGE_PROCESS_KINDS and k not in NO_LLM_KINDS
+
+
+def _ilp_mode() -> str:
+    return str(getattr(settings, "image_layer_pipeline_mode", "legacy") or "legacy").strip().lower()
+
+
+def should_use_ilp_decompose(kind: str, meta: dict[str, Any] | None) -> bool:
+    """Route editElements to the closed-source depth/matting pipeline when configured."""
+    if (kind or "").strip() != "editElements":
+        return False
+    from app.services.vision.ilp_client import ilp_enabled
+
+    if not ilp_enabled():
+        return False
+
+    m = meta or {}
+    engine = str(m.get("engine") or "").strip().lower()
+    if engine == "legacy":
+        return False
+    if engine == "ilp":
+        return True
+
+    mode = _ilp_mode()
+    return mode in {"ilp", "auto"}
 
 
 
@@ -182,9 +211,25 @@ async def process_image_tool(
         return await remove_background(src, meta=meta)
 
     if k in DECOMPOSE_KINDS:
+        use_ilp = should_use_ilp_decompose(k, meta)
+        if use_ilp:
+            from app.services.vision.ilp_decompose import decompose_via_ilp
+
+            try:
+                return await decompose_via_ilp(kind=k, image=src)  # type: ignore[arg-type]
+            except Exception as exc:
+                if _ilp_mode() != "auto":
+                    raise
+                logger.warning("ILP decompose failed, falling back to legacy: %s", exc)
+
         from app.services.vision.image_edit import decompose_image
 
-        return await decompose_image(kind=k, image=src)  # type: ignore[arg-type]
+        result = await decompose_image(kind=k, image=src)  # type: ignore[arg-type]
+        if use_ilp and _ilp_mode() == "auto":
+            warnings = list(result.get("warnings") or [])
+            warnings.append("工业分层不可用，已回退到标准分层")
+            result = {**result, "warnings": warnings}
+        return result
 
     if k in DETECT_KINDS:
         from app.services.vision.image_edit import detect_regions

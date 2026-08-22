@@ -78,9 +78,8 @@ import { cssSolidWithOpacity } from '@/components/base/colorPanel';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   cssPreviewForGradient,
-  DEFAULT_FILL_IMAGE_ADJUST,
+  fillImageFieldsFromDocumentBackground,
   parseFillGradient,
-  parseFillImageFit,
   parseFillType,
   type FillType,
 } from '@/components/rcb/scene/document/sceneFill';
@@ -115,12 +114,7 @@ function documentToCanvasFill(document: SceneDocument, themeFallback: string): F
     fillColor: raw || themeFallback,
     fillOpacity: Number(document?.backgroundOpacity ?? 100),
     fillGradient: document?.backgroundGradient as FillPanelValue['fillGradient'],
-    fillImageSrc: document?.backgroundImageSrc != null ? String(document.backgroundImageSrc) : undefined,
-    fillImageFit: parseFillImageFit(document?.backgroundImageFit),
-    fillImageRotate: Number(document?.backgroundImageRotate || 0) as FillPanelValue['fillImageRotate'],
-    fillImageAdjust:
-      (document?.backgroundImageAdjust as FillPanelValue['fillImageAdjust']) ||
-      DEFAULT_FILL_IMAGE_ADJUST,
+    ...fillImageFieldsFromDocumentBackground(document),
   };
 }
 

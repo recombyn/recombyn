@@ -184,6 +184,29 @@ class Settings(BaseSettings):
         validation_alias="RECOMBYN_INTELLIGENCE_CIRCUIT_SEC",
     )
 
+    # Closed-source Image Layer Pipeline (depth/matting/inpaint). Empty = disabled.
+    image_layer_pipeline_url: str = Field(
+        default="",
+        validation_alias="IMAGE_LAYER_PIPELINE_URL",
+    )
+    image_layer_pipeline_api_key: str = Field(
+        default="",
+        validation_alias="IMAGE_LAYER_PIPELINE_API_KEY",
+    )
+    # legacy = SAM/rembg path (default); ilp = always ILP; auto = ILP with legacy fallback.
+    image_layer_pipeline_mode: str = Field(
+        default="legacy",
+        validation_alias="IMAGE_LAYER_PIPELINE_MODE",
+    )
+    image_layer_pipeline_timeout_sec: float = Field(
+        default=300.0,
+        validation_alias="IMAGE_LAYER_PIPELINE_TIMEOUT_SEC",
+    )
+    image_layer_pipeline_poll_sec: float = Field(
+        default=1.0,
+        validation_alias="IMAGE_LAYER_PIPELINE_POLL_SEC",
+    )
+
     expand_table_cells: bool = True
     sam_checkpoint: str | None = None
     sam_model_type: str = "vit_t"

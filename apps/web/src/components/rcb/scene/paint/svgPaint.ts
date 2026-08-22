@@ -71,6 +71,9 @@ export function applySvgFill(
     const id = nextPaintId(idHint);
     const fit = paint.imageFit ?? 'fill';
     const rotate = paint.imageRotate ?? 0;
+    const scalePct = Math.max(1, Number(paint.imageScale ?? 100));
+    const offsetX = Number(paint.imageOffsetX ?? 0);
+    const offsetY = Number(paint.imageOffsetY ?? 0);
     const filter = paint.imageFilter;
     const opacityPct = paint.opacityPct ?? 100;
     const tile = fit === 'tile' ? tileSize(paint.width, paint.height) : null;
@@ -91,12 +94,15 @@ export function applySvgFill(
     img.setAttributeNS(XLINK_NS, 'href', paint.dataUrl);
     img.setAttribute('href', paint.dataUrl);
     if (filter) setStyles(img, { filter });
-    if (rotate) {
-      img.setAttribute(
-        'transform',
-        `rotate(${rotate} ${patternW / 2} ${patternH / 2})`
-      );
+    const cx = patternW / 2;
+    const cy = patternH / 2;
+    const transforms: string[] = [];
+    if (rotate) transforms.push(`rotate(${rotate} ${cx} ${cy})`);
+    if (scalePct !== 100) transforms.push(`translate(${cx} ${cy}) scale(${scalePct / 100}) translate(${-cx} ${-cy})`);
+    if (offsetX || offsetY) {
+      transforms.push(`translate(${(offsetX / 100) * patternW} ${(offsetY / 100) * patternH})`);
     }
+    if (transforms.length) img.setAttribute('transform', transforms.join(' '));
     pattern.appendChild(img);
     defs.appendChild(pattern);
     setFill(el, urlRef(id));

@@ -53,7 +53,7 @@ import {
   measureWrappedTextSize,
   parseNodeTextStyle,
 } from '@/components/rcb/scene/document/sceneText';
-import { serializeFillGradient } from '@/components/rcb/scene/document/sceneFill';
+import { serializeFillGradient, serializeFillImageAttrs } from '@/components/rcb/scene/document/sceneFill';
 import { createMeshGrid, type MeshSize } from '@/components/rcb/scene/document/sceneDiffuseMesh';
 import { isStrokeStyle } from '@/components/rcb/scene/document/sceneStrokeStyle';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -1290,11 +1290,15 @@ function applyShapeFill(
       'fill-enabled': 'true',
       'fill-visible': 'true',
       'fill-color': c0,
-      'fill-image-src': src,
-      'fill-image-fit':
-        fit === 'fit' || fit === 'crop' || fit === 'tile' ? fit : 'fill',
-      'fill-image-rotate':
-        args.fillImageRotate != null ? num(args.fillImageRotate, 0) : 0,
+      ...serializeFillImageAttrs({
+        fillImageSrc: src,
+        fillImageFit:
+          fit === 'fit' || fit === 'crop' || fit === 'tile' ? fit : 'fill',
+        fillImageRotate: args.fillImageRotate != null ? num(args.fillImageRotate, 0) : 0,
+        fillImageScale: args.fillImageScale != null ? num(args.fillImageScale, 100) : 100,
+        fillImageOffsetX: args.fillImageOffsetX != null ? num(args.fillImageOffsetX, 0) : 0,
+        fillImageOffsetY: args.fillImageOffsetY != null ? num(args.fillImageOffsetY, 0) : 0,
+      }),
       ...(fillOpacity != null ? { 'fill-opacity': fillOpacity } : {}),
     };
     return;

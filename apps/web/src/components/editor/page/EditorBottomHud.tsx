@@ -387,6 +387,9 @@ export function canvasFillToDocumentMeta(next: FillPanelValue, followTheme: bool
     backgroundImageSrc: next.fillImageSrc,
     backgroundImageFit: next.fillImageFit,
     backgroundImageRotate: next.fillImageRotate,
+    backgroundImageScale: next.fillImageScale,
+    backgroundImageOffsetX: next.fillImageOffsetX,
+    backgroundImageOffsetY: next.fillImageOffsetY,
     backgroundImageAdjust: next.fillImageAdjust,
   };
 }

@@ -29,6 +29,9 @@ export type DocumentCanvasMetaPatch = {
   backgroundImageSrc?: string;
   backgroundImageFit?: string;
   backgroundImageRotate?: number;
+  backgroundImageScale?: number;
+  backgroundImageOffsetX?: number;
+  backgroundImageOffsetY?: number;
   backgroundImageAdjust?: unknown;
   width?: number;
   height?: number;
@@ -550,6 +553,9 @@ export function setDocumentCanvasMeta(doc: SceneDocument, patch: DocumentCanvasM
   if (patch.backgroundImageSrc != null) next.backgroundImageSrc = patch.backgroundImageSrc;
   if (patch.backgroundImageFit != null) next.backgroundImageFit = patch.backgroundImageFit;
   if (patch.backgroundImageRotate != null) next.backgroundImageRotate = patch.backgroundImageRotate;
+  if (patch.backgroundImageScale != null) next.backgroundImageScale = patch.backgroundImageScale;
+  if (patch.backgroundImageOffsetX != null) next.backgroundImageOffsetX = patch.backgroundImageOffsetX;
+  if (patch.backgroundImageOffsetY != null) next.backgroundImageOffsetY = patch.backgroundImageOffsetY;
   if (patch.backgroundImageAdjust != null) next.backgroundImageAdjust = patch.backgroundImageAdjust;
   if (patch.width != null) next.width = Math.max(100, Math.round(patch.width) || DEFAULT_CANVAS.width);
   if (patch.height != null) next.height = Math.max(100, Math.round(patch.height) || DEFAULT_CANVAS.height);
