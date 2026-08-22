@@ -168,6 +168,38 @@ export function toGeometryPatches(doc: SceneDocument | null | undefined, patches
   });
 }
 
+/**
+ * Merge live preview angles from documentRef into the committed Redux base.
+ * Line/arrow endpoint drags update angle only on the live doc until commit.
+ */
+export function mergeLiveAnglesIntoDoc(
+  base: SceneDocument,
+  live: SceneDocument | null | undefined,
+  nodeIds: string[]
+): SceneDocument {
+  if (!live?.deltaSetLike || !nodeIds.length) return base;
+  let deltaSetLike = base.deltaSetLike;
+  let changed = false;
+  for (const nodeId of nodeIds) {
+    const liveNode = live.deltaSetLike[nodeId];
+    const node = deltaSetLike?.[nodeId];
+    if (!liveNode || !node) continue;
+    const liveAngle = Number(liveNode.attrs?.angle);
+    if (!Number.isFinite(liveAngle)) continue;
+    const curAngle = Number(node.attrs?.angle) || 0;
+    if (Math.abs(curAngle - liveAngle) < 1e-6) continue;
+    if (!changed) {
+      deltaSetLike = { ...deltaSetLike };
+      changed = true;
+    }
+    deltaSetLike[nodeId] = {
+      ...node,
+      attrs: { ...node.attrs, angle: liveAngle },
+    };
+  }
+  return changed ? { ...base, deltaSetLike } : base;
+}
+
 /** Line/arrow keep a 1px geometry height — hit tolerance is handled separately. */
 export function normalizeGeomPatches(doc: SceneDocument | null | undefined, patches: GeomPatch[]): GeomPatch[] {
   return patches.map((p) => {
@@ -634,13 +666,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     // is intentionally not synced from Redux — writing it back would revive
     // attrs cleared mid-drag (e.g. processStatus after upload finishes).
     const committed = deps.getCommittedDocument?.() ?? null;
-    const doc = committed || deps.getDocument();
+    const live = deps.getDocument();
     const board = deps.getBoard();
-    if (!doc || deps.isReadOnly() || !patches.length) return;
+    if ((!committed && !live) || deps.isReadOnly() || !patches.length) return;
     const { nodePatches, frames } = applyFrameGeometryPatches(patches);
     const touchedNodeIds = nodePatches
       .map((p) => String(p.nodeId || '').trim())
       .filter(Boolean);
+    const doc = mergeLiveAnglesIntoDoc(committed || live!, live, touchedNodeIds);
     let next = doc;
     if (nodePatches.length) {
       const normalized = normalizeGeomPatches(doc, toGeometryPatches(doc, nodePatches));
