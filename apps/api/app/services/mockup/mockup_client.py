@@ -69,5 +69,42 @@ async def render_mockup_via_intelligence(
             "width": meta.get("width"),
             "height": meta.get("height"),
             "engines": [str(meta.get("engine") or "mockup:2.5d-pbr")],
+            "elapsed_ms": meta.get("elapsed_ms"),
+            "features": meta.get("features"),
             "warnings": [],
         }
+
+
+async def render_mockup_batch_via_intelligence(
+    items: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Sync batch render via intelligence (≤64 items)."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Mockup service is not configured (set RECOMBYN_INTELLIGENCE_URL)"
+        )
+    payload_items = []
+    for row in items:
+        content, _ = await _load_bytes(row["image"])
+        payload_items.append(
+            {
+                "design_b64": base64.b64encode(content).decode("ascii"),
+                "template_id": row.get("template_id") or "demo-cylinder",
+                "name": row.get("name") or "",
+            }
+        )
+    async with httpx.AsyncClient(timeout=_timeout()) as client:
+        resp = await client.post(
+            f"{base}/api/v1/mockup/render/batch",
+            json={"items": payload_items},
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"mockup batch failed ({resp.status_code}): {resp.text[:300]}")
+        data = resp.json()
+        for item in data.get("items") or []:
+            b64 = str(item.get("image_b64") or "")
+            if b64:
+                item["image"] = f"data:image/png;base64,{b64}"
+        return data

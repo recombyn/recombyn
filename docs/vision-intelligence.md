@@ -64,8 +64,11 @@ Mockup rendering lives in **recombyn-intelligence** only. The OSS web app proxie
 |--------|-----|--------------|
 | List templates | `GET /api/v1/mockup/tools` | `GET /api/v1/mockup/templates` |
 | Render preview | `POST /api/v1/mockup/render` | `POST /api/v1/mockup/render` |
+| Batch render | `POST /api/v1/mockup/render/batch` | `POST /api/v1/mockup/render/batch` |
+| PSD layers | — | `POST /api/v1/mockup/render/psd` |
+| Bake template | — | `POST /api/v1/mockup/bake` (photo + mask) |
 
-Default template: `demo-cylinder` (builtin procedural mug). See `recombyn-intelligence/docs/mockup-architecture.md`.
+Default templates: `demo-cylinder` (mug), `demo-glass` (Fresnel glass). See `recombyn-intelligence/docs/mockup-architecture.md`.
 
 ## Document import
 
