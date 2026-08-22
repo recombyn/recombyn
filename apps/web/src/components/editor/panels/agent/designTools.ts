@@ -4196,10 +4196,7 @@ function execImageProcess(
     const kind = String(args.kind || '').trim();
     const allowed = new Set([
       'upscale',
-      'removeBg',
       'eraser',
-      'editText',
-      'editElements',
       'replaceText',
       'multiAngle',
       'expand',

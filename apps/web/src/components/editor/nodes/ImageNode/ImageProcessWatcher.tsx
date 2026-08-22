@@ -1,7 +1,7 @@
 import { useEffect, useRef, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { message } from '@/components/base';
-import { processImageTool } from '@/service/imageTools';
+import { processImageTool, useImageToolCapabilities } from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
 import { apiQuery, getHttpErrorMessage, getHttpStatus, queryClient } from '@/service/client';
 import { failImageProcess, finishImageProcess } from '@/store/modules/editor';
@@ -9,16 +9,11 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const AI_KINDS = new Set([
   'upscale',
-  'removeBg',
   'multiAngle',
   'expand',
-  'editText',
-  'editElements',
   'replaceText',
   'adjust',
 ]);
-
-const DECOMPOSE_KINDS = new Set(['editText', 'editElements']);
 
 function parseMeta(raw: unknown): Record<string, unknown> {
   if (!raw) return {};
@@ -65,7 +60,6 @@ async function persistProcessedSrc(src: string, filename: string): Promise<strin
 
 async function refreshWallet() {
   try {
-    // Force refresh after spend — share cache key with App / AccountSettings.
     await queryClient.fetchQuery({
       ...apiQuery.walletWalletMe.queryOptions(),
       staleTime: 0,
@@ -82,7 +76,7 @@ function processFailMessage(err: unknown): string {
     return '积分不足，请充值后再试';
   if (status === 401) return '请先登录后再使用 AI 工具';
   if (/timeout/i.test(msg) || (err as { code?: string })?.code === 'ECONNABORTED')
-    return '图片分层超时，请稍后重试（大图首次加载模型会更慢）';
+    return '图片处理超时，请稍后重试';
   if (msg.trim()) return msg;
   return '图片处理失败';
 }
@@ -94,9 +88,6 @@ function buildFinishAttrsForKind(
     replacedCopy?: string;
   }
 ): Record<string, unknown> | undefined {
-  if (kind === 'removeBg') {
-    return { cutout: 'true', name: '抠图' };
-  }
   if (kind === 'replaceText' && opts.replacedCopy) {
     return {
       letteringText: opts.replacedCopy,
@@ -111,10 +102,10 @@ function buildFinishAttrsForKind(
 /**
  * Completes spawned image process jobs via backend AI (`POST /api/v1/image/process`).
  * Results are uploaded to our file server so the canvas / export use our URLs.
- * Import / upload placeholders are finished by their own flows.
  */
 function ImageProcessWatcher() {
   const dispatch = useDispatch();
+  useImageToolCapabilities();
   const pendingId = useSelector((s: any) => s.editor.pendingImageProcessId as string | null);
   const document = useSelector((s: any) => s.editor.document);
   const documentRef = useRef(document);
@@ -125,7 +116,6 @@ function ImageProcessWatcher() {
     const doc = documentRef.current;
     const node = doc?.deltaSetLike?.[pendingId];
     const kind = String(node?.attrs?.processKind || '');
-    // Local eraser finishes via ImageToolPanelHost (spawn + upload); do not auto-clear.
     if (kind === 'import' || kind === 'upload' || kind === 'eraser') return undefined;
 
     let cancelled = false;
@@ -139,7 +129,6 @@ function ImageProcessWatcher() {
 
     const run = async () => {
       if (!AI_KINDS.has(kind)) {
-        // Local-only kinds (eraser etc.) should not land here.
         await new Promise((r) => window.setTimeout(r, 400));
         if (!cancelled) dispatch(finishImageProcess({ nodeId: pendingId }));
         return;
@@ -180,36 +169,6 @@ function ImageProcessWatcher() {
         const res = await processImageTool(processBody, { signal: ac.signal });
         if (cancelled) return;
 
-        const layers = Array.isArray(res?.layers) ? res.layers : [];
-        if (layers.length > 0 && DECOMPOSE_KINDS.has(kind)) {
-          const persisted = await Promise.all(
-            layers.map(async (layer: any, i: number) => {
-              const src = String(layer?.src || '').trim();
-              if (!src || String(layer?.type) === 'text') return layer;
-              const url = await persistProcessedSrc(src, `${kind}-layer-${i + 1}.png`);
-              return { ...layer, src: url };
-            })
-          );
-          if (cancelled) return;
-          dispatch(
-            finishImageProcess({
-              nodeId: pendingId,
-              layers: persisted,
-              sourceWidth: Number(res.width) || undefined,
-              sourceHeight: Number(res.height) || undefined,
-            })
-          );
-          const warn = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
-          if (warn.length) message.warning(warn[0]);
-          else {
-            message.success(
-              kind === 'editElements' ? '图片分层完成（可单独改主体/文字）' : '文字识别完成'
-            );
-          }
-          await refreshWallet();
-          return;
-        }
-
         if (!res?.image) {
           fail('图片处理未返回结果');
           return;
@@ -230,12 +189,9 @@ function ImageProcessWatcher() {
           })
         );
         const labels: Record<string, string> = {
-          removeBg: '抠图完成（透明 PNG）',
           upscale: '高清放大完成',
           multiAngle: '多角度生成完成',
           expand: '扩展完成',
-          editText: '编辑文字完成',
-          editElements: '图片分层完成',
           replaceText: '文案替换完成',
           vector: '矢量化完成',
           adjust: '调整完成',
@@ -253,7 +209,6 @@ function ImageProcessWatcher() {
       cancelled = true;
       ac.abort();
     };
-    // Only re-run when a new job id is pending — not on every document edit.
   }, [pendingId, dispatch]);
 
   return null;

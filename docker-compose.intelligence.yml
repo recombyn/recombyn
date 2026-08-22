@@ -18,31 +18,16 @@ services:
       - "127.0.0.1:8091:8091"
     environment:
       INTELLIGENCE_SERVICE_API_KEY: ${RECOMBYN_INTELLIGENCE_API_KEY:-dev-key}
-      INTELLIGENCE_SERVICE_HOST: 0.0.0.0
-      INTELLIGENCE_SERVICE_PORT: 8091
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health')",
-        ]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 8s
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8091/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   api:
+    profiles: ["intelligence"]
     environment:
-      - RECOMBYN_INTELLIGENCE_MODE=${RECOMBYN_INTELLIGENCE_MODE:-cloud}
-      - RECOMBYN_INTELLIGENCE_URL=${RECOMBYN_INTELLIGENCE_URL:-http://intelligence:8091}
-      - RECOMBYN_INTELLIGENCE_API_KEY=${RECOMBYN_INTELLIGENCE_API_KEY:-dev-key}
-      - RECOMBYN_INTELLIGENCE_TIMEOUT_SEC=${RECOMBYN_INTELLIGENCE_TIMEOUT_SEC:-30}
-      - RECOMBYN_INTELLIGENCE_CIRCUIT_SEC=${RECOMBYN_INTELLIGENCE_CIRCUIT_SEC:-30}
-      - IMAGE_LAYER_PIPELINE_MODE=${IMAGE_LAYER_PIPELINE_MODE:-ilp}
-      - IMAGE_LAYER_PIPELINE_TIMEOUT_SEC=${IMAGE_LAYER_PIPELINE_TIMEOUT_SEC:-300}
-      - IMAGE_LAYER_PIPELINE_POLL_SEC=${IMAGE_LAYER_PIPELINE_POLL_SEC:-1}
-    depends_on:
-      intelligence:
-        condition: service_healthy
+      RECOMBYN_INTELLIGENCE_MODE: cloud
+      RECOMBYN_INTELLIGENCE_URL: http://intelligence:8091
+      RECOMBYN_INTELLIGENCE_API_KEY: ${RECOMBYN_INTELLIGENCE_API_KEY:-dev-key}

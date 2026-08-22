@@ -1,4 +1,4 @@
-"""Image toolbar AI tools — Seedream i2i + local rembg / OCR decompose."""
+"""Image toolbar AI tools — Seedream i2i."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import logging
 
 import httpx
 
-from app.core.config import settings
 from app.services.llm.image import generate_image
 
 logger = logging.getLogger(__name__)
@@ -18,55 +17,19 @@ logger = logging.getLogger(__name__)
 IMAGE_PROCESS_KINDS = frozenset(
     {
         "upscale",
-        "removeBg",
         "multiAngle",
         "expand",
-        "editText",
-        "editElements",
-        "detectRegions",
         "replaceText",
         "vector",
         "adjust",
     }
 )
 
-# Vision split / cutout — not Seedream re-render.
-DECOMPOSE_KINDS = frozenset({"editText", "editElements"})
-DETECT_KINDS = frozenset({"detectRegions"})
-CUTOUT_KINDS = frozenset({"removeBg"})
-# Local rembg / OCR decompose — no LLM → never charge platform credits.
-NO_LLM_KINDS = CUTOUT_KINDS | DECOMPOSE_KINDS | DETECT_KINDS
-
 
 def uses_llm_for_kind(kind: str | None) -> bool:
     """True when ``process_image_tool`` will call Seedream / image LLM."""
     k = (kind or "").strip()
-    return bool(k) and k in IMAGE_PROCESS_KINDS and k not in NO_LLM_KINDS
-
-
-def _ilp_mode() -> str:
-    return str(getattr(settings, "image_layer_pipeline_mode", "legacy") or "legacy").strip().lower()
-
-
-def should_use_ilp_decompose(kind: str, meta: dict[str, Any] | None) -> bool:
-    """Route editElements to the closed-source depth/matting pipeline when configured."""
-    if (kind or "").strip() != "editElements":
-        return False
-    from app.services.vision.ilp_client import ilp_enabled
-
-    if not ilp_enabled():
-        return False
-
-    m = meta or {}
-    engine = str(m.get("engine") or "").strip().lower()
-    if engine == "legacy":
-        return False
-    if engine == "ilp":
-        return True
-
-    mode = _ilp_mode()
-    return mode in {"ilp", "auto"}
-
+    return bool(k) and k in IMAGE_PROCESS_KINDS
 
 
 def _prompt_for(
@@ -75,8 +38,6 @@ def _prompt_for(
     meta: dict[str, Any] | None = None,
 ) -> str:
     m = meta or {}
-    if kind == "removeBg":
-        return "unused"
     if kind == "upscale":
         return (
             "Upscale this image to high resolution. Enhance sharpness and fine detail, "
@@ -124,8 +85,6 @@ def _prompt_for(
             f"Continue the scene naturally beyond the edges; match lighting, perspective, and style. "
             f"Do not distort the original subject."
         )
-    if kind in ("editText", "editElements", "detectRegions"):
-        return "unused"
     if kind == "replaceText":
         original = str(m.get("originalText") or "").strip()
         new = str(m.get("newText") or "").strip()
@@ -168,7 +127,6 @@ async def _as_data_url(image_ref: str) -> str:
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
         resp = await client.get(ref)
         if resp.status_code >= 400:
-            # Fall back to the remote URL if download fails.
             return ref
         ctype = (resp.headers.get("content-type") or "image/png").split(";")[0].strip()
         if not ctype.startswith("image/"):
@@ -188,15 +146,9 @@ async def process_image_tool(
     model: str | None = None,
 ) -> dict[str, Any]:
     """
-    Run a toolbar image tool.
+    Run a toolbar image tool via Seedream image-to-image.
 
-    - ``removeBg`` → local rembg (GrabCut fallback) transparent PNG
-    - ``editText`` → OCR text layers + inpainted background
-    - ``editElements`` → subjects + text layers + inpainted background
-    - ``detectRegions`` → subject/text boxes only (Mark tool proposals)
-    - other kinds → Seedream image-to-image
-
-    Returns ``{ image, layers?, text?, kind, model?, width?, height?, warnings? }``.
+    Returns ``{ image, text?, kind, model? }``.
     """
     k = (kind or "").strip()
     if k not in IMAGE_PROCESS_KINDS:
@@ -204,37 +156,6 @@ async def process_image_tool(
     src = (image or "").strip()
     if not src:
         raise ValueError("image is required")
-
-    if k in CUTOUT_KINDS:
-        from app.services.vision.remove_bg import remove_background
-
-        return await remove_background(src, meta=meta)
-
-    if k in DECOMPOSE_KINDS:
-        use_ilp = should_use_ilp_decompose(k, meta)
-        if use_ilp:
-            from app.services.vision.ilp_decompose import decompose_via_ilp
-
-            try:
-                return await decompose_via_ilp(kind=k, image=src)  # type: ignore[arg-type]
-            except Exception as exc:
-                if _ilp_mode() != "auto":
-                    raise
-                logger.warning("ILP decompose failed, falling back to legacy: %s", exc)
-
-        from app.services.vision.image_edit import decompose_image
-
-        result = await decompose_image(kind=k, image=src)  # type: ignore[arg-type]
-        if use_ilp and _ilp_mode() == "auto":
-            warnings = list(result.get("warnings") or [])
-            warnings.append("工业分层不可用，已回退到标准分层")
-            result = {**result, "warnings": warnings}
-        return result
-
-    if k in DETECT_KINDS:
-        from app.services.vision.image_edit import detect_regions
-
-        return await detect_regions(image=src)
 
     prompt = _prompt_for(k, meta=meta)
     result = await generate_image(
@@ -255,9 +176,3 @@ async def process_image_tool(
         "kind": k,
         "model": result.get("model"),
     }
-
-
-
-
-
-

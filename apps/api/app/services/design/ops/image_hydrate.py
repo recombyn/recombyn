@@ -72,7 +72,7 @@ def _truthy_flag(raw: Any) -> bool:
 
 
 def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
-    """When to rembg after gen — lettering overlays + product plates (no white box)."""
+    """When to run industrial matting after gen — lettering overlays + product plates."""
     if str(args.get("letteringText") or "").strip():
         return "product"
     mode = str(args.get("cutoutMode") or "").strip().lower()
@@ -87,16 +87,8 @@ def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
 
 
 async def _maybe_cutout_hydrated_src(src: str, mode: str) -> tuple[str, bool]:
-    """Return (src, cutout_applied). Failures keep original URL."""
-    try:
-        from app.services.vision.remove_bg import remove_background
-
-        cut = await remove_background(src, meta={"cutoutMode": mode})
-        cut_src = str((cut or {}).get("image") or "").strip()
-        if cut_src:
-            return cut_src, True
-    except Exception:
-        pass
+    """Cutout is a commercial capability — OSS keeps the original image."""
+    _ = mode
     return src, False
 
 

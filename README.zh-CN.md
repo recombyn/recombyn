@@ -173,7 +173,9 @@ npm run dev:collab           # Yjs WS :1234（可选；Vite DEV 默认开协作�
 npm run dev:web
 ```
 
-画布 Live / WSS：**[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
+商业版图像能力（抠图、分层、标记、样机等）请联系 **702680355@qq.com**。
+
+Canvas Live / WSS：**[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
 
 ### 桌面端（Tauri）
 
