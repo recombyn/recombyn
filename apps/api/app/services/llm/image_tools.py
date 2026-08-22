@@ -1,4 +1,4 @@
-"""Image toolbar AI tools — Seedream i2i."""
+"""Image toolbar AI tools — Seedream i2i + Recombyn Intelligence vision."""
 
 from __future__ import annotations
 
@@ -17,19 +17,54 @@ logger = logging.getLogger(__name__)
 IMAGE_PROCESS_KINDS = frozenset(
     {
         "upscale",
+        "removeBg",
         "multiAngle",
         "expand",
+        "editText",
+        "editElements",
+        "detectRegions",
         "replaceText",
         "vector",
         "adjust",
     }
 )
 
+# Closed-source intelligence only — hidden in UI and rejected when service is down.
+ILP_EXCLUSIVE_KINDS = frozenset({"removeBg", "editText", "editElements", "detectRegions"})
+
+DECOMPOSE_KINDS = frozenset({"editText", "editElements"})
+DETECT_KINDS = frozenset({"detectRegions"})
+CUTOUT_KINDS = frozenset({"removeBg"})
+NO_LLM_KINDS = CUTOUT_KINDS | DECOMPOSE_KINDS | DETECT_KINDS
+
+_ILP_REQUIRED_MSG = (
+    "此功能需要接入 Recombyn Intelligence 闭源服务（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
+)
+
 
 def uses_llm_for_kind(kind: str | None) -> bool:
     """True when ``process_image_tool`` will call Seedream / image LLM."""
     k = (kind or "").strip()
-    return bool(k) and k in IMAGE_PROCESS_KINDS
+    return bool(k) and k in IMAGE_PROCESS_KINDS and k not in NO_LLM_KINDS
+
+
+def requires_ilp(kind: str | None) -> bool:
+    return (kind or "").strip() in ILP_EXCLUSIVE_KINDS
+
+
+def _require_ilp() -> None:
+    from app.services.vision.ilp_client import ilp_enabled
+
+    if not ilp_enabled():
+        raise RuntimeError(_ILP_REQUIRED_MSG)
+
+
+def ilp_supports() -> list[str]:
+    from app.services.vision.ilp_client import ilp_enabled
+
+    if not ilp_enabled():
+        return []
+    return ["removeBg", "editText", "editElements", "detectRegions"]
 
 
 def _prompt_for(
@@ -38,6 +73,8 @@ def _prompt_for(
     meta: dict[str, Any] | None = None,
 ) -> str:
     m = meta or {}
+    if kind == "removeBg":
+        return "unused"
     if kind == "upscale":
         return (
             "Upscale this image to high resolution. Enhance sharpness and fine detail, "
@@ -85,6 +122,8 @@ def _prompt_for(
             f"Continue the scene naturally beyond the edges; match lighting, perspective, and style. "
             f"Do not distort the original subject."
         )
+    if kind in ("editText", "editElements", "detectRegions"):
+        return "unused"
     if kind == "replaceText":
         original = str(m.get("originalText") or "").strip()
         new = str(m.get("newText") or "").strip()
@@ -146,9 +185,12 @@ async def process_image_tool(
     model: str | None = None,
 ) -> dict[str, Any]:
     """
-    Run a toolbar image tool via Seedream image-to-image.
+    Run a toolbar image tool.
 
-    Returns ``{ image, text?, kind, model? }``.
+    - ``removeBg`` / ``editText`` / ``editElements`` → Recombyn Intelligence only
+    - other kinds → Seedream image-to-image
+
+    Returns ``{ image, layers?, text?, kind, model?, width?, height?, warnings? }``.
     """
     k = (kind or "").strip()
     if k not in IMAGE_PROCESS_KINDS:
@@ -156,6 +198,29 @@ async def process_image_tool(
     src = (image or "").strip()
     if not src:
         raise ValueError("image is required")
+
+    if requires_ilp(k):
+        _require_ilp()
+
+    if k in CUTOUT_KINDS:
+        from app.services.vision.remove_bg import remove_background
+
+        return await remove_background(src, meta=meta)
+
+    if k == "editElements":
+        from app.services.vision.ilp_decompose import decompose_via_ilp
+
+        return await decompose_via_ilp(kind="editElements", image=src)
+
+    if k == "editText":
+        from app.services.vision.ilp_text_decompose import decompose_text_via_ilp
+
+        return await decompose_text_via_ilp(kind="editText", image=src)
+
+    if k in DETECT_KINDS:
+        from app.services.vision.ilp_detect_regions import detect_regions_via_ilp_adapter
+
+        return await detect_regions_via_ilp_adapter(image=src)
 
     prompt = _prompt_for(k, meta=meta)
     result = await generate_image(

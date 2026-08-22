@@ -84,6 +84,8 @@ export type ImageToolPanelKind =
   | 'quickEdit'
   | 'replaceText'
   | 'lottieEdit'
+  | 'mark'
+  | 'mockup'
   | 'upscale';
 
 const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
@@ -94,6 +96,7 @@ const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   adjust: true,
   effects: true,
   blendMode: true,
+  mark: true,
 };
 
 /** Blend / effects dock beside any selected node (not image-only tools). */
@@ -115,6 +118,8 @@ const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   flipRotate: true,
   quickEdit: true,
   lottieEdit: true,
+  mark: true,
+  mockup: true,
 };
 
 const TRANSIENT_NODE_ATTR_KEYS = new Set([

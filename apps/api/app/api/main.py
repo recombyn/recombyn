@@ -19,6 +19,7 @@ from app.api.routes import (
     chat_video_jobs,
     chat_audio_jobs,
     me,
+    mockup,
     notices,
     orgs,
     plaza,
@@ -54,4 +55,5 @@ api_router.include_router(chat_video_jobs.router)
 api_router.include_router(chat_audio_jobs.router)
 api_router.include_router(chat.router)
 api_router.include_router(image_tools.router)
+api_router.include_router(mockup.router)
 api_router.include_router(design.router)

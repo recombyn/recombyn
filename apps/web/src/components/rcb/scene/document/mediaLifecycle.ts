@@ -534,7 +534,10 @@ function looksLikeSvgSrc(src: string) {
 
 export type ImageProcessKind =
   | 'upscale'
+  | 'removeBg'
   | 'eraser'
+  | 'editText'
+  | 'editElements'
   | 'multiAngle'
   | 'moveObject'
   | 'expand'

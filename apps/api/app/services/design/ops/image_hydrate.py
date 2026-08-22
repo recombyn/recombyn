@@ -87,8 +87,16 @@ def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
 
 
 async def _maybe_cutout_hydrated_src(src: str, mode: str) -> tuple[str, bool]:
-    """Cutout is a commercial capability — OSS keeps the original image."""
-    _ = mode
+    """Return (src, cutout_applied). Failures keep original URL."""
+    try:
+        from app.services.vision.remove_bg import remove_background
+
+        cut = await remove_background(src, meta={"cutoutMode": mode})
+        cut_src = str((cut or {}).get("image") or "").strip()
+        if cut_src:
+            return cut_src, True
+    except Exception:
+        pass
     return src, False
 
 

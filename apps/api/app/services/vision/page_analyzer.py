@@ -36,7 +36,44 @@ def analyze_page_images(page_paths: list[Path]) -> dict[str, Any]:
 
     Returns blocks (text merged, figures cropped, tables as cells), page size, palette, engines, warnings.
     """
-    warnings: list[str] = []
+    from app.services.vision.ilp_client import analyze_pages_via_ilp, ilp_enabled
+
+    ilp_fallback_warnings: list[str] = []
+    if ilp_enabled():
+        try:
+            result = analyze_pages_via_ilp(
+                page_paths,
+                lang=settings.ocr_lang,
+                target_width=settings.scene_target_width,
+                palette_k=settings.palette_k,
+                expand_table_cells=settings.expand_table_cells,
+            )
+            engines = list(result.get("engines") or [])
+            if "ilp:analyze-pages" not in engines:
+                engines.insert(0, "ilp:analyze-pages")
+            result["engines"] = engines
+            return result
+        except Exception as exc:  # noqa: BLE001
+            ilp_fallback_warnings.append(f"intelligence analyze-pages failed: {exc}")
+            empty_w = settings.scene_target_width
+            empty_h = int(empty_w * 1.414)
+            if not ocr_available():
+                ilp_fallback_warnings.append(
+                    "local OCR unavailable; import will use raster fallback "
+                    "(pip install -e '.[ocr]' or fix intelligence)"
+                )
+                return {
+                    "blocks": [],
+                    "width": empty_w,
+                    "height": empty_h,
+                    "palette": [],
+                    "engines": [],
+                    "warnings": ilp_fallback_warnings,
+                    "sam_regions": [],
+                    "lama_applied": False,
+                }
+
+    warnings: list[str] = list(ilp_fallback_warnings)
     engines: list[str] = []
     all_blocks: list[dict] = []
     palette: list[str] = []
