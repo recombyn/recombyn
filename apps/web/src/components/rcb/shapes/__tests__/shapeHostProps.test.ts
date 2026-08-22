@@ -35,8 +35,14 @@ describe('shapeHostPropsEqual', () => {
       attrs: { processStatus: 'running', processLabel: 'Uploading' },
     };
     const before = { deltaSetLike: { 'brush-a': image } };
-    image.attrs = { src: 'https://cdn.example.com/a.png' };
-    const after = { deltaSetLike: { 'brush-a': image } };
+    const after = {
+      deltaSetLike: {
+        'brush-a': {
+          ...image,
+          attrs: { src: 'https://cdn.example.com/a.png' },
+        },
+      },
+    };
 
     expect(shapeHostPropsEqual(props(before), props(after))).toBe(false);
   });

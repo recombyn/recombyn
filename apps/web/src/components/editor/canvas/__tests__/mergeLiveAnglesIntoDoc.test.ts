@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeLiveAnglesIntoDoc } from '../canvasSession';
-import type { SceneDocument } from '@/components/rcb/scene/document/sceneDocument';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function docWithAngle(nodeId: string, angle: number): SceneDocument {
   return {
@@ -14,7 +14,7 @@ function docWithAngle(nodeId: string, angle: number): SceneDocument {
       },
     },
     frames: [],
-  } as SceneDocument;
+  } as unknown as SceneDocument;
 }
 
 describe('mergeLiveAnglesIntoDoc', () => {
