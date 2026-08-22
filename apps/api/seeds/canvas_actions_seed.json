@@ -200,19 +200,17 @@
       "kind": "create",
       "label": "Create image",
       "sort_order": 40,
-      "model_hint": "Add an image node. Args: src or attachmentIndex (user attach), x,y,width,height. Or genPrompt for AI image hydrate. Optional letteringText=visible text in the image (helps later replaceText). Optional removeBg=true|cutoutMode=product|hair — host auto-cutouts after gen (required for ecommerce product plates so no white box remains). Atmosphere/poster heroes: genPrompt must be SCENE ONLY — no baked titles/dates/logos; put copy in create_text. Finished poster refs with baked text: STYLE only — prefer genPrompt clean bg, not full-bleed attachmentIndex. Lettering gate: use create_text+fontFamily only if Available fonts match the needed look ~≥90%; otherwise (esp. hero/main title) genPrompt + letteringText. Do not hardcode brush/calligraphy mood → catalog calligraphy font.",
+      "model_hint": "Add an image node. Args: src or attachmentIndex (user attach), x,y,width,height. Or genPrompt for AI image hydrate. Optional letteringText=visible text in the image (helps later replaceText). Atmosphere/poster heroes: genPrompt must be SCENE ONLY — no baked titles/dates/logos; put copy in create_text. Finished poster refs with baked text: STYLE only — prefer genPrompt clean bg, not full-bleed attachmentIndex. Lettering gate: use create_text+fontFamily only if Available fonts match the needed look ~≥90%; otherwise (esp. hero/main title) genPrompt + letteringText. Do not hardcode brush/calligraphy mood → catalog calligraphy font.",
       "args_schema": {
         "src": "string?",
         "attachmentIndex": "number?",
         "genPrompt": "string?",
         "letteringText": "string?",
-        "removeBg": "boolean?",
-        "cutoutMode": "product|hair?",
         "x": "number",
         "y": "number",
         "width": "number",
         "height": "number",
-        "_rev": "image-cutout-product-1"
+        "_rev": "image-lettering-90pct-2"
       }
     },
     {
@@ -567,10 +565,10 @@
       "kind": "image",
       "label": "Image process",
       "sort_order": 200,
-      "model_hint": "Run image toolbar pipeline on a node (spawns processing clone). Args: nodeId (image id), kind=upscale|removeBg|eraser|editText|editElements|replaceText|multiAngle|expand|adjust|crop|flipRotate|moveObject|vector. replaceText=i2i swap lettering (meta.originalText + meta.newText); editText=OCR text layers; editElements=subjects+text+bg. Optional: targetWidth, targetHeight, meta (object).",
+      "model_hint": "Run image toolbar pipeline on a node (spawns processing clone). Args: nodeId (image id), kind=upscale|eraser|replaceText|multiAngle|expand|adjust|crop|flipRotate|moveObject|vector. replaceText=i2i swap lettering (meta.originalText + meta.newText). Optional: targetWidth, targetHeight, meta (object).",
       "args_schema": {
         "nodeId": "string",
-        "kind": "upscale|removeBg|eraser|editText|editElements|replaceText|multiAngle|expand|adjust|crop|flipRotate|moveObject|vector",
+        "kind": "upscale|eraser|replaceText|multiAngle|expand|adjust|crop|flipRotate|moveObject|vector",
         "targetWidth": "number?",
         "targetHeight": "number?",
         "meta": "object?"
@@ -626,10 +624,9 @@
     },
     "create_image": {
       "must_contain": [
-        "image-cutout-product-1",
+        "image-lettering-90pct-2",
         "~≥90%",
-        "letteringText",
-        "removeBg"
+        "letteringText"
       ],
       "stale_if_contains": [
         "ONLY when Needed style is NOT in Available fonts",

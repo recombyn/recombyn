@@ -1,18 +1,14 @@
 /**
- * Image toolbar AI tools — POST /api/v1/image/process
- * (Seedream i2i, or vision decompose for editText / editElements).
+ * Image toolbar AI tools — POST /api/v1/image/process (Seedream i2i).
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { abortAfter, apiClient } from '@/service/client';
 
 export type ImageProcessKindApi =
   | 'upscale'
-  | 'removeBg'
   | 'multiAngle'
   | 'expand'
-  | 'editText'
-  | 'editElements'
-  | 'detectRegions'
   | 'replaceText'
   | 'vector'
   | 'adjust';
@@ -48,7 +44,6 @@ export type ImageProcessResult = {
   text?: string | null;
   kind: string;
   model?: string;
-  /** editText / editElements: split layers in source-pixel coords */
   layers?: ImageDecomposeLayer[];
   width?: number;
   height?: number;
@@ -58,7 +53,25 @@ export type ImageProcessResult = {
   credits?: number;
 };
 
-/** Run an image toolbar tool on the API (Seedream i2i or local rembg / OCR). */
+export type ImageToolCapabilities = {
+  kinds?: string[];
+  credits?: Record<string, number>;
+};
+
+/** Server-reported image tool capabilities (credits, etc.). */
+export const fetchImageToolCapabilities = async () => {
+  return (await apiClient.imageToolsListImageTools({})) as ImageToolCapabilities;
+};
+
+export function useImageToolCapabilities() {
+  return useQuery({
+    queryKey: ['image-tool-capabilities'],
+    queryFn: fetchImageToolCapabilities,
+    staleTime: 60_000,
+  });
+}
+
+/** Run an image toolbar tool on the API. */
 export const processImageTool = (
   data: ImageProcessBody,
   opts?: { signal?: AbortSignal }

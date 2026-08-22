@@ -567,28 +567,11 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <ImageToolSep />
           <ImageToolbarEditTools
             onUpscale={() => dispatch(openImageToolPanel({ nodeId, kind: 'upscale' }))}
-            onRemoveBg={(mode) =>
-              runImageProcess(
-                'removeBg',
-                t('editor.imageToolbar.processingRemoveBg'),
-                undefined,
-                { cutoutMode: mode }
-              )
-            }
             onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
-            onMark={() => dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))}
             onReplaceText={
               String(node?.attrs?.letteringText || '').trim()
                 ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))
                 : undefined
-            }
-            onEditElements={(mode) =>
-              runImageProcess(
-                'editElements',
-                t('editor.imageToolbar.processingEditElements'),
-                undefined,
-                { engine: mode === 'depth' ? 'ilp' : 'legacy' }
-              )
             }
             onMultiAngle={() =>
               dispatch(openImageToolPanel({ nodeId, kind: 'multiAngle' }))

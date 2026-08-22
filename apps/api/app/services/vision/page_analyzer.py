@@ -8,12 +8,10 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.vision.colors import extract_palette
-from app.services.vision.crop import attach_crops, crop_region_to_data_url
+from app.services.vision.crop import attach_crops
 from app.services.vision.layout import layout_or_ocr
 from app.services.vision.merge_blocks import merge_text_blocks
 from app.services.vision.ocr import available as ocr_available
-from app.services.vision import lama as lama_mod
-from app.services.vision import sam as sam_mod
 from app.services.vision.opencv_ops import load_bgr, preprocess_bgr, write_temp_png
 
 
@@ -34,7 +32,7 @@ def _scale_blocks(blocks: list[dict], img_w: int, img_h: int, target_w: int) -> 
 
 def analyze_page_images(page_paths: list[Path]) -> dict[str, Any]:
     """
-    Run vision stack on raster pages.
+    Run OCR/layout on raster pages for document import.
 
     Returns blocks (text merged, figures cropped, tables as cells), page size, palette, engines, warnings.
     """
@@ -64,9 +62,6 @@ def analyze_page_images(page_paths: list[Path]) -> dict[str, Any]:
     if not ocr_available():
         warnings.append("opencv/paddleocr not installed; skip vision OCR (pip install -e '.[ocr]')")
         return empty
-
-    sam_regions: list[dict] = []
-    lama_applied = False
 
     for page_index, path in enumerate(page_paths):
         try:
@@ -106,49 +101,6 @@ def analyze_page_images(page_paths: list[Path]) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"page {page_index}: layout/ocr failed: {exc}")
 
-        page_sam: list[dict] = []
-        if settings.enable_sam:
-            try:
-                page_sam = sam_mod.segment_regions(path)
-                if page_sam:
-                    sam_regions.extend(page_sam)
-                    if "sam" not in engines:
-                        engines.append("sam")
-                    # Turn large SAM boxes into image layers (decorative / photo regions)
-                    for region in page_sam:
-                        figure = {
-                            "type": "image",
-                            "page": page_index,
-                            "x": region["x"],
-                            "y": region["y"],
-                            "width": region["width"],
-                            "height": region["height"],
-                            "layout_type": "sam",
-                            "source": "sam",
-                        }
-                        src = crop_region_to_data_url(bgr, figure)
-                        if src:
-                            figure["src"] = src
-                            page_blocks.append(figure)
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"sam failed: {exc}")
-
-        if settings.enable_lama:
-            try:
-                out = lama_mod.inpaint(path, regions=page_sam if settings.lama_use_sam_mask else None)
-                if out is not None:
-                    lama_applied = True
-                    if "lama" not in engines:
-                        engines.append("lama")
-                    # Prefer inpainted page for subsequent crop/table if rewritten in place path differs
-                    try:
-                        bgr = load_bgr(out)
-                    except Exception:
-                        pass
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"lama failed: {exc}")
-
-        # Crop figures / expand tables (page coords, pre-scale)
         try:
             page_blocks = attach_crops(bgr, page_blocks, page_index=page_index)
             if any(b.get("src") for b in page_blocks):
@@ -187,6 +139,6 @@ def analyze_page_images(page_paths: list[Path]) -> dict[str, Any]:
         "palette": palette,
         "engines": engines,
         "warnings": warnings,
-        "sam_regions": sam_regions,
-        "lama_applied": lama_applied,
+        "sam_regions": [],
+        "lama_applied": False,
     }

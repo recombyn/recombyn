@@ -11,7 +11,7 @@ You can import **images** onto the canvas. The pipeline turns a bitmap into Scen
 
 ## Stage 2: vision algorithms (page image → layout/text)
 
-Run on the page image (`USE_VISION=true`, on by default):
+Run on the page image (`USE_VISION=true`, on by default).
 
 | Module | Role | Dependency |
 |--------|------|------------|
@@ -19,8 +19,6 @@ Run on the page image (`USE_VISION=true`, on by default):
 | PaddleOCR | Text boxes + text | `paddleocr` + PaddlePaddle |
 | PPStructure | Layout (title/figure/table); falls back to OCR on failure | with `paddleocr` |
 | KMeans | Primary palette `meta.palette` | OpenCV |
-| Lightweight SAM | Region proposals (off by default; needs weights) | optional |
-| LaMa | Inpaint / remove text (off by default) | optional |
 
 Coordinates are scaled to `SCENE_TARGET_WIDTH` (default 794) before writing Scene.
 
@@ -49,7 +47,7 @@ Job result `meta`: `object_keys`, `object_urls` (same source as `page_images` in
 
 ### Frontend
 
-Home “Import file” uses an async job:
+Home "Import file" uses an async job:
 
 1. `POST /api/v1/import/jobs`
 2. Poll `GET /api/v1/import/jobs/{id}`
@@ -65,26 +63,21 @@ Requires API + Redis + Celery worker running together.
 
 `meta.engines` may include: `merge`, `crop`.
 
-## Stage 5: table cells + SAM/LaMa hooks
+## Stage 5: table cells
 
-1. **Tables**: layout tables are OCR’d again by default into background `rect` + editable text cells (`EXPAND_TABLE_CELLS=true`, `engines` includes `table-cells`)
-2. **SAM** (default on): when `ENABLE_SAM=true` and `SAM_CHECKPOINT` is set, run MobileSAM / segment_anything; soft masks become transparent PNG layers (rembg is single-subject fallback only)
-3. **LaMa** (default on): when `ENABLE_LAMA=true`, use `simple-lama-inpainting` with soft-mask union; OpenCV Telea if LaMa missing
+1. **Tables**: layout tables are OCR'd again by default into background `rect` + editable text cells (`EXPAND_TABLE_CELLS=true`, `engines` includes `table-cells`)
 
 ```env
 EXPAND_TABLE_CELLS=true
-ENABLE_SAM=true
-SAM_CHECKPOINT=/path/to/mobile_sam.pt
-SAM_MODEL_TYPE=vit_t
-ENABLE_LAMA=true
-LAMA_USE_SAM_MASK=true
 ```
 
-The frontend shows “Importing…” during import.
+> **Note:** Advanced image toolbar features (matting, layer split, etc.) are not part of import.
+
+The frontend shows "Importing…" during import.
 
 ## Stage 6: integration readiness
 
-- `GET /api/v1/health` reports `redis` / `worker` / `ocr` status
+- `GET /api/v1/health` reports `redis` / `worker` status
 - `INSTALL_OCR=true docker compose build` can bake OCR in
 - Frontend auto-falls back to sync import if the async job fails or queues too long
 - `make health` / `python scripts/smoke_health.py`
@@ -117,4 +110,4 @@ pip install paddlepaddle -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
 - [x] Line merge into stabler textboxes
 - [x] Figures/tables as editable layers
 - [x] Table structure → editable cells (OCR cells, not perfect table rebuild)
-- [x] Manual SAM/LaMa weight paths (optional)
+- [ ] Toolbar matting/layering (Recombyn Intelligence — separate from import)

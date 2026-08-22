@@ -20,15 +20,10 @@ from app.services.wallet.db import is_wallet_billing_enabled, spend_credits
 router = APIRouter(prefix="/image", tags=["image-tools"])
 
 # Wallet 积分 charged per LLM image tool when not tied to a Seedream catalog price.
-# Local CV kinds (removeBg / editText / editElements) are always 0.
 _KIND_CREDIT_COST: dict[str, int] = {
     "upscale": 20,
-    "removeBg": 0,
     "multiAngle": 30,
     "expand": 30,
-    "editText": 0,
-    "editElements": 0,
-    "detectRegions": 0,
     "replaceText": 30,
     "vector": 20,
     "adjust": 0,  # FE uses CSS filters; API adjust is unused
@@ -36,7 +31,7 @@ _KIND_CREDIT_COST: dict[str, int] = {
 
 
 class ImageProcessIn(BaseModel):
-    kind: str = Field(..., min_length=1, description="removeBg | upscale | multiAngle | ...")
+    kind: str = Field(..., min_length=1, description="upscale | multiAngle | expand | ...")
     image: str = Field(..., min_length=1, description="Source image data URL or https URL")
     meta: dict[str, Any] | None = None
     aspect_ratio: str | None = None
@@ -64,7 +59,7 @@ def credit_cost_for_kind(
 ) -> int:
     """Platform credits only when an LLM image path runs on the platform key."""
     k = (kind or "").strip()
-    # No LLM call (rembg / OCR decompose / CSS adjust) → never charge.
+    # No LLM call (intelligence vision / CSS adjust) → never charge.
     if not uses_llm_for_kind(k):
         return 0
     if not is_wallet_billing_enabled():
@@ -80,20 +75,11 @@ def credit_cost_for_kind(
 
 @router.get("/tools")
 def list_image_tools() -> dict[str, Any]:
-    from app.core.config import settings
-    from app.services.vision.ilp_client import ilp_enabled
-
     kinds = sorted(IMAGE_PROCESS_KINDS)
     costs = {k: credit_cost_for_kind(k) for k in kinds}
-    mode = str(getattr(settings, "image_layer_pipeline_mode", "legacy") or "legacy").strip().lower()
     return {
         "kinds": kinds,
         "credits": costs,
-        "ilp": {
-            "enabled": ilp_enabled(),
-            "mode": mode,
-            "supports": ["editElements"],
-        },
     }
 
 
