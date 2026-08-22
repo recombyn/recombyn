@@ -29,7 +29,7 @@ RECOMBYN_INTELLIGENCE_API_KEY=dev-key
 
 | Intelligence configured | Toolbar |
 |-------------------------|---------|
-| Yes | 去背景 · 编辑文字 · 图片分层 · 标记 |
+| Yes | 去背景 · 编辑文字 · 图片分层 · 标记 · **贴样机** (closed-source mockup) |
 | No | Hidden (upscale / eraser / multi-angle still work) |
 
 `GET /api/v1/image/tools` returns:
@@ -39,6 +39,10 @@ RECOMBYN_INTELLIGENCE_API_KEY=dev-key
   "ilp": {
     "enabled": true,
     "supports": ["removeBg", "editText", "editElements", "detectRegions"]
+  },
+  "mockup": {
+    "enabled": true,
+    "templates": [{ "id": "demo-cylinder", "width": 720, "height": 960 }]
   }
 }
 ```
@@ -51,6 +55,17 @@ RECOMBYN_INTELLIGENCE_API_KEY=dev-key
 | 编辑文字 | `editText` | `POST /api/v1/pipeline/text-decompose` |
 | 图片分层 | `editElements` | `POST /api/v1/pipeline/jobs` (+ poll) |
 | 标记 | `detectRegions` | `POST /api/v1/pipeline/detect-regions` |
+
+## Product mockup (closed-source, P0)
+
+Mockup rendering lives in **recombyn-intelligence** only. The OSS web app proxies it when `RECOMBYN_INTELLIGENCE_URL` is set; otherwise **贴样机** is hidden and `POST /api/v1/mockup/render` returns 503.
+
+| Action | BFF | Intelligence |
+|--------|-----|--------------|
+| List templates | `GET /api/v1/mockup/tools` | `GET /api/v1/mockup/templates` |
+| Render preview | `POST /api/v1/mockup/render` | `POST /api/v1/mockup/render` |
+
+Default template: `demo-cylinder` (builtin procedural mug). See `recombyn-intelligence/docs/mockup-architecture.md`.
 
 ## Document import
 

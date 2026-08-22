@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { HiOutlineCube, HiOutlineLanguage, HiOutlinePencilSquare } from 'react-icons/hi2';
 
-import { LuCrosshair, LuEraser } from 'react-icons/lu';
+import { LuCrosshair, LuEraser, LuPackage } from 'react-icons/lu';
 
 import { Icon } from '@/components/base';
 
@@ -86,6 +86,8 @@ function ImageToolbarEditTools({
 
   onEditElements,
 
+  onMockup,
+
   onMultiAngle,
 
   previewSlot,
@@ -107,6 +109,8 @@ function ImageToolbarEditTools({
   onEditText?: () => void;
 
   onEditElements?: (mode: DecomposeMode) => void;
+
+  onMockup?: () => void;
 
   onMultiAngle: () => void;
 
@@ -169,6 +173,12 @@ function ImageToolbarEditTools({
       ) : null}
 
       {onEditElements ? <ImageDecomposeMenu onPick={onEditElements} /> : null}
+
+      {onMockup ? (
+        <Tool label={t('editor.imageToolbar.mockup')} onClick={onMockup}>
+          <LuPackage className="h-4 w-4" strokeWidth={2} />
+        </Tool>
+      ) : null}
 
       <Tool label={t('editor.imageToolbar.multiAngle')} onClick={onMultiAngle}>
 

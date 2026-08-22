@@ -346,6 +346,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
   );
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
+  const mockupEnabled = imageToolCaps?.mockup?.enabled === true;
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
   const flipRotateOpen = isPanelKindOnNode(
@@ -606,6 +607,11 @@ function SelectionContextToolbar(props: Props): ReactNode {
                       undefined,
                       { engine: 'ilp' }
                     )
+                : undefined
+            }
+            onMockup={
+              mockupEnabled
+                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'mockup' }))
                 : undefined
             }
             onMultiAngle={() =>

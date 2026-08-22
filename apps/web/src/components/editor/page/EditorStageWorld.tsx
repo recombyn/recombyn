@@ -23,6 +23,7 @@ import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProces
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
 import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
 import MarkSessionHost from '@/components/editor/nodes/ImageNode/mark/MarkSessionHost';
+import MockupSessionHost from '@/components/editor/nodes/ImageNode/mockup/MockupSessionHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
@@ -785,6 +786,7 @@ function EditorStageWorld({
         <CropExpandSessionHost document={document} />
         <UpscaleSessionHost document={document} />
         <MarkSessionHost document={document} />
+        <MockupSessionHost document={document} />
         <VideoTrimSessionHost document={document} />
         <AudioTrimSessionHost document={document} />
         <AudioSpeedSessionHost document={document} />

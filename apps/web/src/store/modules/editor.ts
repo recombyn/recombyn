@@ -85,6 +85,7 @@ export type ImageToolPanelKind =
   | 'replaceText'
   | 'lottieEdit'
   | 'mark'
+  | 'mockup'
   | 'upscale';
 
 const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
@@ -118,6 +119,7 @@ const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   quickEdit: true,
   lottieEdit: true,
   mark: true,
+  mockup: true,
 };
 
 const TRANSIENT_NODE_ATTR_KEYS = new Set([

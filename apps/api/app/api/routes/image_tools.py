@@ -81,11 +81,24 @@ def credit_cost_for_kind(
 @router.get("/tools")
 def list_image_tools() -> dict[str, Any]:
     from app.services.llm.image_tools import ilp_supports
+    from app.services.mockup.mockup_client import mockup_enabled
     from app.services.vision.ilp_client import ilp_enabled
 
     kinds = sorted(IMAGE_PROCESS_KINDS)
     costs = {k: credit_cost_for_kind(k) for k in kinds}
     ilp_on = ilp_enabled()
+    mockup_on = mockup_enabled()
+    mockup_block: dict[str, Any] = {"enabled": mockup_on}
+    if mockup_on:
+        mockup_block["templates"] = [
+            {
+                "id": "demo-cylinder",
+                "name": "Demo cylinder mug",
+                "kind": "builtin",
+                "width": 720,
+                "height": 960,
+            }
+        ]
     return {
         "kinds": kinds,
         "credits": costs,
@@ -93,6 +106,7 @@ def list_image_tools() -> dict[str, Any]:
             "enabled": ilp_on,
             "supports": ilp_supports(),
         },
+        "mockup": mockup_block,
     }
 
 

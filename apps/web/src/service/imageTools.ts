@@ -64,6 +64,16 @@ export type ImageToolCapabilities = {
     enabled?: boolean;
     supports?: string[];
   };
+  mockup?: {
+    enabled?: boolean;
+    templates?: Array<{
+      id: string;
+      name?: string;
+      kind?: string;
+      width?: number;
+      height?: number;
+    }>;
+  };
 };
 
 /** Kinds that require Recombyn Intelligence (not available in OSS-only deploy). */
