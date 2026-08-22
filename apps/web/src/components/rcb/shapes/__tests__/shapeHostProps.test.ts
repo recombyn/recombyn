@@ -27,4 +27,17 @@ describe('shapeHostPropsEqual', () => {
 
     expect(shapeHostPropsEqual(props(before), props(after))).toBe(false);
   });
+
+  it('updates the host when process chrome attrs clear on the same node record', () => {
+    const image = {
+      id: 'brush-a',
+      key: 'image',
+      attrs: { processStatus: 'running', processLabel: 'Uploading' },
+    };
+    const before = { deltaSetLike: { 'brush-a': image } };
+    image.attrs = { src: 'https://cdn.example.com/a.png' };
+    const after = { deltaSetLike: { 'brush-a': image } };
+
+    expect(shapeHostPropsEqual(props(before), props(after))).toBe(false);
+  });
 });

@@ -22,17 +22,17 @@ import {
 } from '@/components/editor/nodes/ShapeNode/CornerRadiusPanel';
 import GradientHandlesOverlay from '@/components/editor/nodes/ShapeNode/GradientHandlesOverlay';
 import MeshHandlesOverlay from '@/components/editor/nodes/ShapeNode/MeshHandlesOverlay';
+import FillImageHandlesOverlay from '@/components/editor/nodes/ShapeNode/FillImageHandlesOverlay';
 import { parseStrokeStyle } from '@/components/rcb/scene/document/sceneStrokeStyle';
 import {
   supportsSideStroke
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  DEFAULT_FILL_IMAGE_ADJUST,
   fillImageFieldsFromAttrs,
   parseFillGradient,
   parseFillType,
   serializeFillGradient,
-  serializeFillImageAdjust,
+  serializeShapeFillAttrs,
   type FillGradient,
 } from '@/components/rcb/scene/document/sceneFill';
 import {
@@ -138,28 +138,7 @@ function fillAttrsFromValue(
   shapeType?: unknown,
   opts?: { visible?: boolean }
 ) {
-  const visible = opts?.visible !== false;
-  return {
-    ...(shapeType != null ? { shapeType } : {}),
-    'fill-color': next.fillColor,
-    'fill-type': next.fillType,
-    'fill-opacity': next.fillOpacity ?? 100,
-    'fill-enabled': visible ? 'true' : 'false',
-    'fill-visible': visible ? 'true' : 'false',
-    ...(next.fillType !== 'solid' && next.fillType !== 'image' && next.fillGradient
-      ? { 'fill-gradient': next.fillGradient }
-      : {}),
-    ...(next.fillType === 'image'
-      ? {
-          'fill-image-src': next.fillImageSrc || '',
-          'fill-image-fit': next.fillImageFit ?? 'fill',
-          'fill-image-rotate': next.fillImageRotate ?? 0,
-          'fill-image-adjust': serializeFillImageAdjust(
-            next.fillImageAdjust ?? DEFAULT_FILL_IMAGE_ADJUST
-          ),
-        }
-      : {}),
-  };
+  return serializeShapeFillAttrs(next, { shapeType, visible: opts?.visible });
 }
 
 function strokeAttrsFromValue(
@@ -344,6 +323,10 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
     panel.kind === 'fill' &&
     (fillType === 'linear' || fillType === 'radial' || fillType === 'angular');
   const showMeshHandles = panel.kind === 'fill' && fillType === 'diffuse';
+  const showImageFillHandles =
+    panel.kind === 'fill' &&
+    fillType === 'image' &&
+    Boolean(String(fillValue.fillImageSrc || '').trim());
   const handleBox = nodeGeomBox(document, firstNode) || box;
   const nodeAngle = Number(firstAttrs?.angle);
   const gradient: FillGradient | null = showGradientHandles
@@ -587,6 +570,14 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
           showGuides={meshShowGuides}
           onChange={applyGradient}
           onActivePointChange={setMeshSelectedIndex}
+        />
+      ) : null}
+      {showImageFillHandles ? (
+        <FillImageHandlesOverlay
+          box={handleBox}
+          angle={Number.isFinite(nodeAngle) ? nodeAngle : 0}
+          value={fillValue}
+          onChange={applyFill}
         />
       ) : null}
       <RcbOverlayPortal>

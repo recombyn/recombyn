@@ -91,6 +91,9 @@ export type SceneDocument = {
   backgroundImageSrc?: string;
   backgroundImageFit?: string;
   backgroundImageRotate?: number;
+  backgroundImageScale?: number;
+  backgroundImageOffsetX?: number;
+  backgroundImageOffsetY?: number;
   backgroundImageAdjust?: unknown;
   frames?: ArtboardFrame[];
   activeFrameId?: string | null;

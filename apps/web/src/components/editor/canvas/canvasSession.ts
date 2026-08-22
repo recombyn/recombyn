@@ -23,6 +23,7 @@ import {
   isLottieNode,
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { clearImageProcessAttrs } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   STROKE_GEOMETRY_HEIGHT,
   strokeNodeFromEndpoints,
@@ -637,6 +638,9 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     const board = deps.getBoard();
     if (!doc || deps.isReadOnly() || !patches.length) return;
     const { nodePatches, frames } = applyFrameGeometryPatches(patches);
+    const touchedNodeIds = nodePatches
+      .map((p) => String(p.nodeId || '').trim())
+      .filter(Boolean);
     let next = doc;
     if (nodePatches.length) {
       const normalized = normalizeGeomPatches(doc, toGeometryPatches(doc, nodePatches));
@@ -701,6 +705,17 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           return { ...f, x: hit.x, y: hit.y, width: hit.width, height: hit.height };
         }),
       };
+    }
+    const latestCommitted = deps.getCommittedDocument?.() ?? committed;
+    if (latestCommitted && touchedNodeIds.length) {
+      for (const id of touchedNodeIds) {
+        const committedNode = latestCommitted.deltaSetLike?.[id];
+        const pending = String(committedNode?.attrs?.processStatus || '') === 'running';
+        const written = String(next?.deltaSetLike?.[id]?.attrs?.processStatus || '') === 'running';
+        if (!pending && written) {
+          next = clearImageProcessAttrs(next, id);
+        }
+      }
     }
     deps.setDocumentLocal(next);
     if (!options?.skipHistory) {

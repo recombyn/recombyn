@@ -47,7 +47,8 @@ export type FillGradient = {
 };
 
 export type FillImageFit = 'fill' | 'fit' | 'crop' | 'tile';
-export type FillImageRotate = 0 | 90 | 180 | 270;
+/** Degrees — any value (not limited to 90° steps). */
+export type FillImageRotate = number;
 
 export type FillImageAdjust = {
   exposure: number;
@@ -84,6 +85,9 @@ export type SvgPaint =
       opacityPct?: number;
       imageFit?: FillImageFit;
       imageRotate?: FillImageRotate;
+      imageScale?: number;
+      imageOffsetX?: number;
+      imageOffsetY?: number;
       imageFilter?: string;
     };
 
@@ -245,8 +249,17 @@ export function parseFillImageFit(raw: unknown): FillImageFit {
 
 export function parseFillImageRotate(raw: unknown): FillImageRotate {
   const n = Number(raw);
-  if (n === 90 || n === 180 || n === 270) return n;
-  return 0;
+  return Number.isFinite(n) ? Math.round(n * 10) / 10 : 0;
+}
+
+export function parseFillImageScale(raw: unknown): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.max(1, Math.round(n * 10) / 10) : 100;
+}
+
+export function parseFillImageOffset(raw: unknown): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.round(n * 10) / 10 : 0;
 }
 
 export function parseFillImageAdjust(raw: unknown): FillImageAdjust {
@@ -323,8 +336,137 @@ export function fillImageFieldsFromAttrs(attrs: Record<string, any> = {}) {
     fillImageSrc: attrs['fill-image-src'] != null ? String(attrs['fill-image-src']) : undefined,
     fillImageFit: parseFillImageFit(attrs['fill-image-fit']),
     fillImageRotate: parseFillImageRotate(attrs['fill-image-rotate']),
+    fillImageScale: parseFillImageScale(attrs['fill-image-scale']),
+    fillImageOffsetX: parseFillImageOffset(attrs['fill-image-offset-x']),
+    fillImageOffsetY: parseFillImageOffset(attrs['fill-image-offset-y']),
     fillImageAdjust: parseFillImageAdjust(attrs['fill-image-adjust']),
   };
+}
+
+export type FillImageFieldPatch = ReturnType<typeof fillImageFieldsFromAttrs>;
+
+/** Canonical defaults when reading/writing image-fill panel + attrs. */
+export function withDefaultFillImageFields(
+  value?: Partial<FillImageFieldPatch> & { fillImageSrc?: string }
+) {
+  return {
+    fillImageSrc: value?.fillImageSrc ?? '',
+    fillImageFit: value?.fillImageFit ?? 'fill',
+    fillImageRotate: value?.fillImageRotate ?? 0,
+    fillImageScale: value?.fillImageScale ?? 100,
+    fillImageOffsetX: value?.fillImageOffsetX ?? 0,
+    fillImageOffsetY: value?.fillImageOffsetY ?? 0,
+    fillImageAdjust: value?.fillImageAdjust ?? DEFAULT_FILL_IMAGE_ADJUST,
+  };
+}
+
+/** Reset transform + adjust sliders; keeps `fillImageSrc`. */
+export function resetFillImageTransformFields(): Pick<
+  FillImageFieldPatch,
+  | 'fillImageFit'
+  | 'fillImageRotate'
+  | 'fillImageScale'
+  | 'fillImageOffsetX'
+  | 'fillImageOffsetY'
+  | 'fillImageAdjust'
+> {
+  return {
+    fillImageFit: 'fill',
+    fillImageRotate: 0,
+    fillImageScale: 100,
+    fillImageOffsetX: 0,
+    fillImageOffsetY: 0,
+    fillImageAdjust: { ...DEFAULT_FILL_IMAGE_ADJUST },
+  };
+}
+
+export function serializeFillImageAttrs(
+  fields: Partial<FillImageFieldPatch> & { fillImageSrc?: string }
+): Record<string, string | number> {
+  const v = withDefaultFillImageFields(fields);
+  return {
+    'fill-image-src': v.fillImageSrc,
+    'fill-image-fit': v.fillImageFit,
+    'fill-image-rotate': v.fillImageRotate,
+    'fill-image-scale': v.fillImageScale,
+    'fill-image-offset-x': v.fillImageOffsetX,
+    'fill-image-offset-y': v.fillImageOffsetY,
+    'fill-image-adjust': serializeFillImageAdjust(v.fillImageAdjust),
+  };
+}
+
+export function backgroundImageAttrsFromDocument(
+  doc: SceneDocument | null | undefined
+): Record<string, unknown> {
+  if (!doc) return {};
+  return {
+    'fill-image-src': doc.backgroundImageSrc,
+    'fill-image-fit': doc.backgroundImageFit,
+    'fill-image-rotate': doc.backgroundImageRotate,
+    'fill-image-scale': doc.backgroundImageScale,
+    'fill-image-offset-x': doc.backgroundImageOffsetX,
+    'fill-image-offset-y': doc.backgroundImageOffsetY,
+    'fill-image-adjust': doc.backgroundImageAdjust,
+  };
+}
+
+export function fillImageFieldsFromDocumentBackground(doc: SceneDocument | null | undefined) {
+  return fillImageFieldsFromAttrs(backgroundImageAttrsFromDocument(doc));
+}
+
+export function imagePatternPaintFromAttrs(
+  attrs: Record<string, unknown>,
+  w: number,
+  h: number,
+  opacityPct: number,
+  srcOverride?: string
+): Extract<SvgPaint, { kind: 'pattern' }> | null {
+  const src = String(srcOverride ?? attrs['fill-image-src'] ?? '').trim();
+  if (!src) return null;
+  const adjust = parseFillImageAdjust(attrs['fill-image-adjust']);
+  const filter = buildImageAdjustFilterCss(adjust);
+  return {
+    kind: 'pattern',
+    dataUrl: src,
+    width: w,
+    height: h,
+    opacityPct,
+    imageFit: parseFillImageFit(attrs['fill-image-fit']),
+    imageRotate: parseFillImageRotate(attrs['fill-image-rotate']),
+    imageScale: parseFillImageScale(attrs['fill-image-scale']),
+    imageOffsetX: parseFillImageOffset(attrs['fill-image-offset-x']),
+    imageOffsetY: parseFillImageOffset(attrs['fill-image-offset-y']),
+    imageFilter: filter !== 'none' ? filter : undefined,
+  };
+}
+
+export type ShapeFillPanelLike = {
+  fillType: FillType;
+  fillColor: string;
+  fillOpacity?: number;
+  fillGradient?: string;
+} & Partial<FillImageFieldPatch>;
+
+export function serializeShapeFillAttrs(
+  next: ShapeFillPanelLike,
+  opts?: { shapeType?: unknown; visible?: boolean }
+): Record<string, unknown> {
+  const visible = opts?.visible !== false;
+  const attrs: Record<string, unknown> = {
+    ...(opts?.shapeType != null ? { shapeType: opts.shapeType } : {}),
+    'fill-color': next.fillColor,
+    'fill-type': next.fillType,
+    'fill-opacity': next.fillOpacity ?? 100,
+    'fill-enabled': visible ? 'true' : 'false',
+    'fill-visible': visible ? 'true' : 'false',
+  };
+  if (next.fillType !== 'solid' && next.fillType !== 'image' && next.fillGradient) {
+    attrs['fill-gradient'] = next.fillGradient;
+  }
+  if (next.fillType === 'image') {
+    Object.assign(attrs, serializeFillImageAttrs(next));
+  }
+  return attrs;
 }
 
 export function parseFillType(raw: unknown): FillType {
@@ -530,20 +672,7 @@ export function resolveFill(node: SceneNodeInput, fallback = '#FFFFFF'): SvgPain
   const h = Number(node?.height) || 120;
 
   if (fillType === 'image') {
-    const src = String(attrs['fill-image-src'] || '');
-    if (!src) return { kind: 'none' };
-    const adjust = parseFillImageAdjust(attrs['fill-image-adjust']);
-    const filter = buildImageAdjustFilterCss(adjust);
-    return {
-      kind: 'pattern',
-      dataUrl: src,
-      width: w,
-      height: h,
-      opacityPct,
-      imageFit: parseFillImageFit(attrs['fill-image-fit']),
-      imageRotate: parseFillImageRotate(attrs['fill-image-rotate']),
-      imageFilter: filter !== 'none' ? filter : undefined,
-    };
+    return imagePatternPaintFromAttrs(attrs, w, h, opacityPct) ?? { kind: 'none' };
   }
 
   const gradient = parseFillGradient(
@@ -612,6 +741,15 @@ export function fillAttrsFromElement(_el: Element | null | undefined, prevAttrs:
       ...(prevAttrs['fill-image-rotate'] != null
         ? { 'fill-image-rotate': prevAttrs['fill-image-rotate'] }
         : {}),
+      ...(prevAttrs['fill-image-scale'] != null
+        ? { 'fill-image-scale': prevAttrs['fill-image-scale'] }
+        : {}),
+      ...(prevAttrs['fill-image-offset-x'] != null
+        ? { 'fill-image-offset-x': prevAttrs['fill-image-offset-x'] }
+        : {}),
+      ...(prevAttrs['fill-image-offset-y'] != null
+        ? { 'fill-image-offset-y': prevAttrs['fill-image-offset-y'] }
+        : {}),
       ...(prevAttrs['fill-image-adjust'] != null
         ? { 'fill-image-adjust': prevAttrs['fill-image-adjust'] }
         : {}),
@@ -656,13 +794,18 @@ export function resolveDocumentBackground(document: SceneDocument): SvgPaint {
   }
   if (type === 'image') {
     const src = String(document?.backgroundImageSrc || '');
-    if (!src) return { kind: 'solid', color: normalizeColor(document?.backgroundColor || '#ffffff') };
-    return {
-      kind: 'pattern',
-      dataUrl: src,
-      width: Number(document?.width) || 794,
-      height: Number(document?.height) || 1123,
-    };
+    if (!src) {
+      return { kind: 'solid', color: normalizeColor(document?.backgroundColor || '#ffffff') };
+    }
+    return (
+      imagePatternPaintFromAttrs(
+        backgroundImageAttrsFromDocument(document),
+        Number(document?.width) || 794,
+        Number(document?.height) || 1123,
+        Number(document?.backgroundOpacity ?? 100),
+        src
+      ) ?? { kind: 'solid', color: normalizeColor(document?.backgroundColor || '#ffffff') }
+    );
   }
   const gradient = parseFillGradient(
     document?.backgroundGradient,

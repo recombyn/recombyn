@@ -288,6 +288,9 @@ const initialState = {
     fillImageSrc: undefined as string | undefined,
     fillImageFit: undefined as 'fill' | 'fit' | 'crop' | 'tile' | undefined,
     fillImageRotate: undefined as number | undefined,
+    fillImageScale: undefined as number | undefined,
+    fillImageOffsetX: undefined as number | undefined,
+    fillImageOffsetY: undefined as number | undefined,
     fillImageAdjust: undefined as Record<string, number> | undefined,
   },
   /** Pencil brush wheel selection (default = first: 矢量墨线). */
@@ -336,6 +339,9 @@ const STAGE_CANVAS_META_KEYS = [
   'backgroundImageSrc',
   'backgroundImageFit',
   'backgroundImageRotate',
+  'backgroundImageScale',
+  'backgroundImageOffsetX',
+  'backgroundImageOffsetY',
   'backgroundImageAdjust',
 ] as const;
 
