@@ -124,6 +124,173 @@ async def wait_for_job(job_id: str) -> dict[str, Any]:
     raise TimeoutError(f"ILP job {job_id} timed out")
 
 
+async def segment_foreground_via_ilp(
+    image_ref: str,
+    *,
+    model: str = "birefnet-general",
+    decontaminate: float = 0.65,
+) -> tuple[bytes, str]:
+    """Matting-only — BiRefNet + decontaminate on the intelligence service."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Depth layering service is not configured (set RECOMBYN_INTELLIGENCE_URL or IMAGE_LAYER_PIPELINE_URL)"
+        )
+
+    content, filename = await _load_bytes(image_ref)
+    async with httpx.AsyncClient(timeout=_timeout()) as client:
+        resp = await client.post(
+            f"{base}/api/v1/pipeline/segment",
+            files={"file": (filename, content, "application/octet-stream")},
+            data={
+                "model": model.strip() or "birefnet-general",
+                "decontaminate": str(max(0.0, min(1.0, float(decontaminate)))),
+            },
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ILP segment failed ({resp.status_code}): {resp.text[:300]}")
+        ctype = (resp.headers.get("content-type") or "image/png").split(";")[0].strip()
+        return resp.content, ctype
+
+
+async def text_decompose_via_ilp(
+    image_ref: str,
+    *,
+    lang: str = "ch",
+    min_confidence: float = 0.72,
+) -> dict[str, Any]:
+    """editText OCR + inpaint on intelligence."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Depth layering service is not configured (set RECOMBYN_INTELLIGENCE_URL or IMAGE_LAYER_PIPELINE_URL)"
+        )
+
+    content, filename = await _load_bytes(image_ref)
+    async with httpx.AsyncClient(timeout=_timeout()) as client:
+        resp = await client.post(
+            f"{base}/api/v1/pipeline/text-decompose",
+            files={"file": (filename, content, "application/octet-stream")},
+            data={
+                "lang": lang.strip() or "ch",
+                "min_confidence": str(max(0.0, min(1.0, float(min_confidence)))),
+            },
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ILP text-decompose failed ({resp.status_code}): {resp.text[:300]}")
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("ILP text-decompose returned invalid JSON")
+        return data
+
+
+async def detect_regions_via_ilp(
+    image_ref: str,
+    *,
+    lang: str = "ch",
+    model: str = "birefnet-general",
+) -> dict[str, Any]:
+    """Mark tool — OCR text boxes + foreground bbox on intelligence."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Depth layering service is not configured (set RECOMBYN_INTELLIGENCE_URL or IMAGE_LAYER_PIPELINE_URL)"
+        )
+
+    content, filename = await _load_bytes(image_ref)
+    async with httpx.AsyncClient(timeout=_timeout()) as client:
+        resp = await client.post(
+            f"{base}/api/v1/pipeline/detect-regions",
+            files={"file": (filename, content, "application/octet-stream")},
+            data={
+                "lang": lang.strip() or "ch",
+                "model": model.strip() or "birefnet-general",
+            },
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ILP detect-regions failed ({resp.status_code}): {resp.text[:300]}")
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("ILP detect-regions returned invalid JSON")
+        return data
+
+
+async def inpaint_image_via_ilp(
+    image_bytes: bytes,
+    mask_bytes: bytes,
+    *,
+    backend: str = "lama",
+) -> bytes:
+    """Stateless LaMa inpaint on intelligence — for editText background erase."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Depth layering service is not configured (set RECOMBYN_INTELLIGENCE_URL or IMAGE_LAYER_PIPELINE_URL)"
+        )
+
+    async with httpx.AsyncClient(timeout=_timeout()) as client:
+        resp = await client.post(
+            f"{base}/api/v1/pipeline/inpaint",
+            files={
+                "file": ("image.png", image_bytes, "image/png"),
+                "mask": ("mask.png", mask_bytes, "image/png"),
+            },
+            data={"backend": backend.strip() or "lama"},
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ILP inpaint failed ({resp.status_code}): {resp.text[:300]}")
+        return resp.content
+
+
+def analyze_pages_via_ilp(
+    page_paths: list,
+    *,
+    lang: str = "ch",
+    target_width: int = 794,
+    palette_k: int = 5,
+    expand_table_cells: bool = True,
+) -> dict[str, Any]:
+    """Document import — OCR/layout on intelligence (sync)."""
+    from pathlib import Path
+
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Depth layering service is not configured (set RECOMBYN_INTELLIGENCE_URL or IMAGE_LAYER_PIPELINE_URL)"
+        )
+
+    files: list[tuple[str, tuple[str, bytes, str]]] = []
+    for idx, path in enumerate(page_paths):
+        p = Path(path)
+        raw = p.read_bytes()
+        suffix = p.suffix.lower() or ".png"
+        ctype = "image/png" if suffix == ".png" else "application/octet-stream"
+        files.append(("files", (f"page_{idx:04d}{suffix}", raw, ctype)))
+
+    with httpx.Client(timeout=_timeout()) as client:
+        resp = client.post(
+            f"{base}/api/v1/pipeline/analyze-pages",
+            files=files,
+            data={
+                "lang": lang.strip() or "ch",
+                "target_width": str(int(target_width)),
+                "palette_k": str(int(palette_k)),
+                "expand_table_cells": "true" if expand_table_cells else "false",
+            },
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ILP analyze-pages failed ({resp.status_code}): {resp.text[:300]}")
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("ILP analyze-pages returned invalid JSON")
+        return data
+
+
 async def fetch_file_bytes(relative_or_absolute_url: str) -> tuple[bytes, str]:
     base = _base_url()
     url = (relative_or_absolute_url or "").strip()

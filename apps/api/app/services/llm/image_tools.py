@@ -1,4 +1,4 @@
-"""Image toolbar AI tools — Seedream i2i + local rembg / OCR decompose."""
+"""Image toolbar AI tools — Seedream i2i + Recombyn Intelligence vision."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import logging
 
 import httpx
 
-from app.core.config import settings
 from app.services.llm.image import generate_image
 
 logger = logging.getLogger(__name__)
@@ -30,12 +29,17 @@ IMAGE_PROCESS_KINDS = frozenset(
     }
 )
 
-# Vision split / cutout — not Seedream re-render.
+# Closed-source intelligence only — hidden in UI and rejected when service is down.
+ILP_EXCLUSIVE_KINDS = frozenset({"removeBg", "editText", "editElements", "detectRegions"})
+
 DECOMPOSE_KINDS = frozenset({"editText", "editElements"})
 DETECT_KINDS = frozenset({"detectRegions"})
 CUTOUT_KINDS = frozenset({"removeBg"})
-# Local rembg / OCR decompose — no LLM → never charge platform credits.
 NO_LLM_KINDS = CUTOUT_KINDS | DECOMPOSE_KINDS | DETECT_KINDS
+
+_ILP_REQUIRED_MSG = (
+    "此功能需要接入 Recombyn Intelligence 闭源服务（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
+)
 
 
 def uses_llm_for_kind(kind: str | None) -> bool:
@@ -44,29 +48,23 @@ def uses_llm_for_kind(kind: str | None) -> bool:
     return bool(k) and k in IMAGE_PROCESS_KINDS and k not in NO_LLM_KINDS
 
 
-def _ilp_mode() -> str:
-    return str(getattr(settings, "image_layer_pipeline_mode", "legacy") or "legacy").strip().lower()
+def requires_ilp(kind: str | None) -> bool:
+    return (kind or "").strip() in ILP_EXCLUSIVE_KINDS
 
 
-def should_use_ilp_decompose(kind: str, meta: dict[str, Any] | None) -> bool:
-    """Route editElements to the closed-source depth/matting pipeline when configured."""
-    if (kind or "").strip() != "editElements":
-        return False
+def _require_ilp() -> None:
     from app.services.vision.ilp_client import ilp_enabled
 
     if not ilp_enabled():
-        return False
+        raise RuntimeError(_ILP_REQUIRED_MSG)
 
-    m = meta or {}
-    engine = str(m.get("engine") or "").strip().lower()
-    if engine == "legacy":
-        return False
-    if engine == "ilp":
-        return True
 
-    mode = _ilp_mode()
-    return mode in {"ilp", "auto"}
+def ilp_supports() -> list[str]:
+    from app.services.vision.ilp_client import ilp_enabled
 
+    if not ilp_enabled():
+        return []
+    return ["removeBg", "editText", "editElements", "detectRegions"]
 
 
 def _prompt_for(
@@ -168,7 +166,6 @@ async def _as_data_url(image_ref: str) -> str:
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
         resp = await client.get(ref)
         if resp.status_code >= 400:
-            # Fall back to the remote URL if download fails.
             return ref
         ctype = (resp.headers.get("content-type") or "image/png").split(";")[0].strip()
         if not ctype.startswith("image/"):
@@ -190,10 +187,7 @@ async def process_image_tool(
     """
     Run a toolbar image tool.
 
-    - ``removeBg`` → local rembg (GrabCut fallback) transparent PNG
-    - ``editText`` → OCR text layers + inpainted background
-    - ``editElements`` → subjects + text layers + inpainted background
-    - ``detectRegions`` → subject/text boxes only (Mark tool proposals)
+    - ``removeBg`` / ``editText`` / ``editElements`` → Recombyn Intelligence only
     - other kinds → Seedream image-to-image
 
     Returns ``{ image, layers?, text?, kind, model?, width?, height?, warnings? }``.
@@ -205,36 +199,28 @@ async def process_image_tool(
     if not src:
         raise ValueError("image is required")
 
+    if requires_ilp(k):
+        _require_ilp()
+
     if k in CUTOUT_KINDS:
         from app.services.vision.remove_bg import remove_background
 
         return await remove_background(src, meta=meta)
 
-    if k in DECOMPOSE_KINDS:
-        use_ilp = should_use_ilp_decompose(k, meta)
-        if use_ilp:
-            from app.services.vision.ilp_decompose import decompose_via_ilp
+    if k == "editElements":
+        from app.services.vision.ilp_decompose import decompose_via_ilp
 
-            try:
-                return await decompose_via_ilp(kind=k, image=src)  # type: ignore[arg-type]
-            except Exception as exc:
-                if _ilp_mode() != "auto":
-                    raise
-                logger.warning("ILP decompose failed, falling back to legacy: %s", exc)
+        return await decompose_via_ilp(kind="editElements", image=src)
 
-        from app.services.vision.image_edit import decompose_image
+    if k == "editText":
+        from app.services.vision.ilp_text_decompose import decompose_text_via_ilp
 
-        result = await decompose_image(kind=k, image=src)  # type: ignore[arg-type]
-        if use_ilp and _ilp_mode() == "auto":
-            warnings = list(result.get("warnings") or [])
-            warnings.append("工业分层不可用，已回退到标准分层")
-            result = {**result, "warnings": warnings}
-        return result
+        return await decompose_text_via_ilp(kind="editText", image=src)
 
     if k in DETECT_KINDS:
-        from app.services.vision.image_edit import detect_regions
+        from app.services.vision.ilp_detect_regions import detect_regions_via_ilp_adapter
 
-        return await detect_regions(image=src)
+        return await detect_regions_via_ilp_adapter(image=src)
 
     prompt = _prompt_for(k, meta=meta)
     result = await generate_image(
@@ -255,9 +241,3 @@ async def process_image_tool(
         "kind": k,
         "model": result.get("model"),
     }
-
-
-
-
-
-

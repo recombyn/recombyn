@@ -10,6 +10,7 @@ export type HealthResponse = {
     api?: boolean;
     redis?: boolean;
     worker?: boolean;
+    intelligence?: boolean;
     ocr?: boolean;
     use_vision?: boolean;
     s3?: boolean;

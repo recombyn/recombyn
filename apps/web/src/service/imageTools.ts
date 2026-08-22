@@ -3,6 +3,7 @@
  * (Seedream i2i, or vision decompose for editText / editElements).
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { abortAfter, apiClient } from '@/service/client';
 
 export type ImageProcessKindApi =
@@ -58,7 +59,47 @@ export type ImageProcessResult = {
   credits?: number;
 };
 
-/** Run an image toolbar tool on the API (Seedream i2i or local rembg / OCR). */
+export type ImageToolCapabilities = {
+  ilp?: {
+    enabled?: boolean;
+    supports?: string[];
+  };
+};
+
+/** Kinds that require Recombyn Intelligence (not available in OSS-only deploy). */
+export const INTELLIGENCE_VISION_KINDS = [
+  'removeBg',
+  'editText',
+  'editElements',
+] as const;
+
+let intelligenceVisionEnabled = false;
+
+/** Sync snapshot updated by ``useImageToolCapabilities`` / ``fetchImageToolCapabilities``. */
+export function isIntelligenceVisionEnabled(): boolean {
+  return intelligenceVisionEnabled;
+}
+
+function syncIntelligenceVisionEnabled(caps: ImageToolCapabilities | undefined): void {
+  intelligenceVisionEnabled = caps?.ilp?.enabled === true;
+}
+
+/** Server-reported image tool capabilities (ILP routing, credits, etc.). */
+export const fetchImageToolCapabilities = async () => {
+  const data = (await apiClient.imageToolsListImageTools({})) as ImageToolCapabilities;
+  syncIntelligenceVisionEnabled(data);
+  return data;
+};
+
+export function useImageToolCapabilities() {
+  return useQuery({
+    queryKey: ['image-tool-capabilities'],
+    queryFn: fetchImageToolCapabilities,
+    staleTime: 60_000,
+  });
+}
+
+/** Run an image toolbar tool on the API (Seedream i2i or intelligence vision). */
 export const processImageTool = (
   data: ImageProcessBody,
   opts?: { signal?: AbortSignal }

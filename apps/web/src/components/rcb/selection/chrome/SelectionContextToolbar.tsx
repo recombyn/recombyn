@@ -72,6 +72,7 @@ import FontFamilyPicker from '@/components/editor/nodes/TextNode/FontFamilyPicke
 import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
+import { useImageToolCapabilities } from '@/service/imageTools';
 import ImageToolbarMoreDownload, {
   ToolbarMoreMenu,
   type ImageMoreAction,
@@ -343,6 +344,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
   const imageToolPanel = useSelector(
     (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
   );
+  const { data: imageToolCaps } = useImageToolCapabilities();
+  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
   const flipRotateOpen = isPanelKindOnNode(
@@ -567,28 +570,43 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <ImageToolSep />
           <ImageToolbarEditTools
             onUpscale={() => dispatch(openImageToolPanel({ nodeId, kind: 'upscale' }))}
-            onRemoveBg={(mode) =>
-              runImageProcess(
-                'removeBg',
-                t('editor.imageToolbar.processingRemoveBg'),
-                undefined,
-                { cutoutMode: mode }
-              )
+            onRemoveBg={
+              ilpEnabled
+                ? () =>
+                    runImageProcess(
+                      'removeBg',
+                      t('editor.imageToolbar.processingRemoveBg'),
+                      undefined,
+                      { cutoutMode: 'ilp' }
+                    )
+                : undefined
             }
             onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
-            onMark={() => dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))}
+            onMark={
+              ilpEnabled
+                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))
+                : undefined
+            }
             onReplaceText={
               String(node?.attrs?.letteringText || '').trim()
                 ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))
                 : undefined
             }
-            onEditElements={(mode) =>
-              runImageProcess(
-                'editElements',
-                t('editor.imageToolbar.processingEditElements'),
-                undefined,
-                { engine: mode === 'depth' ? 'ilp' : 'legacy' }
-              )
+            onEditText={
+              ilpEnabled
+                ? () => runImageProcess('editText', t('editor.imageToolbar.processingEditText'))
+                : undefined
+            }
+            onEditElements={
+              ilpEnabled
+                ? () =>
+                    runImageProcess(
+                      'editElements',
+                      t('editor.imageToolbar.processingEditElements'),
+                      undefined,
+                      { engine: 'ilp' }
+                    )
+                : undefined
             }
             onMultiAngle={() =>
               dispatch(openImageToolPanel({ nodeId, kind: 'multiAngle' }))

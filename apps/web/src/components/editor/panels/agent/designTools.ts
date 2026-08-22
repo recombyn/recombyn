@@ -1,4 +1,8 @@
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import {
+  INTELLIGENCE_VISION_KINDS,
+  isIntelligenceVisionEnabled,
+} from '@/service/imageTools';
 /**
  * Canvas design tools — schemas + local execution (tool loop).
  */
@@ -4221,6 +4225,17 @@ function execImageProcess(
         status: 'error',
         summary: `image_process unknown kind=${kind || '(empty)'}`,
         next_actions: [`Use kind one of: ${[...allowed].join('|')}`],
+      };
+    }
+    if (
+      (INTELLIGENCE_VISION_KINDS as readonly string[]).includes(kind) &&
+      !isIntelligenceVisionEnabled()
+    ) {
+      return {
+        status: 'error',
+        summary:
+          'removeBg / editText / editElements require Recombyn Intelligence (configure RECOMBYN_INTELLIGENCE_URL on the API)',
+        next_actions: ['Use upscale, expand, or other LLM image tools instead'],
       };
     }
     const node = doc.deltaSetLike?.[nodeId];

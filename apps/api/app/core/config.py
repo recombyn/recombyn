@@ -75,12 +75,10 @@ class Settings(BaseSettings):
 
     use_vision: bool = True
     ocr_lang: str = "ch"
+    # OCR blocks below this score become image layers (artistic / uncertain text).
+    ocr_text_min_confidence: float = Field(default=0.72, validation_alias="OCR_TEXT_MIN_CONFIDENCE")
     scene_target_width: int = 794
     palette_k: int = 5
-    # Prefer multi-instance SAM + LaMa when deps/checkpoint are present;
-    # paths no-op cleanly when unavailable (rembg / Telea fallback).
-    enable_sam: bool = True
-    enable_lama: bool = True
 
     s3_enabled: bool = False
     s3_endpoint_url: str | None = None
@@ -193,10 +191,14 @@ class Settings(BaseSettings):
         default="",
         validation_alias="IMAGE_LAYER_PIPELINE_API_KEY",
     )
-    # legacy = SAM/rembg path (default); ilp = always ILP; auto = ILP with legacy fallback.
+    # legacy settings kept for env compatibility; routing is intelligence-only.
     image_layer_pipeline_mode: str = Field(
-        default="legacy",
+        default="ilp",
         validation_alias="IMAGE_LAYER_PIPELINE_MODE",
+    )
+    image_layer_pipeline_allow_legacy_decompose: bool = Field(
+        default=False,
+        validation_alias="IMAGE_LAYER_PIPELINE_ALLOW_LEGACY_DECOMPOSE",
     )
     image_layer_pipeline_timeout_sec: float = Field(
         default=300.0,
@@ -208,11 +210,6 @@ class Settings(BaseSettings):
     )
 
     expand_table_cells: bool = True
-    sam_checkpoint: str | None = None
-    sam_model_type: str = "vit_t"
-    sam_min_area_ratio: float = 0.02
-    sam_max_regions: int = 8
-    lama_use_sam_mask: bool = True
 
     llm_provider: str = "deepseek"
     llm_api_key: str = ""

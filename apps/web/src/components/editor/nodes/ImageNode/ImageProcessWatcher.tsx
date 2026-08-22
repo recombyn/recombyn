@@ -1,7 +1,7 @@
 import { useEffect, useRef, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { message } from '@/components/base';
-import { processImageTool } from '@/service/imageTools';
+import { processImageTool, useImageToolCapabilities } from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
 import { apiQuery, getHttpErrorMessage, getHttpStatus, queryClient } from '@/service/client';
 import { failImageProcess, finishImageProcess } from '@/store/modules/editor';
@@ -115,6 +115,7 @@ function buildFinishAttrsForKind(
  */
 function ImageProcessWatcher() {
   const dispatch = useDispatch();
+  useImageToolCapabilities();
   const pendingId = useSelector((s: any) => s.editor.pendingImageProcessId as string | null);
   const document = useSelector((s: any) => s.editor.document);
   const documentRef = useRef(document);
@@ -200,11 +201,20 @@ function ImageProcessWatcher() {
             })
           );
           const warn = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
-          if (warn.length) message.warning(warn[0]);
-          else {
-            message.success(
-              kind === 'editElements' ? '图片分层完成（可单独改主体/文字）' : '文字识别完成'
-            );
+          if (warn.length) {
+            message.warning(warn.slice(0, 3).join('；'));
+          } else {
+            const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
+            const rasterCount = layers.filter((l: any) => l?.letteringText).length;
+            if (kind === 'editElements') {
+              message.success('图片分层完成（可单独改主体/文字）');
+            } else if (rasterCount > 0 && textCount > 0) {
+              message.success(`文字识别完成（${textCount} 处可编辑，${rasterCount} 处艺术字保留为图片）`);
+            } else if (textCount > 0) {
+              message.success(`文字识别完成（${textCount} 处可编辑）`);
+            } else {
+              message.success('文字识别完成');
+            }
           }
           await refreshWallet();
           return;

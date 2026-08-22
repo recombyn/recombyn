@@ -72,7 +72,7 @@ def _truthy_flag(raw: Any) -> bool:
 
 
 def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
-    """When to rembg after gen — lettering overlays + product plates (no white box)."""
+    """When to run industrial matting after gen — lettering overlays + product plates."""
     if str(args.get("letteringText") or "").strip():
         return "product"
     mode = str(args.get("cutoutMode") or "").strip().lower()

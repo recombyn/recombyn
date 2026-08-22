@@ -1,4 +1,4 @@
-"""Decompose a board raster into vision layers (reuses toolbar vision stack)."""
+"""Decompose a board raster into vision layers via Recombyn Intelligence."""
 
 from __future__ import annotations
 
@@ -10,15 +10,16 @@ _log = logging.getLogger(__name__)
 
 async def decompose_board_layers(*, image: str) -> dict[str, Any]:
     """
-    Full editElements split when OCR is available; otherwise one image layer.
+    Full editElements split when intelligence is available; otherwise one image layer.
 
-    Shape matches ``vision.image_edit.decompose_image``:
+    Shape matches ILP decompose:
     ``{ layers, width, height, engines, warnings, image }``.
     """
-    from app.services.vision.ocr import available as ocr_available
+    from app.services.vision.ilp_client import ilp_enabled
+    from app.services.vision.ilp_decompose import decompose_via_ilp
 
-    if not ocr_available():
-        _log.info("img_layers: OCR unavailable — single-image fallback")
+    if not ilp_enabled():
+        _log.info("img_layers: intelligence unavailable — single-image fallback")
         return {
             "image": image,
             "layers": [
@@ -36,13 +37,11 @@ async def decompose_board_layers(*, image: str) -> dict[str, Any]:
             "width": 0,
             "height": 0,
             "engines": ["fallback:single"],
-            "warnings": ["OCR unavailable — placed as a single image layer"],
+            "warnings": ["工业分层服务未配置 — 已作为单图层放置"],
         }
 
-    from app.services.vision.image_edit import decompose_image
-
     try:
-        return await decompose_image(kind="editElements", image=image)
+        return await decompose_via_ilp(kind="editElements", image=image)
     except Exception as err:  # noqa: BLE001
         _log.exception("img_layers decompose failed: %s", err)
         return {

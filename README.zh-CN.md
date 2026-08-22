@@ -173,6 +173,14 @@ npm run dev:collab           # Yjs WS :1234（可选；Vite DEV 默认开协作�
 npm run dev:web
 ```
 
+**工业级图像工具**（去背景、编辑文字、图片分层、标记）需要 [Recombyn Intelligence](docs/vision-intelligence.md)。一键启动 web + API + collab + intelligence：
+
+```bash
+npm run dev:full
+```
+
+在 `apps/api/.env` 中设置 `RECOMBYN_INTELLIGENCE_URL=http://127.0.0.1:8091`。
+
 画布 Live / WSS：**[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
 
 ### 桌面端（Tauri）

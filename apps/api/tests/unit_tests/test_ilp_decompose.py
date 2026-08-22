@@ -1,4 +1,4 @@
-"""Unit tests for ILP decompose routing helpers."""
+"""Unit tests for ILP-only image tool routing."""
 
 from __future__ import annotations
 
@@ -6,45 +6,32 @@ import asyncio
 
 import pytest
 
-from app.services.llm.image_tools import should_use_ilp_decompose
+from app.services.llm.image_tools import ilp_supports, requires_ilp
 
 
-def test_should_use_ilp_legacy_mode_without_meta(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.vision.ilp_client.ilp_enabled",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        "app.services.llm.image_tools.settings",
-        type("S", (), {"image_layer_pipeline_mode": "legacy"})(),
-    )
-    assert should_use_ilp_decompose("editElements", None) is False
-    assert should_use_ilp_decompose("editText", None) is False
+def test_requires_ilp_kinds():
+    assert requires_ilp("removeBg") is True
+    assert requires_ilp("editText") is True
+    assert requires_ilp("editElements") is True
+    assert requires_ilp("upscale") is False
 
 
-def test_should_use_ilp_ilp_mode(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.vision.ilp_client.ilp_enabled",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        "app.services.llm.image_tools.settings",
-        type("S", (), {"image_layer_pipeline_mode": "ilp"})(),
-    )
-    assert should_use_ilp_decompose("editElements", None) is True
+def test_ilp_supports_empty_when_off(monkeypatch):
+    monkeypatch.setattr("app.services.vision.ilp_client.ilp_enabled", lambda: False)
+    assert ilp_supports() == []
 
 
-def test_should_use_ilp_meta_override(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.vision.ilp_client.ilp_enabled",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        "app.services.llm.image_tools.settings",
-        type("S", (), {"image_layer_pipeline_mode": "legacy"})(),
-    )
-    assert should_use_ilp_decompose("editElements", {"engine": "ilp"}) is True
-    assert should_use_ilp_decompose("editElements", {"engine": "legacy"}) is False
+def test_ilp_supports_when_on(monkeypatch):
+    monkeypatch.setattr("app.services.vision.ilp_client.ilp_enabled", lambda: True)
+    assert ilp_supports() == ["removeBg", "editText", "editElements", "detectRegions"]
+
+
+def test_process_image_tool_rejects_ilp_kind_when_off(monkeypatch):
+    monkeypatch.setattr("app.services.vision.ilp_client.ilp_enabled", lambda: False)
+    from app.services.llm.image_tools import process_image_tool
+
+    with pytest.raises(RuntimeError, match="Recombyn Intelligence"):
+        asyncio.run(process_image_tool(kind="removeBg", image="data:image/png;base64,abc"))
 
 
 def test_decompose_via_ilp_maps_layers(monkeypatch):

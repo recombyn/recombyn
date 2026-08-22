@@ -203,6 +203,14 @@ npm run dev:collab           # Yjs WS on :1234 (optional; Vite DEV defaults coll
 npm run dev:web
 ```
 
+**Industrial image tools** (remove background, edit text, layer split, mark) require [Recombyn Intelligence](docs/vision-intelligence.md). One command for web + API + collab + intelligence:
+
+```bash
+npm run dev:full
+```
+
+Set `RECOMBYN_INTELLIGENCE_URL=http://127.0.0.1:8091` in `apps/api/.env`.
+
 Canvas Live / WSS setup: **[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
 
 ### Desktop (Tauri)

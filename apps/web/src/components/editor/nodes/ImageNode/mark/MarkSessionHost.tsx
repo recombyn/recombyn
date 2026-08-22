@@ -21,6 +21,7 @@ import { resolveChatFlyTarget } from '@/components/editor/panels/agent/composer/
 import { getHttpErrorMessage } from '@/service/client';
 import {
   processImageTool,
+  useImageToolCapabilities,
   type ImageDecomposeLayer,
 } from '@/service/imageTools';
 import { imageSrcToFile } from '@/utils/uploadImage';
@@ -188,6 +189,8 @@ function resolveMarkChatFlyTarget(): { x: number; y: number } {
 function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const dispatch = useDispatch();
   const camera = useRcbCamera();
+  const { data: imageToolCaps } = useImageToolCapabilities();
+  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const panel = useSelector(
     (s: any) =>
       s.editor.imageToolPanel as null | { nodeId: string; kind: string }
@@ -245,6 +248,10 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
     setRegions([]);
     setDraft(null);
     setFlies([]);
+    if (!ilpEnabled) {
+      setDetecting(false);
+      return;
+    }
     const gen = ++detectGenRef.current;
     setDetecting(true);
     abortRef.current?.abort();
@@ -288,7 +295,7 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
       ac.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, src]);
+  }, [active, src, ilpEnabled]);
 
   useEffect(() => {
     return () => {

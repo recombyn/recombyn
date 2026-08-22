@@ -76,6 +76,24 @@ def _poly_bounds(poly: Any) -> tuple[float, float, float, float] | None:
         return None
 
 
+def _poly_points(poly: Any) -> list[list[float]] | None:
+    """Normalize OCR polygon to [[x,y], ...] for mask rasterization."""
+    if poly is None:
+        return None
+    pts = poly.tolist() if hasattr(poly, "tolist") else poly
+    if not pts:
+        return None
+    if len(pts) == 4 and not isinstance(pts[0], (list, tuple)):
+        x1, y1, x2, y2 = map(float, pts)
+        return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+    out: list[list[float]] = []
+    for p in pts:
+        if not isinstance(p, (list, tuple)) or len(p) < 2:
+            continue
+        out.append([float(p[0]), float(p[1])])
+    return out or None
+
+
 def _blocks_from_v3_result(page_result: Any, page_index: int) -> list[dict[str, Any]]:
     """Parse paddleocr 3.x OCRResult / dict with rec_texts + rec_polys."""
     data = page_result
@@ -105,13 +123,16 @@ def _blocks_from_v3_result(page_result: Any, page_index: int) -> list[dict[str, 
         if text is None or not str(text).strip():
             continue
         geom = None
+        poly_src = None
         if i < len(polys):
-            geom = _poly_bounds(polys[i])
+            poly_src = polys[i]
+            geom = _poly_bounds(poly_src)
         if geom is None and boxes is not None:
             try:
                 row = boxes[i]
                 if hasattr(row, "tolist"):
                     row = row.tolist()
+                poly_src = row
                 geom = _poly_bounds(row)
             except (TypeError, IndexError, ValueError):
                 geom = None
@@ -136,6 +157,7 @@ def _blocks_from_v3_result(page_result: Any, page_index: int) -> list[dict[str, 
                 "font_size": max(12.0, h * 0.8),
                 "score": score,
                 "source": "paddleocr",
+                "poly": _poly_points(poly_src),
             }
         )
     return blocks
@@ -176,6 +198,7 @@ def _blocks_from_classic(result: Any, page_index: int) -> list[dict[str, Any]]:
                     "font_size": max(12.0, h * 0.8),
                     "score": float(score) if score is not None else None,
                     "source": "paddleocr",
+                    "poly": _poly_points(box),
                 }
             )
     return blocks

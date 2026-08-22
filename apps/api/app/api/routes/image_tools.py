@@ -64,7 +64,7 @@ def credit_cost_for_kind(
 ) -> int:
     """Platform credits only when an LLM image path runs on the platform key."""
     k = (kind or "").strip()
-    # No LLM call (rembg / OCR decompose / CSS adjust) → never charge.
+    # No LLM call (intelligence vision / CSS adjust) → never charge.
     if not uses_llm_for_kind(k):
         return 0
     if not is_wallet_billing_enabled():
@@ -80,19 +80,18 @@ def credit_cost_for_kind(
 
 @router.get("/tools")
 def list_image_tools() -> dict[str, Any]:
-    from app.core.config import settings
+    from app.services.llm.image_tools import ilp_supports
     from app.services.vision.ilp_client import ilp_enabled
 
     kinds = sorted(IMAGE_PROCESS_KINDS)
     costs = {k: credit_cost_for_kind(k) for k in kinds}
-    mode = str(getattr(settings, "image_layer_pipeline_mode", "legacy") or "legacy").strip().lower()
+    ilp_on = ilp_enabled()
     return {
         "kinds": kinds,
         "credits": costs,
         "ilp": {
-            "enabled": ilp_enabled(),
-            "mode": mode,
-            "supports": ["editElements"],
+            "enabled": ilp_on,
+            "supports": ilp_supports(),
         },
     }
 

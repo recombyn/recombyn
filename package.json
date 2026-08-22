@@ -15,6 +15,7 @@
     "dev": "npm run dev --workspace=apps/web",
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:stack": "node scripts/dev-stack.mjs",
+    "dev:full": "node scripts/dev-full.mjs",
     "dev:desktop": "node scripts/dev-desktop.mjs",
     "dev:desktop:cloud": "node scripts/dev-desktop.mjs cloud",
     "dev:collab": "npm run dev --workspace=apps/collab",

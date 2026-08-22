@@ -1,4 +1,4 @@
-"""Health / readiness checks for API, Redis, worker, OCR."""
+"""Health / readiness checks for API, Redis, worker, intelligence."""
 
 from fastapi import APIRouter
 
@@ -28,11 +28,11 @@ def _check_worker() -> bool:
         return False
 
 
-def _check_ocr() -> bool:
+def _check_intelligence() -> bool:
     try:
-        from app.services.vision.ocr import available
+        from app.services.vision.ilp_client import ilp_enabled
 
-        return available()
+        return ilp_enabled()
     except Exception:
         return False
 
@@ -57,7 +57,7 @@ def _check_db() -> dict:
 def health():
     redis_ok = _check_redis()
     worker_ok = _check_worker() if redis_ok else False
-    ocr_ok = _check_ocr()
+    intelligence_ok = _check_intelligence()
     db = _check_db()
 
     checks = {
@@ -65,7 +65,7 @@ def health():
         "database": db,
         "redis": redis_ok,
         "worker": worker_ok,
-        "ocr": ocr_ok,
+        "intelligence": intelligence_ok,
         "use_vision": settings.use_vision,
         "s3": settings.s3_enabled,
     }
