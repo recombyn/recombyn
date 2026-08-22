@@ -46,6 +46,9 @@ export const FILL_SOLID_PRESETS = [
 
 /** Fixed panel width — same as opacity / eraser / font / blend popovers. */
 export const COLOR_PANEL_WIDTH = 240;
+/** Fill panels with mesh editor or image adjust sliders. */
+export const WIDE_STYLE_PANEL_WIDTH = 288;
+export const STROKE_PANEL_WIDTH = COLOR_PANEL_WIDTH + 10;
 /** Preset grid: 9 square swatches per row (2×9). */
 export const COLOR_PANEL_PRESET_COLS = 9;
 export const COLOR_PANEL_SWATCH_PX = 20;

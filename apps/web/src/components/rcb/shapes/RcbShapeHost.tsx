@@ -50,6 +50,8 @@ type Props = {
  * dense pencil strokes to visibly shake. A host only needs its own node.
  */
 export function shapeHostPropsEqual(previous: Props, next: Props): boolean {
+  const prevNode = previous.document?.deltaSetLike?.[previous.nodeId];
+  const nextNode = next.document?.deltaSetLike?.[next.nodeId];
   return (
     previous.nodeId === next.nodeId &&
     previous.zIndex === next.zIndex &&
@@ -57,8 +59,10 @@ export function shapeHostPropsEqual(previous: Props, next: Props): boolean {
     previous.frameClipToken === next.frameClipToken &&
     previous.forceHidden === next.forceHidden &&
     previous.revealOverflow === next.revealOverflow &&
-    previous.document?.deltaSetLike?.[previous.nodeId] ===
-      next.document?.deltaSetLike?.[next.nodeId]
+    prevNode === nextNode &&
+  // clearImageProcessAttrs replaces attrs on the same node record — compare attrs
+  // so upload/AI shimmer unmounts even when geometry commits skip sceneReloadToken.
+    prevNode?.attrs === nextNode?.attrs
   );
 }
 
@@ -154,6 +158,9 @@ function RcbShapeHost({
     node?.attrs?.['fill-image-src'],
     node?.attrs?.['fill-image-fit'],
     node?.attrs?.['fill-image-rotate'],
+    node?.attrs?.['fill-image-scale'],
+    node?.attrs?.['fill-image-offset-x'],
+    node?.attrs?.['fill-image-offset-y'],
     node?.attrs?.['fill-image-adjust'],
     node?.attrs?.opacity,
     node?.attrs?.blendMode,

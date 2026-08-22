@@ -582,10 +582,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))
                 : undefined
             }
-            onEditElements={() =>
+            onEditElements={(mode) =>
               runImageProcess(
                 'editElements',
-                t('editor.imageToolbar.processingEditElements')
+                t('editor.imageToolbar.processingEditElements'),
+                undefined,
+                { engine: mode === 'depth' ? 'ilp' : 'legacy' }
               )
             }
             onMultiAngle={() =>

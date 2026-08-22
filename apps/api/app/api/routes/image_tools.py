@@ -80,11 +80,20 @@ def credit_cost_for_kind(
 
 @router.get("/tools")
 def list_image_tools() -> dict[str, Any]:
+    from app.core.config import settings
+    from app.services.vision.ilp_client import ilp_enabled
+
     kinds = sorted(IMAGE_PROCESS_KINDS)
     costs = {k: credit_cost_for_kind(k) for k in kinds}
+    mode = str(getattr(settings, "image_layer_pipeline_mode", "legacy") or "legacy").strip().lower()
     return {
         "kinds": kinds,
         "credits": costs,
+        "ilp": {
+            "enabled": ilp_enabled(),
+            "mode": mode,
+            "supports": ["editElements"],
+        },
     }
 
 
