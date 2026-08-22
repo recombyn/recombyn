@@ -6,5 +6,6 @@
       "@canvas-plugins/*": ["../../plugins/canvas/*"]
     }
   },
-  "include": ["src", "../../plugins/canvas", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "../../plugins/canvas", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["src/private"]
 }

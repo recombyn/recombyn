@@ -203,6 +203,8 @@ npm run dev:collab           # Yjs WS on :1234 (optional; Vite DEV defaults coll
 npm run dev:web
 ```
 
+Commercial image capabilities (background removal, layer split, region marking, mockups, etc.): contact **702680355@qq.com**.
+
 Canvas Live / WSS setup: **[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
 
 ### Desktop (Tauri)

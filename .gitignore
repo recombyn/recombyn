@@ -60,6 +60,9 @@ secrets/
 apps/web/agent-skills/
 !apps/web/agent-skills.example/
 
+# Closed-source local modules (not published)
+apps/web/src/private/
+
 # typescript incremental cache (looks like garbled JSON — not source)
 *.tsbuildinfo
 

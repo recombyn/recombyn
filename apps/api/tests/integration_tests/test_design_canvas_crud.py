@@ -675,7 +675,7 @@ _ALL_AGENT_CASES: list[tuple[str, str, list[dict[str, Any]], bool]] = [
         [
             {
                 "name": "image_process",
-                "args": {"nodeId": "n_img", "kind": "removeBg"},
+                "args": {"nodeId": "n_img", "kind": "upscale"},
             }
         ],
         True,
