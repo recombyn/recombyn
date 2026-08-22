@@ -19,6 +19,9 @@ function bucketFillToPanelValue(raw: any): FillPanelValue {
     fillImageSrc: raw?.fillImageSrc != null ? String(raw.fillImageSrc) : undefined,
     fillImageFit: raw?.fillImageFit,
     fillImageRotate: raw?.fillImageRotate,
+    fillImageScale: raw?.fillImageScale,
+    fillImageOffsetX: raw?.fillImageOffsetX,
+    fillImageOffsetY: raw?.fillImageOffsetY,
     fillImageAdjust: raw?.fillImageAdjust,
   };
 }

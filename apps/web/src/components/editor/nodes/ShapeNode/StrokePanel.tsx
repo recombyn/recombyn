@@ -13,7 +13,7 @@ import {
 import { HiOutlineChevronDown } from 'react-icons/hi2';
 import { useTranslation } from 'react-i18next';
 import {
-  COLOR_PANEL_WIDTH,
+  STROKE_PANEL_WIDTH,
   ColorPanel,
   FILL_SOLID_PRESETS,
   INPUT_NO_SPIN,
@@ -224,7 +224,7 @@ function StrokePanel({
     <StylePanelShell
       title={title}
       onClose={onClose}
-      width={COLOR_PANEL_WIDTH}
+      width={STROKE_PANEL_WIDTH}
       dataAttr="data-stroke-panel"
       className={className}
       layerVisible={layerVisible}

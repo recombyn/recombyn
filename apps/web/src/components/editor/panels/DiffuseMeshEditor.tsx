@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  HiOutlineArrowPath,
-  HiOutlineArrowUturnLeft,
-  HiOutlineArrowUturnRight,
-  HiOutlineEye,
-  HiOutlineEyeSlash,
-} from 'react-icons/hi2';
-import {
   ColorPanel,
   FILL_SOLID_PRESETS,
   normalizeHex,
 } from '@/components/base/colorPanel';
 import { SegmentedControl } from '@/components/base';
-import Tooltip from '@/components/base/tooltip';
 import { cn } from '@/utils/classnames';
 import {
   createMeshGrid,
@@ -94,8 +86,6 @@ function DiffuseMeshEditor({
   onChange,
   selectedIndex: selectedProp,
   onSelectedIndexChange,
-  showGuides: showGuidesProp,
-  onShowGuidesChange,
 }: Props): ReactNode {
   const { t } = useTranslation();
   const signature = useMemo(() => {
@@ -107,23 +97,12 @@ function DiffuseMeshEditor({
   const [meshSize, setMeshSize] = useState<MeshSize>(initial.meshSize);
   const [points, setPoints] = useState<MeshPoint[]>(() => clonePoints(initial.meshPoints));
   const [selectedLocal, setSelectedLocal] = useState(0);
-  const [showGuidesLocal, setShowGuidesLocal] = useState(true);
   const [tab, setTab] = useState<TabId>('settings');
-  const [past, setPast] = useState<MeshPoint[][]>([]);
-  const [future, setFuture] = useState<MeshPoint[][]>([]);
 
   const selected = selectedProp ?? selectedLocal;
-  const showGuides = showGuidesProp ?? showGuidesLocal;
   const setSelected = (index: number) => {
     setSelectedLocal(index);
     onSelectedIndexChange?.(index);
-  };
-  const setShowGuides = (next: boolean | ((v: boolean) => boolean)) => {
-    setShowGuidesLocal((prev) => {
-      const v = typeof next === 'function' ? next(prev) : next;
-      onShowGuidesChange?.(v);
-      return v;
-    });
   };
 
   const pointsRef = useRef(points);
@@ -150,11 +129,8 @@ function DiffuseMeshEditor({
     lastEmittedRef.current = key;
     setMeshSize(next.meshSize);
     setPoints(clonePoints(next.meshPoints));
-    setPast([]);
-    setFuture([]);
   }, [signature, value, baseColor]);
 
-  // Keep selection in range when mesh size changes from outside.
   const onSelectedIndexChangeRef = useRef(onSelectedIndexChange);
   onSelectedIndexChangeRef.current = onSelectedIndexChange;
   useEffect(() => {
@@ -165,40 +141,10 @@ function DiffuseMeshEditor({
     }
   }, [points.length, selected]);
 
-  const pushHistory = useCallback((prev: MeshPoint[]) => {
-    setPast((p) => [...p.slice(-40), clonePoints(prev)]);
-    setFuture([]);
-  }, []);
-
   const meshSizeRef = useRef(meshSize);
   meshSizeRef.current = meshSize;
 
-  const undo = () => {
-    setPast((p) => {
-      if (!p.length) return p;
-      const last = p[p.length - 1];
-      setFuture((f) => [clonePoints(pointsRef.current), ...f]);
-      const next = clonePoints(last);
-      setPoints(next);
-      emit(meshSizeRef.current, next);
-      return p.slice(0, -1);
-    });
-  };
-
-  const redo = () => {
-    setFuture((f) => {
-      if (!f.length) return f;
-      const [nextPts, ...rest] = f;
-      setPast((p) => [...p, clonePoints(pointsRef.current)]);
-      const next = clonePoints(nextPts);
-      setPoints(next);
-      emit(meshSizeRef.current, next);
-      return rest;
-    });
-  };
-
   const setMeshSizeAndRemesh = (size: MeshSize) => {
-    pushHistory(points);
     const next = remeshPoints(size, points, baseColor);
     setMeshSize(size);
     setPoints(next);
@@ -206,8 +152,7 @@ function DiffuseMeshEditor({
     emit(size, next);
   };
 
-  const updatePoint = (index: number, patch: Partial<MeshPoint>, recordHistory = false) => {
-    if (recordHistory) pushHistory(points);
+  const updatePoint = (index: number, patch: Partial<MeshPoint>) => {
     setPoints((prev) => {
       const next = prev.map((p, i) => (i === index ? { ...p, ...patch } : p));
       emit(meshSizeRef.current, next);
@@ -219,67 +164,6 @@ function DiffuseMeshEditor({
 
   return (
     <div className="space-y-3" data-diffuse-mesh-editor>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-0.5">
-          <Tooltip tip={t('editor.undo')} placement="top">
-            <button
-              type="button"
-              disabled={!past.length}
-              onClick={undo}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-35"
-            >
-              <HiOutlineArrowUturnLeft className="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
-          <Tooltip tip={t('editor.redo')} placement="top">
-            <button
-              type="button"
-              disabled={!future.length}
-              onClick={redo}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-35"
-            >
-              <HiOutlineArrowUturnRight className="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
-        </div>
-        <p className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted)]">
-          {t('editor.fillMeshHint')}
-        </p>
-        <div className="flex items-center gap-0.5">
-          <Tooltip
-            tip={showGuides ? t('editor.fillMeshHideGuides') : t('editor.fillMeshShowGuides')}
-            placement="top"
-          >
-            <button
-              type="button"
-              onClick={() => setShowGuides((v) => !v)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-            >
-              {showGuides ? (
-                <HiOutlineEye className="h-3.5 w-3.5" />
-              ) : (
-                <HiOutlineEyeSlash className="h-3.5 w-3.5" />
-              )}
-            </button>
-          </Tooltip>
-          <Tooltip tip={t('editor.fillDiffuse')} placement="top">
-            <button
-              type="button"
-              onClick={() => {
-                pushHistory(points);
-                const next = createMeshGrid(meshSize, baseColor);
-                setPoints(next);
-                setSelected(0);
-                emit(meshSize, next);
-              }}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-            >
-              <HiOutlineArrowPath className="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-
       <SegmentedControl
         size="sm"
         fullWidth
@@ -295,7 +179,7 @@ function DiffuseMeshEditor({
         <div className="space-y-3">
           <ColorPanel
             value={active?.color || baseColor}
-            onChange={(hex) => updatePoint(selected, { color: hex }, true)}
+            onChange={(hex) => updatePoint(selected, { color: hex })}
             showAlpha={false}
             title=""
             showHeader={false}
@@ -337,7 +221,6 @@ function DiffuseMeshEditor({
               key={preset.id}
               type="button"
               onClick={() => {
-                pushHistory(points);
                 const next = applyPresetColors(points, preset.colors);
                 setPoints(next);
                 emit(meshSize, next);

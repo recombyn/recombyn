@@ -1,13 +1,14 @@
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineCube, HiOutlineLanguage, HiOutlineSquare2Stack } from 'react-icons/hi2';
+import { HiOutlineCube, HiOutlineLanguage } from 'react-icons/hi2';
 import { LuCrosshair, LuEraser } from 'react-icons/lu';
 import { Icon } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
+import ImageDecomposeMenu, { type DecomposeMode } from './ImageDecomposeMenu';
 import { ImageToolSep, imageToolBtn } from './imageToolbarShared';
 
-export type { RemoveBgMode };
+export type { RemoveBgMode, DecomposeMode };
 
 function Tool({
   label,
@@ -49,7 +50,7 @@ function ImageToolbarEditTools({
   onEraser: () => void;
   onMark?: () => void;
   onReplaceText?: () => void;
-  onEditElements?: () => void;
+  onEditElements?: (mode: DecomposeMode) => void;
   onMultiAngle: () => void;
   previewSlot?: ReactNode;
   downloadSlot?: ReactNode;
@@ -75,11 +76,7 @@ function ImageToolbarEditTools({
           <HiOutlineLanguage className="h-4 w-4" />
         </Tool>
       ) : null}
-      {onEditElements ? (
-        <Tool label={t('editor.imageToolbar.editElements')} onClick={onEditElements}>
-          <HiOutlineSquare2Stack className="h-4 w-4" />
-        </Tool>
-      ) : null}
+      {onEditElements ? <ImageDecomposeMenu onPick={onEditElements} /> : null}
       <Tool label={t('editor.imageToolbar.multiAngle')} onClick={onMultiAngle}>
         <HiOutlineCube className="h-4 w-4" />
       </Tool>

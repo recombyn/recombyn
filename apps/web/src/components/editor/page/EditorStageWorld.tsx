@@ -85,6 +85,7 @@ const EDITOR_PAN_BLOCK_SELECTOR = [
   '[data-image-tool-panel]',
   '[data-gradient-handles]',
   '[data-mesh-handles]',
+  '[data-fill-image-handles]',
   '[data-shape-style-panel]',
   '[data-video-playback-bar]',
   '[data-video-trim-toolbar]',

@@ -18,6 +18,7 @@ import {
 } from 'react-icons/hi2';
 import {
   COLOR_PANEL_WIDTH,
+  WIDE_STYLE_PANEL_WIDTH,
   ColorPanel,
   FILL_SOLID_PRESETS,
   INPUT_NO_SPIN,
@@ -40,8 +41,11 @@ import {
   FILL_PANEL_TYPES,
   parseFillGradient,
   parseFillImageFit,
+  parseFillImageScale,
   parseFillType,
+  resetFillImageTransformFields,
   serializeFillGradient,
+  withDefaultFillImageFields,
   type FillGradient,
   type FillImageAdjust,
   type FillImageFit,
@@ -57,6 +61,9 @@ export type FillPanelValue = {
   fillImageSrc?: string;
   fillImageFit?: FillImageFit;
   fillImageRotate?: FillImageRotate;
+  fillImageScale?: number;
+  fillImageOffsetX?: number;
+  fillImageOffsetY?: number;
   fillImageAdjust?: FillImageAdjust;
 };
 
@@ -85,6 +92,11 @@ const FILL_TYPE_ICON: Record<FillType, string> = {
   image: 'editor-fill-image',
 };
 
+/** Image / diffuse fills need a bit more width than solid/linear panels. */
+function fillPanelWidth(type: FillType): number {
+  return type === 'image' || type === 'diffuse' ? WIDE_STYLE_PANEL_WIDTH : COLOR_PANEL_WIDTH;
+}
+
 const IMAGE_ADJUST_ROWS: Array<{ key: keyof FillImageAdjust; label: string }> = [
   { key: 'exposure', label: '曝光' },
   { key: 'contrast', label: '对比度' },
@@ -109,10 +121,7 @@ function resolveFillTypePatch(
       return {
         fillType: 'image',
         fillColor: solid,
-        fillImageSrc: value.fillImageSrc || '',
-        fillImageFit: value.fillImageFit ?? 'fill',
-        fillImageRotate: value.fillImageRotate ?? 0,
-        fillImageAdjust: value.fillImageAdjust ?? DEFAULT_FILL_IMAGE_ADJUST,
+        ...withDefaultFillImageFields(value),
       };
     default: {
       const keepCurrent =
@@ -132,36 +141,237 @@ function clampAdjustInput(n: number) {
   return Math.max(-100, Math.min(100, Math.round(n) || 0));
 }
 
-function imagePreviewStyle(
-  src: string | undefined,
-  fit: FillImageFit,
-  rotate: FillImageRotate,
-  adjust: FillImageAdjust,
-  opacity: number
-): CSSProperties {
+function FillImagePreviewImage({
+  src,
+  fit,
+  rotate,
+  adjust,
+  opacity,
+  scale,
+  offsetX,
+  offsetY,
+}: {
+  src: string;
+  fit: FillImageFit;
+  rotate: FillImageRotate;
+  adjust: FillImageAdjust;
+  opacity: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+}) {
   const filter = buildImageAdjustFilterCss(adjust);
-  const base: CSSProperties = {
-    opacity: opacity / 100,
-    ...(filter !== 'none' ? { filter } : {}),
-    ...(rotate ? { transform: `rotate(${rotate}deg)` } : {}),
-  };
-  if (!src) return base;
+  const scaleMul = Math.max(0.01, scale / 100);
+  const objectFit = fit === 'fit' ? 'contain' : 'cover';
+
   if (fit === 'tile') {
-    return {
-      ...base,
-      backgroundImage: `url(${src})`,
-      backgroundRepeat: 'repeat',
-      backgroundSize: '33%',
-      backgroundPosition: 'center',
-    };
+    return (
+      <span
+        className="pointer-events-none absolute inset-0"
+        style={{
+          opacity: opacity / 100,
+          ...(filter !== 'none' ? { filter } : {}),
+          backgroundImage: `url(${src})`,
+          backgroundRepeat: 'repeat',
+          backgroundSize: `${Math.round(33 * scaleMul)}%`,
+          backgroundPosition: `${50 + offsetX}% ${50 + offsetY}%`,
+        }}
+      />
+    );
   }
-  return {
-    ...base,
-    backgroundImage: `url(${src})`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'center',
-    backgroundSize: fit === 'fit' ? 'contain' : 'cover',
+
+  return (
+    <img
+      alt=""
+      src={src}
+      draggable={false}
+      className="pointer-events-none absolute max-h-none max-w-none"
+      style={{
+        left: `calc(50% + ${offsetX}%)`,
+        top: `calc(50% + ${offsetY}%)`,
+        width: fit === 'fit' ? 'auto' : '100%',
+        height: fit === 'fit' ? 'auto' : '100%',
+        minWidth: fit !== 'fit' ? `${100 * scaleMul}%` : undefined,
+        minHeight: fit !== 'fit' ? `${100 * scaleMul}%` : undefined,
+        maxWidth: fit === 'fit' ? `${100 * scaleMul}%` : undefined,
+        maxHeight: fit === 'fit' ? `${100 * scaleMul}%` : undefined,
+        objectFit,
+        transform: `translate(-50%, -50%) rotate(${rotate}deg)`,
+        transformOrigin: 'center center',
+        opacity: opacity / 100,
+        ...(filter !== 'none' ? { filter } : {}),
+      }}
+    />
+  );
+}
+
+/** Drag inside the panel thumbnail to pan the image fill. */
+function FillImagePreviewStrip({
+  src,
+  fit,
+  rotate,
+  adjust,
+  opacity,
+  scale,
+  offsetX,
+  offsetY,
+  onOffsetChange,
+  onPickFile,
+}: {
+  src?: string;
+  fit: FillImageFit;
+  rotate: FillImageRotate;
+  adjust: FillImageAdjust;
+  opacity: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+  onOffsetChange: (x: number, y: number) => void;
+  onPickFile: (file: File | null) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<null | {
+    startX: number;
+    startY: number;
+    ox: number;
+    oy: number;
+    w: number;
+    h: number;
+  }>(null);
+  const onOffsetChangeRef = useRef(onOffsetChange);
+  onOffsetChangeRef.current = onOffsetChange;
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      onOffsetChangeRef.current(
+        drag.ox + (dx / Math.max(1, drag.w)) * 100,
+        drag.oy + (dy / Math.max(1, drag.h)) * 100
+      );
+    };
+    const onUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, []);
+
+  const beginPan = (e: ReactPointerEvent) => {
+    if (!src) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = previewRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      ox: offsetX,
+      oy: offsetY,
+      w: rect.width,
+      h: rect.height,
+    };
   };
+
+  return (
+    <div className="relative w-full">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          onPickFile(e.target.files?.[0] ?? null);
+          e.target.value = '';
+        }}
+      />
+      <Tooltip tip={src ? '拖动调整显示区域' : '点击上传图片'} placement="top" triggerClassName="w-full">
+        <div
+          ref={previewRef}
+          data-fill-image-preview
+          role="button"
+          tabIndex={0}
+          aria-label={src ? '拖动调整图片显示区域' : '点击上传图片'}
+          className={cn(
+            'relative flex h-[72px] w-full items-center justify-center overflow-hidden rounded',
+            src ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+          )}
+          style={{ boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.08)' }}
+          onPointerDown={(e) => {
+            if (!src) {
+              fileRef.current?.click();
+              return;
+            }
+            beginPan(e);
+          }}
+          onClick={() => {
+            if (!src) fileRef.current?.click();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (!src) fileRef.current?.click();
+            }
+          }}
+        >
+          <span
+            aria-hidden
+            className="absolute inset-0"
+            style={{
+              backgroundImage: CHECKER,
+              backgroundSize: '8px 8px',
+              backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0',
+            }}
+          />
+          {src ? (
+            <FillImagePreviewImage
+              src={src}
+              fit={fit}
+              rotate={rotate}
+              adjust={adjust}
+              opacity={opacity}
+              scale={scale}
+              offsetX={offsetX}
+              offsetY={offsetY}
+            />
+          ) : null}
+          {!src ? (
+            <span className="relative z-[1] inline-flex flex-col items-center gap-1 text-[12px] text-[var(--muted)]">
+              <HiOutlinePhoto className="h-6 w-6" />
+              上传图片
+            </span>
+          ) : (
+            <span className="pointer-events-none absolute bottom-1 left-1.5 rounded bg-black/45 px-1.5 py-0.5 text-[10px] text-white/90">
+              拖动调整
+            </span>
+          )}
+        </div>
+      </Tooltip>
+      {src ? (
+        <Tooltip tip="替换图片" placement="top">
+          <button
+            type="button"
+            aria-label="替换图片"
+            className="absolute right-1.5 top-1.5 z-[2] inline-flex h-6 w-6 items-center justify-center rounded bg-black/45 text-white/90 hover:bg-black/60"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              fileRef.current?.click();
+            }}
+          >
+            <HiOutlinePhoto className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
 }
 
 function ImageAdjustRow({
@@ -175,7 +385,7 @@ function ImageAdjustRow({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-10 shrink-0 text-[11px] text-[var(--muted)]">{label}</span>
+      <span className="w-12 shrink-0 whitespace-nowrap text-[11px] text-[var(--muted)]">{label}</span>
       <Slider
         className="min-w-0 flex-1"
         min={-100}
@@ -531,8 +741,6 @@ function FillPanel({
     setLocalActiveStop(next);
     onActiveStopIndexChange?.(next);
   };
-  const fileRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => {
     setActiveStop((i) => Math.min(i, Math.max(0, gradient.colorStops.length - 1)));
   }, [gradient.colorStops.length]);
@@ -584,11 +792,11 @@ function FillPanel({
     reader.onload = () => {
       emit({
         fillType: 'image',
-        fillImageSrc: String(reader.result || ''),
         fillColor: solid,
-        fillImageFit: value.fillImageFit ?? 'fill',
-        fillImageRotate: value.fillImageRotate ?? 0,
-        fillImageAdjust: value.fillImageAdjust ?? DEFAULT_FILL_IMAGE_ADJUST,
+        ...withDefaultFillImageFields({
+          ...value,
+          fillImageSrc: String(reader.result || ''),
+        }),
       });
     };
     reader.readAsDataURL(file);
@@ -601,14 +809,12 @@ function FillPanel({
 
   const imageFit = value.fillImageFit ?? 'fill';
   const imageRotate = value.fillImageRotate ?? 0;
+  const imageScale = value.fillImageScale ?? 100;
   const imageAdjust = value.fillImageAdjust ?? DEFAULT_FILL_IMAGE_ADJUST;
   const imageOpacity = value.fillOpacity ?? 100;
 
   const cycleRotate = () => {
-    const order: FillImageRotate[] = [0, 90, 180, 270];
-    const idx = order.indexOf(imageRotate);
-    const next = order[(idx + 1) % order.length];
-    emit({ fillImageRotate: next });
+    emit({ fillImageRotate: Math.round((imageRotate + 90) % 360) });
   };
 
   const updateImageAdjust = (key: keyof FillImageAdjust, n: number) => {
@@ -620,11 +826,70 @@ function FillPanel({
     });
   };
 
+  const resetImageFill = () => {
+    emit({
+      fillOpacity: 100,
+      ...resetFillImageTransformFields(),
+    });
+  };
+
+  const resetDiffuseFill = () => {
+    const g = defaultGradient('diffuse', solid);
+    emit({
+      fillType: 'diffuse',
+      fillGradient: serializeFillGradient(g),
+      fillColor: g.meshPoints?.[0]?.color || solid,
+    });
+  };
+
+  const resetGradientFill = () => {
+    if (!isGradient) return;
+    const g = defaultGradient(panelType as 'linear' | 'radial' | 'angular', solid);
+    emit({
+      fillType: panelType,
+      fillGradient: serializeFillGradient(g),
+      fillColor: solid,
+    });
+  };
+
+  const resetSolidFill = () => {
+    emit({ fillType: 'solid', fillColor: '#FFFFFF', fillOpacity: 100 });
+  };
+
+  const resetTip =
+    panelType === 'image'
+      ? onReset
+        ? '恢复默认'
+        : '重置图片调节'
+      : panelType === 'diffuse'
+        ? '重置弥散渐变'
+        : isGradient
+          ? '重置渐变'
+          : '恢复默认';
+
+  const handleReset = () => {
+    if (panelType === 'image') {
+      if (onReset) onReset();
+      else resetImageFill();
+      return;
+    }
+    if (panelType === 'diffuse') {
+      resetDiffuseFill();
+      return;
+    }
+    if (isGradient) {
+      resetGradientFill();
+      return;
+    }
+    if (onReset) onReset();
+    else resetSolidFill();
+  };
+
   return (
     <StylePanelShell
       title={title}
       onClose={onClose}
-      width={COLOR_PANEL_WIDTH}
+      width={fillPanelWidth(panelType)}
       dataAttr="data-fill-panel"
       className={className}
       bodyClassName="max-h-[min(70vh,560px)] space-y-3 overflow-y-auto"
@@ -633,18 +898,16 @@ function FillPanel({
       layerVisibleTipShow="显示填充"
       layerVisibleTipHide="隐藏填充"
       headerActions={
-        onReset ? (
-          <Tooltip tip="恢复默认" placement="bottom">
-            <button
-              type="button"
-              aria-label="恢复默认"
-              onClick={onReset}
-              className="inline-flex h-8 w-8 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-            >
-              <HiOutlineArrowPath className="h-[18px] w-[18px]" />
-            </button>
-          </Tooltip>
-        ) : null
+        <Tooltip tip={resetTip} placement="bottom">
+          <button
+            type="button"
+            aria-label={resetTip}
+            onClick={handleReset}
+            className="inline-flex h-8 w-8 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+          >
+            <HiOutlineArrowPath className="h-[18px] w-[18px]" />
+          </button>
+        </Tooltip>
       }
     >
         <SegmentedControl
@@ -708,45 +971,23 @@ function FillPanel({
 
         {panelType === 'image' ? (
           <div className="space-y-2.5">
-            <Tooltip
-              tip={value.fillImageSrc ? '点击替换图片' : '点击上传图片'}
-              placement="top"
-              triggerClassName="w-full"
-            >
-            <button
-              type="button"
-              aria-label={value.fillImageSrc ? '点击替换图片' : '点击上传图片'}
-              className="relative flex h-[72px] w-full cursor-pointer items-center justify-center overflow-hidden rounded"
-              style={{ boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.08)' }}
-              onClick={() => fileRef.current?.click()}
-            >
-              <span
-                aria-hidden
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: CHECKER,
-                  backgroundSize: '8px 8px',
-                  backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0',
-                }}
-              />
-              <span
-                className="absolute inset-0"
-                style={imagePreviewStyle(
-                  value.fillImageSrc,
-                  imageFit,
-                  imageRotate,
-                  imageAdjust,
-                  imageOpacity
-                )}
-              />
-              {!value.fillImageSrc ? (
-                <span className="relative z-[1] inline-flex flex-col items-center gap-1 text-[12px] text-[var(--muted)]">
-                  <HiOutlinePhoto className="h-6 w-6" />
-                  上传图片
-                </span>
-              ) : null}
-            </button>
-            </Tooltip>
+            <FillImagePreviewStrip
+              src={value.fillImageSrc}
+              fit={imageFit}
+              rotate={imageRotate}
+              adjust={imageAdjust}
+              opacity={imageOpacity}
+              scale={imageScale}
+              offsetX={value.fillImageOffsetX ?? 0}
+              offsetY={value.fillImageOffsetY ?? 0}
+              onOffsetChange={(x, y) =>
+                emit({
+                  fillImageOffsetX: Math.round(x * 10) / 10,
+                  fillImageOffsetY: Math.round(y * 10) / 10,
+                })
+              }
+              onPickFile={onPickImage}
+            />
 
             <div className="flex items-center gap-1.5">
               <FitModeSelect
@@ -756,16 +997,16 @@ function FillPanel({
               <label className="flex h-7 shrink-0 items-center gap-0.5 rounded bg-[var(--accent-soft)] px-1.5 text-[11px] text-[var(--muted)]">
                 <input
                   type="number"
-                  min={0}
-                  max={100}
-                  value={Math.round(imageOpacity)}
+                  min={1}
+                  step={1}
+                  value={Math.round(imageScale * 10) / 10}
                   onChange={(e) =>
                     emit({
-                      fillOpacity: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                      fillImageScale: parseFillImageScale(Number(e.target.value)),
                     })
                   }
                   className={cn(
-                    'h-full w-9 bg-transparent text-center text-[11px] text-[var(--ink)] outline-none',
+                    'h-full w-10 bg-transparent text-center text-[11px] text-[var(--ink)] outline-none',
                     INPUT_NO_SPIN
                   )}
                 />
@@ -784,6 +1025,13 @@ function FillPanel({
             </div>
 
             <div className="space-y-1.5">
+              <ImageAdjustRow
+                label="不透明度"
+                value={Math.round(imageOpacity)}
+                onChange={(n) =>
+                  emit({ fillOpacity: Math.max(0, Math.min(100, Math.round(n) || 0)) })
+                }
+              />
               {IMAGE_ADJUST_ROWS.map(({ key, label }) => (
                 <ImageAdjustRow
                   key={key}
@@ -793,17 +1041,6 @@ function FillPanel({
                 />
               ))}
             </div>
-
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                onPickImage(e.target.files?.[0] ?? null);
-                e.target.value = '';
-              }}
-            />
           </div>
         ) : null}
 
@@ -970,8 +1207,8 @@ function FillPanelPopover({
   );
 }
 
-export default memo(FillPanel);
 const MemoizedFillPanel = memo(FillPanel);
+export default MemoizedFillPanel;
 export { MemoizedFillPanel as FillPanel };
 const MemoizedFillPanelPopover = memo(FillPanelPopover);
 export { MemoizedFillPanelPopover as FillPanelPopover };

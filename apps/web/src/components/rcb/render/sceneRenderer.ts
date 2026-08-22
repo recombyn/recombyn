@@ -40,6 +40,8 @@ import {
   parseFillImageFit,
   parseFillImageRotate,
   parseFillImageAdjust,
+  parseFillImageScale,
+  parseFillImageOffset,
   buildImageAdjustFilterCss,
   type FillStop,
   type FillGradient,
@@ -815,18 +817,26 @@ export function drawFillImageInBox(
   boxW: number,
   boxH: number,
   fit: FillImageFit,
-  rotate: number
+  rotate: number,
+  opts?: {
+    scalePct?: number;
+    offsetXPct?: number;
+    offsetYPct?: number;
+  }
 ): void {
   const { iw, ih } = imageSourceSize(img);
   if (iw < 1 || ih < 1) return;
+  const scaleMul = Math.max(0.01, Number(opts?.scalePct ?? 100) / 100);
+  const offsetXPct = Number(opts?.offsetXPct ?? 0);
+  const offsetYPct = Number(opts?.offsetYPct ?? 0);
 
   if (fit === 'tile') {
     const tile = fillImageTileSize(boxW, boxH);
-    const scale = Math.max(tile.w / iw, tile.h / ih);
+    const scale = Math.max(tile.w / iw, tile.h / ih) * scaleMul;
     const dw = iw * scale;
     const dh = ih * scale;
-    const ox = (tile.w - dw) / 2;
-    const oy = (tile.h - dh) / 2;
+    const ox = (tile.w - dw) / 2 + (offsetXPct / 100) * tile.w;
+    const oy = (tile.h - dh) / 2 + (offsetYPct / 100) * tile.h;
     for (let y = 0; y < boxH; y += tile.h) {
       for (let x = 0; x < boxW; x += tile.w) {
         ctx.drawImage(img, x + ox, y + oy, dw, dh);
@@ -838,13 +848,17 @@ export function drawFillImageInBox(
   ctx.save();
   ctx.translate(boxW / 2, boxH / 2);
   if (rotate) ctx.rotate((rotate * Math.PI) / 180);
-  const destW = rotate === 90 || rotate === 270 ? boxH : boxW;
-  const destH = rotate === 90 || rotate === 270 ? boxW : boxH;
+  const destW = boxW;
+  const destH = boxH;
   // SVG: fit → meet (contain); fill/crop → slice (cover).
-  const scale = fit === 'fit' ? Math.min(destW / iw, destH / ih) : Math.max(destW / iw, destH / ih);
+  const baseScale =
+    fit === 'fit' ? Math.min(destW / iw, destH / ih) : Math.max(destW / iw, destH / ih);
+  const scale = baseScale * scaleMul;
   const dw = iw * scale;
   const dh = ih * scale;
-  ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+  const ox = (offsetXPct / 100) * destW;
+  const oy = (offsetYPct / 100) * destH;
+  ctx.drawImage(img, -dw / 2 + ox, -dh / 2 + oy, dw, dh);
   ctx.restore();
 }
 
@@ -864,6 +878,9 @@ function createImageOrDiffusePattern(
   let rotate = 0;
   let filterCss = 'none';
   let opacityPct = Number(attrs['fill-opacity'] ?? 100);
+  let imageScale = 100;
+  let imageOffsetX = 0;
+  let imageOffsetY = 0;
 
   if (fillType === 'image') {
     const src = String(attrs['fill-image-src'] || '').trim();
@@ -873,6 +890,9 @@ function createImageOrDiffusePattern(
     fit = parseFillImageFit(attrs['fill-image-fit']);
     rotate = parseFillImageRotate(attrs['fill-image-rotate']);
     filterCss = buildImageAdjustFilterCss(parseFillImageAdjust(attrs['fill-image-adjust']));
+    imageScale = parseFillImageScale(attrs['fill-image-scale']);
+    imageOffsetX = parseFillImageOffset(attrs['fill-image-offset-x']);
+    imageOffsetY = parseFillImageOffset(attrs['fill-image-offset-y']);
   } else if (fillType === 'diffuse') {
     source = getDiffuseBakeCanvas(node, w, h);
     if (!source) return null;
@@ -902,7 +922,11 @@ function createImageOrDiffusePattern(
   }
   const alpha = Math.max(0, Math.min(100, opacityPct)) / 100;
   tctx.globalAlpha = alpha;
-  drawFillImageInBox(tctx, source, pw, ph, fit === 'tile' ? 'crop' : fit, rotate);
+  drawFillImageInBox(tctx, source, pw, ph, fit === 'tile' ? 'crop' : fit, rotate, {
+    scalePct: imageScale,
+    offsetXPct: imageOffsetX,
+    offsetYPct: imageOffsetY,
+  });
   tctx.filter = 'none';
   tctx.globalAlpha = 1;
   try {
