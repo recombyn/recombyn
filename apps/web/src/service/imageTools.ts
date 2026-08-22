@@ -1,5 +1,6 @@
 /**
- * Image toolbar AI tools — POST /api/v1/image/process (Seedream i2i).
+ * Image toolbar AI tools — POST /api/v1/image/process
+ * (Seedream i2i, or vision decompose for editText / editElements).
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -7,8 +8,12 @@ import { abortAfter, apiClient } from '@/service/client';
 
 export type ImageProcessKindApi =
   | 'upscale'
+  | 'removeBg'
   | 'multiAngle'
   | 'expand'
+  | 'editText'
+  | 'editElements'
+  | 'detectRegions'
   | 'replaceText'
   | 'vector'
   | 'adjust';
@@ -44,6 +49,7 @@ export type ImageProcessResult = {
   text?: string | null;
   kind: string;
   model?: string;
+  /** editText / editElements: split layers in source-pixel coords */
   layers?: ImageDecomposeLayer[];
   width?: number;
   height?: number;
@@ -54,13 +60,45 @@ export type ImageProcessResult = {
 };
 
 export type ImageToolCapabilities = {
-  kinds?: string[];
-  credits?: Record<string, number>;
+  ilp?: {
+    enabled?: boolean;
+    supports?: string[];
+  };
+  mockup?: {
+    enabled?: boolean;
+    templates?: Array<{
+      id: string;
+      name?: string;
+      kind?: string;
+      width?: number;
+      height?: number;
+    }>;
+  };
 };
 
-/** Server-reported image tool capabilities (credits, etc.). */
+/** Kinds that require Recombyn Intelligence (not available in OSS-only deploy). */
+export const INTELLIGENCE_VISION_KINDS = [
+  'removeBg',
+  'editText',
+  'editElements',
+] as const;
+
+let intelligenceVisionEnabled = false;
+
+/** Sync snapshot updated by ``useImageToolCapabilities`` / ``fetchImageToolCapabilities``. */
+export function isIntelligenceVisionEnabled(): boolean {
+  return intelligenceVisionEnabled;
+}
+
+function syncIntelligenceVisionEnabled(caps: ImageToolCapabilities | undefined): void {
+  intelligenceVisionEnabled = caps?.ilp?.enabled === true;
+}
+
+/** Server-reported image tool capabilities (ILP routing, credits, etc.). */
 export const fetchImageToolCapabilities = async () => {
-  return (await apiClient.imageToolsListImageTools({})) as ImageToolCapabilities;
+  const data = (await apiClient.imageToolsListImageTools({})) as ImageToolCapabilities;
+  syncIntelligenceVisionEnabled(data);
+  return data;
 };
 
 export function useImageToolCapabilities() {
@@ -71,7 +109,7 @@ export function useImageToolCapabilities() {
   });
 }
 
-/** Run an image toolbar tool on the API. */
+/** Run an image toolbar tool on the API (Seedream i2i or intelligence vision). */
 export const processImageTool = (
   data: ImageProcessBody,
   opts?: { signal?: AbortSignal }

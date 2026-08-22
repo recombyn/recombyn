@@ -77,6 +77,8 @@ jobs:
           --cov-fail-under=95
       - name: API unit tests
         run: python -m pytest tests/unit_tests -n auto
+      - name: ILP BFF routing smoke (offline)
+        run: python scripts/test_ilp_bff_smoke.py --mock
 
   build-web:
     runs-on: ubuntu-latest

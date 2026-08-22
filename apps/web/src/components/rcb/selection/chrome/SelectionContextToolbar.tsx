@@ -72,6 +72,8 @@ import FontFamilyPicker from '@/components/editor/nodes/TextNode/FontFamilyPicke
 import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
+import { useImageToolCapabilities } from '@/service/imageTools';
+import { probeMockupUiInstalled } from '@/components/editor/nodes/ImageNode/mockup/mockupUiLoader';
 import ImageToolbarMoreDownload, {
   ToolbarMoreMenu,
   type ImageMoreAction,
@@ -343,6 +345,25 @@ function SelectionContextToolbar(props: Props): ReactNode {
   const imageToolPanel = useSelector(
     (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
   );
+  const { data: imageToolCaps } = useImageToolCapabilities();
+  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
+  const mockupIntelEnabled = imageToolCaps?.mockup?.enabled === true;
+  const [mockupUiInstalled, setMockupUiInstalled] = useState<boolean | null>(null);
+  const mockupEnabled = mockupIntelEnabled && mockupUiInstalled === true;
+
+  useEffect(() => {
+    if (!mockupIntelEnabled) {
+      setMockupUiInstalled(false);
+      return;
+    }
+    let cancelled = false;
+    void probeMockupUiInstalled().then((ok) => {
+      if (!cancelled) setMockupUiInstalled(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mockupIntelEnabled]);
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
   const flipRotateOpen = isPanelKindOnNode(
@@ -567,10 +588,47 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <ImageToolSep />
           <ImageToolbarEditTools
             onUpscale={() => dispatch(openImageToolPanel({ nodeId, kind: 'upscale' }))}
+            onRemoveBg={
+              ilpEnabled
+                ? () =>
+                    runImageProcess(
+                      'removeBg',
+                      t('editor.imageToolbar.processingRemoveBg'),
+                      undefined,
+                      { cutoutMode: 'ilp' }
+                    )
+                : undefined
+            }
             onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
+            onMark={
+              ilpEnabled
+                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))
+                : undefined
+            }
             onReplaceText={
               String(node?.attrs?.letteringText || '').trim()
                 ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))
+                : undefined
+            }
+            onEditText={
+              ilpEnabled
+                ? () => runImageProcess('editText', t('editor.imageToolbar.processingEditText'))
+                : undefined
+            }
+            onEditElements={
+              ilpEnabled
+                ? () =>
+                    runImageProcess(
+                      'editElements',
+                      t('editor.imageToolbar.processingEditElements'),
+                      undefined,
+                      { engine: 'ilp' }
+                    )
+                : undefined
+            }
+            onMockup={
+              mockupEnabled
+                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'mockup' }))
                 : undefined
             }
             onMultiAngle={() =>
